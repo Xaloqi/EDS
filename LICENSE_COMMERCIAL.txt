@@ -1,0 +1,272 @@
+XALOQI EDS COMMERCIAL LICENSE
+Xaloqi Embedded Diagnostic Suite
+Version 1.0 — March 2026
+
+Copyright (c) 2026 Raul Latorre Fortes, trading as Xaloqi, Frankfurt am Main, Germany
+
+All rights reserved.
+
+Contact: license@xaloqi.com
+Website: https://xaloqi.com
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PLAIN-ENGLISH SUMMARY (not a substitute for the full terms below)
+
+  - You bought a license. You may use Xaloqi EDS in one commercial
+    project per seat without open-sourcing your firmware.
+  - You may ship binary firmware containing Xaloqi EDS to your
+    customers. You do not need to distribute source code.
+  - You may not redistribute or resell Xaloqi EDS itself.
+  - The Safety Manual and MISRA Deviation Log are confidential. Do
+    not publish them.
+  - The license is per-seat. One developer, one project. Need more?
+    Buy additional seats or contact us.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. DEFINITIONS
+
+"Software" means the Xaloqi Embedded Diagnostic Suite, including the
+runtime stack (core/, transport/, config/, platform/), code generator
+(tools/codegen.py), test generator (tools/testgen.py), Jinja2 templates
+(tools/templates/), generated output files, the VS Code extension
+(ide/vscode-extension/), and any documentation delivered as part of a
+commercial tier purchase, including the Safety Manual
+(EDS_Safety_Manual_EDS-SM-001) and the MISRA Deviation Log.
+
+"Licensor" means the entity identified in the copyright notice above.
+
+"Licensee" means the individual or legal entity that purchased a
+commercial license and accepted these terms.
+
+"Seat" means a single named developer using the Software. A seat is
+tied to one individual, not to a team, project, or organisation.
+
+"Licensed Project" means the single commercial product or project for
+which this license was purchased, as identified at the time of purchase.
+
+"Firmware" means binary executable code compiled from or incorporating
+the Software, intended for deployment in embedded electronic control
+units (ECUs) or similar devices.
+
+"Commercial Use" means use in a product, service, or internal tooling
+that is sold, licensed, or deployed commercially, or that provides a
+direct commercial benefit to the Licensee or a third party.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2. LICENSE GRANT
+
+Subject to payment of the applicable license fee and compliance with
+these terms, the Licensor grants the Licensee a non-exclusive,
+non-transferable, worldwide license to:
+
+  (a) Install and use the Software on the Licensee's own computers and
+      development systems;
+
+  (b) Modify the Software for use within the Licensed Project;
+
+  (c) Compile the Software, in whole or in part, into Firmware and
+      distribute that Firmware in binary form to end customers, OEMs,
+      or Tier-1 suppliers as part of the Licensed Project, without any
+      obligation to distribute the Software's source code;
+
+  (d) Use the code generator and test generator to produce derived
+      C source files, header files, and test scripts as part of the
+      normal development workflow for the Licensed Project.
+
+This license covers one (1) Seat and one (1) Licensed Project. For
+additional seats or projects, additional licenses must be purchased.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3. TIER-SPECIFIC INCLUSIONS
+
+Developer tier (€690/year):
+  - Full runtime stack source (core/, transport/, config/, platform/)
+  - Code generator (tools/codegen.py) and test generator
+    (tools/testgen.py)
+  - All Jinja2 templates
+  - VS Code extension
+  - Integration Guide (docs/INTEGRATION_GUIDE.md)
+  - Reference ECU examples (examples/)
+
+Professional tier (€1,990/year):
+  - Everything in Developer tier, plus:
+  - Safety Manual (EDS_Safety_Manual_EDS-SM-001_Rev1.0)
+  - MISRA C Deviation Log (docs/MISRA_DEVIATION_LOG.md)
+  - Requirements Traceability Matrix (docs/EDS_Requirements_
+    Traceability_Matrix.csv)
+  - Priority email support (response within 5 business days)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4. RESTRICTIONS
+
+The Licensee may NOT:
+
+  (a) Redistribute, sublicense, sell, rent, or transfer the Software
+      itself — in source or binary form — to any third party, except
+      as compiled into Firmware as permitted in Section 2(c);
+
+  (b) Use the Software for more than one Licensed Project under a
+      single seat license, without purchasing additional licenses;
+
+  (c) Remove or alter any copyright notices, license headers, or SPDX
+      identifiers present in the Software source files;
+
+  (d) Publish, share, or distribute the Safety Manual or MISRA
+      Deviation Log — these documents are confidential and licensed
+      for internal use only;
+
+  (e) Use the Software to build a product that competes directly with
+      Xaloqi EDS, including a UDS diagnostics stack, ISO-TP
+      transport library, or diagnostic code generator intended for
+      licensing or resale;
+
+  (f) Represent that the Software has been certified to any functional
+      safety standard (ISO 26262, IEC 61508, or similar) unless the
+      Licensee has independently performed and documented that
+      certification. The Safety Manual provides supporting evidence;
+      it does not constitute a certification.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5. GPL v2 RUNTIME AND COMMERCIAL LICENSE RELATIONSHIP
+
+The runtime stack files in core/, transport/, config/, and platform/
+are also published under the GNU General Public License version 2
+(GPL v2) in the open-source repository at
+https://github.com/Xaloqi/EDS.
+
+A commercial license (this document) and the GPL v2 license are
+alternative licenses for the same code. A Licensee who has purchased
+a commercial license is NOT subject to the GPL v2 terms and is NOT
+required to release their firmware source code. The commercial license
+supersedes the GPL v2 for that Licensee.
+
+The code generator (tools/codegen.py), test generator
+(tools/testgen.py), Safety Manual, and MISRA Deviation Log are NOT
+available under GPL v2. They are available under this commercial
+license only.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6. ANNUAL SUBSCRIPTIONS AND RENEWALS
+
+Developer and Professional tier licenses are valid for one (1) year
+from the date of purchase. Access to updates and priority support
+(Professional tier) requires an active subscription.
+
+At the end of the subscription period, the Licensee retains the right
+to continue using the version of the Software downloaded during the
+active subscription period, under the terms of this license, without
+further payment. The Licensee loses access to future updates and
+support until the subscription is renewed.
+
+The Licensor will provide renewal reminders by email to the address
+used at purchase. Failure to receive a reminder does not waive the
+renewal obligation.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7. SUPPORT
+
+Developer tier: community support via GitHub Issues only. No response
+time guarantee.
+
+Professional tier: email support at support@xaloqi.com. Initial
+response within 5 business days for issues affecting production use.
+Bug fixes targeting the next scheduled release.
+
+Support covers defects in the Software as delivered. It does not cover
+integration into customer firmware, certification activities, or
+modifications made by the Licensee.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+8. INTELLECTUAL PROPERTY
+
+The Software, including all source code, documentation, templates,
+and generated output structures, is the intellectual property of the
+Licensor. This license does not transfer ownership of any intellectual
+property rights to the Licensee.
+
+Firmware produced by the Licensee using the Software remains the
+intellectual property of the Licensee. The Licensor makes no claim
+to firmware developed by the Licensee.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+9. WARRANTY DISCLAIMER
+
+THE SOFTWARE IS PROVIDED "AS IS". THE LICENSOR MAKES NO WARRANTIES,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT.
+
+THE LICENSOR DOES NOT WARRANT THAT THE SOFTWARE IS FREE FROM DEFECTS,
+THAT IT WILL OPERATE WITHOUT INTERRUPTION, OR THAT IT IS SUITABLE FOR
+USE IN SAFETY-CRITICAL APPLICATIONS WITHOUT INDEPENDENT VALIDATION BY
+THE LICENSEE.
+
+USE OF THE SOFTWARE IN VEHICLE FIRMWARE OR OTHER SAFETY-CRITICAL
+SYSTEMS IS SOLELY AT THE LICENSEE'S RISK. THE LICENSEE IS RESPONSIBLE
+FOR ALL FUNCTIONAL SAFETY VALIDATION, VERIFICATION, AND CERTIFICATION
+REQUIRED BY APPLICABLE STANDARDS (INCLUDING ISO 26262) FOR THEIR
+SPECIFIC APPLICATION.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+10. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR'S
+TOTAL LIABILITY TO THE LICENSEE FOR ANY CLAIM ARISING OUT OF OR
+RELATED TO THIS LICENSE OR THE SOFTWARE SHALL NOT EXCEED THE LICENSE
+FEES PAID BY THE LICENSEE IN THE TWELVE (12) MONTHS PRECEDING THE
+CLAIM.
+
+IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR INDIRECT, INCIDENTAL,
+SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS,
+LOSS OF DATA, OR COSTS OF PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+11. GOVERNING LAW AND JURISDICTION
+
+This license is governed by the laws of the Federal Republic of
+Germany, excluding its conflict-of-law provisions and excluding the
+United Nations Convention on Contracts for the International Sale of
+Goods (CISG).
+
+Any dispute arising out of or in connection with this license that
+cannot be resolved amicably shall be subject to the exclusive
+jurisdiction of the courts of Frankfurt am Main, Germany.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+12. ENTIRE AGREEMENT
+
+This document constitutes the entire agreement between the Licensor
+and the Licensee with respect to the subject matter hereof and
+supersedes all prior negotiations, representations, or agreements,
+whether oral or written.
+
+If any provision of this license is found to be unenforceable, the
+remaining provisions shall continue in full force and effect.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+13. CONTACT
+
+Licensing enquiries:   license@xaloqi.com
+Security disclosures:  security@xaloqi.com
+Support (Pro tier):    support@xaloqi.com
+Website:               https://xaloqi.com
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+END OF LICENSE
+
+Xaloqi EDS Commercial License v1.0 — March 2026

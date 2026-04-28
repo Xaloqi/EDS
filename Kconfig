@@ -1,0 +1,153 @@
+# =============================================================================
+# Xaloqi EDS
+# Kconfig
+#
+# Module-level Kconfig definitions. These expose UDS stack parameters as
+# first-class Zephyr Kconfig symbols, allowing board-level prj.conf overrides
+# without touching generated_config.h or diagnostics_config.yaml.
+#
+# All defaults match diagnostics_config.yaml so the two sources stay in sync.
+# If both are set, the Kconfig value wins at compile time (generated_config.h
+# uses #ifndef guards around its #define blocks).
+#
+# USAGE: Override in prj.conf:
+#   CONFIG_UDS_SESSION_S3_TIMEOUT_MS=2000
+#
+# SAFETY: Parameter ranges are bounded to prevent accidental mis-configuration
+#         that would violate ISO 15765-2 or ISO 14229-1 timing requirements.
+# =============================================================================
+
+menu "Xaloqi EDS"
+
+# ---------------------------------------------------------------------------
+# ISO-TP timing parameters (ISO 15765-2 §6.7)
+# ---------------------------------------------------------------------------
+
+config ISOTP_TIMEOUT_CR_MS
+	int "ISO-TP N_Cr timeout (ms)"
+	default 150
+	range 50 1000
+	help
+	  Maximum time between consecutive frames in a multi-frame message.
+	  ISO 15765-2 specifies N_Cr <= 150 ms by default. Reduce for high-speed
+	  networks; increase only if the tester explicitly extends STmin.
+
+config ISOTP_TIMEOUT_BS_MS
+	int "ISO-TP N_Bs timeout (ms)"
+	default 75
+	range 25 500
+	help
+	  Maximum time to wait for a Flow Control frame after transmitting
+	  the First Frame. ISO 15765-2 N_Bs default = 75 ms.
+
+config ISOTP_TIMEOUT_AS_MS
+	int "ISO-TP N_As timeout (ms)"
+	default 25
+	range 10 100
+	help
+	  Maximum time for CAN frame transmission acknowledgment. Must be
+	  >= the CAN bus arbitration + transmission time for a max-length frame.
+	  ISO 15765-2 N_As default = 25 ms.
+
+# ---------------------------------------------------------------------------
+# UDS session parameters (ISO 14229-1 §7.4.2)
+# ---------------------------------------------------------------------------
+
+config UDS_SESSION_S3_TIMEOUT_MS
+	int "UDS S3server session timeout (ms)"
+	default 5000
+	range 1000 10000
+	help
+	  Time after the last tester request before the ECU returns to the
+	  Default session. ISO 14229-1 default = 5000 ms. Reducing this
+	  value increases security by limiting exposure of programming/extended
+	  sessions, but may cause test tool timeouts if set too low.
+
+# ---------------------------------------------------------------------------
+# UDS security access parameters
+# ---------------------------------------------------------------------------
+
+config UDS_SECURITY_MAX_ATTEMPTS
+	int "Maximum failed security access attempts before lockout"
+	default 3
+	range 1 10
+	help
+	  Number of consecutive failed SendKey requests before the ECU enters
+	  a timed lockout. ISO 14229-1 §10.4.1.3.
+
+config UDS_SECURITY_LOCKOUT_MS
+	int "Security access lockout duration (ms)"
+	default 10000
+	range 1000 60000
+	help
+	  Duration of the lockout period after exceeding max failed attempts.
+	  Must be long enough to deter brute-force attacks.
+
+# ---------------------------------------------------------------------------
+# Diagnostics task parameters
+# ---------------------------------------------------------------------------
+
+config DIAG_TASK_STACK_SIZE
+	int "Diagnostics task stack size (bytes)"
+	default 4096
+	range 2048 16384
+	help
+	  Stack size for the diag_task_entry() Zephyr thread. Worst-case
+	  measured stack usage (via -fstack-usage) is ~1600 bytes. The default
+	  of 4096 bytes provides a 2.5x safety margin.
+	  Increase if adding DID handlers with large local variable usage.
+
+config DIAG_TASK_PRIORITY
+	int "Diagnostics task thread priority"
+	default 5
+	range 0 14
+	help
+	  Zephyr cooperative thread priority. Lower number = higher priority.
+	  Must be lower priority than the CAN ISR (priority 0) and higher than
+	  the idle thread. Default of 5 is suitable for most configurations.
+
+# ---------------------------------------------------------------------------
+# Watchdog
+# ---------------------------------------------------------------------------
+
+config DIAG_WDT_WINDOW_MS
+	int "Watchdog timeout window (ms)"
+	default 100
+	range 10 1000
+	help
+	  The hardware watchdog must be fed at least once within this window.
+	  At 1 ms poll loop rate, 100 ms gives 100 iterations of slack.
+	  Decrease for tighter safety monitoring; increase only if the poll
+	  loop is intentionally extended (e.g. during flash programming).
+
+# ---------------------------------------------------------------------------
+# Security key management  [CRIT-4 FIX]
+# ---------------------------------------------------------------------------
+
+config DIAG_PLACEHOLDER_KEYS_ONLY
+	bool "Allow placeholder AES-128 security keys (DEVELOPMENT ONLY)"
+	default y
+	help
+	  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	  WARNING: This option MUST be set to 'n' before any production build.
+	  Leaving it 'y' means the UDS SecurityAccess algorithm uses publicly
+	  known placeholder keys (0x00..0x0F / 0x10..0x1F).  Any person who
+	  has downloaded the EDS source code can compute a valid key for any
+	  seed and gain full diagnostic access to the ECU.
+	  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+	  When set to 'n', the build fails at compile time with a #error if
+	  the placeholder key pattern is detected in uds_security_algo.c.
+	  OEM integration steps (required before setting this to 'n'):
+	    1. Set CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n in production prj.conf.
+	    2. Before calling uds_generated_init(), inject real keys:
+	         uds_security_algo_set_rng_cb(my_trng_cb);
+	         uds_security_algo_set_level_key(0x01U, otp_key_level1_16bytes);
+	         uds_security_algo_set_level_key(0x03U, otp_key_level2_16bytes);
+	    3. Source keys from OTP fuses, HSM, or secure boot chain.
+	       Do NOT commit real keys to source control.
+	  The native_sim CI builds intentionally leave this 'y' so that
+	  CI can compile and run functional tests without real keys.
+	  TRACEABILITY: CRIT-4 / SEC-KEY-GATE-01
+
+endmenu

@@ -1,0 +1,39 @@
+# =============================================================================
+# Xaloqi EDS
+# west.yml  —  West workspace manifest
+#
+# Defines the complete workspace: Zephyr RTOS + this diagnostics module.
+#
+# SETUP:
+#   mkdir workspace && cd workspace
+#   west init -l path/to/this/repo
+#   west update
+#   west build -b native_sim    EDS/examples/basic_ecu
+#   west build -b nucleo_h743zi EDS/examples/basic_ecu
+#
+# FIX: Removed 'west-commands: scripts/west-commands.yml' from both the
+# zephyr project entry and the self: section. The scripts/ directory does
+# not exist in this repository. west init/update fails immediately with
+# "west-commands file not found" when this entry is present and the file
+# is absent. The west-commands mechanism is only needed when the repo
+# provides custom west extension commands (e.g. 'west flash-all'); this
+# project does not define any such commands.
+# =============================================================================
+
+manifest:
+  version: "0.13"
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: v3.7.0
+      path: zephyr
+      import:
+        file: west.yml
+
+  self:
+    path: EDS
