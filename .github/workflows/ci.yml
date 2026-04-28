@@ -1,0 +1,957 @@
+# =============================================================================
+# Xaloqi EDS — .github/workflows/ci.yml
+#
+# Community tier CI pipeline — 6 jobs covering the public GPL runtime stack.
+#
+# Jobs:
+#   1. unit-tests        — 36 host-side C unit tests (Unity framework)
+#   2. integration-tests — pytest suite against basic_ecu generated output (simulator mode)
+#   3. static-analysis   — GCC -fanalyzer + MISRA C:2012 cppcheck (zero open violations)
+#   4. zephyr-native     — west build -b native_sim (basic_ecu, Zephyr v3.7)
+#   5. zephyr-stm32      — west build -b nucleo_h743zi (cross-compile, basic_ecu)
+#   6. freertos-qemu     — FreeRTOS ARM cross-compile + run (basic_ecu_freertos, QEMU M4)
+#
+# Additional CI jobs (codegen examples, GUI, MCP server, harness) run in the
+# private EDS-toolchain repo against the full Developer/Professional toolchain.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# FIXES APPLIED
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# [A1] build_tests.sh was missing — created in repo root.
+# [A2] static_analysis_v2.py was missing — created in repo root.
+# [A3] Test count assertion corrected from 15 to 31 modules.
+# [E1] --safety-wrappers added to all codegen steps.
+#
+# [P1-6] GUI build/lint job added (gui-build).
+#   ROOT CAUSE:
+#     The Phase 5 React+TypeScript dashboard had no CI coverage. A broken
+#     TypeScript compile or a Vite bundler error would be invisible until a
+#     developer tried to run the dashboard locally. For an OEM evaluation
+#     build, a non-compiling UI is an embarrassing regression.
+#   FIX:
+#     New job 'gui-build' runs on every push/PR:
+#       1. actions/setup-node@v4 with Node 20 LTS and npm cache.
+#       2. npm ci (requires gui/package-lock.json, committed to repo).
+#       3. npm run typecheck  — tsc --noEmit; catches all TS type errors.
+#       4. npm run build      — tsc + vite build; proves the full bundle
+#          compiles and produces a deployable dist/ artifact.
+#     The dist/ bundle is uploaded as a CI artifact for inspection.
+#     [P9-M2 FIX] gui/package-lock.json is committed; npm ci is now used.
+#   ROOT CAUSE:
+#     misra_analysis.py silently falls back to GCC-only analysis when cppcheck
+#     is absent (package-manager failure, broken mirror, runner image regression).
+#     The MISRA gate would pass with a weaker GCC-only report, giving false
+#     confidence that full MISRA rule coverage had been applied.
+#   FIX:
+#     1. Added "Verify cppcheck installation" step immediately after apt-get.
+#        Runs: cppcheck --version || (echo "FAIL: ..." && exit 1)
+#        Prints the installed version for build-log traceability.
+#        Fails the job immediately if cppcheck is not executable.
+#     2. Added --strict flag to the misra_analysis.py invocation.
+#        --strict causes the script itself to exit 1 if cppcheck is not
+#        available at analysis time (belt-and-suspenders guard in case
+#        the apt-get step produces a broken binary or PATH differs).
+#     Both guards together ensure the MISRA gate never silently degrades.
+#
+# [RC-1] ZEPHYR_TOOLCHAIN_VARIANT=host for native_sim bypasses SDK requirement.
+# [RC-2] west.yml west-commands entries removed (scripts/ dir does not exist).
+# [RC-3] All west steps run from workspace root (not repo subdirectory).
+# [RC-4] CONF_FILE replaced with EXTRA_CONF_FILE + absolute GITHUB_WORKSPACE path.
+# [RC-5] gcc/g++/cmake/ninja/dtc installed in Zephyr jobs.
+# [RC-6] device-tree-compiler installed (dtc required by Zephyr CMake).
+#
+# [RC-7] nucleo_h743zi: "Zephyr was unable to find the toolchain"
+#   ROOT CAUSE:
+#     The original ci.yml installed gcc-arm-none-eabi (Debian package).
+#     Zephyr requires arm-zephyr-eabi (Zephyr SDK toolchain). These are
+#     different compilers with different names. CMake sets CROSS_COMPILE to
+#     "arm-zephyr-eabi-" and calls find_program(arm-zephyr-eabi-gcc), which
+#     fails because only arm-none-eabi-gcc exists from the Debian package.
+#     A later partially-applied fix installed the Zephyr SDK 0.16.8 but
+#     extracted the ARM toolchain tarball with --strip-components=1. In SDK
+#     0.16.x the toolchain tarball structure is:
+#       toolchain_linux-x86_64_arm-zephyr-eabi.tar.xz
+#         arm-zephyr-eabi/              <- top-level dir, NO version wrapper
+#           bin/arm-zephyr-eabi-gcc
+#     --strip-components=1 strips the arm-zephyr-eabi/ directory, depositing
+#     binaries at SDK_DIR/bin/ instead of SDK_DIR/arm-zephyr-eabi/bin/.
+#     setup.sh's cmake config file points to SDK_DIR/arm-zephyr-eabi/bin/.
+#     CMake found the config, computed the correct CROSS_COMPILE path, but
+#     find_program(arm-zephyr-eabi-gcc NO_DEFAULT_PATH) failed because the
+#     binary was in the wrong directory. That is the exact error in the log.
+#   FIX:
+#     Do NOT manually extract the ARM toolchain tarball.
+#     Download ONLY the minimal bundle (contains setup.sh, no binaries).
+#     Run setup.sh -t arm-zephyr-eabi — setup.sh uses bare "tar xf tarball
+#     -C SDK_DIR" (no strip), correctly producing SDK_DIR/arm-zephyr-eabi/.
+#     setup.sh -c registers the SDK with the CMake package registry.
+#     A post-install assertion verifies arm-zephyr-eabi-gcc is executable
+#     before west build runs, giving actionable output if setup fails.
+#
+# [RC-NEW-1] nucleo_h743zi: "ninja: build stopped: subcommand failed" at
+#   transport/zephyr_can.c.obj (step [36/195]), CI log 2026-03-10.
+#   ROOT CAUSE:
+#     root CMakeLists.txt had -Wpedantic and -Wconversion in
+#     target_compile_options(app PRIVATE ...). Both flags were missing from
+#     examples/basic_ecu/CMakeLists.txt (already fixed there), but both
+#     CMakeLists files contribute to the same 'app' target — their flags
+#     are merged. Zephyr then compiles transport/zephyr_can.c with -std=c99
+#     (Zephyr enforces this regardless of CMAKE_C_STANDARD=11). Under
+#     -std=c99 + -Wpedantic, GCC issues pedantic-errors for C11/GCC
+#     extensions in Zephyr ARM headers:
+#       • arch/arm/structs.h:22 — "struct has no members"
+#       • arch/arm/cortex_m/exception.h:103-109 — unnamed structs/unions
+#       • init.h:115 — unnamed structs/unions
+#       • toolchain/gcc.h:87 — named variadic macros
+#       • sys/__assert.h:57, sflist.h:302,319 — zero-arg variadic macros
+#     These are pedantic-errors (not warnings), causing GCC to abort
+#     compilation with exit code 1.
+#   FIX:
+#     Removed -Wpedantic and -Wconversion from root CMakeLists.txt.
+#     Added -Wno-sign-conversion (cbprintf_internal.h noise suppression).
+#     Matches what examples/basic_ecu/CMakeLists.txt already had.
+#
+# [RC-KCONF-1] nucleo_h743zi: Kconfig warnings for STACK_CANARIES, CAN_STATS.
+#   ROOT CAUSE:
+#     prj.conf sets CONFIG_STACK_CANARIES=y and CONFIG_CAN_STATS=y.
+#     On STM32H743ZI:
+#       • STACK_CANARIES depends on ENTROPY_GENERATOR || TEST_RANDOM_GENERATOR.
+#         ENTROPY_GENERATOR is not auto-enabled (requires DTS RNG node).
+#         → Kconfig warning: "STACK_CANARIES assigned y but got n"
+#       • CAN_STATS depends on STATS=y (generic stats framework).
+#         STATS was not in prj.conf.
+#         → Kconfig warning: "CAN_STATS assigned y but got n"
+#     Non-fatal but pollutes build log and may mask real issues.
+#   FIX:
+#     Added CONFIG_STATS=y to prj.conf (CAN_STATS dependency, valid everywhere).
+#     Added CONFIG_STACK_CANARIES=n override to nucleo_h743zi.conf
+#     (MPU_STACK_GUARD already provides hardware-enforced stack protection).
+#
+# [B1-FIX] native_sim: DT_ALIAS(can0) was unresolved because the .overlay
+#   was never passed to west build. EXTRA_CONF_FILE carries only Kconfig (.conf);
+#   Device Tree overlays need a separate -DDTC_OVERLAY_FILE= CMake argument.
+#   Added: -DDTC_OVERLAY_FILE=.../boards/native_sim/native_sim.overlay
+#   The overlay defines the can0 alias (→ can_loopback0), resolving the error:
+#     error: '__device_dts_ord_DT_N_ALIAS_can0_ORD' undeclared
+#
+# [B2-FIX] nucleo_h743zi + any Zephyr 3.x target: can_frame_flags_t and
+#   can_filter_flags_t are named enum typedefs that were removed from the
+#   Zephyr CAN API. The struct members .flags are now plain uint8_t fields
+#   using CAN_FRAME_* / CAN_FILTER_* bit-constant macros.
+#   In transport/zephyr_can.c:
+#     (can_frame_flags_t)0   → (uint8_t)0U
+#     (can_filter_flags_t)0  → (uint8_t)0U
+#   This resolves:
+#     error: 'can_frame_flags_t' undeclared (first use in this function)
+#     error: 'can_filter_flags_t' undeclared (first use in this function)
+#
+# [CRIT-1-FIX] GEN_SAFETY_DID_COUNT verification used grep -c '- id:'
+#   which counts BOTH dids[] entries AND routines[] entries (both use the
+#   '- id:' YAML key).  For basic_ecu: 5 DIDs + 3 routines = 8, not 5.
+#   The generated macros were always correct (codegen.py uses len(cfg['dids'])),
+#   but any grep-based CI check produces a false mismatch.
+#
+#   FIX: all DID count verification steps now call
+#        scripts/verify_did_counts.py which uses PyYAML to parse the
+#        YAML properly and compares len(cfg['dids']) against the macros
+#        in both safety_config.h and generated_config.h.
+#
+#   Affected jobs: unit-tests (step added), bms-example (step replaced),
+#                  ardep-example (step added), mc-example (step added).
+#
+# [CRIT-2-FIX] uds_safety_self_test() was defined in core/uds_safety.c and
+#   declared in core/uds_safety.h but was never called in the generated init
+#   sequence (generated/uds_init.c or tools/templates/uds_init.c.j2).
+#   ISO 26262-6 §9.4.3 requires a software component pre-start self-test for
+#   ASIL-B modules.  Without this call a firmware image with a misconfigured or
+#   corrupted safety layer passes all init checks and enters active diagnostic
+#   operation silently.
+#
+#   FIX: Step 1.1 added to tools/templates/uds_init.c.j2 and the committed
+#        generated/uds_init.c immediately after uds_safety_init() succeeds.
+#        The call is wrapped in a hard-abort guard: any non-OK return prevents
+#        the rest of the init chain from running and propagates the error to
+#        the caller, which must enter a safe state.
+#        A new CI assertion step in unit-tests verifies both the generated file
+#        and the template contain the call, preventing either regression.
+#        TRACEABILITY: REQ-SAFE-SELFTEST-01 / ISO 26262-6 §9.4.3
+#
+# [CRIT-4-FIX] Placeholder AES-128 keys (0x00..0x0F / 0x10..0x1F) in
+#   core/uds_security_algo.c were present with no compile-time or runtime gate.
+#   Any person who downloaded the EDS source could compute a valid SecurityAccess
+#   key for any seed, gaining full diagnostic access.
+#
+#   FIX (three layers of defence):
+#     1. Kconfig: CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY bool added (default y).
+#        Set to 'n' in production prj.conf to arm the compile-time gate.
+#     2. Compile-time: #error in uds_security_algo.c fires when
+#        CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n, blocking production linking.
+#     3. Runtime: Step 7.1 in generated init sequence calls
+#        uds_security_algo_keys_are_placeholder() and returns
+#        UDS_STATUS_ERR_CONDITIONS_NOT_MET if keys are still placeholder.
+#        Also checks uds_security_algo_get_rng_cb() != NULL (HIGH-2 fix).
+#     4. New bool uds_security_algo_keys_are_placeholder() declared in header.
+#     5. New accessor uds_security_algo_get_rng_cb() declared in header.
+#        CI/dev builds keep CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=y (default) so
+#        CI continues to pass without real keys.
+#        TRACEABILITY: SEC-KEY-GATE-01 / SEC-TRNG-GATE-01
+#
+# [HIGH-1-CI] ASIL_B_REQUIRE_WRITE_SECURITY flag was already True in
+#   tools/codegen.py but was never asserted in the CI pipeline. A refactor,
+#   merge conflict, or deliberate override could silently flip it to False,
+#   downgrading the ASIL-B write-security enforcement from a fatal codegen
+#   error to an advisory warning — without any test failing.
+#
+#   FIX: New step "Assert ASIL_B_REQUIRE_WRITE_SECURITY is True (HIGH-1)"
+#        added to the unit-tests job.  The same assertion is also included in
+#        each of the three ECU example jobs (ardep-example, bms-example,
+#        mc-example) as a cross-job safety net.
+#        TRACEABILITY: HIGH-1 / ISO 26262-6 / ASIL-B write-access policy
+#
+# [CRIT-2-CI] uds_safety_self_test() was previously asserted only in the
+#   unit-tests job (against basic_ecu's generated/uds_init.c and the
+#   template). The three ECU example jobs each run their own codegen pass
+#   and produce their own generated/uds_init.c — but none of these were
+#   checked for the self-test call. A template regression would be caught
+#   only if unit-tests ran first and the regenerated file was re-checked.
+#
+#   FIX: Self-test presence and abort-on-failure guard assertions added to
+#        ardep-example, bms-example, and mc-example jobs, each checking the
+#        ECU-specific generated/uds_init.c produced in that job's codegen run.
+#        TRACEABILITY: REQ-SAFE-SELFTEST-01 / ISO 26262-6 §9.4.3
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop", "phase-*"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  ZEPHYR_SDK_VERSION: "0.16.8"
+  # CI bypass: codegen.py skips the license check when this is set.
+  # The public repo does not ship _license.py or the Jinja2 templates —
+  # both are delivered with purchased licenses. CI uses pre-committed
+  # generated/ output and does not need live codegen to pass.
+  XALOQI_LICENSE_SKIP: "1"
+
+jobs:
+
+  # ── Job 1: Host unit tests ─────────────────────────────────────────────────
+  unit-tests:
+    name: "Unit Tests (36 modules)"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc python3 python3-pip
+
+      - name: Install Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Run code generation (with test generation)
+        run: |
+          python3 tools/codegen.py \
+            --config  examples/basic_ecu/diagnostics_config.yaml \
+            --out     examples/basic_ecu/generated/ \
+            --safety-wrappers \
+            --asil-level B \
+            --gui-types \
+            --test-gen \
+            --no-manifest
+
+      - name: Build and run all unit tests
+        run: bash build_tests.sh
+
+      - name: Verify test count
+        run: |
+          result=$(bash build_tests.sh 2>&1 | tail -3)
+          echo "$result"
+          echo "$result" | grep -q "36 passed, 0 failed" || \
+            (echo "ERROR: Expected '36 passed, 0 failed'" && exit 1)
+
+      - name: Verify test files generated
+        run: |
+          test -f examples/basic_ecu/generated/tests/conftest.py     && echo "OK: conftest.py" || exit 1
+          test -f examples/basic_ecu/generated/tests/test_services.py && echo "OK: test_services.py" || exit 1
+          count=$(ls examples/basic_ecu/generated/tests/test_did_*.py 2>/dev/null | wc -l)
+          echo "Found $count per-DID test files"
+          [ "$count" -ge 1 ] || (echo "ERROR: No per-DID test files generated" && exit 1)
+
+      # [CRIT-1-FIX] Verify GEN_SAFETY_DID_COUNT matches the YAML dids[] list.
+      #
+      # WHY grep -c '- id:' IS WRONG:
+      #   Both 'dids:' entries and 'routines:' entries use the '- id:' key.
+      #   For basic_ecu: 5 DIDs + 3 routines → grep returns 8, not 5.
+      #   GEN_SAFETY_DID_COUNT = (5U) is correct; the grep count is wrong.
+      #
+      # FIX: scripts/verify_did_counts.py uses PyYAML to parse the YAML and
+      #   counts only len(cfg['dids']), never touching routines[].
+      #   It cross-checks both safety_config.h (GEN_SAFETY_DID_COUNT) and
+      #   generated_config.h (GEN_DID_COUNT) and fails with exit code 1 on
+      #   any mismatch, printing the exact regeneration command.
+      - name: Verify GEN_SAFETY_DID_COUNT matches YAML dids list (basic_ecu)
+        run: |
+          python3 scripts/verify_did_counts.py \
+            --yaml          examples/basic_ecu/diagnostics_config.yaml \
+            --safety-header examples/basic_ecu/generated/safety_config.h \
+            --config-header examples/basic_ecu/generated/generated_config.h
+
+      # [CRIT-2-FIX] Assert uds_safety_self_test() is present in both the
+      # generated C file and the Jinja2 template that produces it.
+      #
+      # WHY BOTH ARE CHECKED:
+      #   1. generated/uds_init.c — the committed pre-generated file that is
+      #      compiled directly into the firmware.  If self-test is absent here
+      #      the running firmware violates ISO 26262-6 §9.4.3 regardless of
+      #      what the template says.
+      #   2. tools/templates/uds_init.c.j2 — the source of truth for all future
+      #      codegen runs.  If the template is missing the call, every subsequent
+      #      'python3 tools/codegen.py' invocation will silently reintroduce the
+      #      bug, even though the committed generated/uds_init.c was correct.
+      #   Checking both files makes it impossible for either regression to pass CI.
+      - name: Assert uds_safety_self_test() present in generated init and template (CRIT-2)
+        run: |
+          echo "--- Checking examples/basic_ecu/generated/uds_init.c ---"
+          grep -q "uds_safety_self_test()" examples/basic_ecu/generated/uds_init.c \
+            && echo "PASS: uds_safety_self_test() found in examples/basic_ecu/generated/uds_init.c" \
+            || (echo "FAIL: uds_safety_self_test() MISSING from examples/basic_ecu/generated/uds_init.c" \
+                && echo "      ISO 26262-6 §9.4.3 pre-start self-test is required for ASIL-B." \
+                && echo "      Re-run: python3 tools/codegen.py --config examples/basic_ecu/diagnostics_config.yaml --out examples/basic_ecu/generated/ --safety-wrappers --asil-level B" \
+                && exit 1)
+
+          echo "--- Checking tools/templates/uds_init.c.j2 ---"
+          grep -q "uds_safety_self_test()" tools/templates/uds_init.c.j2 \
+            && echo "PASS: uds_safety_self_test() found in tools/templates/uds_init.c.j2" \
+            || (echo "FAIL: uds_safety_self_test() MISSING from tools/templates/uds_init.c.j2" \
+                && echo "      Every future codegen run will regenerate uds_init.c WITHOUT the self-test." \
+                && echo "      Add the Step 1.1 block to the template before the Step 2 comment." \
+                && exit 1)
+
+          echo "--- Checking abort-on-failure guard ---"
+          grep -q "return self_test_rc" examples/basic_ecu/generated/uds_init.c \
+            && echo "PASS: abort-on-failure guard (return self_test_rc) found" \
+            || (echo "FAIL: abort-on-failure guard missing — self-test result is not checked" && exit 1)
+
+      # [CRIT-4-FIX] Assert placeholder key compile gate and runtime guard are
+      # present in the codebase.  Three checks:
+      #   1. Kconfig contains CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY.
+      #   2. uds_security_algo.c contains the #error compile-time gate.
+      #   3. The generated init sequence (Step 7.1) contains the runtime guard.
+      # The CI/native_sim builds leave CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=y
+      # (default) so the #error does NOT fire during CI — but the gate text
+      # must be present so that setting it to 'n' in a production prj.conf
+      # actually works.  Checking for the string guarantees the gate was not
+      # accidentally removed by a refactor.
+      - name: Assert placeholder key compile gate and runtime guard present (CRIT-4)
+        run: |
+          echo "--- Checking Kconfig symbol ---"
+          grep -q "DIAG_PLACEHOLDER_KEYS_ONLY" Kconfig \
+            && echo "PASS: CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY symbol found in Kconfig" \
+            || (echo "FAIL: CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY MISSING from Kconfig" \
+                && echo "      Production builds cannot gate placeholder keys without this symbol." \
+                && exit 1)
+
+          echo "--- Checking compile-time #error gate in uds_security_algo.c ---"
+          grep -q "SEC-KEY-GATE-01" core/uds_security_algo.c \
+            && echo "PASS: #error compile-time gate found in core/uds_security_algo.c" \
+            || (echo "FAIL: compile-time key gate MISSING from core/uds_security_algo.c" \
+                && echo "      Production builds will compile with placeholder keys silently." \
+                && exit 1)
+
+          echo "--- Checking runtime guard in examples/basic_ecu/generated/uds_init.c (Step 7.1) ---"
+          grep -q "keys_are_placeholder" examples/basic_ecu/generated/uds_init.c \
+            && echo "PASS: runtime key guard (Step 7.1) found in examples/basic_ecu/generated/uds_init.c" \
+            || (echo "FAIL: runtime key guard MISSING from examples/basic_ecu/generated/uds_init.c" \
+                && echo "      Re-run codegen to regenerate from updated uds_init.c.j2." \
+                && exit 1)
+
+          echo "--- Checking runtime guard in template ---"
+          grep -q "keys_are_placeholder" tools/templates/uds_init.c.j2 \
+            && echo "PASS: runtime key guard found in tools/templates/uds_init.c.j2" \
+            || (echo "FAIL: runtime key guard MISSING from template — future codegens will lack the guard" \
+                && exit 1)
+
+          echo "--- Checking keys_are_placeholder() declared in header ---"
+          grep -q "uds_security_algo_keys_are_placeholder" core/uds_security_algo.h \
+            && echo "PASS: keys_are_placeholder() declared in uds_security_algo.h" \
+            || (echo "FAIL: keys_are_placeholder() declaration MISSING from header" && exit 1)
+
+      # [HIGH-1] Assert ASIL_B_REQUIRE_WRITE_SECURITY is True in tools/codegen.py.
+      #
+      # WHY THIS MATTERS:
+      #   When True, codegen fatally rejects any write-capable DID with
+      #   write_security_level=0 — unauthenticated write access to ECU parameters
+      #   is blocked at configuration time, not at runtime.
+      #   When False, write_security_level=0 degrades to an advisory warning only,
+      #   silently allowing unsigned writes to safety-relevant calibration data.
+      #
+      # WHY CI MUST ASSERT THIS:
+      #   The flag is a single-line constant in a Python source file. A refactor,
+      #   merge conflict resolution, or manual override could flip it to False
+      #   without any test failing — the stack compiles and runs correctly either
+      #   way. Only this assertion makes the regression immediately visible.
+      #
+      # OVERRIDE POLICY (ISO 26262-8 §7):
+      #   If a formal safety deviation is approved for a specific DID, set
+      #   write_security_level >= 1 for that DID in the YAML (preferred), or
+      #   document the deviation and set the flag False with a named approver
+      #   and date in the deviation log. Do NOT disable this CI step.
+      #
+      # TRACEABILITY: HIGH-1 / ASIL-B / ISO 26262-6
+      - name: Assert ASIL_B_REQUIRE_WRITE_SECURITY is True in codegen (HIGH-1)
+        run: |
+          echo "--- Checking ASIL_B_REQUIRE_WRITE_SECURITY in tools/codegen.py ---"
+          grep -q "ASIL_B_REQUIRE_WRITE_SECURITY: bool = True" tools/codegen.py \
+            && echo "PASS: ASIL_B_REQUIRE_WRITE_SECURITY is True — unauthenticated write access blocked" \
+            || (echo "FAIL: ASIL_B_REQUIRE_WRITE_SECURITY is not True in tools/codegen.py" \
+                && echo "      This flag controls whether write-capable DIDs with write_security_level=0" \
+                && echo "      are rejected at codegen time (True) or only warned about (False)." \
+                && echo "      Setting it to False violates ASIL-B policy (ISO 26262-6)." \
+                && echo "      FIX: restore 'ASIL_B_REQUIRE_WRITE_SECURITY: bool = True' in tools/codegen.py" \
+                && echo "      If a deviation is required, document it per ISO 26262-8 §7 before changing." \
+                && exit 1)
+
+
+  # ── Job 5: Generated integration tests (simulator mode) ───────────────────
+  #
+  # Runs the auto-generated pytest suite produced by --test-gen.
+  # Mode: simulator (built-in ECU simulator, no hardware required).
+  # Validates every DID, every session gate, every NRC, every security
+  # constraint — all derived from diagnostics_config.yaml.
+  # ──────────────────────────────────────────────────────────────────────────
+
+  integration-tests:
+    name: "Integration Tests (generated, simulator mode)"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Assert zero dynamic allocation in stack sources
+        run: |
+          # [ARCH-NOMALLOC] Verify no malloc/calloc/realloc/free in production stack.
+          # ARCHITECTURE.md guarantees no dynamic memory — this step enforces it in CI.
+          result=$(grep -rn "\bmalloc\b\|\bcalloc\b\|\brealloc\b\|\bfree\b(" \
+            core/ transport/ config/ examples/basic_ecu/generated/ 2>/dev/null \
+            | grep -v "//.*malloc\|\*.*malloc" || true)
+          if [ -n "$result" ]; then
+            echo "FAIL: dynamic allocation found in production sources:"
+            echo "$result"
+            exit 1
+          fi
+          echo "PASS: zero dynamic allocation in core/ transport/ config/ examples/basic_ecu/generated/"
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3 python3-pip
+
+      - name: Install Python dependencies
+        run: pip install pyyaml jinja2 pytest pycryptodome
+
+      - name: Run code generation (with test generation)
+        run: |
+          python3 tools/codegen.py \
+            --config  examples/basic_ecu/diagnostics_config.yaml \
+            --out     examples/basic_ecu/generated/ \
+            --safety-wrappers \
+            --asil-level B \
+            --test-gen \
+            --no-manifest
+
+      - name: Verify generated test files exist
+        run: |
+          test -f examples/basic_ecu/generated/tests/conftest.py      && echo "OK: conftest.py"
+          test -f examples/basic_ecu/generated/tests/test_services.py && echo "OK: test_services.py"
+          count=$(ls examples/basic_ecu/generated/tests/test_did_*.py | wc -l)
+          echo "Per-DID test files: $count"
+          [ "$count" -ge 1 ] || exit 1
+          # Verify per-routine test files (basic_ecu has 3 routines)
+          routine_file_count=$(ls examples/basic_ecu/generated/tests/test_routine_*.py 2>/dev/null | wc -l)
+          echo "Per-routine test files: $routine_file_count (expected 3)"
+          [ "$routine_file_count" -eq 3 ] \
+            || (echo "FAIL: expected 3 per-routine files" && exit 1)
+          echo "PASS: basic_ecu per-routine files present"
+
+      - name: Run generated integration tests (simulator mode)
+        # [FIX] Exclude test_firmware_services.py — it requires the `firmware_bus`
+        # fixture from conftest_firmware.py, only active in firmware-integration-tests.
+        # Running it here causes 57 fixture-not-found ERRORs.
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest . -v \
+            --ignore=test_firmware_services.py \
+            --tb=short \
+            --can-interface=simulator \
+            -q
+
+      - name: Verify integration test pass count
+        run: |
+          cd examples/basic_ecu/generated/tests
+          result=$(python3 -m pytest . -q \
+            --ignore=test_firmware_services.py \
+            --can-interface=simulator --tb=no 2>&1 | tail -1)
+          echo "Result: $result"
+          echo "$result" | grep -q "failed" && exit 1 || true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: examples/basic_ecu/generated/tests/
+
+
+  # ── Job 6: Firmware integration tests (real compiled C stack) ─────────────
+  #
+  # Builds the harness binary (full C UDS stack, no Zephyr needed),
+  # launches it in --server mode, and runs the generated pytest suite
+  # against real compiled firmware via AF_UNIX socket.
+  #
+  # This proves the tests catch REAL firmware bugs — not just simulator bugs.
+  # Every assertion validates byte-exact responses from the compiled C stack:
+  #   - ISO 14229-1 PDU formats from service handlers
+  #   - AES-128-CMAC key derivation from uds_security_algo.c
+  #   - ISO 15765-2 multi-frame assembly from transport/isotp.c
+  #   - ASIL-B safety wrapper enforcement from generated/did_safety_wrappers.c
+  #   - DTC registration from config/dtc_database.c
+  #   - RoutineControl (0x31) dispatch, session gate, security gate, RID lookup
+  #     (52 tests total — 11 new Group HM tests added for 0x31 coverage)
+  # ──────────────────────────────────────────────────────────────────────────
+
+  static-analysis:
+    name: "Static Analysis + MISRA C:2012 (zero open violations)"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc python3 python3-pip cppcheck
+
+      # [P1-4] Hard-fail immediately if cppcheck did not install correctly.
+      #
+      # Without this check, misra_analysis.py silently falls back to GCC-only
+      # analysis when cppcheck is absent, producing a weaker report that passes
+      # the MISRA gate without actually running a MISRA-capable checker.
+      # That behaviour would give false confidence on every CI run where
+      # cppcheck fails to install (e.g. package-manager failure, broken mirror,
+      # runner image regression).
+      #
+      # This step ensures:
+      #   (a) cppcheck is on PATH and executable
+      #   (b) the version is printed for build-log traceability
+      #   (c) the job fails with an actionable error message if (a) is not met
+      #
+      # The subsequent misra_analysis.py invocation also passes --strict, which
+      # causes the script itself to exit 1 if cppcheck is unavailable at
+      # analysis time (belt-and-suspenders guard).
+      - name: Verify cppcheck installation
+        run: |
+          cppcheck --version \
+            || (echo "FAIL: cppcheck not available — MISRA analysis would silently degrade to GCC-only mode" \
+                && exit 1)
+
+      - name: Install Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Run code generation
+        run: |
+          python3 tools/codegen.py \
+            --config  examples/basic_ecu/diagnostics_config.yaml \
+            --out     examples/basic_ecu/generated/ \
+            --safety-wrappers \
+            --asil-level B \
+            --test-gen \
+            --no-manifest
+
+      - name: Run GCC static analysis (Pass 1+2+3)
+        run: python3 static_analysis_v2.py
+
+      - name: Assert zero GCC errors
+        run: |
+          python3 - << 'EOF'
+          import json, sys
+          with open("analysis_results_v2.json") as f:
+              data = json.load(f)
+          errors = data["summary"].get("ERROR", 0)
+          if errors > 0:
+              print(f"FAIL: {errors} GCC error(s) found")
+              sys.exit(1)
+          print(f"PASS: 0 GCC errors")
+          EOF
+
+      - name: Run MISRA C:2012 analysis
+        run: |
+          python3 misra_analysis.py \
+            --out    misra_report.json \
+            --strict
+        # --strict: exit 1 if cppcheck is not available at analysis time.
+        # Belt-and-suspenders guard alongside the "Verify cppcheck" step above.
+        # Both guards are needed: the apt-get step could succeed yet leave a
+        # broken binary, or the PATH could differ between steps on some runners.
+
+      - name: Assert zero open MISRA violations
+        run: |
+          python3 - << 'EOF'
+          import json, sys
+          with open("misra_report.json") as f:
+              data = json.load(f)
+          open_v  = data.get("open_violations", 0)
+          just_v  = data.get("justified_violations", 0)
+          checker = data.get("checker", "unknown")
+          total   = data.get("total_findings", 0)
+          print(f"Checker      : {checker}")
+          print(f"Total finding: {total}")
+          print(f"Justified    : {just_v}  (documented in docs/MISRA_DEVIATION_LOG.md)")
+          print(f"Open         : {open_v}")
+          if open_v > 0:
+              print(f"FAIL: {open_v} open MISRA violation(s) require a deviation record")
+              for f in data.get("findings", []):
+                  if f.get("status") == "OPEN":
+                      print(f"  Rule {f['rule']} | {f['file']}:{f['line']} | {f['message'][:60]}")
+              sys.exit(1)
+          print(f"PASS: zero open MISRA violations — all findings justified")
+          EOF
+
+      - name: Upload MISRA and static analysis reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-misra-reports
+          path: |
+            analysis_results_v2.json
+            misra_report.json
+            misra_report.txt
+            misra_violations.csv
+            docs/MISRA_DEVIATION_LOG.md
+
+  zephyr-native:
+    name: "Zephyr Build — native_sim"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+
+    steps:
+      # Checkout into a named subdirectory so west can use it as the manifest
+      # repo while keeping the workspace root available for west modules.
+      - uses: actions/checkout@v4
+        with:
+          path: zephyr-diagnostics-suite
+
+      # [RC-5][RC-6] gcc/g++ for native compilation; cmake/ninja for build
+      # system; device-tree-compiler for DTS compilation (dtc >= 1.4.6).
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget
+
+      - name: Install west
+        run: pip install west
+
+      # [RC-3] west init/update run from workspace root (GITHUB_WORKSPACE).
+      # 'west init -l' treats the already-checked-out dir as the manifest repo.
+      # After this the layout is:
+      #   GITHUB_WORKSPACE/
+      #     .west/
+      #     zephyr-diagnostics-suite/   (our repo)
+      #     zephyr/                     (fetched by west update)
+      - name: Initialize west workspace
+        run: west init -l zephyr-diagnostics-suite
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: Install project Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Run code generation
+        working-directory: zephyr-diagnostics-suite
+        run: |
+          python3 tools/codegen.py \
+            --config  examples/basic_ecu/diagnostics_config.yaml \
+            --out     examples/basic_ecu/generated/ \
+            --safety-wrappers \
+            --asil-level B \
+            --gui-types \
+            --no-manifest
+
+      # [RC-1] ZEPHYR_TOOLCHAIN_VARIANT=host → uses system gcc, skips SDK.
+      # [RC-3] west build runs from workspace root; source dir passed as arg.
+      # [RC-4] EXTRA_CONF_FILE with absolute path (CONF_FILE + relative path
+      #        resolves outside the workspace and does not exist).
+      - name: West build — native_sim
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          west build \
+            --pristine \
+            -b native_sim \
+            zephyr-diagnostics-suite/examples/basic_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/zephyr-diagnostics-suite/boards/native_sim/native_sim.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/zephyr-diagnostics-suite/boards/native_sim/native_sim.overlay"
+
+      - name: Verify binary exists
+        run: |
+          test -f build/zephyr/zephyr.exe \
+            && echo "PASS: zephyr.exe produced" \
+            || (echo "FAIL: zephyr.exe not found" && exit 1)
+
+      - name: Upload native_sim binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: native_sim-binary
+          path: build/zephyr/zephyr.exe
+
+  # ── Job 4: Zephyr build — nucleo_h743zi ───────────────────────────────────
+  #
+  # TOOLCHAIN: Zephyr SDK 0.16.8 (arm-zephyr-eabi cross-compiler)
+  #
+  # [RC-7] SDK installation method — see header comment for full explanation.
+  #   Only the minimal bundle is downloaded manually.
+  #   setup.sh -t arm-zephyr-eabi downloads and extracts the ARM toolchain
+  #   using its own internal "tar xf tarball -C SDK_DIR" (no strip), which
+  #   always produces: SDK_DIR/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc
+  # ──────────────────────────────────────────────────────────────────────────
+  zephyr-stm32:
+
+    name: "Zephyr Build — nucleo_h743zi (cross-compile)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: zephyr-diagnostics-suite
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget xz-utils
+
+      - name: Install west
+        run: pip install west
+
+      # [RC-7] Install Zephyr SDK — minimal bundle only, then setup.sh handles
+      # the ARM toolchain download and extraction with correct directory layout.
+      #
+      # Step-by-step:
+      #   1. Download zephyr-sdk-0.16.8_linux-x86_64_minimal.tar.xz
+      #      This tarball has: zephyr-sdk-0.16.8/ at root (version wrapper present).
+      #      --strip-components=1 removes the wrapper, placing setup.sh and cmake/
+      #      directly into SDK_DIR. This is correct for the minimal bundle.
+      #
+      #   2. Run setup.sh -t arm-zephyr-eabi
+      #      setup.sh checks: does SDK_DIR/arm-zephyr-eabi/ exist?
+      #      No → downloads toolchain_linux-x86_64_arm-zephyr-eabi.tar.xz from
+      #      GitHub and extracts it with: tar xf tarball -C SDK_DIR
+      #      (no --strip-components). The tarball has arm-zephyr-eabi/ at root
+      #      (no version wrapper), so extraction gives SDK_DIR/arm-zephyr-eabi/.
+      #      setup.sh also sets executable bits and creates the cmake config file.
+      #
+      #   3. Run setup.sh -c
+      #      Registers ~/.cmake/packages/Zephyr-sdk/ so find_package(Zephyr-sdk)
+      #      resolves without needing ZEPHYR_SDK_INSTALL_DIR in the environment.
+      #
+      #   4. Verify arm-zephyr-eabi-gcc exists and is executable before
+      #      handing off to west. Fail fast with a clear error if setup failed.
+      - name: Install Zephyr SDK (ARM toolchain via setup.sh)
+        run: |
+          SDK_VER="${ZEPHYR_SDK_VERSION}"
+          SDK_DIR="${HOME}/zephyr-sdk-${SDK_VER}"
+          BASE_URL="https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VER}"
+
+          echo "=== Downloading minimal bundle ==="
+          wget -q --show-progress \
+            "${BASE_URL}/zephyr-sdk-${SDK_VER}_linux-x86_64_minimal.tar.xz" \
+            -O /tmp/zephyr-sdk-minimal.tar.xz
+
+          echo "=== Extracting minimal bundle ==="
+          mkdir -p "${SDK_DIR}"
+          tar -xf /tmp/zephyr-sdk-minimal.tar.xz --strip-components=1 -C "${SDK_DIR}"
+
+          if [ ! -f "${SDK_DIR}/setup.sh" ]; then
+            echo "ERROR: setup.sh not found in ${SDK_DIR}"
+            ls -la "${SDK_DIR}"
+            exit 1
+          fi
+
+          echo "=== Installing ARM toolchain via setup.sh ==="
+          cd "${SDK_DIR}"
+          bash setup.sh -t arm-zephyr-eabi -c
+
+          echo "=== Verifying toolchain binary ==="
+          GCC="${SDK_DIR}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc"
+          if [ ! -x "${GCC}" ]; then
+            echo "ERROR: ${GCC} not found or not executable"
+            echo "SDK_DIR contents:"
+            ls -la "${SDK_DIR}/"
+            echo "arm-zephyr-eabi (if present):"
+            ls -la "${SDK_DIR}/arm-zephyr-eabi/" 2>/dev/null || echo "  (absent)"
+            exit 1
+          fi
+          echo "PASS: ${GCC}"
+          echo "ZEPHYR_SDK_INSTALL_DIR=${SDK_DIR}" >> "${GITHUB_ENV}"
+
+      - name: Initialize west workspace
+        run: west init -l zephyr-diagnostics-suite
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: Install project Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Run code generation
+        working-directory: zephyr-diagnostics-suite
+        run: |
+          python3 tools/codegen.py \
+            --config  examples/basic_ecu/diagnostics_config.yaml \
+            --out     examples/basic_ecu/generated/ \
+            --safety-wrappers \
+            --asil-level B \
+            --gui-types \
+            --no-manifest
+
+      - name: West build — nucleo_h743zi
+        run: |
+          west build \
+            --pristine \
+            -b nucleo_h743zi \
+            zephyr-diagnostics-suite/examples/basic_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/zephyr-diagnostics-suite/boards/nucleo_h743zi/nucleo_h743zi.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/zephyr-diagnostics-suite/boards/nucleo_h743zi/nucleo_h743zi.overlay"
+
+      - name: Verify ELF + HEX output
+        run: |
+          test -f build/zephyr/zephyr.elf && echo "PASS: .elf" || exit 1
+          test -f build/zephyr/zephyr.hex && echo "PASS: .hex" || exit 1
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nucleo_h743zi-firmware
+          path: |
+            build/zephyr/zephyr.elf
+            build/zephyr/zephyr.hex
+            build/zephyr/zephyr.bin
+
+  # ── Job 9: BMS Zephyr build — native_sim ───────────────────────────────────
+  #
+  # Builds the BMS example ECU firmware for the native_sim simulation target.
+  # Validates that the 24-DID BMS diagnostics_config.yaml produces firmware
+  # that compiles cleanly against the Zephyr build system.
+  #
+  # Uses the same west setup as zephyr-native (Job 3) with the BMS example
+  # directory substituted as the application source.
+  # ──────────────────────────────────────────────────────────────────────────
+
+  freertos-qemu:
+    name: "FreeRTOS Build — QEMU ARM Cortex-M4"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi libnewlib-arm-none-eabi \
+            cmake ninja-build python3 python3-pip
+          pip install pyyaml jinja2
+
+      - name: Verify arm-none-eabi-gcc
+        run: |
+          arm-none-eabi-gcc --version \
+            && echo "PASS: arm-none-eabi-gcc available" \
+            || (echo "FAIL: arm-none-eabi-gcc not found" && exit 1)
+
+      - name: Clone FreeRTOS-Kernel
+        run: |
+          git clone --depth=1 \
+            https://github.com/FreeRTOS/FreeRTOS-Kernel.git \
+            /opt/freertos-kernel
+          echo "FreeRTOS-Kernel cloned: $(ls /opt/freertos-kernel)"
+
+      - name: Run code generation (basic_ecu_freertos)
+        run: |
+          python3 tools/codegen.py \
+            --config examples/basic_ecu_freertos/diagnostics_config.yaml \
+            --out    examples/basic_ecu_freertos/generated/ \
+            --safety-wrappers --asil-level B --no-manifest
+          test -f examples/basic_ecu_freertos/generated/uds_init.c \
+            && echo "PASS: generated/uds_init.c present" \
+            || (echo "FAIL: codegen produced no output" && exit 1)
+
+      - name: CMake configure — FreeRTOS Cortex-M4
+        run: |
+          cmake -B build_freertos \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchain/arm-none-eabi.cmake" \
+            -DEDS_PLATFORM=freertos \
+            -DFREERTOS_DIR=/opt/freertos-kernel \
+            -DBOARD=qemu_cortex_m4 \
+            -DFREERTOS_CONFIG_DIR="${GITHUB_WORKSPACE}/examples/basic_ecu_freertos/boards/qemu_cortex_m4" \
+            -GNinja \
+            examples/basic_ecu_freertos
+
+      - name: Build FreeRTOS example
+        run: ninja -C build_freertos
+
+      - name: Verify ELF binary exists
+        run: |
+          test -f build_freertos/eds_freertos.elf \
+            && echo "PASS: eds_freertos.elf produced" \
+            || (echo "FAIL: eds_freertos.elf not found" && exit 1)
+
+      - name: Check binary size
+        run: |
+          arm-none-eabi-size build_freertos/eds_freertos.elf
+          # Sanity check: text segment must be non-zero
+          text_size=$(arm-none-eabi-size build_freertos/eds_freertos.elf \
+            | tail -1 | awk '{print $1}')
+          echo "Text size: ${text_size} bytes"
+          [ "${text_size}" -gt 0 ] \
+            || (echo "FAIL: text segment is empty" && exit 1)
+          echo "PASS: binary size check"
+
+      - name: Upload FreeRTOS ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-basic-ecu-elf
+          path: build_freertos/eds_freertos.elf
+  #
+  # Builds the motor_controller_ecu example firmware for native_sim.
+  # Validates that the 27-DID motor controller diagnostics_config.yaml
+  # produces firmware that compiles cleanly against the Zephyr build system.
+  #
+  # Uses the same west setup pattern as Jobs 3 and 9.
+  # ──────────────────────────────────────────────────────────────────────────
