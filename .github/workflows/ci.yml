@@ -255,16 +255,14 @@ jobs:
       - name: Install Python dependencies
         run: pip install pyyaml jinja2
 
-      - name: Run code generation (with test generation)
+      - name: Verify pre-committed generated files are present
         run: |
-          python3 tools/codegen.py \
-            --config  examples/basic_ecu/diagnostics_config.yaml \
-            --out     examples/basic_ecu/generated/ \
-            --safety-wrappers \
-            --asil-level B \
-            --gui-types \
-            --test-gen \
-            --no-manifest
+          for f in examples/basic_ecu/generated/uds_init.c \
+                   examples/basic_ecu/generated/did_handlers.c \
+                   examples/basic_ecu/generated/safety_config.h \
+                   examples/basic_ecu/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
 
       - name: Build and run all unit tests
         run: bash build_tests.sh
@@ -276,13 +274,13 @@ jobs:
           echo "$result" | grep -q "36 passed, 0 failed" || \
             (echo "ERROR: Expected '36 passed, 0 failed'" && exit 1)
 
-      - name: Verify test files generated
+      - name: Verify pre-committed test files present
         run: |
           test -f examples/basic_ecu/generated/tests/conftest.py     && echo "OK: conftest.py" || exit 1
           test -f examples/basic_ecu/generated/tests/test_services.py && echo "OK: test_services.py" || exit 1
           count=$(ls examples/basic_ecu/generated/tests/test_did_*.py 2>/dev/null | wc -l)
-          echo "Found $count per-DID test files"
-          [ "$count" -ge 1 ] || (echo "ERROR: No per-DID test files generated" && exit 1)
+          echo "Found $count per-DID test files (pre-committed)"
+          [ "$count" -ge 1 ] || (echo "ERROR: No per-DID test files in generated/" && exit 1)
 
       # [CRIT-1-FIX] Verify GEN_SAFETY_DID_COUNT matches the YAML dids[] list.
       #
@@ -326,13 +324,8 @@ jobs:
                 && echo "      Re-run: python3 tools/codegen.py --config examples/basic_ecu/diagnostics_config.yaml --out examples/basic_ecu/generated/ --safety-wrappers --asil-level B" \
                 && exit 1)
 
-          echo "--- Checking tools/templates/uds_init.c.j2 ---"
-          grep -q "uds_safety_self_test()" tools/templates/uds_init.c.j2 \
-            && echo "PASS: uds_safety_self_test() found in tools/templates/uds_init.c.j2" \
-            || (echo "FAIL: uds_safety_self_test() MISSING from tools/templates/uds_init.c.j2" \
-                && echo "      Every future codegen run will regenerate uds_init.c WITHOUT the self-test." \
-                && echo "      Add the Step 1.1 block to the template before the Step 2 comment." \
-                && exit 1)
+          # Note: template check skipped in public repo — templates are commercial-only.
+          # The committed generated/uds_init.c is the authoritative check above.
 
           echo "--- Checking abort-on-failure guard ---"
           grep -q "return self_test_rc" examples/basic_ecu/generated/uds_init.c \
@@ -372,11 +365,7 @@ jobs:
                 && echo "      Re-run codegen to regenerate from updated uds_init.c.j2." \
                 && exit 1)
 
-          echo "--- Checking runtime guard in template ---"
-          grep -q "keys_are_placeholder" tools/templates/uds_init.c.j2 \
-            && echo "PASS: runtime key guard found in tools/templates/uds_init.c.j2" \
-            || (echo "FAIL: runtime key guard MISSING from template — future codegens will lack the guard" \
-                && exit 1)
+          # Note: template check skipped in public repo — templates are commercial-only.
 
           echo "--- Checking keys_are_placeholder() declared in header ---"
           grep -q "uds_security_algo_keys_are_placeholder" core/uds_security_algo.h \
@@ -456,29 +445,18 @@ jobs:
       - name: Install Python dependencies
         run: pip install pyyaml jinja2 pytest pycryptodome
 
-      - name: Run code generation (with test generation)
-        run: |
-          python3 tools/codegen.py \
-            --config  examples/basic_ecu/diagnostics_config.yaml \
-            --out     examples/basic_ecu/generated/ \
-            --safety-wrappers \
-            --asil-level B \
-            --test-gen \
-            --no-manifest
-
-      - name: Verify generated test files exist
+      - name: Verify pre-committed generated test files exist
         run: |
           test -f examples/basic_ecu/generated/tests/conftest.py      && echo "OK: conftest.py"
           test -f examples/basic_ecu/generated/tests/test_services.py && echo "OK: test_services.py"
           count=$(ls examples/basic_ecu/generated/tests/test_did_*.py | wc -l)
-          echo "Per-DID test files: $count"
+          echo "Per-DID test files: $count (pre-committed)"
           [ "$count" -ge 1 ] || exit 1
-          # Verify per-routine test files (basic_ecu has 3 routines)
           routine_file_count=$(ls examples/basic_ecu/generated/tests/test_routine_*.py 2>/dev/null | wc -l)
           echo "Per-routine test files: $routine_file_count (expected 3)"
           [ "$routine_file_count" -eq 3 ] \
             || (echo "FAIL: expected 3 per-routine files" && exit 1)
-          echo "PASS: basic_ecu per-routine files present"
+          echo "PASS: basic_ecu pre-committed test files present"
 
       - name: Run generated integration tests (simulator mode)
         # [FIX] Exclude test_firmware_services.py — it requires the `firmware_bus`
@@ -564,15 +542,14 @@ jobs:
       - name: Install Python dependencies
         run: pip install pyyaml jinja2
 
-      - name: Run code generation
+      - name: Verify pre-committed generated files are present
         run: |
-          python3 tools/codegen.py \
-            --config  examples/basic_ecu/diagnostics_config.yaml \
-            --out     examples/basic_ecu/generated/ \
-            --safety-wrappers \
-            --asil-level B \
-            --test-gen \
-            --no-manifest
+          for f in examples/basic_ecu/generated/uds_init.c \
+                   examples/basic_ecu/generated/did_handlers.c \
+                   examples/basic_ecu/generated/safety_config.h \
+                   examples/basic_ecu/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
 
       - name: Run GCC static analysis (Pass 1+2+3)
         run: python3 static_analysis_v2.py
@@ -645,7 +622,7 @@ jobs:
       # repo while keeping the workspace root available for west modules.
       - uses: actions/checkout@v4
         with:
-          path: zephyr-diagnostics-suite
+          path: EDS
 
       # [RC-5][RC-6] gcc/g++ for native compilation; cmake/ninja for build
       # system; device-tree-compiler for DTS compilation (dtc >= 1.4.6).
@@ -664,10 +641,10 @@ jobs:
       # After this the layout is:
       #   GITHUB_WORKSPACE/
       #     .west/
-      #     zephyr-diagnostics-suite/   (our repo)
+      #     EDS/   (our repo)
       #     zephyr/                     (fetched by west update)
       - name: Initialize west workspace
-        run: west init -l zephyr-diagnostics-suite
+        run: west init -l EDS
 
       - name: Fetch Zephyr and modules
         run: west update
@@ -681,16 +658,15 @@ jobs:
       - name: Install project Python dependencies
         run: pip install pyyaml jinja2
 
-      - name: Run code generation
-        working-directory: zephyr-diagnostics-suite
+      - name: Verify pre-committed generated files are present
+        working-directory: EDS
         run: |
-          python3 tools/codegen.py \
-            --config  examples/basic_ecu/diagnostics_config.yaml \
-            --out     examples/basic_ecu/generated/ \
-            --safety-wrappers \
-            --asil-level B \
-            --gui-types \
-            --no-manifest
+          for f in examples/basic_ecu/generated/uds_init.c \
+                   examples/basic_ecu/generated/did_handlers.c \
+                   examples/basic_ecu/generated/safety_config.h \
+                   examples/basic_ecu/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
 
       # [RC-1] ZEPHYR_TOOLCHAIN_VARIANT=host → uses system gcc, skips SDK.
       # [RC-3] west build runs from workspace root; source dir passed as arg.
@@ -703,11 +679,11 @@ jobs:
           west build \
             --pristine \
             -b native_sim \
-            zephyr-diagnostics-suite/examples/basic_ecu \
+            EDS/examples/basic_ecu \
             -- \
             -DDIAG_SKIP_CODEGEN=ON \
-            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/zephyr-diagnostics-suite/boards/native_sim/native_sim.conf" \
-            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/zephyr-diagnostics-suite/boards/native_sim/native_sim.overlay"
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.overlay"
 
       - name: Verify binary exists
         run: |
@@ -740,7 +716,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: zephyr-diagnostics-suite
+          path: EDS
 
       - name: Install system dependencies
         run: |
@@ -814,7 +790,7 @@ jobs:
           echo "ZEPHYR_SDK_INSTALL_DIR=${SDK_DIR}" >> "${GITHUB_ENV}"
 
       - name: Initialize west workspace
-        run: west init -l zephyr-diagnostics-suite
+        run: west init -l EDS
 
       - name: Fetch Zephyr and modules
         run: west update
@@ -828,27 +804,26 @@ jobs:
       - name: Install project Python dependencies
         run: pip install pyyaml jinja2
 
-      - name: Run code generation
-        working-directory: zephyr-diagnostics-suite
+      - name: Verify pre-committed generated files are present
+        working-directory: EDS
         run: |
-          python3 tools/codegen.py \
-            --config  examples/basic_ecu/diagnostics_config.yaml \
-            --out     examples/basic_ecu/generated/ \
-            --safety-wrappers \
-            --asil-level B \
-            --gui-types \
-            --no-manifest
+          for f in examples/basic_ecu/generated/uds_init.c \
+                   examples/basic_ecu/generated/did_handlers.c \
+                   examples/basic_ecu/generated/safety_config.h \
+                   examples/basic_ecu/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
 
       - name: West build — nucleo_h743zi
         run: |
           west build \
             --pristine \
             -b nucleo_h743zi \
-            zephyr-diagnostics-suite/examples/basic_ecu \
+            EDS/examples/basic_ecu \
             -- \
             -DDIAG_SKIP_CODEGEN=ON \
-            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/zephyr-diagnostics-suite/boards/nucleo_h743zi/nucleo_h743zi.conf" \
-            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/zephyr-diagnostics-suite/boards/nucleo_h743zi/nucleo_h743zi.overlay"
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h743zi/nucleo_h743zi.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h743zi/nucleo_h743zi.overlay"
 
       - name: Verify ELF + HEX output
         run: |
@@ -902,15 +877,14 @@ jobs:
             /opt/freertos-kernel
           echo "FreeRTOS-Kernel cloned: $(ls /opt/freertos-kernel)"
 
-      - name: Run code generation (basic_ecu_freertos)
+      - name: Verify pre-committed generated files (basic_ecu_freertos)
         run: |
-          python3 tools/codegen.py \
-            --config examples/basic_ecu_freertos/diagnostics_config.yaml \
-            --out    examples/basic_ecu_freertos/generated/ \
-            --safety-wrappers --asil-level B --no-manifest
-          test -f examples/basic_ecu_freertos/generated/uds_init.c \
-            && echo "PASS: generated/uds_init.c present" \
-            || (echo "FAIL: codegen produced no output" && exit 1)
+          for f in examples/basic_ecu_freertos/generated/uds_init.c \
+                   examples/basic_ecu_freertos/generated/did_handlers.c \
+                   examples/basic_ecu_freertos/generated/safety_config.h \
+                   examples/basic_ecu_freertos/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
 
       - name: CMake configure — FreeRTOS Cortex-M4
         run: |
