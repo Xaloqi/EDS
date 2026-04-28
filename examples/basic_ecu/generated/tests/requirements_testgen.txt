@@ -1,0 +1,6 @@
+# =============================================================================
+# GENERATED — pip requirements for running BasicECU integration tests
+# =============================================================================
+pytest>=7.0
+python-can>=4.0
+pycryptodome>=3.18

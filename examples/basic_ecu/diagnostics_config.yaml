@@ -1,0 +1,114 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/basic_ecu/diagnostics_config.yaml
+#
+# PURPOSE: Example ECU diagnostics configuration.
+#          This file is parsed by tools/config_parser.py and consumed by
+#          tools/codegen.py to generate did_handlers.c and uds_init.c.
+#
+# FIX APPLIED (Technical Review — Issue C1):
+#   Engine Speed (0x0C00) and Coolant Temperature (0x0500) were erroneously
+#   placed under the 'dtcs:' key instead of 'dids:'. YAML parsed them as
+#   DTC entries, giving them no 'code' field. codegen.py's validation of
+#   dtcs[2].get("code") returned None, triggering:
+#
+#     [codegen] ERROR: VALIDATION: dtcs[2]: 'code' must be a 6-digit hex
+#     string like 0xC00100, got: None
+#
+#   Fix: moved both entries back to 'dids:' where they belong.
+#   The 'dtcs:' list now correctly contains only the two DTC entries.
+#
+# See tools/config_parser.py for full schema documentation.
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name: "BasicECU"
+  version:  "0.1.0"
+  description: "Example ECU for Xaloqi EDS demonstration"
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+dids:
+  - id:   "0xF190"
+    name: "Vehicle Identification Number"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+  - id:   "0xF18C"
+    name: "ECU Serial Number"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 4
+
+  - id:   "0xF187"
+    name: "Vehicle Manufacturer Spare Part Number"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 11
+
+  # ── Live sensor DIDs ──────────────────────────────────────────────────────
+  # These were previously misplaced under 'dtcs:' — moved here (Issue C1).
+
+  - id:   "0x0C00"
+    name: "Engine Speed"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0x0500"
+    name: "Coolant Temperature"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+
+dtcs:
+  - code:        "0xC00100"
+    description: "CAN bus communication loss"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC00200"
+    description: "Diagnostic transport layer timeout"
+    severity:    "maintenance_only"
+
+routines:
+  - id:   "0xFF00"
+    name: "ECU_SelfTest"
+    description: "Run internal self-test (RAM, ROM checksum, sensor plausibility)"
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+  - id:   "0xFF01"
+    name: "ResetToFactoryDefaults"
+    description: "Reset all calibration DIDs to factory default values in NVM"
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start"]
+
+  - id:   "0xFF10"
+    name: "EraseNVM"
+    description: "Erase calibration NVM sector (prerequisite for firmware download)"
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start", "results"]
