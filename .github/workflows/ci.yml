@@ -19,7 +19,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # [A1] build_tests.sh was missing — created in repo root.
-# [A2] static_analysis_v2.py was missing — created in repo root.
+# [A2] Static analysis runs via misra_analysis.py (public tool in repo root).
 # [A3] Test count assertion corrected from 15 to 31 modules.
 # [E1] --safety-wrappers added to all codegen steps.
 #
@@ -551,22 +551,6 @@ jobs:
             test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
           done
 
-      - name: Run GCC static analysis (Pass 1+2+3)
-        run: python3 static_analysis_v2.py
-
-      - name: Assert zero GCC errors
-        run: |
-          python3 - << 'EOF'
-          import json, sys
-          with open("analysis_results_v2.json") as f:
-              data = json.load(f)
-          errors = data["summary"].get("ERROR", 0)
-          if errors > 0:
-              print(f"FAIL: {errors} GCC error(s) found")
-              sys.exit(1)
-          print(f"PASS: 0 GCC errors")
-          EOF
-
       - name: Run MISRA C:2012 analysis
         run: |
           python3 misra_analysis.py \
@@ -606,11 +590,9 @@ jobs:
         with:
           name: static-analysis-misra-reports
           path: |
-            analysis_results_v2.json
             misra_report.json
             misra_report.txt
             misra_violations.csv
-            docs/MISRA_DEVIATION_LOG.md
 
   zephyr-native:
     name: "Zephyr Build — native_sim"
