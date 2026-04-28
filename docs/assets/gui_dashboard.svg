@@ -1,0 +1,445 @@
+<svg viewBox="0 0 1280 800" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f1117"/>
+      <stop offset="100%" stop-color="#0d0f14"/>
+    </linearGradient>
+    <linearGradient id="panelGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1d27"/>
+      <stop offset="100%" stop-color="#161820"/>
+    </linearGradient>
+    <linearGradient id="sparkGreen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.4"/>
+    </linearGradient>
+    <linearGradient id="sparkBlue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.4"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="800" fill="url(#bg)"/>
+
+  <!-- Top navbar -->
+  <rect x="0" y="0" width="1280" height="44" fill="#111318" rx="0"/>
+  <rect x="0" y="43" width="1280" height="1" fill="#2a2d3a"/>
+
+  <!-- Logo -->
+  <text x="18" y="28" font-size="15" font-weight="700" fill="#e2e8f0" letter-spacing="0.5">Xaloqi EDS</text>
+  <text x="110" y="28" font-size="11" fill="#64748b">v1.3.0</text>
+
+  <!-- Nav tabs -->
+  <rect x="180" y="0" width="80" height="44" fill="none"/>
+  <text x="220" y="26" font-size="12" fill="#94a3b8" text-anchor="middle">Overview</text>
+
+  <rect x="260" y="0" width="68" height="44" fill="#1e2030"/>
+  <rect x="260" y="41" width="68" height="3" fill="#3b82f6" rx="1"/>
+  <text x="294" y="26" font-size="12" fill="#e2e8f0" font-weight="600" text-anchor="middle">DIDs</text>
+
+  <text x="366" y="26" font-size="12" fill="#94a3b8" text-anchor="middle">DTCs</text>
+  <text x="432" y="26" font-size="12" fill="#94a3b8" text-anchor="middle">Security</text>
+  <text x="500" y="26" font-size="12" fill="#94a3b8" text-anchor="middle">Routines</text>
+  <text x="580" y="26" font-size="12" fill="#94a3b8" text-anchor="middle">Raw Frames</text>
+  <text x="664" y="26" font-size="12" fill="#94a3b8" text-anchor="middle">Console</text>
+  <text x="745" y="26" font-size="12" fill="#94a3b8" text-anchor="middle">Configurator</text>
+
+  <!-- Connection bar (right side of nav) -->
+  <circle cx="1158" cy="22" r="5" fill="#10b981" filter="url(#glow)"/>
+  <text x="1168" y="27" font-size="11" fill="#10b981" font-weight="600">Connected</text>
+  <text x="1095" y="27" font-size="10" fill="#64748b">native_sim · vcan0</text>
+
+  <!-- ═══ LEFT COLUMN — DID panel ═══ -->
+  <rect x="12" y="56" width="420" height="540" rx="8" fill="url(#panelGrad)" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="28" y="80" font-size="13" font-weight="600" fill="#e2e8f0">Data Identifiers</text>
+  <text x="390" y="80" font-size="10" fill="#64748b" text-anchor="end">ReadDataByIdentifier · 0x22</text>
+
+  <!-- DID selector row -->
+  <rect x="24" y="90" width="260" height="30" rx="5" fill="#111318" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="36" y="110" font-size="11" fill="#94a3b8">0xF190</text>
+  <text x="90" y="110" font-size="11" fill="#e2e8f0">VehicleIdentificationNumber</text>
+
+  <rect x="292" y="90" width="64" height="30" rx="5" fill="#1e40af" stroke="#3b82f6" stroke-width="1"/>
+  <text x="324" y="110" font-size="12" fill="#e2e8f0" font-weight="600" text-anchor="middle">Read</text>
+
+  <rect x="362" y="90" width="62" height="30" rx="5" fill="#1a1d27" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="393" y="110" font-size="12" fill="#64748b" text-anchor="middle">Write</text>
+
+  <!-- DID response area -->
+  <rect x="24" y="130" width="400" height="60" rx="5" fill="#0d0f14" stroke="#1e2a3a" stroke-width="1"/>
+  <text x="36" y="150" font-size="10" fill="#64748b">Response · 17 bytes · 14:23:07.441</text>
+  <!-- hex bytes -->
+  <rect x="32" y="157" width="24" height="16" rx="3" fill="#1e3a5f"/>
+  <text x="44" y="169" font-size="9" fill="#93c5fd" text-anchor="middle">31</text>
+  <rect x="60" y="157" width="24" height="16" rx="3" fill="#1e3a5f"/>
+  <text x="72" y="169" font-size="9" fill="#93c5fd" text-anchor="middle">48</text>
+  <rect x="88" y="157" width="24" height="16" rx="3" fill="#1e3a5f"/>
+  <text x="100" y="169" font-size="9" fill="#93c5fd" text-anchor="middle">47</text>
+  <rect x="116" y="157" width="24" height="16" rx="3" fill="#1e3a5f"/>
+  <text x="128" y="169" font-size="9" fill="#93c5fd" text-anchor="middle">42</text>
+  <rect x="144" y="157" width="24" height="16" rx="3" fill="#1e3a5f"/>
+  <text x="156" y="169" font-size="9" fill="#93c5fd" text-anchor="middle">48</text>
+  <rect x="172" y="157" width="24" height="16" rx="3" fill="#1e3a5f"/>
+  <text x="184" y="169" font-size="9" fill="#93c5fd" text-anchor="middle">34</text>
+  <rect x="200" y="157" width="24" height="16" rx="3" fill="#1e3a5f"/>
+  <text x="212" y="169" font-size="9" fill="#93c5fd" text-anchor="middle">31</text>
+  <text x="234" y="169" font-size="9" fill="#334155">···</text>
+
+  <!-- DID history with sparklines -->
+  <text x="28" y="213" font-size="10" fill="#64748b" font-weight="600" letter-spacing="0.8">RECENT READS</text>
+
+  <!-- Row 1: AmbientTemperature -->
+  <rect x="24" y="222" width="400" height="48" rx="5" fill="#0f1117" stroke="#1e2a3a" stroke-width="1"/>
+  <text x="36" y="238" font-size="10" fill="#94a3b8">0xD001</text>
+  <text x="88" y="238" font-size="11" fill="#e2e8f0" font-weight="500">AmbientTemperature</text>
+  <text x="36" y="254" font-size="11" fill="#10b981" font-weight="600">25 °C</text>
+  <text x="82" y="254" font-size="9" fill="#64748b">raw 0x41</text>
+  <!-- sparkline area -->
+  <rect x="280" y="228" width="136" height="34" rx="3" fill="#0a0c10"/>
+  <polyline points="285,255 295,251 305,248 315,252 325,246 335,250 340,243 350,246 360,241 370,244 380,239 390,242 400,238 410,240" fill="url(#sparkGreen)" stroke="#10b981" stroke-width="1.5" fill-opacity="0.3"/>
+  <text x="416" y="248" font-size="10" fill="#10b981" font-weight="600" text-anchor="end">+2.1</text>
+
+  <!-- Row 2: SupplyVoltage -->
+  <rect x="24" y="276" width="400" height="48" rx="5" fill="#0f1117" stroke="#1e2a3a" stroke-width="1"/>
+  <text x="36" y="292" font-size="10" fill="#94a3b8">0xD002</text>
+  <text x="88" y="292" font-size="11" fill="#e2e8f0" font-weight="500">SupplyVoltage</text>
+  <text x="36" y="308" font-size="11" fill="#3b82f6" font-weight="600">12,340 mV</text>
+  <text x="100" y="308" font-size="9" fill="#64748b">12.34 V</text>
+  <!-- sparkline -->
+  <rect x="280" y="282" width="136" height="34" rx="3" fill="#0a0c10"/>
+  <polyline points="285,306 295,305 305,304 315,305 325,303 335,306 340,304 350,305 360,303 370,304 380,302 390,304 400,303 410,302" fill="url(#sparkBlue)" stroke="#3b82f6" stroke-width="1.5" fill-opacity="0.3"/>
+
+  <!-- Row 3: SensorStatusBitmask -->
+  <rect x="24" y="330" width="400" height="48" rx="5" fill="#0f1117" stroke="#1e2a3a" stroke-width="1"/>
+  <text x="36" y="346" font-size="10" fill="#94a3b8">0xD003</text>
+  <text x="88" y="346" font-size="11" fill="#e2e8f0" font-weight="500">SensorStatusBitmask</text>
+  <text x="36" y="362" font-size="11" fill="#a78bfa" font-weight="600">0x03</text>
+  <rect x="76" y="353" width="42" height="14" rx="3" fill="#1e1a3a"/>
+  <text x="97" y="363" font-size="8" fill="#a78bfa" text-anchor="middle">OK·OK</text>
+
+  <!-- Row 4: VIN -->
+  <rect x="24" y="384" width="400" height="48" rx="5" fill="#0f1117" stroke="#1e2a3a" stroke-width="1"/>
+  <text x="36" y="400" font-size="10" fill="#94a3b8">0xF190</text>
+  <text x="88" y="400" font-size="11" fill="#e2e8f0" font-weight="500">VehicleIdentificationNumber</text>
+  <text x="36" y="416" font-size="10" fill="#94a3b8" font-family="monospace">1HGBH41JXMN109186</text>
+
+  <!-- Row 5: ECUSerialNumber -->
+  <rect x="24" y="438" width="400" height="48" rx="5" fill="#0f1117" stroke="#1e2a3a" stroke-width="1"/>
+  <text x="36" y="454" font-size="10" fill="#94a3b8">0xF18C</text>
+  <text x="88" y="454" font-size="11" fill="#e2e8f0" font-weight="500">ECUSerialNumber</text>
+  <text x="36" y="470" font-size="10" fill="#94a3b8" font-family="monospace">58 41 4C 4F 51 49 30 31</text>
+
+  <!-- clear history button -->
+  <text x="24" y="508" font-size="10" fill="#475569">Clear history</text>
+  <text x="400" y="508" font-size="10" fill="#64748b" text-anchor="end">5 reads · last 30 s</text>
+
+  <!-- ═══ CENTRE COLUMN — DTCs + Security ═══ -->
+  <!-- DTCs panel -->
+  <rect x="444" y="56" width="390" height="260" rx="8" fill="url(#panelGrad)" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="460" y="80" font-size="13" font-weight="600" fill="#e2e8f0">Diagnostic Trouble Codes</text>
+  <text x="822" y="80" font-size="10" fill="#64748b" text-anchor="end">0x19 · 0x14</text>
+
+  <!-- DTC filter row -->
+  <rect x="456" y="90" width="110" height="26" rx="4" fill="#7f1d1d" stroke="#991b1b" stroke-width="1"/>
+  <text x="511" y="107" font-size="11" fill="#fca5a5" font-weight="600" text-anchor="middle">2 Active</text>
+  <rect x="572" y="90" width="80" height="26" rx="4" fill="#111318" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="612" y="107" font-size="11" fill="#64748b" text-anchor="middle">All</text>
+  <rect x="658" y="90" width="100" height="26" rx="4" fill="#111318" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="708" y="107" font-size="11" fill="#64748b" text-anchor="middle">Confirmed</text>
+
+  <!-- Clear DTCs button -->
+  <rect x="770" y="90" width="60" height="26" rx="4" fill="#1a1d27" stroke="#374151" stroke-width="1"/>
+  <text x="800" y="107" font-size="10" fill="#9ca3af" text-anchor="middle">Clear All</text>
+
+  <!-- DTC rows -->
+  <!-- Active DTC 1 -->
+  <rect x="456" y="124" width="370" height="56" rx="5" fill="#1c0a0a" stroke="#7f1d1d" stroke-width="1"/>
+  <rect x="456" y="124" width="4" height="56" rx="2" fill="#ef4444"/>
+  <text x="470" y="143" font-size="10" fill="#f87171" font-weight="700" font-family="monospace">0xD00101</text>
+  <rect x="540" y="134" width="88" height="14" rx="3" fill="#7f1d1d"/>
+  <text x="584" y="144" font-size="9" fill="#fca5a5" text-anchor="middle">TEST_FAILED</text>
+  <text x="638" y="143" font-size="9" fill="#ef4444">● ACTIVE</text>
+  <text x="470" y="161" font-size="10" fill="#9ca3af">Ambient temperature sensor — over-range</text>
+  <text x="818" y="161" font-size="9" fill="#64748b" text-anchor="end">14:22:51</text>
+
+  <!-- Active DTC 2 -->
+  <rect x="456" y="186" width="370" height="56" rx="5" fill="#1c0a0a" stroke="#7f1d1d" stroke-width="1"/>
+  <rect x="456" y="186" width="4" height="56" rx="2" fill="#f59e0b"/>
+  <text x="470" y="205" font-size="10" fill="#fbbf24" font-weight="700" font-family="monospace">0xF00001</text>
+  <rect x="544" y="196" width="80" height="14" rx="3" fill="#78350f"/>
+  <text x="584" y="206" font-size="9" fill="#fcd34d" text-anchor="middle">PENDING</text>
+  <text x="640" y="205" font-size="9" fill="#f59e0b">◐ PENDING</text>
+  <text x="470" y="223" font-size="10" fill="#9ca3af">DFU transfer CRC mismatch — image rejected</text>
+  <text x="818" y="223" font-size="9" fill="#64748b" text-anchor="end">14:21:09</text>
+
+  <!-- Cleared DTC -->
+  <rect x="456" y="248" width="370" height="48" rx="5" fill="#0f1117" stroke="#1e2a3a" stroke-width="1"/>
+  <rect x="456" y="248" width="4" height="48" rx="2" fill="#374151"/>
+  <text x="470" y="265" font-size="10" fill="#6b7280" font-family="monospace">0xD00201</text>
+  <rect x="540" y="256" width="56" height="14" rx="3" fill="#1e2030"/>
+  <text x="568" y="266" font-size="9" fill="#6b7280" text-anchor="middle">CLEARED</text>
+  <text x="470" y="283" font-size="10" fill="#6b7280">Supply voltage — over-range</text>
+  <text x="818" y="283" font-size="9" fill="#4b5563" text-anchor="end">14:18:33</text>
+
+  <!-- Security panel -->
+  <rect x="444" y="326" width="390" height="270" rx="8" fill="url(#panelGrad)" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="460" y="350" font-size="13" font-weight="600" fill="#e2e8f0">Security Access</text>
+  <text x="822" y="350" font-size="10" fill="#64748b" text-anchor="end">0x27</text>
+
+  <!-- Security level selector -->
+  <text x="460" y="375" font-size="10" fill="#94a3b8">Security Level</text>
+  <rect x="460" y="382" width="80" height="26" rx="4" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+  <text x="500" y="399" font-size="12" fill="#93c5fd" font-weight="700" text-anchor="middle">Level 1</text>
+  <rect x="546" y="382" width="80" height="26" rx="4" fill="#111318" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="586" y="399" font-size="12" fill="#64748b" text-anchor="middle">Level 2</text>
+
+  <!-- Step 1: Request Seed -->
+  <rect x="460" y="416" width="360" height="44" rx="5" fill="#0f1117" stroke="#2a2d3a" stroke-width="1"/>
+  <circle cx="480" cy="438" r="10" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+  <text x="480" y="442" font-size="9" fill="#93c5fd" text-anchor="middle" font-weight="700">1</text>
+  <text x="500" y="434" font-size="11" fill="#e2e8f0" font-weight="500">Request Seed</text>
+  <text x="500" y="450" font-size="9" fill="#64748b">27 01 → 67 01 CE F4 12 3A 88 B7 … (16 bytes)</text>
+  <circle cx="812" cy="438" r="6" fill="#10b981"/>
+  <text x="812" y="442" font-size="8" fill="#fff" text-anchor="middle">✓</text>
+
+  <!-- Step 2: Send Key -->
+  <rect x="460" y="466" width="360" height="44" rx="5" fill="#0f1117" stroke="#2a2d3a" stroke-width="1"/>
+  <circle cx="480" cy="488" r="10" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+  <text x="480" y="492" font-size="9" fill="#93c5fd" text-anchor="middle" font-weight="700">2</text>
+  <text x="500" y="484" font-size="11" fill="#e2e8f0" font-weight="500">Send Key (AES-128-CMAC)</text>
+  <text x="500" y="500" font-size="9" fill="#64748b">27 02 A3 7F 2E … → 67 02</text>
+  <circle cx="812" cy="488" r="6" fill="#10b981"/>
+  <text x="812" y="492" font-size="8" fill="#fff" text-anchor="middle">✓</text>
+
+  <!-- Status badge -->
+  <rect x="460" y="518" width="360" height="34" rx="5" fill="#052e16" stroke="#166534" stroke-width="1"/>
+  <circle cx="478" cy="535" r="5" fill="#10b981" filter="url(#glow)"/>
+  <text x="492" y="539" font-size="11" fill="#4ade80" font-weight="600">Security Level 1 — GRANTED</text>
+  <text x="730" y="539" font-size="10" fill="#10b981" text-anchor="end">14:23:04.221</text>
+
+  <!-- Attempt counter -->
+  <text x="460" y="568" font-size="10" fill="#64748b">Failed attempts: 0 / 3</text>
+  <text x="822" y="568" font-size="10" fill="#64748b" text-anchor="end">Delay: none</text>
+
+  <!-- ═══ RIGHT COLUMN — Routines + Raw Frames ═══ -->
+  <!-- Routines panel -->
+  <rect x="846" y="56" width="422" height="240" rx="8" fill="url(#panelGrad)" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="862" y="80" font-size="13" font-weight="600" fill="#e2e8f0">Routines</text>
+  <text x="1256" y="80" font-size="10" fill="#64748b" text-anchor="end">RoutineControl · 0x31</text>
+
+  <!-- Routine selector -->
+  <rect x="858" y="90" width="240" height="30" rx="5" fill="#111318" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="870" y="110" font-size="10" fill="#94a3b8">0xFF00</text>
+  <text x="910" y="110" font-size="11" fill="#e2e8f0">CheckProgrammingPreconditions</text>
+
+  <rect x="1106" y="90" width="54" height="30" rx="5" fill="#065f46" stroke="#059669" stroke-width="1"/>
+  <text x="1133" y="110" font-size="11" fill="#34d399" font-weight="600" text-anchor="middle">Start</text>
+  <rect x="1166" y="90" width="54" height="30" rx="5" fill="#1a1d27" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="1193" y="110" font-size="11" fill="#64748b" text-anchor="middle">Stop</text>
+  <rect x="1226" y="90" width="54" height="30" rx="5" fill="#1a1d27" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="1253" y="110" font-size="11" fill="#64748b" text-anchor="middle">Result</text>
+
+  <!-- Routine results -->
+  <rect x="858" y="130" width="402" height="56" rx="5" fill="#0a1a0f" stroke="#166534" stroke-width="1"/>
+  <text x="870" y="148" font-size="10" fill="#4ade80" font-weight="600">● START RESPONSE — 31 71 FF 00 01 ← positive</text>
+  <text x="870" y="164" font-size="10" fill="#6b7280">Status record: 01 — PASS (voltage OK, no active safety DTCs)</text>
+  <text x="1252" y="164" font-size="9" fill="#4b5563" text-anchor="end">14:23:05</text>
+
+  <!-- Second routine -->
+  <rect x="858" y="194" width="402" height="48" rx="5" fill="#0f1117" stroke="#1e2a3a" stroke-width="1"/>
+  <text x="870" y="212" font-size="10" fill="#94a3b8">0xFF01</text>
+  <text x="910" y="212" font-size="11" fill="#9ca3af">VerifyBootloaderIntegrity</text>
+  <text x="870" y="230" font-size="9" fill="#6b7280">Requires: programming session · security level 1</text>
+  <rect x="1196" y="202" width="60" height="24" rx="4" fill="#1a1d27" stroke="#374151" stroke-width="1"/>
+  <text x="1226" y="218" font-size="10" fill="#64748b" text-anchor="middle">Locked</text>
+
+  <!-- Raw Frames panel -->
+  <rect x="846" y="306" width="422" height="290" rx="8" fill="url(#panelGrad)" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="862" y="330" font-size="13" font-weight="600" fill="#e2e8f0">Raw Frames</text>
+  <text x="1256" y="330" font-size="10" fill="#64748b" text-anchor="end">ISO-TP · CAN</text>
+
+  <!-- Filter bar -->
+  <rect x="858" y="340" width="130" height="24" rx="4" fill="#111318" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="870" y="356" font-size="10" fill="#475569">Filter CAN ID…</text>
+  <rect x="994" y="340" width="60" height="24" rx="4" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+  <text x="1024" y="356" font-size="10" fill="#93c5fd" text-anchor="middle">All</text>
+  <rect x="1060" y="340" width="60" height="24" rx="4" fill="#111318" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="1090" y="356" font-size="10" fill="#64748b" text-anchor="middle">Rx</text>
+  <rect x="1126" y="340" width="60" height="24" rx="4" fill="#111318" stroke="#2a2d3a" stroke-width="1"/>
+  <text x="1156" y="356" font-size="10" fill="#64748b" text-anchor="middle">Tx</text>
+  <rect x="1196" y="340" width="60" height="24" rx="4" fill="#1a1d27" stroke="#374151" stroke-width="1"/>
+  <text x="1226" y="356" font-size="10" fill="#9ca3af" text-anchor="middle">Clear</text>
+
+  <!-- Frame rows -->
+  <rect x="858" y="372" width="402" height="24" rx="3" fill="#0f1117"/>
+  <text x="866" y="387" font-size="9" fill="#475569" font-family="monospace">14:23:07.441</text>
+  <rect x="940" y="375" width="16" height="14" rx="2" fill="#1e3a5f"/>
+  <text x="948" y="385" font-size="8" fill="#93c5fd" text-anchor="middle">Rx</text>
+  <text x="962" y="387" font-size="9" fill="#6b7280" font-family="monospace">7DF</text>
+  <text x="990" y="387" font-size="9" fill="#e2e8f0" font-family="monospace">02 22 F1 90</text>
+  <text x="1200" y="387" font-size="8" fill="#64748b" text-anchor="end">ReadDataByIdentifier 0xF190</text>
+
+  <rect x="858" y="398" width="402" height="24" rx="3" fill="#0a1a2e"/>
+  <text x="866" y="413" font-size="9" fill="#475569" font-family="monospace">14:23:07.443</text>
+  <rect x="940" y="401" width="16" height="14" rx="2" fill="#1e3a5f" opacity="0.5"/>
+  <text x="948" y="411" font-size="8" fill="#3b82f6" text-anchor="middle">Tx</text>
+  <text x="962" y="413" font-size="9" fill="#6b7280" font-family="monospace">7E8</text>
+  <text x="990" y="413" font-size="9" fill="#93c5fd" font-family="monospace">10 14 62 F1 90 31 48 47</text>
+  <text x="1200" y="413" font-size="8" fill="#64748b" text-anchor="end">FF · 20 bytes</text>
+
+  <rect x="858" y="424" width="402" height="24" rx="3" fill="#0a1a2e"/>
+  <text x="866" y="439" font-size="9" fill="#475569" font-family="monospace">14:23:07.444</text>
+  <rect x="940" y="427" width="16" height="14" rx="2" fill="#1e3a5f" opacity="0.5"/>
+  <text x="948" y="437" font-size="8" fill="#3b82f6" text-anchor="middle">Tx</text>
+  <text x="962" y="439" font-size="9" fill="#6b7280" font-family="monospace">7E8</text>
+  <text x="990" y="439" font-size="9" fill="#93c5fd" font-family="monospace">21 42 48 34 31 4A 58 4D</text>
+  <text x="1200" y="439" font-size="8" fill="#64748b" text-anchor="end">CF #1</text>
+
+  <rect x="858" y="450" width="402" height="24" rx="3" fill="#0a1a2e"/>
+  <text x="866" y="465" font-size="9" fill="#475569" font-family="monospace">14:23:07.444</text>
+  <rect x="940" y="453" width="16" height="14" rx="2" fill="#1e3a5f" opacity="0.5"/>
+  <text x="948" y="463" font-size="8" fill="#3b82f6" text-anchor="middle">Tx</text>
+  <text x="962" y="465" font-size="9" fill="#6b7280" font-family="monospace">7E8</text>
+  <text x="990" y="465" font-size="9" fill="#93c5fd" font-family="monospace">22 4E 31 30 39 31 38 36</text>
+  <text x="1200" y="465" font-size="8" fill="#64748b" text-anchor="end">CF #2</text>
+
+  <rect x="858" y="476" width="402" height="24" rx="3" fill="#0f1117"/>
+  <text x="866" y="491" font-size="9" fill="#475569" font-family="monospace">14:23:06.002</text>
+  <rect x="940" y="479" width="16" height="14" rx="2" fill="#1e3a5f"/>
+  <text x="948" y="489" font-size="8" fill="#93c5fd" text-anchor="middle">Rx</text>
+  <text x="962" y="491" font-size="9" fill="#6b7280" font-family="monospace">7DF</text>
+  <text x="990" y="491" font-size="9" fill="#e2e8f0" font-family="monospace">02 27 01</text>
+  <text x="1200" y="491" font-size="8" fill="#64748b" text-anchor="end">SecurityAccess seed req</text>
+
+  <rect x="858" y="502" width="402" height="24" rx="3" fill="#0a1a2e"/>
+  <text x="866" y="517" font-size="9" fill="#475569" font-family="monospace">14:23:06.003</text>
+  <rect x="940" y="505" width="16" height="14" rx="2" fill="#1e3a5f" opacity="0.5"/>
+  <text x="948" y="515" font-size="8" fill="#3b82f6" text-anchor="middle">Tx</text>
+  <text x="962" y="517" font-size="9" fill="#6b7280" font-family="monospace">7E8</text>
+  <text x="990" y="517" font-size="9" fill="#93c5fd" font-family="monospace">12 67 01 CE F4 12 3A 88</text>
+  <text x="1200" y="517" font-size="8" fill="#64748b" text-anchor="end">seed (16 bytes)</text>
+
+  <rect x="858" y="528" width="402" height="24" rx="3" fill="#0f1117"/>
+  <text x="866" y="543" font-size="9" fill="#475569" font-family="monospace">14:23:04.221</text>
+  <rect x="940" y="531" width="16" height="14" rx="2" fill="#1e3a5f"/>
+  <text x="948" y="541" font-size="8" fill="#93c5fd" text-anchor="middle">Rx</text>
+  <text x="962" y="543" font-size="9" fill="#6b7280" font-family="monospace">7DF</text>
+  <text x="990" y="543" font-size="9" fill="#e2e8f0" font-family="monospace">01 3E 80</text>
+  <text x="1200" y="543" font-size="8" fill="#64748b" text-anchor="end">TesterPresent (suppress)</text>
+
+  <text x="862" y="578" font-size="9" fill="#4b5563">Showing 7 of 142 frames · Auto-scroll on</text>
+
+  <!-- ═══ BOTTOM STATUS BAR ═══ -->
+  <rect x="0" y="608" width="1280" height="192" fill="#0d0f14" rx="0"/>
+  <rect x="0" y="608" width="1280" height="1" fill="#1e2030"/>
+
+  <!-- Overview stats row -->
+  <rect x="12" y="620" width="1256" height="168" rx="8" fill="#111318" stroke="#1e2030" stroke-width="1"/>
+
+  <!-- UDS Stack status -->
+  <text x="28" y="642" font-size="10" fill="#64748b" font-weight="600" letter-spacing="0.8">UDS STACK</text>
+  <circle cx="30" cy="657" r="4" fill="#10b981" filter="url(#glow)"/>
+  <text x="40" y="661" font-size="11" fill="#10b981" font-weight="600">Running</text>
+  <text x="28" y="676" font-size="10" fill="#64748b">Session</text>
+  <text x="90" y="676" font-size="10" fill="#fbbf24" font-weight="600">Extended</text>
+  <text x="28" y="692" font-size="10" fill="#64748b">Security</text>
+  <text x="90" y="692" font-size="10" fill="#4ade80" font-weight="600">Level 1</text>
+  <text x="28" y="708" font-size="10" fill="#64748b">Uptime</text>
+  <text x="90" y="708" font-size="10" fill="#94a3b8">00:04:32</text>
+  <text x="28" y="724" font-size="10" fill="#64748b">ECU</text>
+  <text x="90" y="724" font-size="10" fill="#94a3b8">SensorECU v1.0.0</text>
+  <text x="28" y="740" font-size="10" fill="#64748b">CI</text>
+  <text x="90" y="740" font-size="10" fill="#94a3b8">16/16 jobs ✓</text>
+
+  <rect x="180" y="628" width="1" height="150" fill="#1e2030"/>
+
+  <!-- Request/response stats -->
+  <text x="196" y="642" font-size="10" fill="#64748b" font-weight="600" letter-spacing="0.8">DIAGNOSTICS STATS</text>
+  <text x="196" y="662" font-size="10" fill="#64748b">Requests</text>
+  <text x="280" y="662" font-size="11" fill="#e2e8f0" font-weight="600">1,247</text>
+  <text x="196" y="678" font-size="10" fill="#64748b">Positive</text>
+  <text x="280" y="678" font-size="11" fill="#10b981" font-weight="600">1,231</text>
+  <text x="196" y="694" font-size="10" fill="#64748b">NRC</text>
+  <text x="280" y="694" font-size="11" fill="#ef4444" font-weight="600">16</text>
+  <text x="196" y="710" font-size="10" fill="#64748b">DID reads</text>
+  <text x="280" y="710" font-size="11" fill="#e2e8f0" font-weight="600">892</text>
+  <text x="196" y="726" font-size="10" fill="#64748b">DID writes</text>
+  <text x="280" y="726" font-size="11" fill="#e2e8f0" font-weight="600">12</text>
+  <text x="196" y="742" font-size="10" fill="#64748b">Routines</text>
+  <text x="280" y="742" font-size="11" fill="#e2e8f0" font-weight="600">8</text>
+
+  <rect x="380" y="628" width="1" height="150" fill="#1e2030"/>
+
+  <!-- Services active status -->
+  <text x="396" y="642" font-size="10" fill="#64748b" font-weight="600" letter-spacing="0.8">SERVICES</text>
+  <text x="396" y="661" font-size="10" fill="#10b981">● 0x10</text><text x="424" y="661" font-size="10" fill="#6b7280"> DiagSessionControl</text>
+  <text x="396" y="675" font-size="10" fill="#10b981">● 0x11</text><text x="424" y="675" font-size="10" fill="#6b7280"> ECUReset</text>
+  <text x="396" y="689" font-size="10" fill="#10b981">● 0x14</text><text x="424" y="689" font-size="10" fill="#6b7280"> ClearDiagInfo</text>
+  <text x="396" y="703" font-size="10" fill="#10b981">● 0x19</text><text x="424" y="703" font-size="10" fill="#6b7280"> ReadDTCInfo</text>
+  <text x="396" y="717" font-size="10" fill="#10b981">● 0x22</text><text x="424" y="717" font-size="10" fill="#6b7280"> ReadDataByID</text>
+  <text x="396" y="731" font-size="10" fill="#10b981">● 0x27</text><text x="424" y="731" font-size="10" fill="#6b7280"> SecurityAccess</text>
+  <text x="396" y="745" font-size="10" fill="#10b981">● 0x2E</text><text x="424" y="745" font-size="10" fill="#6b7280"> WriteDataByID</text>
+
+  <text x="580" y="661" font-size="10" fill="#10b981">● 0x31</text><text x="608" y="661" font-size="10" fill="#6b7280"> RoutineControl</text>
+  <text x="580" y="675" font-size="10" fill="#10b981">● 0x34</text><text x="608" y="675" font-size="10" fill="#6b7280"> RequestDownload</text>
+  <text x="580" y="689" font-size="10" fill="#10b981">● 0x36</text><text x="608" y="689" font-size="10" fill="#6b7280"> TransferData</text>
+  <text x="580" y="703" font-size="10" fill="#10b981">● 0x37</text><text x="608" y="703" font-size="10" fill="#6b7280"> TransferExit</text>
+  <text x="580" y="717" font-size="10" fill="#10b981">● 0x3D</text><text x="608" y="717" font-size="10" fill="#6b7280"> FileTransfer</text>
+  <text x="580" y="731" font-size="10" fill="#10b981">● 0x3E</text><text x="608" y="731" font-size="10" fill="#6b7280"> TesterPresent</text>
+  <text x="580" y="745" font-size="10" fill="#10b981">● 0x28</text><text x="608" y="745" font-size="10" fill="#6b7280"> CommControl</text>
+
+  <rect x="760" y="628" width="1" height="150" fill="#1e2030"/>
+
+  <!-- ASIL-B status -->
+  <text x="776" y="642" font-size="10" fill="#64748b" font-weight="600" letter-spacing="0.8">SAFETY</text>
+  <rect x="776" y="650" width="120" height="22" rx="4" fill="#052e16" stroke="#166534" stroke-width="1"/>
+  <text x="836" y="665" font-size="10" fill="#4ade80" font-weight="700" text-anchor="middle">ASIL-B Ready</text>
+  <text x="776" y="685" font-size="10" fill="#64748b">5-step wrapper</text>
+  <circle cx="884" cy="682" r="4" fill="#10b981"/>
+  <text x="776" y="700" font-size="10" fill="#64748b">Safety self-test</text>
+  <circle cx="884" cy="697" r="4" fill="#10b981"/>
+  <text x="776" y="715" font-size="10" fill="#64748b">MISRA deviations</text>
+  <text x="884" y="715" font-size="10" fill="#94a3b8">38 logged</text>
+  <text x="776" y="730" font-size="10" fill="#64748b">Violations</text>
+  <text x="884" y="730" font-size="10" fill="#10b981" font-weight="600">0</text>
+  <text x="776" y="745" font-size="10" fill="#64748b">DID count</text>
+  <text x="884" y="745" font-size="10" fill="#94a3b8">7 configured</text>
+
+  <rect x="960" y="628" width="1" height="150" fill="#1e2030"/>
+
+  <!-- ISO-TP stats -->
+  <text x="976" y="642" font-size="10" fill="#64748b" font-weight="600" letter-spacing="0.8">ISO-TP TRANSPORT</text>
+  <text x="976" y="661" font-size="10" fill="#64748b">Frames Rx</text>
+  <text x="1080" y="661" font-size="11" fill="#e2e8f0">2,431</text>
+  <text x="976" y="676" font-size="10" fill="#64748b">Frames Tx</text>
+  <text x="1080" y="676" font-size="11" fill="#e2e8f0">3,118</text>
+  <text x="976" y="691" font-size="10" fill="#64748b">Multi-frame</text>
+  <text x="1080" y="691" font-size="11" fill="#e2e8f0">47</text>
+  <text x="976" y="706" font-size="10" fill="#64748b">P2 avg</text>
+  <text x="1080" y="706" font-size="11" fill="#e2e8f0">2.1 ms</text>
+  <text x="976" y="721" font-size="10" fill="#64748b">P2 max</text>
+  <text x="1080" y="721" font-size="11" fill="#fbbf24">18.4 ms</text>
+  <text x="976" y="736" font-size="10" fill="#64748b">Errors</text>
+  <text x="1080" y="736" font-size="11" fill="#10b981">0</text>
+
+  <rect x="1160" y="628" width="1" height="150" fill="#1e2030"/>
+
+  <!-- SafeBoot status -->
+  <text x="1176" y="642" font-size="10" fill="#64748b" font-weight="600" letter-spacing="0.8">SAFEBOOT</text>
+  <rect x="1176" y="650" width="80" height="20" rx="4" fill="#1c1917" stroke="#57534e" stroke-width="1"/>
+  <text x="1216" y="664" font-size="10" fill="#a8a29e" text-anchor="middle">Idle</text>
+  <text x="1176" y="686" font-size="10" fill="#64748b">Platform</text>
+  <text x="1256" y="686" font-size="10" fill="#94a3b8" text-anchor="end">Zephyr</text>
+  <text x="1176" y="701" font-size="10" fill="#64748b">Block size</text>
+  <text x="1256" y="701" font-size="10" fill="#94a3b8" text-anchor="end">256 B</text>
+  <text x="1176" y="716" font-size="10" fill="#64748b">Last DFU</text>
+  <text x="1256" y="716" font-size="10" fill="#94a3b8" text-anchor="end">—</text>
+  <text x="1176" y="731" font-size="10" fill="#64748b">0x34 ready</text>
+  <circle cx="1250" cy="728" r="4" fill="#10b981"/>
+  <text x="1176" y="746" font-size="10" fill="#64748b">Slot verified</text>
+  <circle cx="1250" cy="743" r="4" fill="#10b981"/>
+</svg>

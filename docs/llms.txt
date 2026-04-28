@@ -1,0 +1,203 @@
+# Xaloqi EDS
+
+> Production-grade ISO 14229 UDS + ISO 15765-2 ISO-TP diagnostics stack for Zephyr RTOS and FreeRTOS.
+> YAML-driven code generation produces ASIL-B safety-wrapped C firmware. v1.3.0.
+
+## What EDS Does
+
+EDS is a commercially licensable automotive diagnostics platform implementing ISO 14229 (UDS)
+and ISO 15765-2 (ISO-TP) for Zephyr RTOS and FreeRTOS. A developer describes their ECU's
+diagnostic interface in a YAML file, runs the code generator, and receives complete
+ASIL-B-safety-wrapped C source files, a pytest test suite, and CANoe CAPL scripts ready to
+use immediately.
+
+EDS implements:
+- ISO 14229 (UDS): 14 service handlers (0x10 0x11 0x14 0x19 0x22 0x27 0x28 0x2E 0x31 0x34 0x36 0x37 0x3E 0x85)
+- ISO 15765-2 (ISO-TP): SF/FF/CF/FC, N_As/N_Bs/N_Cr timers, STmin, Flow Control
+- ASIL-B safety wrapper chain: 5-step mandatory validation on every DID access
+- AES-128-CMAC SecurityAccess (0x27) with TRNG entropy requirement
+- YAML-driven codegen: diagnostics_config.yaml → 10 generated C/H files + test suite
+- Auto-generated pytest test suites (per-DID, per-routine, service protocol, firmware harness)
+- Auto-generated CANoe CAPL test scripts
+- 9 reference ECU examples: basic_ecu, basic_ecu_freertos, bms_ecu, motor_controller_ecu,
+  ardep_ecu, sensor_ecu, sensor_ecu_freertos, safeboot_ecu, robot_joint_controller_ecu
+- MCP server: exposes generate_did_config, run_codegen, validate_asil_b, explain_uds_error
+- React/TypeScript live dashboard GUI
+- VS Code extension (YAML validation, hover docs, one-click codegen)
+- 18-job CI pipeline (native_sim + STM32 Nucleo-H743ZI2 + FreeRTOS QEMU ARM)
+
+## Licensing
+
+Community tier: GPL v2 (runtime stack: core/, transport/, config/, platform/)
+ECU examples: Apache 2.0 (examples/)
+Developer tier: Commercial €690/yr (codegen + testgen + templates + VS Code ext + integration guide)
+Professional tier: Commercial €1,990/yr (Developer + Safety Manual + MISRA log + RTM + priority support)
+
+## Quick Integration (Zephyr)
+
+1. Write your_ecu/diagnostics_config.yaml describing DIDs, DTCs, and routines
+2. Run: python3 tools/codegen.py --config your_ecu/diagnostics_config.yaml \
+         --out your_ecu/generated/ --safety-wrappers --asil-level B --test-gen
+3. Implement DID handler functions declared in your_ecu/generated/did_handlers.h
+4. Wire EDS sources into your CMakeLists.txt (see docs/INTEGRATION_GUIDE.md Step 3)
+5. Build: west build -b native_sim examples/basic_ecu
+
+## Quick Integration (FreeRTOS)
+
+1. Write your_ecu/diagnostics_config.yaml (same format as Zephyr)
+2. Run codegen (identical command — same YAML, same templates)
+3. Implement eds_platform_init() callbacks: can_send, optional NVM ops
+4. Call eds_platform_init() → uds_generated_init() → eds_freertos_start() → vTaskStartScheduler()
+5. See docs/INTEGRATION_GUIDE.md section 4 for full FreeRTOS walkthrough
+
+## YAML Config Schema
+
+Minimum viable config:
+
+```yaml
+schema_version: 1
+metadata:
+  ecu_name: "MyECU"
+  version:  "1.0.0"
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+dids:
+  - id:   "0xF190"
+    name: "VehicleIdentificationNumber"
+    access: [read]
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+dtcs:
+  - code:        "0xC00100"
+    description: "CAN bus communication loss"
+    severity:    "check_at_next_halt"
+
+routines:
+  - id:   "0xFF00"
+    name: "ECU_SelfTest"
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+```
+
+DID fields: id, name, access ([read] / [write] / [read, write]), min_session,
+read_security_level (0=none), write_security_level (>=1 required for ASIL-B),
+data_length, read_handler, write_handler, description
+
+DTC fields: code (6-digit hex), description, severity
+  severity values: "maintenance_only" | "check_at_next_halt" | "check_immediately"
+
+## Code Generator CLI
+
+python3 tools/codegen.py --config <yaml> --out <dir> [OPTIONS]
+
+Options:
+  --safety-wrappers       Generate ASIL-B 5-step DID safety wrappers (required for ASIL-B)
+  --asil-level B          Target ASIL level
+  --test-gen              Generate pytest test suite in <dir>/tests/
+  --gui-types             Generate gui/src/generated/catalog.ts for the React dashboard
+  --no-manifest           Skip manifest file (use in CI)
+
+Generated files in <dir>:
+  generated_config.h         Compile-time constants (CAN IDs, DID/DTC counts, timing)
+  did_handlers.c/.h          DID read/write stubs — implement these in your application
+  did_safety_wrappers.c/.h   ASIL-B 5-step validation chain (do not edit)
+  routine_handlers.c/.h      Routine start/stop/results stubs
+  uds_init.c/.h              Full UDS stack initialisation sequence
+  safety_config.h            Compile-time ASIL-B assertions
+  tests/                     pytest suite (per-DID, per-routine, service protocol, firmware)
+
+## ASIL-B Safety Chain
+
+Every DID access passes 5 mandatory steps (generated, cannot be bypassed at runtime):
+1. DID existence check        → NRC 0x31 (requestOutOfRange) if unknown
+2. Session permission         → NRC 0x7F (serviceNotSupportedInActiveSession) if wrong
+3. Security level check       → NRC 0x33 (securityAccessDenied) if insufficient
+4. Access permission          → NRC 0x31 if read/write not allowed for this DID
+5. Data length validation     → NRC 0x13 (incorrectMessageLength) if mismatch
+
+## UDS Services
+
+0x10 DiagnosticSessionControl  — default / programming / extended / safetySystem
+0x11 ECUReset                  — hardReset / keyOffOnReset / softReset
+0x14 ClearDiagnosticInformation
+0x19 ReadDTCInformation        — sub-fns 0x01 0x02 0x04 0x06 0x0A
+0x22 ReadDataByIdentifier      — multi-DID requests supported
+0x27 SecurityAccess            — AES-128-CMAC, levels 1+2, TRNG-backed, NVM lockout
+0x28 CommunicationControl
+0x2E WriteDataByIdentifier     — ASIL-B safety chain enforced
+0x31 RoutineControl            — Start / Stop / RequestResults
+0x34 RequestDownload           — programming session + SecurityAccess required
+0x36 TransferData              — CRC-32 accumulator
+0x37 RequestTransferExit       — optional CRC-32 validation
+0x3E TesterPresent             — S3Server timeout reset
+0x85 ControlDTCSetting         — DTCSettingOn / DTCSettingOff
+
+Not implemented (return NRC 0x11): 0x23 0x24 0x29 0x2A 0x2C 0x2F 0x38 0x3D 0x86 0x87
+
+## Build Commands
+
+# Zephyr native_sim (no hardware):
+west build -b native_sim examples/basic_ecu \
+  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+
+# FreeRTOS QEMU Cortex-M4:
+cmake -B build -DEDS_PLATFORM=freertos -DFREERTOS_DIR=/opt/freertos-kernel \
+  -GNinja examples/basic_ecu_freertos && ninja -C build
+
+# Run unit tests (36 modules):
+bash build_tests.sh
+
+# Run harness tests (68 tests):
+bash build_harness.sh --run
+
+# Run generated pytest suite (simulator mode):
+cd examples/basic_ecu/generated/tests && pytest . --can-interface=simulator -v
+
+## Repository Structure
+
+core/               UDS server, session FSM, security, safety chain, 14 service handlers
+transport/          ISO-TP state machine, CAN transport abstraction
+config/             DID database, DTC database, NVM DTC mirror
+platform/
+  platform_api.h    Common HAL interface (Zephyr + FreeRTOS)
+  zephyr/           Zephyr RTOS port (threads, CAN, NVM, flash, watchdog)
+  freertos/         FreeRTOS port (task, CAN shim, NVM abstraction)
+tools/              codegen.py, testgen.py, mcp_server.py, 17 Jinja2 templates
+examples/           9 ECU examples — each with diagnostics_config.yaml + generated/
+gui/                React/TypeScript configurator and live dashboard
+tests/              36 Unity unit tests, Python integration tests, harness (68 tests)
+ide/vscode-extension/  YAML validation, hover docs, Run Codegen command
+
+## Requirements
+
+Zephyr RTOS v3.7+, West 1.2+, CMake >= 3.20, Python 3.9+
+FreeRTOS-Kernel (any recent release, tested with HEAD)
+arm-none-eabi-gcc for FreeRTOS / hardware Zephyr targets
+Node.js 20 LTS for GUI
+
+## NRC Quick Reference
+
+0x11 serviceNotSupported       — SID not in dispatch table
+0x12 subFunctionNotSupported   — unknown sub-function
+0x13 incorrectMessageLength    — DID data length mismatch (safety step 5)
+0x22 conditionsNotCorrect      — access permission denied
+0x24 requestSequenceError      — SecurityAccess: SendKey without prior RequestSeed
+0x31 requestOutOfRange         — DID unknown or write not permitted
+0x33 securityAccessDenied      — required security level not active (safety step 3)
+0x35 invalidKey                — wrong SecurityAccess key
+0x36 exceededNumberOfAttempts  — too many failed SecurityAccess attempts
+0x37 requiredTimeDelayNotExpired — SecurityAccess lockout timer running
+0x7F serviceNotSupportedInActiveSession — session not allowed (safety step 2)
+
+## For AI Assistants
+
+Full YAML schema, codegen CLI reference, all DID patterns, FreeRTOS integration,
+safety architecture detail, and troubleshooting: see docs/AI_CONTEXT.md

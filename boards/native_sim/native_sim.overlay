@@ -1,0 +1,59 @@
+/*
+ * =============================================================================
+ * Xaloqi EDS
+ * boards/native_sim/native_sim.overlay
+ *
+ * Device Tree overlay for the native_sim (host simulation) board target.
+ *
+ * PURPOSE: Enables a virtual CAN controller backed by Zephyr's
+ *          CONFIG_CAN_LOOPBACK driver. This allows the full UDS stack
+ *          to run on a Linux/macOS/Windows host without real hardware,
+ *          routing all CAN TX frames back to the RX path.
+ *
+ * SIMULATION USAGE:
+ *   west build -b native_sim examples/basic_ecu
+ *   west build -b native_sim examples/basic_ecu -- -DCONF_FILE=prj.conf
+ *   ./build/zephyr/zephyr.exe
+ *
+ *   In a second terminal, use canutils or a Python script:
+ *   python3 tools/sim_tester.py  (see tools/ directory)
+ *
+ * LOOPBACK BEHAVIOUR:
+ *   With CAN_LOOPBACK, every frame transmitted by the ECU is immediately
+ *   received on the same channel. This allows:
+ *     - Automated regression of the full TX -> RX -> UDS dispatch path
+ *     - ISO-TP multi-frame reassembly testing
+ *     - Security access seed/key exchange testing
+ *
+ * DIFFERENCES FROM HARDWARE:
+ *   - No real bus arbitration or error frames
+ *   - No STmin inter-frame delay enforced at hardware level
+ *   - Timing is governed by the host OS scheduler (non-deterministic)
+ *   - Watchdog device (wdt0) is absent; zephyr_wdt.c degrades gracefully
+ *
+ * SAFETY NOTE: native_sim results are NOT a substitute for hardware-in-loop
+ *              testing. Use this target for functional verification only.
+ * =============================================================================
+ */
+
+/ {
+	aliases {
+		/* Map the 'can0' alias used in main.c to the loopback CAN device. */
+		can0 = &can_loopback0;
+	};
+};
+
+/*
+ * Loopback CAN controller node.
+ *
+ * compatible = "zephyr,can-loopback": Software loopback driver.
+ * Frames sent via can_send() are immediately queued to the RX filter.
+ *
+ * bus-speed: 500000 bps (ISO 15765-4 default for 11-bit addressing).
+ *   This value is informational only for the loopback driver — it does not
+ *   affect actual transmission speed in simulation.
+ */
+&can_loopback0 {
+	status = "okay";
+	bus-speed = <500000>;
+};
