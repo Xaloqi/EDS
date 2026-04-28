@@ -1,0 +1,70 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Linker files
+*.ilk
+
+# Debugger Files
+*.pdb
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Embedded firmware artefacts
+*.elf
+*.bin
+*.hex
+*.map
+
+# debug information files
+*.dwo
+
+# =============================================================================
+# Project-specific ignores  [Phase 6B cleanup]
+# =============================================================================
+build_test/
+build_test_host/
+build/
+.west/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.vscode/
+gui/node_modules/
+*.su
+
+# Internal planning documents — never commit
+DECISIONS.md
+XALOQI_PRODUCT_IDEAS.md
+XALOQI_PRODUCT_ROADMAP.md
+EDS_C1_Licensing_Decisions.docx
+
+# Root generated/ removed — each example owns its own generated/ subfolder
+/generated/
