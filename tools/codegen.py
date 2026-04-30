@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: LicenseRef-Xaloqi-Commercial
+# Copyright (c) 2026 Xaloqi
+# Commercial license required. See LICENSE_COMMERCIAL.txt
 # File: tools/codegen.py
 """
 =============================================================================
