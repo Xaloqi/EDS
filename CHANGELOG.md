@@ -7,6 +7,73 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.0] — Job Engine + CI expansion — 2026-04-30
+
+### Added — Job Engine (IDEA-032)
+
+- `tools/jobrunner.py` — executes YAML-defined multi-step UDS workflow jobs
+  against a real ECU (SocketCAN) or simulated ECU (harness binary). The same
+  job definition runs identically in CLI, pytest, CI pipeline, and AI agent.
+- `jobs:` top-level block in `diagnostics_config.yaml` — optional, backward
+  compatible. Existing configs without `jobs:` continue to work unchanged.
+- 15 action types: `session`, `security_access`, `read_did`, `write_did`,
+  `read_dtc`, `clear_dtc`, `routine`, `foreach_did`, `assert`, `ecu_reset`,
+  `tester_present`, `delay`, `request_download`, `transfer_data`,
+  `request_transfer_exit`.
+- Variable interpolation: `save_as` stores response bytes; `${name}` references
+  them in subsequent steps. Used for firmware size in flash workflows.
+- JSON output (`--json`): structured result file with `schema_version: 1`.
+  Stable interface contract for CI reporting and TestLab AI (roadmap).
+- `tools/job_library/` — 5 pre-built job templates: `flash_and_verify`,
+  `eol_production_check`, `field_diagnostic_read`, `calibration_sequence`,
+  `security_lockout_reset`.
+- `tools/config_parser.py`: `jobs:` block is now validated structurally
+  (unknown actions, missing `steps`, invalid `on_failure` values).
+
+### Added — sensor_ecu example
+
+- `examples/sensor_ecu/generated/` — all C/H generated files now committed
+  (`uds_init.c`, `did_handlers.c`, `did_safety_wrappers.c`, `safety_config.h`,
+  `generated_config.h` + full test suite).
+- `examples/sensor_ecu/diagnostics_config.yaml` — 5 working Job Engine jobs:
+  `field_diagnostic_read`, `sensor_health_check`, `calibration_reset`,
+  `calibration_write`, `dtc_clear_and_verify`.
+
+### Added — CI
+
+- EDS-toolchain CI expanded from 7 to 16 jobs.
+- 7 new example validation jobs (one per specialist example): YAML schema,
+  generated file presence, safety markers (`uds_safety_self_test`,
+  `keys_are_placeholder`), DID count verification, test file presence.
+- `gui-build` job: TypeScript typecheck + Vite production build.
+- `validate-harness` job: Python tester import validation + `derive_key` smoke test.
+- `validate-jobrunner` job: dry-run all example configs + job library schema
+  validation + 43 unit tests (mock UdsTester, no hardware required).
+
+### Added — scripts
+
+- `scripts/verify_did_counts.py` added to EDS-toolchain Developer ZIP.
+  Previously only in the public EDS repo.
+
+### Fixed — GUI
+
+- `gui/package-lock.json` regenerated with full sha512 integrity hashes.
+  Previous lockfile was missing hashes for 48/49 packages, causing `npm ci`
+  to install incomplete packages and fail at runtime.
+- `gui/package.json`: added `react-refresh@0.14.0` as explicit devDependency
+  (peer dep of `@vitejs/plugin-react@4.2.1`).
+
+### Documentation
+
+- `INSTALL.md` — Job Engine section with full CLI reference and job template table.
+- `docs/INTEGRATION_GUIDE.md` — Section 6: Job Engine full reference (actions
+  table, variable interpolation, CLI examples, JSON schema).
+- `docs/AI_CONTEXT.md` — `jobs:` YAML schema with all 15 actions documented;
+  `jobrunner.py` and `job_library/` in repo structure.
+- All docs bumped to v1.4.0.
+
+---
+
 ## [1.3.0] — Platform housekeeping + FreeRTOS API — 2026-04-20
 
 ### Fixed — Platform structure

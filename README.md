@@ -2,7 +2,7 @@
 # Xaloqi Embedded Diagnostics Suite
 
 [![CI](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml/badge.svg)](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v1.3.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.3.0)
+[![Version](https://img.shields.io/badge/version-v1.4.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.4.0)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Zephyr](https://img.shields.io/badge/Zephyr-v3.7%2B-brightgreen)](https://zephyrproject.org)
 
@@ -112,7 +112,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.3.0 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.4.0 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 ```
