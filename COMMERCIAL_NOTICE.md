@@ -73,4 +73,4 @@ Full license terms: `LICENSE_COMMERCIAL.txt` in this repository.
 
 ## Questions
 
-Licensing enquiries: license@xaloqi.com
+Licensing enquiries: contact@xaloqi.com

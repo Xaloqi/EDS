@@ -196,7 +196,7 @@ void eds_entropy_sanity_check(void)
 
 ## Questions
 
-Contact **security@xaloqi.com** for questions about entropy source validation,
+Contact **contact@xaloqi.com** for questions about entropy source validation,
 key provisioning, or OEM cybersecurity requirements.
 
 ---

@@ -6,7 +6,7 @@ Copyright (c) 2026 Raul Latorre Fortes, trading as Xaloqi, Frankfurt am Main, Ge
 
 All rights reserved.
 
-Contact: license@xaloqi.com
+Contact: contact@xaloqi.com
 Website: https://xaloqi.com
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -176,7 +176,7 @@ renewal obligation.
 Developer tier: community support via GitHub Issues only. No response
 time guarantee.
 
-Professional tier: email support at support@xaloqi.com. Initial
+Professional tier: email support at contact@xaloqi.com. Initial
 response within 5 business days for issues affecting production use.
 Bug fixes targeting the next scheduled release.
 
@@ -260,9 +260,9 @@ remaining provisions shall continue in full force and effect.
 
 13. CONTACT
 
-Licensing enquiries:   license@xaloqi.com
-Security disclosures:  security@xaloqi.com
-Support (Pro tier):    support@xaloqi.com
+Licensing enquiries:   contact@xaloqi.com
+Security disclosures:  contact@xaloqi.com
+Support (Pro tier):    contact@xaloqi.com
 Website:               https://xaloqi.com
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
