@@ -96,7 +96,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 | **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
 | **ECU examples** | basic, BMS, motor controller, ARDEP, sensor, safeboot, robot joint controller — 5–35 DIDs each, Zephyr and FreeRTOS |
-| **CI pipeline** | 18-job GitHub Actions · codegen · unit tests · harness tests · Zephyr builds · FreeRTOS ARM builds · MISRA analysis · MCP server tests |
+| **CI pipeline** | 12-job GitHub Actions · codegen · unit tests · harness tests · Zephyr builds · FreeRTOS ARM builds · MISRA analysis · MCP server tests |
 
 **Safety properties verified by CI on every commit:**
 - Zero dynamic memory allocation (`malloc`/`free` grep gate)
