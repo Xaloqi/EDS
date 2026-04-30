@@ -61,7 +61,7 @@ west --version   # must print 1.2 or newer
 mkdir eds-workspace && cd eds-workspace
 
 # Initialise the workspace from the EDS repository
-west init -m https://github.com/Xaloqi/EDS --mr v1.3.0 .
+west init -m https://github.com/Xaloqi/EDS --mr v1.4.0 .
 
 # Pull Zephyr and all dependencies (this downloads ~500 MB, takes 2-4 min)
 west update
@@ -187,7 +187,7 @@ You should see the ECU boot log:
 
 ```
 *** Booting Zephyr OS build v3.7.0 ***
-[00:00:00.000] EDS v1.3.0 starting
+[00:00:00.000] EDS v1.4.0 starting
 [00:00:00.001] UDS server initialised
 [00:00:00.001] DID database: 5 DIDs registered
 [00:00:00.001] DTC database: 3 DTCs registered

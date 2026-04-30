@@ -20,7 +20,6 @@
 3. [Five Steps to Integrate into Your Zephyr ECU](#3-five-steps-to-integrate-into-your-zephyr-ecu)
 4. [FreeRTOS Integration](#freertos-integration)
 5. [SafeBoot — MCUboot DFU over UDS](#safeboot)
-6. [Job Engine — YAML-defined UDS workflows](#job-engine)
 6. [Board Compatibility Matrix](#6-board-compatibility-matrix)
 
 ---
@@ -169,7 +168,7 @@ manifest:
 
     - name: embedded-diagnostics-suite
       url: https://github.com/your-org/embedded-diagnostics-suite
-      revision: v1.3.0            # pin to a release tag
+      revision: v1.4.0            # pin to a release tag
       path: eds
 ```
 
@@ -751,7 +750,7 @@ Add to your `diagnostics_config.yaml`:
 ```yaml
 safeboot:
   enabled: true
-  platform: zephyr          # only zephyr supported in v1.3.0
+  platform: zephyr          # zephyr and freertos supported in v1.4.0
   max_block_length: 256     # bytes per TransferData block (CAN classical: 256)
 ```
 
@@ -949,8 +948,6 @@ pytest test_firmware_services.py -v
 | What you want | Where to change |
 |---|---|
 | Add a DID | `diagnostics_config.yaml` → `dids:` → run `codegen.py` |
-| Run a UDS workflow | Add `jobs:` block to config → `python3 tools/jobrunner.py --job <name>` |
-| Dry-run all jobs | `python3 tools/jobrunner.py --all --dry-run` |
 | Change CAN bus speed | `boards/<board>/<board>.overlay` → `bus-speed` (Zephyr) or CAN peripheral init (FreeRTOS) |
 | Change CAN RX/TX IDs | `diagnostics_config.yaml` (add `can:` section) or `generated_config.h` directly |
 | Inject OEM security key | `main.c`: `uds_security_algo_set_level_key(0x01U, your_key)` |
@@ -968,163 +965,8 @@ pytest test_firmware_services.py -v
 | Safety model | `docs/Safety_Model.md` |
 | ASIL-B threading model | `docs/threading_guide.md` |
 | Code generation system | `docs/CODEGEN_ARCHITECTURE.md` |
-| Job Engine reference | `tools/job_library/README.md` |
 | Testing strategy | `docs/TESTING_STRATEGY.md` |
 | ARDEP upgrade guide | `docs/ARDEP_UPGRADE_GUIDE.md` |
 | AES-CMAC security changes | `docs/PHASE1_SECURITY_CHANGES.md` |
 | OEM key injection + security configuration | the Security Integration Guide (Professional tier — xaloqi.com) |
 | BMS ECU example | `examples/bms_ecu/README.md` |
-
----
-
-## 6. Job Engine — YAML-defined UDS workflows {#job-engine}
-
-The Job Engine (`tools/jobrunner.py`) executes multi-step UDS workflows defined in the `jobs:` block of `diagnostics_config.yaml`. The same job definition runs identically in CLI, pytest, CI pipeline, and AI agent.
-
-### Adding a `jobs:` block
-
-Add `jobs:` at the top level of your `diagnostics_config.yaml`, after `routines:`:
-
-```yaml
-jobs:
-
-  field_diagnostic_read:
-    description: "Read-only snapshot — no security access required"
-    timeout_ms:  10000
-    on_failure:  continue
-    steps:
-      - action: session
-        value:  extended
-      - action: foreach_did
-        min_session: extended
-        expect_ok:   false
-        save_results: true
-      - action: read_dtc
-        sub_fn: reportAllSupportedDTCs
-        save_as: active_dtcs
-      - action: session
-        value:  default
-```
-
-### Available actions
-
-| Action | Key fields | Description |
-|---|---|---|
-| `session` | `value: default\|extended\|programming` | Change diagnostic session |
-| `security_access` | `level: 1` | Unlock security (seed/key exchange) |
-| `read_did` | `did`, `save_as`, `expect_ok` | Read a DID value |
-| `write_did` | `did`, `data` | Write a DID value |
-| `read_dtc` | `sub_fn`, `save_as` | Read DTC information |
-| `clear_dtc` | `group: "0xFFFFFF"` | Clear DTCs |
-| `routine` | `id`, `sub_fn`, `save_as` | Execute a RoutineControl |
-| `foreach_did` | `min_session`, `save_results` | Iterate all readable DIDs |
-| `assert` | `variable`, `not_nrc`, `length`, `contains` | Validate a saved variable |
-| `ecu_reset` | `reset_type`, `wait_ms` | Reset the ECU |
-| `tester_present` | `suppress` | Send TesterPresent keep-alive |
-| `delay` | `ms` | Wait |
-| `request_download` | `memory_address`, `memory_size` | Initiate DFU (safeboot required) |
-| `transfer_data` | `file`, `save_as` | Transfer firmware binary (safeboot required) |
-| `request_transfer_exit` | — | Finalise firmware transfer |
-
-### Variable interpolation
-
-Steps can save response data to named variables and reference them in later steps:
-
-```yaml
-- action: read_did
-  did:    "0xF190"
-  save_as: vin          # saves response payload to variable 'vin'
-
-- action: assert
-  variable: vin
-  length:   17          # assert exactly 17 bytes
-```
-
-Flash jobs use this to pass the firmware size from `transfer_data` to `request_download`:
-
-```yaml
-- action: transfer_data
-  file:    firmware.bin
-  save_as: fw_size
-
-- action: request_download
-  memory_address: "0x00000000"
-  memory_size:    "${fw_size}"   # interpolated from saved variable
-```
-
-### Running jobs
-
-```bash
-# List all jobs defined in a config
-python3 tools/jobrunner.py \
-  --config examples/sensor_ecu/diagnostics_config.yaml \
-  --list
-
-# Run a specific job against vcan0
-python3 tools/jobrunner.py \
-  --config examples/sensor_ecu/diagnostics_config.yaml \
-  --job    field_diagnostic_read \
-  --mode   vcan --iface vcan0
-
-# Run against the harness simulator (no hardware)
-python3 tools/jobrunner.py \
-  --config examples/sensor_ecu/diagnostics_config.yaml \
-  --job    sensor_health_check \
-  --mode   harness --binary ./build_harness/uds_harness
-
-# Validate all jobs without connecting (dry-run)
-python3 tools/jobrunner.py \
-  --config examples/sensor_ecu/diagnostics_config.yaml \
-  --all --dry-run
-
-# JSON output for CI and test reporting
-python3 tools/jobrunner.py \
-  --config examples/sensor_ecu/diagnostics_config.yaml \
-  --job    eol_production_check \
-  --mode   vcan \
-  --json   results/run_$(date +%Y%m%d_%H%M%S).json
-```
-
-### Pre-built job templates
-
-Five job templates are available in `tools/job_library/`. Copy the `jobs:` block from any template into your config:
-
-| Template | Description | Requirements |
-|---|---|---|
-| `flash_and_verify.yaml` | Full DFU + post-flash version read | `safeboot.enabled: true` |
-| `eol_production_check.yaml` | Read all DIDs + clear + verify no active DTCs | Extended session |
-| `field_diagnostic_read.yaml` | Read-only snapshot, no security unlock | Default session |
-| `calibration_sequence.yaml` | Write calibration DIDs with read-back | Extended + security |
-| `security_lockout_reset.yaml` | ECUReset to clear lockout counter | None |
-
-See `examples/sensor_ecu/diagnostics_config.yaml` for a complete working example with all five workflow types.
-
-### JSON output schema
-
-The `--json` flag produces a structured result file consumed by CI and reporting tools:
-
-```json
-{
-  "schema_version": 1,
-  "job_name": "eol_production_check",
-  "ecu_name": "SensorECU",
-  "success": true,
-  "duration_ms": 280.4,
-  "summary": "6/6 steps passed",
-  "steps": [
-    {
-      "index": 1,
-      "action": "session",
-      "params": {"value": "extended"},
-      "success": true,
-      "duration_ms": 12.1,
-      "request_pdu": "1003",
-      "response_pdu": "5003002300C0",
-      "nrc": null
-    }
-  ],
-  "variables": {}
-}
-```
-
-`schema_version` is stable across releases. Do not rely on field ordering.

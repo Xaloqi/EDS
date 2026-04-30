@@ -34,8 +34,6 @@ EDS/
 ├── tools/
 │   ├── codegen.py          # Main code generator (YAML → C/H)
 │   ├── testgen.py          # Test suite generator (YAML → pytest + CANoe CAPL)
-│   ├── jobrunner.py        # Job Engine: execute YAML-defined UDS workflow jobs
-│   ├── job_library/        # 5 pre-built job templates (flash, EOL, field diag, cal, lockout)
 │   ├── config_parser.py    # YAML validation schema
 │   └── templates/          # Jinja2 templates for all generated files
 ├── examples/
@@ -787,91 +785,5 @@ tool-level assertions. Requires `pyyaml` only.
 
 ---
 
-*EDS v1.3.0 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
+*EDS v1.4.0 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
 *Runtime: GPL v2 · Examples: Apache 2.0 · Tools + IDE + GUI: Commercial*
-
-
-## Job Engine — `jobs:` block
-
-The optional `jobs:` block defines multi-step UDS workflows that run via `tools/jobrunner.py`. Jobs live in the same `diagnostics_config.yaml` as your DIDs and DTCs.
-
-```yaml
-jobs:
-  field_diagnostic_read:           # job name — passed to --job flag
-    description: "Read-only snapshot of all sensor data and DTCs"
-    timeout_ms:  10000             # total job timeout (default: 30000)
-    on_failure:  continue          # abort | continue (default: abort)
-    steps:
-      - action: session
-        value:  extended           # default | extended | programming
-
-      - action: security_access
-        level:  1                  # odd numbers: 1, 3, 5, 7
-
-      - action: read_did
-        did:    "0xD001"           # hex string, 4 digits
-        save_as: temp              # save response bytes to named variable
-        expect_ok: true            # fail step if NRC received
-
-      - action: foreach_did        # iterate all readable DIDs
-        min_session: extended
-        save_results: true
-
-      - action: read_dtc
-        sub_fn: reportAllSupportedDTCs
-        save_as: active_dtcs
-
-      - action: clear_dtc
-        group:  "0xFFFFFF"
-
-      - action: routine
-        id:     "0xFF00"
-        sub_fn: start              # start | stop | requestResults
-        save_as: result
-
-      - action: assert
-        variable: result
-        not_nrc:  true             # assert no NRC in saved variable
-        length:   4                # assert exact byte length
-
-      - action: write_did
-        did:    "0xD010"
-        data:   "7D"               # hex string, or ${variable_name}
-
-      - action: ecu_reset
-        reset_type: hard           # hard | keyOffOn | soft
-        wait_ms:    2000
-
-      - action: delay
-        ms:     500
-
-      - action: session
-        value:  default
-```
-
-### Running jobs
-
-```bash
-# List all jobs in a config
-python3 tools/jobrunner.py --config examples/sensor_ecu/diagnostics_config.yaml --list
-
-# Run a specific job
-python3 tools/jobrunner.py \
-  --config examples/sensor_ecu/diagnostics_config.yaml \
-  --job field_diagnostic_read --mode vcan --iface vcan0
-
-# Dry-run all jobs (no ECU needed)
-python3 tools/jobrunner.py \
-  --config examples/sensor_ecu/diagnostics_config.yaml \
-  --all --dry-run
-
-# JSON output for CI / test reporting
-python3 tools/jobrunner.py \
-  --config examples/sensor_ecu/diagnostics_config.yaml \
-  --job eol_production_check --mode vcan \
-  --json results/run.json
-```
-
-The `sensor_ecu` example has 5 working jobs: `field_diagnostic_read`, `sensor_health_check`, `calibration_reset`, `calibration_write`, `dtc_clear_and_verify`. Use it as a reference.
-
-Flash jobs (`transfer_data`, `request_download`, `request_transfer_exit`) require `safeboot.enabled: true` in the config.
