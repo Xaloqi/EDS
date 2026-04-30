@@ -181,6 +181,16 @@ CONFIG_SCHEMA = {
                 }
             },
             "additionalProperties": False
+        },
+        "jobs": {
+            "type": "object",
+            "description": (
+                "Optional job definitions for use with tools/jobrunner.py "
+                "(Developer and Professional tiers). Each key is a job name "
+                "(snake_case). Jobs are validated structurally here; full "
+                "semantic validation is performed at execution time by jobrunner.py."
+            ),
+            "additionalProperties": True
         }
     },
     "additionalProperties": False
@@ -189,6 +199,85 @@ CONFIG_SCHEMA = {
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
+
+# Valid job step action types — mirrors dispatch table in tools/jobrunner.py.
+# When a new action is added to jobrunner.py, add it here too.
+VALID_ACTIONS = frozenset({
+    "session",
+    "security_access",
+    "read_did",
+    "write_did",
+    "read_dtc",
+    "clear_dtc",
+    "routine",
+    "request_download",
+    "transfer_data",
+    "request_transfer_exit",
+    "ecu_reset",
+    "tester_present",
+    "delay",
+    "assert",
+    "foreach_did",
+})
+
+
+def _validate_jobs(jobs: dict, context: str) -> list:
+    """
+    Validate the optional top-level jobs: block.
+
+    Returns a list of error strings. Empty list means valid.
+
+    Performs lightweight structural validation:
+      - Each job must be a mapping with a 'steps' list
+      - Each step must have an 'action' field from VALID_ACTIONS
+      - on_failure must be 'abort' or 'continue' if specified
+
+    Full semantic validation (safeboot dependency, variable references, etc.)
+    is performed at execution time by tools/jobrunner.py (EDS-toolchain).
+    """
+    errors = []
+
+    if not isinstance(jobs, dict):
+        return [f"{context}: 'jobs' must be a mapping of job definitions"]
+
+    for job_name, job_def in jobs.items():
+        job_ctx = f"{context}.{job_name}"
+
+        if not isinstance(job_def, dict):
+            errors.append(f"{job_ctx}: job definition must be a mapping")
+            continue
+
+        steps = job_def.get("steps")
+        if steps is None:
+            errors.append(f"{job_ctx}: missing required 'steps' field")
+            continue
+
+        if not isinstance(steps, list) or len(steps) == 0:
+            errors.append(f"{job_ctx}: 'steps' must be a non-empty list")
+            continue
+
+        on_failure = job_def.get("on_failure")
+        if on_failure is not None and on_failure not in ("abort", "continue"):
+            errors.append(
+                f"{job_ctx}: on_failure must be 'abort' or 'continue', "
+                f"got '{on_failure}'"
+            )
+
+        for i, step in enumerate(steps):
+            step_ctx = f"{job_ctx}.steps[{i}]"
+            if not isinstance(step, dict):
+                errors.append(f"{step_ctx}: step must be a mapping")
+                continue
+            action = step.get("action")
+            if not action:
+                errors.append(f"{step_ctx}: missing required 'action' field")
+            elif action not in VALID_ACTIONS:
+                errors.append(
+                    f"{step_ctx}: unknown action '{action}'. "
+                    f"Valid actions: {sorted(VALID_ACTIONS)}"
+                )
+
+    return errors
 
 def validate_config(config: dict) -> list:
     """
@@ -281,6 +370,11 @@ def validate_config(config: dict) -> list:
             errors.append(f"dtcs[{idx}]: missing 'code' field")
         if "description" not in dtc:
             errors.append(f"dtcs[{idx}] ({dtc_code}): missing 'description' field")
+
+    # jobs: block is optional — validate structure if present
+    if "jobs" in config:
+        jobs_errors = _validate_jobs(config["jobs"], "jobs")
+        errors.extend(jobs_errors)
 
     return errors
 
