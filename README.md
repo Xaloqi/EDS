@@ -277,7 +277,6 @@ EDS targets ASIL-B candidate status (ISO 26262-6:2018). The following work produ
 | **Community** | GPL v2 | Free | Runtime stack + examples |
 | **Developer** | Commercial | €690 / year | Codegen + testgen + all examples + integration guide |
 | **Professional** | Commercial | €1,990 / year | Developer + Safety Manual + MISRA log + RTM |
-| **Company** | Commercial | Pricing available upon request contact@xaloqi.com | Professional company license |
 
 The runtime stack (`core/`, `transport/`, `config/`, `platform/`) is GPL v2.  
 ECU examples (`examples/`) are Apache 2.0.  

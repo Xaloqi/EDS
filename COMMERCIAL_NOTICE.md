@@ -39,9 +39,9 @@ paid commercial license from Xaloqi:
 
 | File / Directory | Description |
 |---|---|
-| `tools/codegen.py` | YAML-to-C code generator |
+| `tools/codegen.py` | Publicly readable. Generating code for proprietary firmware requires a commercial license. Functional use requires `tools/templates/` (Developer/Professional tier). |
 | `tools/testgen.py` | Automated pytest + CAPL test generator |
-| `tools/config_parser.py` | Configuration parser used by codegen |
+| `tools/config_parser.py` | Publicly readable. Used by `codegen.py` — same license requirement applies. |
 | `tools/templates/` | All Jinja2 code generation templates |
 | `ide/vscode-extension/` | VS Code extension for EDS |
 | `docs/EDS_Safety_Manual_*` | Safety Manual (Professional tier) |
