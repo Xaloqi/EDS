@@ -6,6 +6,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+##  [1.5.0] — TestLab integration + testgen refactor — 2026-05-07
+### Added — testlab_config.yaml standalone mode (TestLab)
+
+xaloqi/tester/_config.py: full input validation with precise error messages
+for every bad input — CAN ID out of range, unknown session names, negative
+data_length, invalid DTC severity, missing required DID/DTC fields.
+Error messages include field name and array index (dids[1]: 'min_session' must be one of ...).
+testlab_config.yaml: documented template file at the TestLab repo root.
+Copy-paste starting point for customers not using Xaloqi EDS.
+campaigns/standalone_validation.yaml: four ready-to-run campaign jobs
+(basic_validation, eol_production_check, security_audit,
+regression_check) for non-EDS users.
+load_testlab_config() and load_eds_config() now cross-reject each other
+with a clear error when the wrong format is passed.
+runner.py --config help text updated to mention both EDS YAML and
+standalone testlab_config.yaml formats.
+
+### Changed — testgen.py conftest refactor (EDS-toolchain + EDS)
+
+tools/templates/conftest.py.j2 reduced from 870 lines to 456 lines.
+Inline ISO-TP framing (300 lines), AES-128 S-box + CMAC (200 lines), and
+ECU simulator (300+ lines) replaced by xaloqi-tester imports:
+UdsTester.raw_request(), aes_cmac(), derive_key().
+Public API of the generated conftest.py is unchanged — all test files
+(test_did_*.py, test_services.py, test_routine_*.py) work without
+modification after the template update.
+All generated conftest.py files in all 7 specialist examples regenerated.
+requirements_testgen.txt now lists xaloqi-tester>=1.0.0.
+Bug fixes in ISO-TP or AES-CMAC applied to xaloqi-tester now propagate
+automatically to all generated test suites — no more diverging inline copies.
+
+### Added — PCAN/Kvaser hardware backends (TestLab)
+
+xaloqi/tester/transport/hardware.py: HardwareBus, PcanBus, KvaserBus.
+Wraps any python-can >= 4.0 adapter by bustype string. PCAN and Kvaser are
+named convenience subclasses with driver-specific error messages and
+troubleshooting hints.
+Supports all python-can hardware: PCAN USB/PCIe, Kvaser USB, IXXAT,
+Vector CANalyzer/CANoe, SLCAN, and bustype="auto" for auto-detection.
+PcanBus("PCAN_USBBUS1") and KvaserBus(0) pass directly as the
+interface argument to UdsTester.
+tests/test_hardware.py: 25 unit tests (fully mocked, plus
+@pytest.mark.hardware markers for tests requiring physical adapters).
+tests/conftest.py: --hardware CLI flag registers
+@pytest.mark.hardware skip logic. Hardware tests are excluded from CI
+automatically and re-enabled with pytest --hardware.
+
+### Added — production audit fixes (TestLab)
+
+License enforcement in UdsTester.__aenter__() now actually executes —
+previously a pass stub. Raises LicenseError with purchase URL when no
+key is found.
+Bare assert in seven service methods replaced with TransportError —
+AssertionError is suppressed by Python's -O flag and gives no diagnostic.
+SocketCanBus.__aenter__() / __aexit__() added — sim.py used
+async with SocketCanBus(...) which would crash without these.
+Dead isotp_recv() / isotp_send() functions removed from docker/ecu_sim/sim.py.
+SPDX headers added to all 16 source files in xaloqi/, tools/, docker/.
+xaloqi/__version__ = "1.0.0" added.
+LICENSE_COMMERCIAL.txt created.
+[project.urls] added to pyproject.toml.
 
 ## [1.4.0] — Job Engine + CI expansion — 2026-04-30
 
