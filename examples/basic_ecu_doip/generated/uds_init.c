@@ -110,9 +110,8 @@ uds_status_t uds_generated_init(
 {
     uds_status_t status;
 
-    if (can == NULL) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
+    /* can == NULL is valid for DoIP-only builds (transport: doip).
+     * ISO-TP init is skipped below when no CAN transport is provided. */
 
     if (s_initialized) {
         return UDS_STATUS_ERR_ALREADY_INITIALIZED;
@@ -436,7 +435,7 @@ uds_status_t uds_generated_init(
      * block_size = 0: no block size limit (tester decides segmentation pace).
      * stmin_ms   = 0: no minimum separation time enforced by this ECU.
      */
-    {
+    if (can != NULL) {
         isotp_cfg_t isotp_cfg;
         (void)memset(&isotp_cfg, 0, sizeof(isotp_cfg));
 
