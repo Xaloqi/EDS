@@ -107,10 +107,17 @@ static bool s_initialized = false;
  * @return UDS_STATUS_ERR_ALREADY_INITIALIZED if called more than once.
  * @return Propagated UDS_STATUS_ERR_* on any sub-init failure.
  */
+#ifndef EDS_DOIP_ONLY_BUILD
 uds_status_t uds_generated_init(
     can_transport_t *can,
     uint32_t         rx_can_id,
     uint32_t         tx_can_id)
+#else
+uds_status_t uds_generated_init(
+    void    *can,
+    uint32_t rx_can_id,
+    uint32_t tx_can_id)
+#endif /* EDS_DOIP_ONLY_BUILD */
 {
     uds_status_t status;
 

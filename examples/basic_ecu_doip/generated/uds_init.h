@@ -58,11 +58,20 @@ extern "C" {
  *
  * @note SAFETY: Must be called from initialisation context, not from ISR.
  */
+#ifndef EDS_DOIP_ONLY_BUILD
 uds_status_t uds_generated_init(
     can_transport_t *can,
     uint32_t         rx_can_id,
     uint32_t         tx_can_id
 );
+#else
+/* DoIP-only build: can parameter is unused (pass NULL). */
+uds_status_t uds_generated_init(
+    void    *can,
+    uint32_t rx_can_id,
+    uint32_t tx_can_id
+);
+#endif /* EDS_DOIP_ONLY_BUILD */
 
 /**
  * @brief Return a pointer to the generated UDS server context.
