@@ -496,7 +496,7 @@ isotp_ctx_t *uds_generated_get_isotp(void)
     return &s_isotp_ctx;
 }
 #else
-isotp_ctx_t *uds_generated_get_isotp(void) { return NULL; }
+void *uds_generated_get_isotp(void) { return NULL; }
 #endif /* EDS_DOIP_ONLY_BUILD */
 
 /* End of uds_init.c */
