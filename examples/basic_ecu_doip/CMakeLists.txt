@@ -162,4 +162,7 @@ if(NOT DIAG_SKIP_CODEGEN AND TARGET run_codegen)
     add_dependencies(app run_codegen)
 endif()
 
-target_compile_definitions(app PRIVATE EDS_MSG_BUF_MAX_STACK_BYTES=8192)
+target_compile_definitions(app PRIVATE
+    EDS_MSG_BUF_MAX_STACK_BYTES=8192
+    EDS_DOIP_ONLY_BUILD=1
+)
