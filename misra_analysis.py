@@ -346,7 +346,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_session_stats.c",
             "generated/did_handlers.c",
             "generated/did_safety_wrappers.c",
-            "generated/routine_handlers.c",],
+            "generated/routine_handlers.c",
+            "transport/doip/doip_server.c",],
         "approved_by": "Lead Safety Engineer",
         "date":        "2026-03-30",
     },
@@ -664,6 +665,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x85.c",
             "core/uds_services/service_registration.c",
             "platform/uds_flash_ops.h",
+            "transport/doip/doip_server.h",
+            "transport/doip/doip_server.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-30",
@@ -722,6 +725,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "transport/can_transport.h",
             "transport/zephyr_can.h",
             "transport/zephyr_port.h",
+            "transport/doip/doip_server.h",
+            "transport/doip/doip_server.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-30",
@@ -819,6 +824,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "config/did_database.c", "config/dtc_database.c",
             "generated/did_handlers.c", "generated/did_safety_wrappers.c",
             "generated/uds_init.c",
+            "transport/doip/doip_server.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-30",
@@ -1046,7 +1052,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
         
             "core/uds_services/service_0x37.c",
             "core/uds_services/service_0x36.c",
-            "core/uds_services/service_0x34.c",],
+            "core/uds_services/service_0x34.c",
+            "transport/doip/doip_server.c",],
         "approved_by": "Lead Security Engineer",
         "date":        "2026-03-31",
     },
@@ -1121,6 +1128,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "config/dtc_mirror.c", "config/dtc_database.c",
             "config/did_database.c", "config/routine_database.c",
             "core/uds_server.c", "core/uds_session.c",
+            "transport/doip/doip_server.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-31",
@@ -1280,6 +1288,31 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-31",
+    },
+    {
+        "id":          "DEV-GOTO-01",
+        "rule":        "15.1",
+        "category":    "advisory",
+        "description": "goto statement used for connection teardown in DoIP server loop",
+        "rationale":   (
+            "eds_doip_server_run() uses a single 'goto connection_closed' target within "
+            "the per-connection receive loop to jump to cleanup on three distinct error "
+            "conditions: malformed header, oversized payload, and TCP recv returning zero "
+            "(connection closed by peer). The alternative — a boolean flag plus an "
+            "if-else restructure — would introduce an additional variable and wrap 40+ "
+            "lines of receive logic in a nested else block, reducing readability without "
+            "improving safety. The goto target is a single label within the same function "
+            "body, always jumping forward (never backward), and is the sole exit point "
+            "from the inner loop. "
+            "Rule 15.1 is advisory. All three jump sites and the target are co-visible "
+            "on a single screen; the control flow is unambiguous. "
+            "Risk: NONE — forward-only goto to a single cleanup label; no resource leaks."
+        ),
+        "files":       [
+            "transport/doip/doip_server.c",
+        ],
+        "approved_by": "Lead Software Engineer",
+        "date":        "2026-05-12",
     },
 ]
 
