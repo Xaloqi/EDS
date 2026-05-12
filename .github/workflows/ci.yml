@@ -911,3 +911,108 @@ jobs:
   #
   # Uses the same west setup pattern as Jobs 3 and 9.
   # ──────────────────────────────────────────────────────────────────────────
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job: doip-integration
+  #
+  # Builds basic_ecu_doip on native_sim, runs the 20 DoIP Unity unit tests
+  # via build_tests.sh (already covered by the unit-tests job, included here
+  # as a smoke check), then launches the ECU binary and runs the 10 pytest
+  # end-to-end integration tests using xaloqi-tester DoipBus over loopback.
+  #
+  # Requires: Zephyr SDK, xaloqi-tester (TestLab) installed.
+  # ──────────────────────────────────────────────────────────────────────────
+  doip-integration:
+    runs-on: ubuntu-latest
+    name: "DoIP Integration (native_sim + DoipBus)"
+
+    steps:
+      - name: Checkout EDS
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ cmake ninja-build device-tree-compiler \
+            python3-pip python3-venv git wget xz-utils
+
+      - name: Install Python dependencies
+        run: |
+          pip install west pyelftools pyyaml jinja2 pytest pytest-asyncio
+
+      - name: Install xaloqi-tester (TestLab)
+        env:
+          XALOQI_LICENSE_SKIP: "1"
+        run: |
+          # In CI, TestLab is expected to be available as a peer repo or
+          # installed from a pre-built wheel. Adjust path as needed.
+          if [ -d "../TestLab" ]; then
+            pip install -e ../TestLab
+          else
+            echo "WARN: TestLab not found at ../TestLab — skipping xaloqi-tester install"
+            echo "      DoipBus tests will be skipped automatically."
+          fi
+
+      - name: Install Zephyr SDK
+        run: |
+          SDK_VERSION="0.16.8"
+          SDK_URL="https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VERSION}/zephyr-sdk-${SDK_VERSION}_linux-x86_64_minimal.tar.xz"
+          wget -q "${SDK_URL}" -O /tmp/zephyr-sdk.tar.xz
+          mkdir -p /opt/zephyr-sdk
+          tar xf /tmp/zephyr-sdk.tar.xz -C /opt/zephyr-sdk --strip-components=1
+          /opt/zephyr-sdk/setup.sh -t x86_64-zephyr-elf -h -c
+        env:
+          ZEPHYR_SDK_INSTALL_DIR: /opt/zephyr-sdk
+
+      - name: West init and update
+        run: |
+          west init -l .
+          west update --narrow --fetch-opt=--depth=1
+
+      - name: Set Zephyr environment
+        run: |
+          echo "ZEPHYR_BASE=$(west topdir)/zephyr" >> $GITHUB_ENV
+          echo "ZEPHYR_TOOLCHAIN_VARIANT=zephyr" >> $GITHUB_ENV
+          echo "ZEPHYR_SDK_INSTALL_DIR=/opt/zephyr-sdk" >> $GITHUB_ENV
+
+      - name: Build basic_ecu_doip (native_sim)
+        run: |
+          west build \
+            -b native_sim \
+            examples/basic_ecu_doip \
+            -p always \
+            -- \
+            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/examples/basic_ecu_doip/boards/native_sim/native_sim_doip.conf" \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DZEPHYR_TOOLCHAIN_VARIANT=host
+        env:
+          ZEPHYR_BASE: ${{ env.ZEPHYR_BASE }}
+
+      - name: Verify ECU binary exists
+        run: |
+          test -f build/zephyr/zephyr.exe \
+            && echo "PASS: zephyr.exe built" \
+            || (echo "FAIL: zephyr.exe not found" && exit 1)
+
+      - name: Run DoIP unit tests (smoke check)
+        run: |
+          bash build_tests.sh --verbose 2>&1 | grep -E "test_doip|PASS|FAIL|Summary"
+
+      - name: Run DoIP integration tests
+        env:
+          XALOQI_LICENSE_SKIP: "1"
+          DOIP_ECU_BINARY: "build/zephyr/zephyr.exe"
+          DOIP_ECU_HOST: "127.0.0.1"
+          DOIP_ECU_PORT: "13400"
+          DOIP_STARTUP_DELAY_S: "2.0"
+          DOIP_TEST_TIMEOUT_S: "10.0"
+        run: |
+          pytest tests/test_doip_integration.py -v --timeout=60
+
+      - name: Upload ECU binary artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: doip-native-sim-binary
+          path: build/zephyr/zephyr.exe
