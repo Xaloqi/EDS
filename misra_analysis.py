@@ -347,7 +347,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "generated/did_handlers.c",
             "generated/did_safety_wrappers.c",
             "generated/routine_handlers.c",
-            "transport/doip/doip_server.c",],
+            "transport/doip/doip_server.c",
+            "transport/doip/zephyr_lwip.c",],
         "approved_by": "Lead Safety Engineer",
         "date":        "2026-03-30",
     },
@@ -667,6 +668,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "platform/uds_flash_ops.h",
             "transport/doip/doip_server.h",
             "transport/doip/doip_server.c",
+            "transport/doip/zephyr_lwip.h",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-30",
@@ -727,6 +729,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "transport/zephyr_port.h",
             "transport/doip/doip_server.h",
             "transport/doip/doip_server.c",
+            "transport/doip/zephyr_lwip.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-30",
@@ -1026,6 +1029,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "transport/zephyr_can.c", "transport/zephyr_port.c",
             "platform/zephyr_wdt.c", "platform/nvm_store.c",
             "platform/zephyr_flash_ops.c", "platform/zephyr_port.c",
+            "transport/doip/zephyr_lwip.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-31",
@@ -1310,6 +1314,37 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
         ),
         "files":       [
             "transport/doip/doip_server.c",
+        ],
+        "approved_by": "Lead Software Engineer",
+        "date":        "2026-05-12",
+    },
+    {
+        "id":          "DEV-FD-01",
+        "rule":        "11.6",
+        "category":    "required",
+        "description": "Cast between void* and integer for Zephyr BSD socket file descriptor",
+        "rationale":   (
+            "The eds_doip_platform_ops_t interface uses void* for opaque connection and "
+            "server contexts, which is the correct platform-abstraction pattern: "
+            "doip_server.c never needs to inspect these handles, only pass them back to "
+            "the platform ops. On Zephyr with zsock_*, a context IS a file descriptor "
+            "(a small non-negative int). The only implementation-correct way to store "
+            "a fd in a void* is via uintptr_t: (void*)(uintptr_t)(uint32_t)fd. "
+            "The alternative — allocating a struct per connection to hold the fd — "
+            "would require either dynamic allocation (prohibited by MISRA-21.3 and the "
+            "no-heap design rule) or a fixed-size static pool. A static pool of "
+            "DOIP_MAX_CONNECTIONS (4) fd-holder structs is architecturally excessive "
+            "for what is a 4-byte integer value. "
+            "The cast is safe: Zephyr BSD socket fds are non-negative ints with values "
+            "well within uint32_t range on all supported architectures. uintptr_t is "
+            "guaranteed wide enough to round-trip any pointer on any architecture. "
+            "This deviation is bounded to zephyr_lwip.c; no other file performs "
+            "pointer-integer casts on fd values. "
+            "Risk: LOW — the cast is sound for Zephyr BSD socket fds; "
+            "verified correct on x86_64 (native_sim) and ARM Cortex-M (production)."
+        ),
+        "files":       [
+            "transport/doip/zephyr_lwip.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-05-12",
