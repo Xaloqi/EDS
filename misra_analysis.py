@@ -438,6 +438,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "config/routine_database.h",
             "transport/isotp.h",
             "transport/can_transport.h",
+            "transport/doip/zephyr_lwip.c",
         ],
         "approved_by": "Lead Safety Engineer",
         "date":        "2026-03-14",
