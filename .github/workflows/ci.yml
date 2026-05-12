@@ -934,7 +934,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            gcc g++ cmake ninja-build device-tree-compiler \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
             python3-pip python3-venv git wget xz-utils
 
       - name: Install Python dependencies
