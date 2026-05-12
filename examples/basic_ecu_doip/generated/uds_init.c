@@ -63,8 +63,10 @@
 #include "dtc_database.h"
 #include "dtc_mirror.h"
 #include "routine_database.h"
+#ifndef EDS_DOIP_ONLY_BUILD
 #include "isotp.h"
 #include "can_transport.h"
+#endif /* EDS_DOIP_ONLY_BUILD */
 #include "generated_config.h"
 #include "safety_config.h"
 
@@ -82,7 +84,9 @@
 static uds_session_ctx_t  s_session_ctx;
 static uds_security_ctx_t s_security_ctx;
 static uds_server_ctx_t   s_server_ctx;
+#ifndef EDS_DOIP_ONLY_BUILD
 static isotp_ctx_t        s_isotp_ctx;
+#endif /* EDS_DOIP_ONLY_BUILD */
 
 /** Guard: true once uds_generated_init() has completed successfully. */
 static bool s_initialized = false;
@@ -435,6 +439,7 @@ uds_status_t uds_generated_init(
      * block_size = 0: no block size limit (tester decides segmentation pace).
      * stmin_ms   = 0: no minimum separation time enforced by this ECU.
      */
+#ifndef EDS_DOIP_ONLY_BUILD
     if (can != NULL) {
         isotp_cfg_t isotp_cfg;
         (void)memset(&isotp_cfg, 0, sizeof(isotp_cfg));
@@ -450,6 +455,7 @@ uds_status_t uds_generated_init(
             return status;
         }
     }
+#endif /* EDS_DOIP_ONLY_BUILD */
 
     s_initialized = true;
 
@@ -474,6 +480,7 @@ uds_server_ctx_t *uds_generated_get_server(void)
 /**
  * @brief Return pointer to the statically allocated ISO-TP context.
  */
+#ifndef EDS_DOIP_ONLY_BUILD
 isotp_ctx_t *uds_generated_get_isotp(void)
 {
     if (!s_initialized) {
@@ -481,5 +488,8 @@ isotp_ctx_t *uds_generated_get_isotp(void)
     }
     return &s_isotp_ctx;
 }
+#else
+isotp_ctx_t *uds_generated_get_isotp(void) { return NULL; }
+#endif /* EDS_DOIP_ONLY_BUILD */
 
 /* End of uds_init.c */
