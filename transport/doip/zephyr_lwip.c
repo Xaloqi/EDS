@@ -20,7 +20,7 @@
  *          Socket lifecycle:
  *            zephyr_tcp_listen() — zsock_socket + bind + listen
  *            zephyr_tcp_accept() — zsock_poll(timeout) + zsock_accept
- *            zephyr_tcp_send()   — zsock_send(MSG_NOSIGNAL)
+ *            zephyr_tcp_send()   — zsock_send(flags=0)
  *            zephyr_tcp_recv()   — zsock_poll(timeout) + zsock_recv
  *            zephyr_tcp_close()  — zsock_close(conn_fd)
  *            zephyr_tcp_server_close() — zsock_close(server_fd)
@@ -158,7 +158,7 @@ static int zephyr_tcp_accept(void *server_ctx, void **conn_ctx,
 static int zephyr_tcp_send(void *conn_ctx, const uint8_t *data, size_t len)
 {
     int fd = (int)(uintptr_t)conn_ctx;
-    ssize_t sent = zsock_send(fd, data, len, MSG_NOSIGNAL);
+    ssize_t sent = zsock_send(fd, data, len, 0);
     if (sent < 0) {
         LOG_DBG("DoIP: zsock_send failed: %d", errno);
         return -errno;
