@@ -287,6 +287,47 @@ void eds_platform_can_input(const eds_can_frame_t *frame);
  */
 uds_status_t eds_freertos_start(void);
 
+/* ============================================================================
+ * DoIP TCP transport ops (optional — NULL for CAN-only builds)
+ *
+ * Implemented by:
+ *   platform/zephyr/platform_doip.c   — Zephyr BSD socket (zsock_*)
+ *   platform/freertos/platform_doip.c — FreeRTOS LwIP (lwip_*)
+ *
+ * See transport/doip/doip_server.h for the full eds_doip_platform_ops_t
+ * definition and usage documentation.
+ *
+ * This header only declares the registration function to avoid including
+ * doip_server.h from platform_api.h (which would create a circular dependency
+ * between the transport and platform layers).
+ *
+ * Registration is done at startup via eds_doip_register_platform() from
+ * transport/doip/doip_server.h — called by platform_doip_zephyr.c after
+ * eds_platform_init() returns.
+ * ========================================================================== */
+
+/*
+ * No new declarations needed here — eds_doip_register_platform() is declared
+ * in transport/doip/doip_server.h and called from the platform binding files.
+ * This comment block documents the extension point for auditors.
+ *
+ * Summary of files added for DoIP support (v1.6.0):
+ *
+ *   transport/doip/doip_server.h       — DoIP server public API + ops struct
+ *   transport/doip/doip_server.c       — ISO 13400-2 server implementation
+ *   transport/doip/zephyr_lwip.h       — Zephyr binding (Week 2)
+ *   transport/doip/zephyr_lwip.c       — Zephyr zsock_* implementation (Week 2)
+ *   transport/doip/freertos_lwip.h     — FreeRTOS LwIP binding (Week 3)
+ *   transport/doip/freertos_lwip.c     — FreeRTOS lwip_* implementation (Week 3)
+ *   platform/zephyr/platform_doip.c   — Zephyr DoIP platform registration (Week 2)
+ *   platform/freertos/platform_doip.c — FreeRTOS DoIP platform registration (Week 3)
+ *   examples/basic_ecu_doip/           — Zephyr DoIP example ECU (Week 2)
+ *   examples/basic_ecu_doip_freertos/  — FreeRTOS LwIP example ECU (Week 3)
+ *   tests/unit_runnable/test_doip_server.c  — 24 host-side unit tests (Week 1 ✅)
+ *   tests/test_doip_integration.py     — 10 pytest integration tests (Week 2)
+ */
+
+
 #ifdef __cplusplus
 }
 #endif
