@@ -1029,69 +1029,72 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Python dependencies
-        run: pip install pyyaml jinja2
+        run: pip install pyyaml
 
-      - name: Checkout EDS-toolchain (for templates)
-        uses: actions/checkout@v4
-        with:
-          repository: Xaloqi/EDS-toolchain
-          token: ${{ secrets.TOOLCHAIN_TOKEN }}
-          path: EDS-toolchain
-
-      - name: Run codegen --sovd on basic_ecu (CAN transport)
-        env:
-          XALOQI_LICENSE_SKIP: "1"
-        run: |
-          python3 tools/codegen.py \
-            --config       examples/basic_ecu/diagnostics_config.yaml \
-            --out          /tmp/sovd_can/ \
-            --template-dir EDS-toolchain/tools/templates/ \
-            --safety-wrappers --asil-level B --sovd --no-manifest
-
-      - name: Validate basic_ecu CDA — valid JSON + counts
+      - name: Generate SOVD CDA — basic_ecu (CAN transport)
         run: |
           python3 - <<'EOF'
-          import json, sys
+          # build_sovd_cda() is pure Python — no Jinja2 templates needed.
+          # Import it directly from tools/codegen.py.
+          import sys, json
           from pathlib import Path
-          import yaml
+          sys.path.insert(0, "tools")
+          from codegen import build_sovd_cda, load_config
 
-          cda = json.loads(Path("/tmp/sovd_can/sovd_cda.json").read_text())
+          cfg = load_config(Path("examples/basic_ecu/diagnostics_config.yaml"))
+          cda = build_sovd_cda(cfg)
+          Path("/tmp/sovd_can.json").write_text(json.dumps(cda, indent=2) + "\n")
+          print("Generated /tmp/sovd_can.json")
+          EOF
+
+      - name: Validate basic_ecu CDA
+        run: |
+          python3 - <<'EOF'
+          import json, yaml
+          from pathlib import Path
+
+          cda = json.loads(Path("/tmp/sovd_can.json").read_text())
           cfg = yaml.safe_load(Path("examples/basic_ecu/diagnostics_config.yaml").read_text())
 
-          assert cda["transportInfo"]["protocol"] == "ISO-TP",  "Expected ISO-TP"
-          assert "logicalAddress" not in cda["ecuIdentification"], "CAN ECU must not have logicalAddress"
-          assert len(cda["dataIdentifiers"]) == len(cfg.get("dids", [])),     "DID count mismatch"
-          assert len(cda["dtcs"])            == len(cfg.get("dtcs", [])),     "DTC count mismatch"
+          assert cda["sovdVersion"] == "1.0.0",                              "Wrong sovdVersion"
+          assert cda["transportInfo"]["protocol"] == "ISO-TP",               "Expected ISO-TP"
+          assert "logicalAddress" not in cda["ecuIdentification"],           "CAN ECU must not have logicalAddress"
+          assert len(cda["dataIdentifiers"]) == len(cfg.get("dids", [])),    "DID count mismatch"
+          assert len(cda["dtcs"])            == len(cfg.get("dtcs", [])),    "DTC count mismatch"
           assert len(cda["routines"])        == len(cfg.get("routines", [])), "Routine count mismatch"
-          assert len(cda["diagnosticServices"]) == 14, "Expected 14 diagnostic services"
+          assert len(cda["diagnosticServices"]) == 14,                       "Expected 14 services"
           print("PASS: basic_ecu CDA valid")
           EOF
 
-      - name: Run codegen --sovd on basic_ecu_doip (DoIP transport)
-        env:
-          XALOQI_LICENSE_SKIP: "1"
-        run: |
-          python3 tools/codegen.py \
-            --config       examples/basic_ecu_doip/diagnostics_config.yaml \
-            --out          /tmp/sovd_doip/ \
-            --template-dir EDS-toolchain/tools/templates/ \
-            --safety-wrappers --asil-level B --sovd --no-manifest
-
-      - name: Validate basic_ecu_doip CDA — valid JSON + DoIP fields
+      - name: Generate SOVD CDA — basic_ecu_doip (DoIP transport)
         run: |
           python3 - <<'EOF'
-          import json, sys
+          import sys, json
           from pathlib import Path
-          import yaml
+          sys.path.insert(0, "tools")
+          from codegen import build_sovd_cda, load_config
 
-          cda = json.loads(Path("/tmp/sovd_doip/sovd_cda.json").read_text())
+          cfg = load_config(Path("examples/basic_ecu_doip/diagnostics_config.yaml"))
+          cda = build_sovd_cda(cfg)
+          Path("/tmp/sovd_doip.json").write_text(json.dumps(cda, indent=2) + "\n")
+          print("Generated /tmp/sovd_doip.json")
+          EOF
+
+      - name: Validate basic_ecu_doip CDA
+        run: |
+          python3 - <<'EOF'
+          import json, yaml
+          from pathlib import Path
+
+          cda = json.loads(Path("/tmp/sovd_doip.json").read_text())
           cfg = yaml.safe_load(Path("examples/basic_ecu_doip/diagnostics_config.yaml").read_text())
 
-          assert cda["transportInfo"]["protocol"] == "DoIP",   "Expected DoIP"
-          assert cda["transportInfo"]["port"]     == 13400,    "Wrong DoIP port"
-          assert cda["ecuIdentification"]["logicalAddress"] == "0xE400", "Wrong logical address"
-          assert len(cda["dataIdentifiers"]) == len(cfg.get("dids", [])),     "DID count mismatch"
-          assert len(cda["dtcs"])            == len(cfg.get("dtcs", [])),     "DTC count mismatch"
-          assert len(cda["routines"])        == len(cfg.get("routines", [])), "Routine count mismatch"
+          assert cda["sovdVersion"] == "1.0.0",                                       "Wrong sovdVersion"
+          assert cda["transportInfo"]["protocol"] == "DoIP",                          "Expected DoIP"
+          assert cda["transportInfo"]["port"]     == 13400,                           "Wrong DoIP port"
+          assert cda["ecuIdentification"]["logicalAddress"] == "0xE400",             "Wrong logical address"
+          assert len(cda["dataIdentifiers"]) == len(cfg.get("dids", [])),            "DID count mismatch"
+          assert len(cda["dtcs"])            == len(cfg.get("dtcs", [])),            "DTC count mismatch"
+          assert len(cda["routines"])        == len(cfg.get("routines", [])),        "Routine count mismatch"
           print("PASS: basic_ecu_doip CDA valid")
           EOF
