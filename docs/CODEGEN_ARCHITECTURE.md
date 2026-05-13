@@ -1,6 +1,6 @@
 # Code Generation Architecture
 
-## Xaloqi EDS — Zephyr RTOS
+## Xaloqi EDS — Zephyr RTOS and FreeRTOS
 
 | Field | Value |
 |---|---|
@@ -8,7 +8,7 @@
 | Template engine | Jinja2 |
 | Configuration format | YAML (`diagnostics_config.yaml`) |
 | Output languages | C (embedded stack), TypeScript (GUI catalog), Python (pytest suite) |
-| Last updated | 2026-04-15 |
+| Last updated | 2026-05-13 (v1.6.0 — transport context, DoIP guards) |
 
 ---
 
@@ -41,6 +41,7 @@ This approach delivers several compounding advantages:
 - **Consistent safety enforcement** — no DID can be added without a corresponding ASIL-B safety wrapper
 - **Single source of truth** — changing a DID's session or security requirement in YAML propagates to C, tests, and dashboard in one codegen run
 - **Scalability** — the ARDEP example configures 35 DIDs and produces 42 test files from a single 200-line YAML; without codegen this would require days of manual work
+- **Transport-agnostic** — the same YAML and templates produce CAN/ISO-TP builds or DoIP/Ethernet builds; the transport is a one-field YAML choice, not a code branch (v1.6.0)
 
 ---
 
@@ -101,7 +102,7 @@ diagnostics_config.yaml
 
 Loads the YAML file and normalises the structure into typed Python objects consumed by all downstream stages. Handles:
 
-- Default value injection (timing parameters, CAN IDs, session defaults)
+- Default value injection (timing parameters, CAN IDs, session defaults, transport defaults)
 - Hex string normalisation (`0xF190` → `"0xF190"`, integer representations)
 - C identifier generation from symbolic names (spaces → underscores, reserved word avoidance)
 
@@ -142,6 +143,17 @@ metadata:
   ecu_name:   "BasicECU"
   version:    "1.1.0"
 
+# Optional transport selection (v1.6.0) — default is "can"
+# "can"  — ISO-TP over CAN (default, backward compatible)
+# "doip" — DoIP over Ethernet/TCP (ISO 13400-2), disables ISO-TP init
+# "both" — ISO-TP CAN + DoIP simultaneously (zonal ECU)
+ecu:
+  transport: doip
+  doip:
+    logical_address: "0xE400"   # This ECU's DoIP logical address
+    source_address:  "0x0E00"   # Expected tester source address
+    port:            13400       # Standard DoIP TCP port
+
 can:
   rx_can_id:  "0x7DF"    # ISO 15765-4 functional address
   tx_can_id:  "0x7E8"    # ECU physical response address
@@ -152,13 +164,10 @@ timing:
   s3_server_timeout_ms:  5000
 
 # Optional — SafeBoot MCUboot DFU integration (Xaloqi EDS Professional)
-# Set enabled: true to generate zephyr_flash_ops_init() in uds_init.c.
-# Without this block (or with enabled: false), any 0x34 RequestDownload
-# is rejected with NRC 0x22 — intentionally safe.
 safeboot:
   enabled: true
-  platform: zephyr          # zephyr (v1.3.0); freertos support planned
-  max_block_length: 256     # bytes per TransferData block
+  platform: zephyr
+  max_block_length: 256
 
 dids:
   - id:                  "0xF190"
@@ -166,15 +175,8 @@ dids:
     data_length:         17
     data_type:           ascii
     min_session:         extended
-    read_security_level: 0           # 0 = no unlock required
+    read_security_level: 0
     access:              [read]
-
-  - id:                  "0xF18C"
-    name:                "ECUSerialNumber"
-    data_length:         4
-    min_session:         extended
-    write_security_level: 1          # Level 1 unlock required to write
-    access:              [read, write]
 
 dtcs:
   - code:        "0xC00100"
@@ -184,31 +186,35 @@ dtcs:
 routines:
   - id:            "0xFF00"
     name:          "ECU_SelfTest"
-    description:   "Run internal self-test"
     min_session:   extended
     security_level: 0
     support:       ["start", "results"]
 ```
 
-### Context variables passed to `uds_init.c.j2`
+### Context variables passed to `uds_init.c.j2` and `uds_init.h.j2`
 
 `build_uds_init_context()` in `codegen.py` builds the following variables:
 
-| Variable | Type | Source |
-|---|---|---|
-| `ecu_name` | str | `metadata.ecu_name` |
-| `version` | str | `metadata.version` |
-| `p2_server_max_ms` | int | `timing.p2_server_max_ms` |
-| `p2_star_server_max_ms` | int | `timing.p2_star_server_max_ms` |
-| `s3_server_timeout_ms` | int | `timing.s3_server_timeout_ms` |
-| `can_rx_id` | int | `can.rx_can_id` (default 0x7DF) |
-| `can_tx_id` | int | `can.tx_can_id` (default 0x7E8) |
-| `dids` | list | `_build_did_list(cfg)` |
-| `dtcs` | list | `_build_dtc_list(cfg)` |
-| `routines` | list | `_build_routine_list(cfg)` |
-| `safeboot_enabled` | bool | `safeboot.enabled` (default `False`) |
-| `safeboot_platform` | str | `safeboot.platform` (default `"zephyr"`) |
-| `safeboot_max_block` | int | `safeboot.max_block_length` (default `256`) |
+| Variable | Type | Source | Notes |
+|---|---|---|---|
+| `ecu_name` | str | `metadata.ecu_name` | |
+| `version` | str | `metadata.version` | |
+| `p2_server_max_ms` | int | `timing.p2_server_max_ms` | |
+| `p2_star_server_max_ms` | int | `timing.p2_star_server_max_ms` | |
+| `s3_server_timeout_ms` | int | `timing.s3_server_timeout_ms` | |
+| `can_rx_id` | int | `can.rx_can_id` (default `0x7DF`) | |
+| `can_tx_id` | int | `can.tx_can_id` (default `0x7E8`) | |
+| `dids` | list | `_build_did_list(cfg)` | |
+| `dtcs` | list | `_build_dtc_list(cfg)` | |
+| `routines` | list | `_build_routine_list(cfg)` | |
+| `safeboot_enabled` | bool | `safeboot.enabled` (default `False`) | |
+| `safeboot_platform` | str | `safeboot.platform` (default `"zephyr"`) | |
+| `safeboot_max_block` | int | `safeboot.max_block_length` (default `256`) | |
+| `transport` | str | `ecu.transport` (default `"can"`) | v1.6.0 — `"can"`, `"doip"`, or `"both"` |
+| `is_doip` | bool | `transport in ("doip", "both")` | v1.6.0 — available to templates |
+| `doip_logical_address` | str | `ecu.doip.logical_address` (default `"0xE400"`) | v1.6.0 |
+| `doip_source_address` | str | `ecu.doip.source_address` (default `"0x0E00"`) | v1.6.0 |
+| `doip_port` | int | `ecu.doip.port` (default `13400`) | v1.6.0 |
 
 ---
 
@@ -222,8 +228,8 @@ All 14 templates in `tools/templates/`:
 | `did_handlers.h.j2` | `did_handlers.h` | DID callback prototypes |
 | `did_safety_wrappers.c.j2` | `did_safety_wrappers.c` | ASIL-B 5-step wrapper implementations |
 | `did_safety_wrappers.h.j2` | `did_safety_wrappers.h` | Wrapper prototypes |
-| `uds_init.c.j2` | `uds_init.c` | Full stack init sequence (Steps 1–7) |
-| `uds_init.h.j2` | `uds_init.h` | `uds_generated_init()` prototype |
+| `uds_init.c.j2` | `uds_init.c` | Full stack init sequence — CAN and DoIP build guards (v1.6.0) |
+| `uds_init.h.j2` | `uds_init.h` | `uds_generated_init()` prototype — CAN and DoIP variants (v1.6.0) |
 | `generated_config.h.j2` | `generated_config.h` | CAN IDs, timing, counts, ECU metadata |
 | `safety_config.h.j2` | `safety_config.h` | ASIL-B `_Static_assert` guards, DID counts |
 | `test_did_XXXX.py.j2` | `test_did_XXXX.py` | Per-DID pytest (one file per DID) |
@@ -262,18 +268,46 @@ One start/stop/results stub per routine. Same `TODO [APPLICATION]` pattern as DI
 
 ### `generated/uds_init.c`
 
-The complete stack initialisation sequence, emitted as `uds_generated_init(can_transport_t *can, uint32_t rx_id, uint32_t tx_id)`. The sequence:
+The complete stack initialisation sequence. The function signature and ISO-TP wiring are conditional on the transport selected in the YAML (`ecu.transport`).
 
+**CAN/ISO-TP build (default — `transport: can` or no `ecu:` block):**
+
+```c
+uds_status_t uds_generated_init(
+    can_transport_t *can,
+    uint32_t         rx_can_id,
+    uint32_t         tx_can_id)
+```
+
+Initialisation sequence:
 1. `uds_safety_init()` — ASIL-B check engine (REQ-SAFE-005)
-2. `isotp_init()` — ISO-TP channel over CAN transport
-3. `uds_server_init()` — UDS dispatcher
+2. `uds_safety_self_test()` — pre-start self-test (ISO 26262-6 §9.4.3)
+3. `did_database_init()` — DID static table
 4. `dtc_database_init()` — DTC static table
 5. `dtc_mirror_init()` + `dtc_mirror_load()` — NVM persistence (REQ-DTC-NVM-01)
-6. `did_database_init()` — DID static table
+6. `routine_database_init()` — routine static table
 7. `did_handlers_register_all()` — link handler stubs into DID table
 8. Per-DTC `dtc_database_register()` loop
 9. Per-routine `routine_database_register()` loop
-10. **Step 5.7 — SafeBoot (conditional):** `zephyr_flash_ops_init()` is generated only when `safeboot.enabled: true` in the YAML. When enabled, it registers the MCUboot secondary-slot flash ops table so that services 0x34/0x36/0x37 accept firmware downloads. When disabled (default), a documentation comment is emitted explaining how to enable it — no code is generated and all three download services remain locked out with NRC 0x22.
+10. **Step 5.7 — SafeBoot (conditional):** `zephyr_flash_ops_init()` generated only when `safeboot.enabled: true`
+11. `uds_session_init()` — session FSM
+12. `uds_security_init()` — AES-128-CMAC + TRNG production callbacks
+13. **Step 7.1 — Production key + TRNG gate** (SEC-KEY-GATE-01 / SEC-TRNG-GATE-01)
+14. `uds_server_init()` — UDS service dispatcher
+15. `isotp_init()` — ISO-TP channel bound to the CAN transport
+
+**DoIP-only build (`transport: doip`, compiled with `-DEDS_DOIP_ONLY_BUILD`):**
+
+```c
+uds_status_t uds_generated_init(
+    void    *can,      /* unused — pass NULL for DoIP-only */
+    uint32_t rx_can_id,
+    uint32_t tx_can_id)
+```
+
+Steps 1–13 are identical. Step 14 (`isotp_init`) is compiled out. The DoIP server is started separately via `eds_doip_platform_start()` in `main.c` after `uds_generated_init()` returns.
+
+**`EDS_DOIP_ONLY_BUILD` compile guards** are present in all generated `uds_init.c/.h` files regardless of the `ecu.transport` field. The guards are static `#ifndef` preprocessor directives — `EDS_DOIP_ONLY_BUILD` being undefined (CAN builds) means the CAN path compiles unchanged. This is fully backward-compatible: existing CAN-only configs need no YAML change and produce identical generated output except for the addition of the guards (which are transparent when the macro is not defined).
 
 The SafeBoot conditional in `uds_init.c.j2`:
 
@@ -372,7 +406,7 @@ export const ROUTINE_CATALOG: RoutineInfo[] = [
 ];
 ```
 
-`RoutinesPanel.tsx` and `DidsPanel.tsx` import directly from this generated file, so the dashboard always reflects the current YAML configuration without manual synchronisation. The GUI build CI job regenerates this file before running `npm run typecheck`.
+`RoutinesPanel.tsx` and `DidsPanel.tsx` import directly from this generated file, so the dashboard always reflects the current YAML configuration without manual synchronisation.
 
 ---
 
@@ -390,6 +424,17 @@ python3 tools/codegen.py \
   --no-manifest            Skip manifest.json (use in CI)
   --dry-run                Validate config only; write no files
   --template-dir <dir>     Override tools/templates/ location
+```
+
+Example — DoIP ECU with safety wrappers:
+
+```bash
+python3 tools/codegen.py \
+  --config  examples/basic_ecu_doip/diagnostics_config.yaml \
+  --out     examples/basic_ecu_doip/generated/ \
+  --safety-wrappers \
+  --asil-level B \
+  --no-manifest
 ```
 
 Example — BMS ECU with full test generation:
@@ -427,6 +472,10 @@ The root `CMakeLists.txt` defines a `run_codegen` custom target that re-runs `co
 west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON
 ```
 
+`-DDIAG_SKIP_CODEGEN=ON` is also used in public CI where the Jinja2 templates are not
+available (they reside in the private EDS-toolchain repo). Pre-generated files committed
+to the repository serve as the build input.
+
 ---
 
 ## 12. Validation and Error Handling
@@ -443,6 +492,7 @@ The generator validates the YAML configuration before writing any file. The foll
 | Missing required field | `dids[0]: required field 'name' is missing` |
 | Invalid session name | `dids[1]: min_session 'factory' is not a valid session` |
 | Routine missing 'start' | `routines[0]: 'start' must always be in support list` |
+| Invalid transport value | `ecu.transport 'serial' is not valid — use 'can', 'doip', or 'both'` |
 
 Warnings (non-fatal) are printed for advisory issues such as missing CAN configuration (defaults applied) or no routines configured.
 
@@ -485,3 +535,4 @@ All generated C modules adhere to the following rules, enforced by the templates
 | No blocking operations | Real-time compatibility |
 | `GENERATED — DO NOT EDIT` header in every file | Prevents manual drift |
 | Traceability tags (`REQ-SAFE-*`, `REQ-DL-*`) in comments | ISO 26262 traceability |
+| `#ifndef EDS_DOIP_ONLY_BUILD` guards in `uds_init.c/.h` | Transparent on CAN builds; active on DoIP-only builds (v1.6.0) |

@@ -1,30 +1,32 @@
 # Xaloqi EDS
 
-> Production-grade ISO 14229 UDS + ISO 15765-2 ISO-TP diagnostics stack for Zephyr RTOS and FreeRTOS.
-> YAML-driven code generation produces ASIL-B safety-wrapped C firmware. v1.3.0.
+> Production-grade ISO 14229 UDS + ISO 15765-2 ISO-TP + ISO 13400-2 DoIP diagnostics stack
+> for Zephyr RTOS and FreeRTOS. YAML-driven code generation produces ASIL-B safety-wrapped
+> C firmware. v1.6.0.
 
 ## What EDS Does
 
-EDS is a commercially licensable automotive diagnostics platform implementing ISO 14229 (UDS)
-and ISO 15765-2 (ISO-TP) for Zephyr RTOS and FreeRTOS. A developer describes their ECU's
-diagnostic interface in a YAML file, runs the code generator, and receives complete
-ASIL-B-safety-wrapped C source files, a pytest test suite, and CANoe CAPL scripts ready to
-use immediately.
+EDS is a commercially licensable automotive diagnostics platform implementing ISO 14229 (UDS),
+ISO 15765-2 (ISO-TP), and ISO 13400-2 (DoIP) for Zephyr RTOS and FreeRTOS. A developer
+describes their ECU's diagnostic interface in a YAML file, runs the code generator, and
+receives complete ASIL-B-safety-wrapped C source files, a pytest test suite, and CANoe CAPL
+scripts ready to use immediately. Transport — CAN/ISO-TP or Ethernet/DoIP — is a one-field
+YAML choice. The same UDS core, safety chain, and codegen pipeline serve both transports.
 
 EDS implements:
 - ISO 14229 (UDS): 14 service handlers (0x10 0x11 0x14 0x19 0x22 0x27 0x28 0x2E 0x31 0x34 0x36 0x37 0x3E 0x85)
 - ISO 15765-2 (ISO-TP): SF/FF/CF/FC, N_As/N_Bs/N_Cr timers, STmin, Flow Control
+- ISO 13400-2 (DoIP): ECU server — Routing Activation, DiagnosticMessage dispatch, Positive/Negative Ack, Alive Check; Zephyr (zsock_*) and FreeRTOS+LwIP bindings (v1.6.0)
 - ASIL-B safety wrapper chain: 5-step mandatory validation on every DID access
 - AES-128-CMAC SecurityAccess (0x27) with TRNG entropy requirement
-- YAML-driven codegen: diagnostics_config.yaml → 10 generated C/H files + test suite
+- YAML-driven codegen: diagnostics_config.yaml → 14 generated C/H files + test suite
 - Auto-generated pytest test suites (per-DID, per-routine, service protocol, firmware harness)
 - Auto-generated CANoe CAPL test scripts
-- 9 reference ECU examples: basic_ecu, basic_ecu_freertos, bms_ecu, motor_controller_ecu,
-  ardep_ecu, sensor_ecu, sensor_ecu_freertos, safeboot_ecu, robot_joint_controller_ecu
+- 11 reference ECU examples: basic_ecu, basic_ecu_doip, basic_ecu_freertos, basic_ecu_doip_freertos, bms_ecu, motor_controller_ecu, ardep_ecu, sensor_ecu, sensor_ecu_freertos, safeboot_ecu, robot_joint_controller_ecu
 - MCP server: exposes generate_did_config, run_codegen, validate_asil_b, explain_uds_error
 - React/TypeScript live dashboard GUI
 - VS Code extension (YAML validation, hover docs, one-click codegen)
-- 18-job CI pipeline (native_sim + STM32 Nucleo-H743ZI2 + FreeRTOS QEMU ARM)
+- 7-job CI pipeline: unit tests (37 modules) · integration · static analysis · Zephyr builds · FreeRTOS QEMU ARM · DoIP integration (native_sim + DoipBus)
 
 ## Licensing
 
@@ -33,7 +35,7 @@ ECU examples: Apache 2.0 (examples/)
 Developer tier: Commercial €690/yr (codegen + testgen + templates + VS Code ext + integration guide)
 Professional tier: Commercial €1,990/yr (Developer + Safety Manual + MISRA log + RTM + priority support)
 
-## Quick Integration (Zephyr)
+## Quick Integration (Zephyr, CAN/ISO-TP)
 
 1. Write your_ecu/diagnostics_config.yaml describing DIDs, DTCs, and routines
 2. Run: python3 tools/codegen.py --config your_ecu/diagnostics_config.yaml \
@@ -41,6 +43,14 @@ Professional tier: Commercial €1,990/yr (Developer + Safety Manual + MISRA log
 3. Implement DID handler functions declared in your_ecu/generated/did_handlers.h
 4. Wire EDS sources into your CMakeLists.txt (see docs/INTEGRATION_GUIDE.md Step 3)
 5. Build: west build -b native_sim examples/basic_ecu
+
+## Quick Integration (Zephyr, DoIP/Ethernet)
+
+1. Add ecu.transport: doip and ecu.doip block to diagnostics_config.yaml
+2. Run codegen (identical command — same YAML schema, same templates)
+3. Add -DEDS_DOIP_ONLY_BUILD to CMakeLists.txt; add doip_server.c + zephyr_lwip.c + platform_doip.c to target_sources
+4. Call uds_generated_init(NULL, 0U, 0U) then eds_doip_platform_start(logical_addr, DOIP_PORT, srv)
+5. See docs/INTEGRATION_GUIDE.md Section 5b for the complete DoIP walkthrough
 
 ## Quick Integration (FreeRTOS)
 
@@ -52,7 +62,7 @@ Professional tier: Commercial €1,990/yr (Developer + Safety Manual + MISRA log
 
 ## YAML Config Schema
 
-Minimum viable config:
+Minimum viable config (CAN/ISO-TP):
 
 ```yaml
 schema_version: 1
@@ -87,6 +97,19 @@ routines:
     support:        ["start", "results"]
 ```
 
+DoIP transport extension (additive, optional — v1.6.0):
+
+```yaml
+ecu:
+  transport: doip           # "can" (default) | "doip" | "both"
+  doip:
+    logical_address: "0xE400"   # This ECU's DoIP logical address
+    source_address:  "0x0E00"   # Expected tester source address
+    port:            13400       # Standard DoIP TCP port (ISO 13400)
+```
+
+Existing configs without an ecu: block continue to build unchanged (transport defaults to "can").
+
 DID fields: id, name, access ([read] / [write] / [read, write]), min_session,
 read_security_level (0=none), write_security_level (>=1 required for ASIL-B),
 data_length, read_handler, write_handler, description
@@ -110,7 +133,7 @@ Generated files in <dir>:
   did_handlers.c/.h          DID read/write stubs — implement these in your application
   did_safety_wrappers.c/.h   ASIL-B 5-step validation chain (do not edit)
   routine_handlers.c/.h      Routine start/stop/results stubs
-  uds_init.c/.h              Full UDS stack initialisation sequence
+  uds_init.c/.h              Full UDS stack initialisation — EDS_DOIP_ONLY_BUILD guards included
   safety_config.h            Compile-time ASIL-B assertions
   tests/                     pytest suite (per-DID, per-routine, service protocol, firmware)
 
@@ -144,15 +167,20 @@ Not implemented (return NRC 0x11): 0x23 0x24 0x29 0x2A 0x2C 0x2F 0x38 0x3D 0x86 
 
 ## Build Commands
 
-# Zephyr native_sim (no hardware):
+# Zephyr native_sim (CAN/ISO-TP, no hardware):
 west build -b native_sim examples/basic_ecu \
   -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+
+# Zephyr native_sim (DoIP, no hardware):
+west build -b native_sim examples/basic_ecu_doip \
+  -- -DEDS_DOIP_ONLY_BUILD \
+     -DEXTRA_CONF_FILE=boards/native_sim/native_sim_doip.conf
 
 # FreeRTOS QEMU Cortex-M4:
 cmake -B build -DEDS_PLATFORM=freertos -DFREERTOS_DIR=/opt/freertos-kernel \
   -GNinja examples/basic_ecu_freertos && ninja -C build
 
-# Run unit tests (36 modules):
+# Run unit tests (37 modules, includes 24 DoIP tests):
 bash build_tests.sh
 
 # Run harness tests (68 tests):
@@ -161,19 +189,23 @@ bash build_harness.sh --run
 # Run generated pytest suite (simulator mode):
 cd examples/basic_ecu/generated/tests && pytest . --can-interface=simulator -v
 
+# Run DoIP integration tests (requires xaloqi-tester installed):
+pytest tests/test_doip_integration.py -v --timeout=60
+
 ## Repository Structure
 
 core/               UDS server, session FSM, security, safety chain, 14 service handlers
 transport/          ISO-TP state machine, CAN transport abstraction
+  doip/             DoIP ECU server (ISO 13400-2) — Zephyr and FreeRTOS+LwIP bindings (v1.6.0)
 config/             DID database, DTC database, NVM DTC mirror
 platform/
   platform_api.h    Common HAL interface (Zephyr + FreeRTOS)
-  zephyr/           Zephyr RTOS port (threads, CAN, NVM, flash, watchdog)
-  freertos/         FreeRTOS port (task, CAN shim, NVM abstraction)
-tools/              codegen.py, testgen.py, mcp_server.py, 17 Jinja2 templates
-examples/           9 ECU examples — each with diagnostics_config.yaml + generated/
+  zephyr/           Zephyr RTOS port (threads, CAN, NVM, flash, watchdog, DoIP shim)
+  freertos/         FreeRTOS port (task, CAN shim, NVM abstraction, DoIP shim)
+tools/              codegen.py, testgen.py, mcp_server.py, 14 Jinja2 templates
+examples/           11 ECU examples — each with diagnostics_config.yaml + generated/
 gui/                React/TypeScript configurator and live dashboard
-tests/              36 Unity unit tests, Python integration tests, harness (68 tests)
+tests/              37 Unity unit tests, Python integration tests, harness (68 tests)
 ide/vscode-extension/  YAML validation, hover docs, Run Codegen command
 
 ## Requirements
@@ -181,6 +213,7 @@ ide/vscode-extension/  YAML validation, hover docs, Run Codegen command
 Zephyr RTOS v3.7+, West 1.2+, CMake >= 3.20, Python 3.9+
 FreeRTOS-Kernel (any recent release, tested with HEAD)
 arm-none-eabi-gcc for FreeRTOS / hardware Zephyr targets
+LwIP 2.x for FreeRTOS DoIP targets
 Node.js 20 LTS for GUI
 
 ## NRC Quick Reference
@@ -199,5 +232,5 @@ Node.js 20 LTS for GUI
 
 ## For AI Assistants
 
-Full YAML schema, codegen CLI reference, all DID patterns, FreeRTOS integration,
-safety architecture detail, and troubleshooting: see docs/AI_CONTEXT.md
+Full YAML schema, codegen CLI reference, all DID patterns, DoIP integration, FreeRTOS
+integration, safety architecture detail, and troubleshooting: see docs/AI_CONTEXT.md
