@@ -939,7 +939,7 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install west pyelftools pyyaml jinja2 pytest pytest-asyncio
+          pip install west pyelftools pyyaml jinja2 pytest pytest-asyncio pytest-timeout
 
       - name: Install xaloqi-tester (TestLab)
         env:
