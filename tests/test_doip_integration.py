@@ -57,7 +57,13 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # xaloqi-tester imports — DoIP transport + UDS client
+# Skip the entire module when xaloqi-tester is not installed (e.g. CI without
+# TestLab access). The ECU binary smoke-check and unit tests still run.
 # ---------------------------------------------------------------------------
+xaloqi = pytest.importorskip(
+    "xaloqi",
+    reason="xaloqi-tester not installed — skipping DoIP integration tests"
+)
 from xaloqi.tester import DoipBus, Session, UdsTester
 
 # ---------------------------------------------------------------------------
