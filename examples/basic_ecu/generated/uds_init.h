@@ -1,3 +1,5 @@
+
+
 /*
  * =============================================================================
  * Xaloqi EDS
@@ -23,8 +25,10 @@
 #include "uds_server.h"
 #include "uds_safety.h"
 #include "safety_config.h"
+#ifndef EDS_DOIP_ONLY_BUILD
 #include "isotp.h"
 #include "can_transport.h"
+#endif /* EDS_DOIP_ONLY_BUILD */
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,11 +60,20 @@ extern "C" {
  *
  * @note SAFETY: Must be called from initialisation context, not from ISR.
  */
+#ifndef EDS_DOIP_ONLY_BUILD
 uds_status_t uds_generated_init(
     can_transport_t *can,
     uint32_t         rx_can_id,
     uint32_t         tx_can_id
 );
+#else
+/* DoIP-only build: can parameter is unused (pass NULL). */
+uds_status_t uds_generated_init(
+    void    *can,
+    uint32_t rx_can_id,
+    uint32_t tx_can_id
+);
+#endif /* EDS_DOIP_ONLY_BUILD */
 
 /**
  * @brief Return a pointer to the generated UDS server context.
@@ -82,7 +95,12 @@ uds_server_ctx_t *uds_generated_get_server(void);
  * @return Non-NULL pointer to the statically allocated ISO-TP context.
  *         Returns NULL if uds_generated_init() has not been called.
  */
+#ifndef EDS_DOIP_ONLY_BUILD
 isotp_ctx_t *uds_generated_get_isotp(void);
+#else
+/* DoIP-only build: returns NULL, isotp_ctx_t unavailable */
+static inline void *uds_generated_get_isotp(void) { return ((void *)0); }
+#endif /* EDS_DOIP_ONLY_BUILD */
 
 /**
  * @brief Application-provided security seed generation callback.
