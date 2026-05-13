@@ -242,7 +242,7 @@ jobs:
 
   # ── Job 1: Host unit tests ─────────────────────────────────────────────────
   unit-tests:
-    name: "Unit Tests (37 modules)"
+    name: "Unit Tests (36 modules)"
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -1008,7 +1008,11 @@ jobs:
           DOIP_STARTUP_DELAY_S: "2.0"
           DOIP_TEST_TIMEOUT_S: "10.0"
         run: |
-          pytest tests/test_doip_integration.py -v --timeout=60 || { rc=$?; [ $rc -eq 5 ] && echo "All tests skipped (xaloqi not installed) — OK" || exit $rc; }
+          # Exit code 5 = no tests collected (all skipped when xaloqi-tester
+          # is not installed). Treat as success — the ECU binary built correctly.
+          pytest tests/test_doip_integration.py -v --timeout=60 || {
+            rc=$?; [ $rc -eq 5 ] && echo "All tests skipped (xaloqi not installed) — OK" || exit $rc
+          }
 
       - name: Upload ECU binary artifact
         uses: actions/upload-artifact@v4
@@ -1016,3 +1020,78 @@ jobs:
         with:
           name: doip-native-sim-binary
           path: build/zephyr/zephyr.exe
+
+  sovd-codegen:
+    name: "SOVD CDA Generation"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Checkout EDS-toolchain (for templates)
+        uses: actions/checkout@v4
+        with:
+          repository: Xaloqi/EDS-toolchain
+          token: ${{ secrets.TOOLCHAIN_TOKEN }}
+          path: EDS-toolchain
+
+      - name: Run codegen --sovd on basic_ecu (CAN transport)
+        env:
+          XALOQI_LICENSE_SKIP: "1"
+        run: |
+          python3 tools/codegen.py \
+            --config       examples/basic_ecu/diagnostics_config.yaml \
+            --out          /tmp/sovd_can/ \
+            --template-dir EDS-toolchain/tools/templates/ \
+            --safety-wrappers --asil-level B --sovd --no-manifest
+
+      - name: Validate basic_ecu CDA — valid JSON + counts
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          from pathlib import Path
+          import yaml
+
+          cda = json.loads(Path("/tmp/sovd_can/sovd_cda.json").read_text())
+          cfg = yaml.safe_load(Path("examples/basic_ecu/diagnostics_config.yaml").read_text())
+
+          assert cda["transportInfo"]["protocol"] == "ISO-TP",  "Expected ISO-TP"
+          assert "logicalAddress" not in cda["ecuIdentification"], "CAN ECU must not have logicalAddress"
+          assert len(cda["dataIdentifiers"]) == len(cfg.get("dids", [])),     "DID count mismatch"
+          assert len(cda["dtcs"])            == len(cfg.get("dtcs", [])),     "DTC count mismatch"
+          assert len(cda["routines"])        == len(cfg.get("routines", [])), "Routine count mismatch"
+          assert len(cda["diagnosticServices"]) == 14, "Expected 14 diagnostic services"
+          print("PASS: basic_ecu CDA valid")
+          EOF
+
+      - name: Run codegen --sovd on basic_ecu_doip (DoIP transport)
+        env:
+          XALOQI_LICENSE_SKIP: "1"
+        run: |
+          python3 tools/codegen.py \
+            --config       examples/basic_ecu_doip/diagnostics_config.yaml \
+            --out          /tmp/sovd_doip/ \
+            --template-dir EDS-toolchain/tools/templates/ \
+            --safety-wrappers --asil-level B --sovd --no-manifest
+
+      - name: Validate basic_ecu_doip CDA — valid JSON + DoIP fields
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          from pathlib import Path
+          import yaml
+
+          cda = json.loads(Path("/tmp/sovd_doip/sovd_cda.json").read_text())
+          cfg = yaml.safe_load(Path("examples/basic_ecu_doip/diagnostics_config.yaml").read_text())
+
+          assert cda["transportInfo"]["protocol"] == "DoIP",   "Expected DoIP"
+          assert cda["transportInfo"]["port"]     == 13400,    "Wrong DoIP port"
+          assert cda["ecuIdentification"]["logicalAddress"] == "0xE400", "Wrong logical address"
+          assert len(cda["dataIdentifiers"]) == len(cfg.get("dids", [])),     "DID count mismatch"
+          assert len(cda["dtcs"])            == len(cfg.get("dtcs", [])),     "DTC count mismatch"
+          assert len(cda["routines"])        == len(cfg.get("routines", [])), "Routine count mismatch"
+          print("PASS: basic_ecu_doip CDA valid")
+          EOF
