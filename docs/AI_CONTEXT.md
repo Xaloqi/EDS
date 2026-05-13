@@ -13,9 +13,10 @@ ISO 15765-2 (ISO-TP) diagnostics stack for embedded RTOS targets. It is YAML-dri
 describe your DIDs, DTCs, and routines in YAML, run the code generator, and receive
 ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 
-**Version:** v1.4.0
+**Version:** v1.6.0
 **Target RTOS:** Zephyr v3.7+ · FreeRTOS (any version with static allocation support)
 **Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 (hardware) · QEMU ARM Cortex-M4 (FreeRTOS CI)
+**Transport:** ISO-TP over CAN (default) · DoIP over Ethernet/TCP (v1.6.0+)
 
 ---
 
@@ -25,6 +26,7 @@ ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 EDS/
 ├── core/                   # UDS server, session manager, security manager, service dispatcher
 ├── transport/              # ISO-TP state machine + CAN transport binding
+│   └── doip/               # DoIP server (ISO 13400-2) — Zephyr + FreeRTOS+LwIP bindings
 ├── config/                 # DID database, DTC database, NVM DTC mirror
 ├── platform/
 │   ├── platform_api.h      # Common interface implemented by both HALs
@@ -318,6 +320,117 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 - Feed incoming CAN frames via `eds_platform_can_input()` from your CAN ISR
 - NVM ops are optional — RAM stub is used if omitted (development only; data lost on reset)
 - `uds_generated_init()` and `uds_server_process()` calls are identical to Zephyr
+
+---
+
+## Integration Pattern — DoIP (ISO 13400-2)
+
+DoIP transport is an additive v1.6.0 feature. The UDS core, safety wrappers, and YAML schema
+are identical to CAN builds.
+
+### YAML change
+
+```yaml
+ecu:
+  transport: doip           # replaces default "can"
+  doip:
+    logical_address: "0xE400"
+    source_address:  "0x0E00"
+    port:            13400
+```
+
+### Generated code impact
+
+With `EDS_DOIP_ONLY_BUILD=1` defined, `uds_init.c` skips `isotp_init()`.
+Call `uds_generated_init(NULL, 0U, 0U)` — pass NULL for the CAN transport.
+
+### Zephyr main.c pattern
+
+```c
+#include "platform_doip.h"
+#include "doip_server.h"          // DOIP_PORT = 13400
+
+int main(void)
+{
+    uds_generated_init(NULL, 0U, 0U);
+    uds_server_ctx_t *srv = uds_generated_get_server();
+
+    eds_doip_platform_start(0xE400U, DOIP_PORT, srv);
+    // K_THREAD_DEFINE thread starts automatically
+    return 0;
+}
+```
+
+### FreeRTOS main.c pattern
+
+```c
+#include "platform_doip.h"   // platform/freertos/platform_doip.h
+#include "doip_server.h"
+
+int main(void)
+{
+    eds_platform_init(&(eds_platform_cfg_t){ .can_send = NULL, ... });
+    uds_generated_init(NULL, 0U, 0U);
+    uds_server_ctx_t *srv = uds_generated_get_server();
+
+    eds_doip_platform_start_freertos(0xE400U, DOIP_PORT, srv, 4096U, 6U);
+    vTaskStartScheduler();
+    for (;;) {}
+}
+```
+
+### Kconfig (Zephyr)
+
+```
+CONFIG_NETWORKING=y
+CONFIG_NET_IPV4=y
+CONFIG_NET_TCP=y
+CONFIG_NET_SOCKETS=y
+CONFIG_POSIX_API=y
+CONFIG_NET_LOOPBACK=y   # native_sim only
+CONFIG_NET_NATIVE=y     # native_sim only
+```
+
+### CMake additions (both RTOS)
+
+```cmake
+target_compile_definitions(app PRIVATE EDS_DOIP_ONLY_BUILD=1)
+target_sources(app PRIVATE
+    ${DIAG_ROOT}/transport/doip/doip_server.c
+    ${DIAG_ROOT}/transport/doip/zephyr_lwip.c        # Zephyr
+    # ${DIAG_ROOT}/transport/doip/freertos_lwip.c    # FreeRTOS
+    ${DIAG_ROOT}/platform/zephyr/platform_doip.c     # Zephyr
+    # ${DIAG_ROOT}/platform/freertos/platform_doip.c # FreeRTOS
+)
+```
+
+### Testing with xaloqi-tester DoipBus
+
+```python
+from xaloqi.tester import UdsTester, DoipBus, Session
+async with UdsTester(DoipBus("127.0.0.1"), rx_id=0xE400, tx_id=0x0E00) as ecu:
+    await ecu.change_session(Session.EXTENDED)
+    vin = await ecu.read_did(0xF190)
+```
+
+### Example ECUs
+
+| Example | RTOS | Transport |
+|---|---|---|
+| `examples/basic_ecu_doip/` | Zephyr | DoIP (native_sim loopback) |
+| `examples/basic_ecu_doip_freertos/` | FreeRTOS + LwIP | DoIP |
+
+### Checklist for a new DoIP ECU (Zephyr)
+
+1. Add `ecu.transport: doip` to `diagnostics_config.yaml`
+2. Add networking Kconfig (`CONFIG_NETWORKING=y` etc.)
+3. Add `EDS_DOIP_ONLY_BUILD=1` to `target_compile_definitions`
+4. Add DoIP sources to `target_sources` (doip_server.c, zephyr_lwip.c, platform_doip.c)
+5. Include `transport/doip` and `platform/zephyr` in include paths
+6. Call `eds_doip_platform_start(logical_addr, DOIP_PORT, srv)` in `main()`
+7. Copy `examples/basic_ecu_doip/generated/` as your starting generated files
+8. Regenerate with codegen.py when your YAML stabilises
+
 
 ---
 
@@ -632,7 +745,7 @@ UDS tester to unlock level 2: send `27 03` → receive seed → compute AES-128-
 
 ---
 
-## Checklist for a New ECU (Zephyr)
+## Checklist for a New ECU (Zephyr — CAN transport)
 
 1. Copy `examples/basic_ecu/` to `examples/my_ecu/`
 2. Edit `examples/my_ecu/diagnostics_config.yaml` — add your DIDs, DTCs, routines
@@ -644,7 +757,7 @@ UDS tester to unlock level 2: send `27 03` → receive seed → compute AES-128-
 8. `bash scripts/build_tests.sh`
 9. `west build -b native_sim examples/my_ecu -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay`
 
-## Checklist for a New ECU (FreeRTOS)
+## Checklist for a New ECU (FreeRTOS — CAN transport)
 
 1. Copy `examples/basic_ecu_freertos/` to `examples/my_ecu_freertos/`
 2. Edit `diagnostics_config.yaml` — **identical format to Zephyr**
@@ -671,6 +784,22 @@ Wrong init order. Required sequence: `eds_platform_init()` → `uds_generated_in
 ### FreeRTOS: CAN frames not received
 `eds_platform_can_input()` not called from CAN RX interrupt. The FreeRTOS HAL does not
 auto-register a CAN RX callback — customer must call it explicitly.
+
+### DoIP: ECU not reachable after init
+
+Most common cause: networking not up before DoIP task unblocks. The FreeRTOS binding
+has a 500 ms startup delay; Zephyr binding starts after `K_THREAD_DEFINE` delay.
+Verify `CONFIG_NET_LOOPBACK=y` and `CONFIG_POSIX_API=y` for native_sim.
+
+### DoIP: `isotp_init` linker error
+
+You forgot `EDS_DOIP_ONLY_BUILD=1` in `target_compile_definitions`. This macro gates
+the `isotp_init()` call in generated `uds_init.c`.
+
+### DoIP: routing activation rejected
+
+Default tester address is `0x0E00` (xaloqi-tester DoipBus default). Your
+`uds_generated_init(NULL, 0, 0)` must have completed before the first connection.
 
 ### SafeBoot: 0x34 returns NRC 0x22
 `safeboot.enabled: true` not in YAML, or codegen not re-run. Verify

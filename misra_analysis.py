@@ -346,7 +346,10 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_session_stats.c",
             "generated/did_handlers.c",
             "generated/did_safety_wrappers.c",
-            "generated/routine_handlers.c",],
+            "generated/routine_handlers.c",
+            "transport/doip/doip_server.c",
+            "transport/doip/zephyr_lwip.c",
+            "transport/doip/freertos_lwip.c",],
         "approved_by": "Lead Safety Engineer",
         "date":        "2026-03-30",
     },
@@ -436,6 +439,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "config/routine_database.h",
             "transport/isotp.h",
             "transport/can_transport.h",
+            "transport/doip/zephyr_lwip.c",
+            "transport/doip/freertos_lwip.c",
         ],
         "approved_by": "Lead Safety Engineer",
         "date":        "2026-03-14",
@@ -664,6 +669,10 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x85.c",
             "core/uds_services/service_registration.c",
             "platform/uds_flash_ops.h",
+            "transport/doip/doip_server.h",
+            "transport/doip/doip_server.c",
+            "transport/doip/zephyr_lwip.h",
+            "transport/doip/freertos_lwip.h",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-30",
@@ -722,6 +731,11 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "transport/can_transport.h",
             "transport/zephyr_can.h",
             "transport/zephyr_port.h",
+            "transport/doip/doip_server.h",
+            "transport/doip/doip_server.c",
+            "transport/doip/zephyr_lwip.c",
+            "transport/doip/freertos_lwip.h",
+            "transport/doip/freertos_lwip.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-30",
@@ -819,6 +833,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "config/did_database.c", "config/dtc_database.c",
             "generated/did_handlers.c", "generated/did_safety_wrappers.c",
             "generated/uds_init.c",
+            "transport/doip/doip_server.c",
+            "transport/doip/freertos_lwip.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-30",
@@ -924,7 +940,9 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "config/dtc_mirror.c",
             "config/routine_database.c",
             "core/uds_comm_control.c",
-            "core/uds_security_nvm.c",],
+            "core/uds_security_nvm.c",
+            "transport/doip/zephyr_lwip.c",
+            "transport/doip/freertos_lwip.c",],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-30",
     },
@@ -1020,6 +1038,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "transport/zephyr_can.c", "transport/zephyr_port.c",
             "platform/zephyr_wdt.c", "platform/nvm_store.c",
             "platform/zephyr_flash_ops.c", "platform/zephyr_port.c",
+            "transport/doip/zephyr_lwip.c",
+            "transport/doip/freertos_lwip.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-31",
@@ -1046,7 +1066,9 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
         
             "core/uds_services/service_0x37.c",
             "core/uds_services/service_0x36.c",
-            "core/uds_services/service_0x34.c",],
+            "core/uds_services/service_0x34.c",
+            "transport/doip/doip_server.c",
+            "transport/doip/freertos_lwip.c",],
         "approved_by": "Lead Security Engineer",
         "date":        "2026-03-31",
     },
@@ -1121,6 +1143,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "config/dtc_mirror.c", "config/dtc_database.c",
             "config/did_database.c", "config/routine_database.c",
             "core/uds_server.c", "core/uds_session.c",
+            "transport/doip/doip_server.c",
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-31",
@@ -1280,6 +1303,63 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
         ],
         "approved_by": "Lead Software Engineer",
         "date":        "2026-03-31",
+    },
+    {
+        "id":          "DEV-GOTO-01",
+        "rule":        "15.1",
+        "category":    "advisory",
+        "description": "goto statement used for connection teardown in DoIP server loop",
+        "rationale":   (
+            "eds_doip_server_run() uses a single 'goto connection_closed' target within "
+            "the per-connection receive loop to jump to cleanup on three distinct error "
+            "conditions: malformed header, oversized payload, and TCP recv returning zero "
+            "(connection closed by peer). The alternative — a boolean flag plus an "
+            "if-else restructure — would introduce an additional variable and wrap 40+ "
+            "lines of receive logic in a nested else block, reducing readability without "
+            "improving safety. The goto target is a single label within the same function "
+            "body, always jumping forward (never backward), and is the sole exit point "
+            "from the inner loop. "
+            "Rule 15.1 is advisory. All three jump sites and the target are co-visible "
+            "on a single screen; the control flow is unambiguous. "
+            "Risk: NONE — forward-only goto to a single cleanup label; no resource leaks."
+        ),
+        "files":       [
+            "transport/doip/doip_server.c",
+        ],
+        "approved_by": "Lead Software Engineer",
+        "date":        "2026-05-12",
+    },
+    {
+        "id":          "DEV-FD-01",
+        "rule":        "11.6",
+        "category":    "required",
+        "description": "Cast between void* and integer for Zephyr BSD socket file descriptor",
+        "rationale":   (
+            "The eds_doip_platform_ops_t interface uses void* for opaque connection and "
+            "server contexts, which is the correct platform-abstraction pattern: "
+            "doip_server.c never needs to inspect these handles, only pass them back to "
+            "the platform ops. On Zephyr with zsock_*, a context IS a file descriptor "
+            "(a small non-negative int). The only implementation-correct way to store "
+            "a fd in a void* is via uintptr_t: (void*)(uintptr_t)(uint32_t)fd. "
+            "The alternative — allocating a struct per connection to hold the fd — "
+            "would require either dynamic allocation (prohibited by MISRA-21.3 and the "
+            "no-heap design rule) or a fixed-size static pool. A static pool of "
+            "DOIP_MAX_CONNECTIONS (4) fd-holder structs is architecturally excessive "
+            "for what is a 4-byte integer value. "
+            "The cast is safe: Zephyr BSD socket fds are non-negative ints with values "
+            "well within uint32_t range on all supported architectures. uintptr_t is "
+            "guaranteed wide enough to round-trip any pointer on any architecture. "
+            "This deviation is bounded to zephyr_lwip.c; no other file performs "
+            "pointer-integer casts on fd values. "
+            "Risk: LOW — the cast is sound for Zephyr BSD socket fds; "
+            "verified correct on x86_64 (native_sim) and ARM Cortex-M (production)."
+        ),
+        "files":       [
+            "transport/doip/zephyr_lwip.c",
+            "transport/doip/freertos_lwip.c",
+        ],
+        "approved_by": "Lead Software Engineer",
+        "date":        "2026-05-12",
     },
 ]
 

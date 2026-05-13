@@ -1,15 +1,20 @@
 # Architecture — Xaloqi EDS
 
-**Version:** v1.3.0  
+**Version:** v1.6.0  
 **Status:** Production-ready. All CI jobs passing.
 
 ---
 
 ## 1. Overview
 
-The Xaloqi EDS is a modular automotive diagnostics stack for Zephyr RTOS-based
-ECUs. It implements a complete UDS (ISO 14229) server over an ISO-TP (ISO 15765-2) transport on
-CAN, with YAML-driven code generation and an ASIL-B safety wrapper chain enforced at build time.
+The Xaloqi EDS is a modular automotive diagnostics stack for Zephyr RTOS and FreeRTOS-based
+ECUs. It implements a complete UDS (ISO 14229) server over two transports:
+
+- **ISO-TP (ISO 15765-2)** over CAN — the original and primary transport
+- **DoIP (ISO 13400-2)** over Ethernet/TCP — added in v1.6.0, Zephyr and FreeRTOS+LwIP bindings
+
+Both transports use the same UDS server core, ASIL-B safety wrappers, and YAML-driven code
+generation. Transport selection is a one-line change in `diagnostics_config.yaml`.
 
 The system is structured to support:
 
@@ -79,15 +84,18 @@ any safety path. Initialization guards (initialized flags) on all context struct
                            │
                            ▼
 +----------------------------------------------------------+
-|                 ISO-TP Transport                         |
-|   SF / FF / CF / FC with full N_As/N_Bs/N_Cs/N_Cr timing|
+|                 Transport Layer                          |
+|                                                          |
+|   ┌─────────────────────────┐  ┌──────────────────────┐ |
+|   │  ISO-TP (ISO 15765-2)   │  │  DoIP (ISO 13400-2)  │ |
+|   │  SF/FF/CF/FC            │  │  TCP/IP              │ |
+|   │  N_As/N_Bs/N_Cs/N_Cr   │  │  Routing Activation  │ |
+|   │  STmin sub-ms range     │  │  DiagnosticMessage   │ |
+|   └────────────┬────────────┘  └──────────┬───────────┘ |
 +----------------------------------------------------------+
-                           │
-                           ▼
-+----------------------------------------------------------+
-|                 Zephyr CAN Driver Binding                |
-|   native_sim loopback (CI/dev) + STM32 FDCAN (hardware)  |
-+----------------------------------------------------------+
+                 │                           │
+                 ▼                           ▼
+          CAN bus / loopback         Ethernet (TCP port 13400)
 ```
 
 ---
@@ -121,7 +129,11 @@ embedded-diagnostics-suite/
 ├── transport/
 │   ├── isotp.c/h               # ISO-TP state machine (SF/FF/CF/FC)
 │   ├── can_transport.c/h       # CAN frame abstraction
-│   └── zephyr_can.c/h          # Zephyr CAN driver binding
+│   ├── zephyr_can.c/h          # Zephyr CAN driver binding  [CAN path]
+│   └── doip/                   # DoIP transport (v1.6.0)    [DoIP path]
+│       ├── doip_server.c/h     # ISO 13400-2 ECU server — platform-agnostic core
+│       ├── zephyr_lwip.c/h     # Zephyr BSD-socket binding (zsock_*)
+│       └── freertos_lwip.c/h   # FreeRTOS + LwIP binding (lwip_socket)
 │
 ├── config/
 │   ├── did_database.c/h        # DID registration and lookup
@@ -138,11 +150,15 @@ embedded-diagnostics-suite/
 │   │   ├── zephyr_wdt.c/h          # Zephyr WDT driver binding
 │   │   ├── zephyr_flash_ops.c/h    # MCUboot secondary-slot flash (DFU)
 │   │   ├── nvm_store.c/h           # Zephyr NVS backend (production)
-│   │   └── nvm_store_mock.c        # RAM-backed NVM stub (native_sim / host tests)
+│   │   ├── nvm_store_mock.c        # RAM-backed NVM stub (native_sim / host tests)
+│   │   ├── platform_doip.h         # eds_doip_platform_start() declaration
+│   │   └── platform_doip.c         # DoIP registration shim → zephyr_lwip.c
 │   └── freertos/                   # FreeRTOS HAL
 │       ├── freertos_platform_api.c # eds_platform_* — reset, NVM flush, uptime, init
 │       ├── freertos_can.c/h        # can_transport_ops_t over static ISR-safe queue
-│       └── freertos_nvm.c          # nvm_store_* routing customer NVM ops
+│       ├── freertos_nvm.c          # nvm_store_* routing customer NVM ops
+│       ├── platform_doip.h         # eds_doip_platform_start_freertos() declaration
+│       └── platform_doip.c         # DoIP registration shim → freertos_lwip.c
 │
 ├── generated/                  # !! DO NOT HAND-EDIT — overwritten by codegen !!
 │   ├── did_database.c          # Generated DID registration table
@@ -245,7 +261,12 @@ only — it must not be used in production firmware.
 
 ---
 
-## 6. ISO-TP Transport Layer (`transport/`)
+## 6. Transport Layer (`transport/`)
+
+Two transports share the same UDS server core. Transport selection is a YAML field:
+`ecu.transport: can` (default) or `ecu.transport: doip`.
+
+### 6.1 ISO-TP (ISO 15765-2) — `transport/isotp.c`
 
 Implements ISO 15765-2 in full:
 
@@ -259,6 +280,45 @@ Implements ISO 15765-2 in full:
 All four timing parameters are implemented: N_As, N_Bs, N_Cs, N_Cr. The state machine is
 iterative (no recursion). The Zephyr CAN driver binding in `platform/zephyr/zephyr_can.c` abstracts
 the platform-specific CAN API.
+
+### 6.2 DoIP (ISO 13400-2) — `transport/doip/`
+
+Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protocol over TCP.
+
+**Supported in v1.6.0:**
+- TCP connection accept (up to `DOIP_MAX_CONNECTIONS = 4`)
+- Routing Activation Request/Response (Default activation type 0x00)
+- DiagnosticMessage (0x8001): receive → `uds_server_process_request()` → respond
+- DiagnosticMessage Positive Ack (0x8002) and Negative Ack (0x8003)
+- Alive Check Request/Response (0x0007/0x0008)
+- Generic header validation (version 0x02, inverse byte)
+
+**Not in v1.6.0:** UDP Vehicle Identification, Entity Status, TLS, IPv6, multiple activation types.
+
+**Frame format symmetry:** byte-for-byte compatible with xaloqi-tester `DoipBus`
+(TestLab v1.1.0). The same `source_address=0x0E00 / target_address=0xE400 / port=13400`
+defaults are used on both sides.
+
+**Platform bindings:**
+
+| File | Platform | API |
+|---|---|---|
+| `transport/doip/zephyr_lwip.c` | Zephyr | zsock_socket, zsock_poll, zsock_send, zsock_recv |
+| `transport/doip/freertos_lwip.c` | FreeRTOS + LwIP | lwip_socket, lwip_select, lwip_send, lwip_recv |
+
+Both bindings implement `eds_doip_platform_ops_t` — doip_server.c never calls
+zsock_* or lwip_* directly. The same transport-agnostic core handles all protocol logic.
+
+**YAML configuration:**
+
+```yaml
+ecu:
+  transport: doip           # "can" (default), "doip", or "both"
+  doip:
+    logical_address: "0xE400"
+    source_address:  "0x0E00"
+    port:            13400
+```
 
 ---
 
@@ -463,6 +523,8 @@ autocomplete and schema-driven validation in addition to the in-process validato
 |---|---|---|---|---|---|
 | `basic_ecu` | Minimal reference ECU — VIN, serial, engine speed, coolant temp | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2 |
 | `basic_ecu_freertos` | Same as basic\_ecu on FreeRTOS (stub CAN loopback) | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU |
+| `basic_ecu_doip` | Same as basic\_ecu served over DoIP on Zephyr | 5 | 2 | 3 | native\_sim (loopback), any Zephyr Ethernet board |
+| `basic_ecu_doip_freertos` | Same as basic\_ecu served over DoIP on FreeRTOS + LwIP | 5 | 2 | 3 | Any FreeRTOS + LwIP Ethernet MCU |
 | `sensor_ecu` | Zone controller with Zephyr sensor API — temperature + voltage → DTCs | 7 | 4 | 2 | native\_sim, any Zephyr sensor board |
 | `safeboot_ecu` | MCUboot DFU over UDS (`safeboot.enabled: true` in YAML) | 5 | 3 | 2 | Nucleo-H743ZI2 (MCUboot required) |
 | `robot_joint_controller_ecu` | Robot joint controller — position, velocity, torque, soft limits | 10 | 5 | 3 | native\_sim, any Zephyr CAN board |
@@ -496,6 +558,7 @@ The first five examples ship with committed generated output (DID handlers, safe
 | `robotics-example` | Robot Joint Controller codegen + generated file check |
 | `safeboot-example` | SafeBootECU: verifies `zephyr_flash_ops_init()` generated when enabled; regression check that `basic_ecu` does not generate it |
 | `freertos-qemu` | FreeRTOS ARM cross-compile for QEMU Cortex-M4 |
+| `doip-integration` | basic\_ecu\_doip native_sim build · 24 DoIP unit tests · pytest end-to-end (skipped when xaloqi-tester absent) |
 
 Global env: `XALOQI_LICENSE_SKIP=1` (codegen bypasses license check in CI — `_license.py` and templates are not present in the public repo).
 
@@ -520,7 +583,8 @@ The architecture supports future extensions without structural changes:
 - New DID or DTC — edit YAML, re-run codegen
 - New RTOS port — implement `platform/platform_api.h` and the `nvm_store_*` API for
   the target RTOS. See `platform/freertos/` as a reference implementation.
-- DoIP transport — add a `transport/doip.c` alongside the existing ISO-TP layer
+- Additional transports — DoIP (ISO 13400-2) is shipped in v1.6.0. SOME/IP validator
+  is shipped in TestLab v1.2.0. Future: SOVD bridge (OpenSOVD / Eclipse SDV).
 - AUTOSAR Classic — the service layer is decoupled from the transport; an AUTOSAR PDU
   router could be substituted below the UDS server without changing service handlers
 - Hardware-in-the-loop CI — planned, self-hosted runner on Nucleo

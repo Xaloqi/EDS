@@ -129,6 +129,7 @@ INCLUDES=(
     "-I${ROOT}/project/unity"
     "-I${ROOT}/tests/runner"
     "-I${ROOT}/tests/mocks"
+    "-I${ROOT}/transport/doip"
 )
 
 # ---------------------------------------------------------------------------
@@ -174,6 +175,8 @@ STACK_SRCS=(
     # Transport
     "${ROOT}/transport/isotp.c"
     "${ROOT}/transport/can_transport.c"
+    # DoIP transport (Week 1 — core logic only, no platform/network deps)
+    "${ROOT}/transport/doip/doip_server.c"
     # Config databases
     "${ROOT}/config/did_database.c"
     "${ROOT}/config/dtc_database.c"
@@ -233,6 +236,7 @@ TESTS=(
     test_phase5_access_table
     test_phase5_server_access
     test_phase5_replay_protection
+    test_doip_server
 )
 
 # ---------------------------------------------------------------------------
@@ -303,7 +307,7 @@ for t in "${TESTS[@]}"; do
 
     # ── Run ────────────────────────────────────────────────────────────
     # [FIX-SETE] Same set -e + $() trap applies to test binary execution.
-    run_out=$("${bin}" 2>&1) && run_rc=0 || run_rc=$?
+    run_out=$(timeout 30 "${bin}" 2>&1) && run_rc=0 || run_rc=$?
 
     if [[ $run_rc -eq 0 ]]; then
         printf "  %-45s  PASS\n" "${t}"

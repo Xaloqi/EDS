@@ -6,6 +6,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.6.0] — DoIP (ISO 13400-2) transport — 2026-05-13
+
+### Added — DoIP server for Zephyr and FreeRTOS
+
+transport/doip/doip_server.h + doip_server.c: ISO 13400-2 ECU server.
+Platform-agnostic core via eds_doip_platform_ops_t. No malloc, no recursion,
+static buffers. Covers: Routing Activation (Default type), DiagnosticMessage
+dispatch → uds_server_process_request(), Positive/Negative Ack, Alive Check.
+Symmetric with xaloqi-tester DoipBus (TestLab v1.1.0) — byte-for-byte frame
+format compatibility.
+
+transport/doip/zephyr_lwip.h + zephyr_lwip.c: Zephyr BSD-socket binding.
+Implements eds_doip_platform_ops_t via zsock_*. K_THREAD_DEFINE creates the
+DoIP server thread automatically at startup.
+
+transport/doip/freertos_lwip.h + freertos_lwip.c: FreeRTOS + LwIP binding.
+Implements eds_doip_platform_ops_t via lwip_socket API. xTaskCreate() creates
+the DoIP server task; configurable stack size and priority.
+
+platform/zephyr/platform_doip.h + platform_doip.c: Zephyr DoIP registration
+shim. Exposes eds_doip_platform_start() for application main.c.
+
+platform/freertos/platform_doip.h + platform_doip.c: FreeRTOS DoIP registration
+shim. Exposes eds_doip_platform_start_freertos() for application main.c.
+
+examples/basic_ecu_doip/: New Zephyr example ECU — same 5 DIDs / 2 DTCs /
+3 routines as basic_ecu, served over DoIP on native_sim (loopback networking).
+EDS_DOIP_ONLY_BUILD=1 disables ISO-TP init; uds_generated_init(NULL, 0, 0).
+
+examples/basic_ecu_doip_freertos/: New FreeRTOS + LwIP example ECU — same
+schema, FreeRTOS platform, LwIP TCP. LwIP stub headers for CI compile testing.
+
+tests/unit_runnable/test_doip_server.c: 24 host-side Unity tests covering
+header encode/decode, routing activation, alive check, diagnostic message
+dispatch, NACK generation, boundary conditions, and NULL-pointer guards.
+
+tests/test_doip_integration.py: 10 pytest end-to-end integration tests
+(skipped automatically when xaloqi-tester not installed).
+
+### Changed — CI
+
+.github/workflows/ci.yml: Added doip-integration job (native_sim build +
+unit tests smoke check + pytest integration tests with graceful skip on
+missing xaloqi-tester). Exit code 5 (all tests skipped) treated as success.
+
+misra_analysis.py: DEV-GOTO-01 (Rule 15.1 — goto in connection teardown),
+DEV-FD-01 (Rule 11.6 — void*/int fd cast, same pattern Zephyr and FreeRTOS
+bindings), plus extensions to DEV-MULT-01, DEV-PREC-01, DEV-CAST-02,
+DEV-MCRO-01, DEV-ACCS-01, DEV-LOOP-01, DEV-GEN-01, DEV-TYPE-03 for all
+new transport/doip and platform/freertos/platform_doip files.
+
+### Schema change — diagnostics_config.yaml (additive, backward-compatible)
+
+Optional ecu.transport field: "can" (default), "doip", or "both".
+Optional ecu.doip block: logical_address, source_address, port.
+Existing configs without these fields continue to build unchanged.
+
+---
+
 ##  [1.5.0] — TestLab integration + testgen refactor — 2026-05-07
 ### Added — testlab_config.yaml standalone mode (TestLab)
 

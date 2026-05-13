@@ -2,7 +2,7 @@
 # Xaloqi Embedded Diagnostics Suite
 
 [![CI](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml/badge.svg)](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v1.4.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.4.0)
+[![Version](https://img.shields.io/badge/version-v1.6.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.6.0)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Zephyr](https://img.shields.io/badge/Zephyr-v3.7%2B-brightgreen)](https://zephyrproject.org)
 
@@ -87,6 +87,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 |---|---|
 | **UDS stack** | 14 services: 0x10 0x11 0x14 0x19 0x22 0x27 0x28 0x2E 0x31 0x34 0x36 0x37 0x3E 0x85 · SID 0x19 sub-functions: 0x01 0x02 0x04 0x06 0x0A implemented (0x0B and 0x19 return NRC 0x12 — planned) |
 | **ISO-TP transport** | SF / FF / CF / FC · N_As / N_Bs / N_Cr timing · STmin sub-ms range |
+| **DoIP transport** | ISO 13400-2 server — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes |
 | **ASIL-B safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
 | **Security** | AES-128-CMAC seed/key · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
 | **DTC persistence** | NVM mirror survives power cycles · 0x14 ClearDTC · 0x19 ReadDTCInformation |
@@ -95,8 +96,8 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 | **CANoe CAPL** | YAML → `.can` scripts for CANoe import · per-DID, per-DTC, core services |
 | **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
-| **ECU examples** | basic, BMS, motor controller, ARDEP, sensor, safeboot, robot joint controller — 5–35 DIDs each, Zephyr and FreeRTOS |
-| **CI pipeline** | 12-job GitHub Actions · codegen · unit tests · harness tests · Zephyr builds · FreeRTOS ARM builds · MISRA analysis · MCP server tests |
+| **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |
+| **CI pipeline** | 13-job GitHub Actions · codegen · unit tests · harness tests · Zephyr builds · FreeRTOS ARM builds · MISRA analysis · MCP server tests · DoIP integration (native_sim + DoipBus) |
 
 **Safety properties verified by CI on every commit:**
 - Zero dynamic memory allocation (`malloc`/`free` grep gate)
@@ -112,7 +113,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.4.0 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.6.0 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 ```
@@ -203,12 +204,18 @@ diagnostics_config.yaml
 └────────────────┬────────────────────────┘
                  │
 ┌────────────────▼────────────────────────┐
-│  ISO-TP Transport  (transport/)         │
-│  SF/FF/CF/FC · full timing · STmin      │
-│  Zephyr CAN driver binding              │
+│  Transport (transport/)                 │
+│  ┌─────────────────────────────────┐   │
+│  │ ISO-TP (isotp.c)                │   │
+│  │ SF/FF/CF/FC · full timing       │   │
+│  └─────────────────────────────────┘   │
+│  ┌─────────────────────────────────┐   │
+│  │ DoIP (transport/doip/)          │   │
+│  │ ISO 13400-2 · TCP/IP            │   │
+│  └─────────────────────────────────┘   │
 └────────────────┬────────────────────────┘
                  │
-           CAN bus / loopback
+        CAN bus / Ethernet
 ```
 
 **No dynamic memory. No recursion. Static buffers only.**  
@@ -225,12 +232,12 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 | Directory | Contents |
 |---|---|
 | `core/` | UDS server, session manager, security manager, service handlers |
-| `transport/` | ISO-TP state machine, Zephyr CAN driver binding |
+| `transport/` | ISO-TP state machine, CAN driver binding · `transport/doip/` — DoIP server (ISO 13400-2), Zephyr and FreeRTOS+LwIP platform bindings |
 | `config/` | DID database, DTC database, NVM mirror |
 | `platform/` | Platform abstraction layer — `platform/zephyr/` (Zephyr HAL) · `platform/freertos/` (FreeRTOS HAL) · `platform_api.h` (shared interface) |
 | `tools/` | `codegen.py`, `testgen.py`, 17 Jinja2 templates |
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command |
-| `examples/` | basic\_ecu · basic\_ecu\_freertos · sensor\_ecu · safeboot\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
+| `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · sensor\_ecu · safeboot\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard |
 | `tests/` | 36 Unity unit tests, harness, Python integration tests |
 
@@ -242,6 +249,8 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 |---|---|---|---|---|
 | `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2 |
 | `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU |
+| `basic_ecu_doip` | 5 | 2 | 3 | native\_sim (loopback), any Zephyr Ethernet board |
+| `basic_ecu_doip_freertos` | 5 | 2 | 3 | Any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) |
 | `sensor_ecu` | 7 | 4 | 2 | native\_sim, any Zephyr sensor board |
 | `safeboot_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 (MCUboot required) |
 | `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim, any Zephyr CAN board |
@@ -303,5 +312,6 @@ Code generation tools and Safety Manual require a commercial license.
 
 - **Zephyr RTOS**: v3.7+, West 1.2+, CMake ≥ 3.20
 - **FreeRTOS**: FreeRTOS-Kernel (any recent release), `arm-none-eabi-gcc` + `libnewlib-arm-none-eabi`, CMake ≥ 3.20
+- **DoIP (optional)**: LwIP 2.x (any MCU with Ethernet) for FreeRTOS targets; Zephyr networking stack (`CONFIG_NETWORKING=y`) for Zephyr targets
 - Python 3.9+ with `pyyaml`, `jinja2`, `pytest`
 - Node.js 18+ (GUI only)

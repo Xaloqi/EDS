@@ -1,0 +1,118 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/basic_ecu_doip/diagnostics_config.yaml
+#
+# PURPOSE: DoIP-enabled example ECU — same DID/DTC/routine set as basic_ecu,
+#          extended with the optional ecu.transport and ecu.doip sections.
+#
+# This config demonstrates the additive, backward-compatible DoIP extension
+# to the EDS YAML schema (v1.6.0). Existing configs without a doip: block
+# continue to build unchanged with transport: can (the default).
+#
+# The same 14 UDS service handlers, ASIL-B safety wrappers, and security
+# access mechanism operate identically on both CAN and DoIP transports.
+# The codegen, testgen, and safety docs are 100% reused from basic_ecu.
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name: "BasicECU_DoIP"
+  version:  "1.6.0"
+  description: "BasicECU with DoIP (ISO 13400-2) transport — Xaloqi EDS v1.6.0"
+
+# ---------------------------------------------------------------------------
+# Transport configuration (v1.6.0 extension — additive, optional)
+#
+# transport: can   — ISO-TP over CAN only (default when omitted)
+# transport: doip  — DoIP over Ethernet only
+# transport: both  — ISO-TP CAN + DoIP simultaneously (production zonal ECU)
+# ---------------------------------------------------------------------------
+ecu:
+  transport: doip
+  doip:
+    logical_address: "0xE400"   # This ECU's DoIP logical address
+    source_address:  "0x0E00"   # Expected tester address (xaloqi-tester default)
+    port:            13400       # Standard DoIP TCP port (ISO 13400)
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+dids:
+  - id:   "0xF190"
+    name: "Vehicle Identification Number"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+  - id:   "0xF18C"
+    name: "ECU Serial Number"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 4
+
+  - id:   "0xF187"
+    name: "Vehicle Manufacturer Spare Part Number"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 11
+
+  - id:   "0x0C00"
+    name: "Engine Speed"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0x0500"
+    name: "Coolant Temperature"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+
+dtcs:
+  - code:        "0xC00100"
+    description: "CAN bus communication loss"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC00200"
+    description: "Diagnostic transport layer timeout"
+    severity:    "maintenance_only"
+
+routines:
+  - id:   "0xFF00"
+    name: "ECU_SelfTest"
+    description: "Run internal self-test (RAM, ROM checksum, sensor plausibility)"
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+  - id:   "0xFF01"
+    name: "ResetToFactoryDefaults"
+    description: "Reset all calibration DIDs to factory default values in NVM"
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start"]
+
+  - id:   "0xFF10"
+    name: "EraseNVM"
+    description: "Erase calibration NVM sector (prerequisite for firmware download)"
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start", "results"]
