@@ -1,6 +1,6 @@
 # Integration Guide
 
-## Xaloqi EDS — Zephyr RTOS and FreeRTOS
+## Xaloqi EDS — Zephyr RTOS, FreeRTOS, and DoIP (v1.6.0)
 
 | Field | Value |
 |---|---|
@@ -96,7 +96,8 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 - **Functional addressing only by default**: 0x7DF RX filter installed. Physical addressing requires one additional `can_add_rx_filter_msgq()` call — not a code change, only a configuration extension.
 - **Single-ECU only**: no gateway routing. Multi-ECU addressing (ISO 15765-3 normal fixed addressing to 0x7Ex/0x18DAxxxx) is not implemented.
 - **CAN FD not tested**: CAN FD hardware compilation succeeds (STM32H7/G4 FDCAN driver) but the ISO-TP layer does not use FD frames. Classical CAN (max 8 bytes/frame) is the tested transport.
-- **No DoIP** (ISO 13400): CAN-only. Ethernet/DoIP transport is on the roadmap.
+- **DoIP available** (ISO 13400-2): see Section 5 (DoIP Integration) below. CAN and DoIP
+  use the same UDS core — `ecu.transport: doip` in YAML selects the DoIP path.
 - **Security levels fixed at 2**: AES-CMAC keys for levels 1 and 2. More levels require changing `ALGO_MAX_LEVELS`.
 - **SID 0x19 — ReadDTCInformation: partial sub-function coverage.** The following sub-functions are implemented: `0x01` (reportNumberOfDTCByStatusMask), `0x02` (reportDTCByStatusMask), `0x04` (reportDTCSnapshotRecordByDTCNumber), `0x06` (reportDTCExtDataRecordByDTCNumber), `0x0A` (reportSupportedDTCs). The following sub-functions are **not implemented** and return NRC `0x12` (subFunctionNotSupported): `0x0B` (reportDTCWithPermanentStatus) and `0x19` (reportDTCExtDataRecordByRecordNumber). These are required by some OEM tool profiles (notably CANdelaStudio extended sessions). If your tester sends `0x19 0x0B` or `0x19 0x19`, the ECU will respond with NRC `0x12` — this is the correct ISO 14229-1 behaviour for unsupported sub-functions and will not cause a protocol error. Implementation of these sub-functions is planned for a future release.
 
@@ -853,6 +854,160 @@ with Client(bus, request_id=0x7DF, response_id=0x7E8, config=config) as c:
 ```
 
 See `examples/safeboot_ecu/README.md` for the complete annotated script.
+
+---
+
+## 5b. DoIP Integration — Ethernet/TCP transport {#doip-integration}
+
+DoIP (ISO 13400-2) was added in EDS v1.6.0. It uses the same UDS server core and ASIL-B
+safety chain as the CAN/ISO-TP transport. Selecting DoIP is a YAML field change — no
+C code differences.
+
+### 5b.1 YAML configuration
+
+Add an `ecu` block to your `diagnostics_config.yaml`:
+
+```yaml
+ecu:
+  transport: doip           # "can" (default) | "doip" | "both"
+  doip:
+    logical_address: "0xE400"   # This ECU's DoIP logical address
+    source_address:  "0x0E00"   # Expected tester address (xaloqi-tester default)
+    port:            13400       # Standard DoIP TCP port (ISO 13400)
+```
+
+Existing configs without an `ecu:` block continue to build unchanged (`transport: can`
+is the default).
+
+### 5b.2 Zephyr integration (5 steps)
+
+**Step 1 — Enable networking in `prj.conf`:**
+
+```
+CONFIG_NETWORKING=y
+CONFIG_NET_IPV4=y
+CONFIG_NET_TCP=y
+CONFIG_NET_SOCKETS=y
+CONFIG_POSIX_API=y
+CONFIG_NET_LOOPBACK=y    # native_sim
+CONFIG_NET_NATIVE=y      # native_sim
+```
+
+**Step 2 — Add `EDS_DOIP_ONLY_BUILD=1` to `CMakeLists.txt`** (DoIP-only builds):
+
+```cmake
+target_compile_definitions(app PRIVATE
+    EDS_MSG_BUF_MAX_STACK_BYTES=8192
+    EDS_DOIP_ONLY_BUILD=1           # skips isotp_init() in generated uds_init.c
+)
+```
+
+**Step 3 — Add DoIP sources to `target_sources`:**
+
+```cmake
+target_sources(app PRIVATE
+    # ... existing UDS core sources ...
+    ${DIAG_ROOT}/transport/doip/doip_server.c
+    ${DIAG_ROOT}/transport/doip/zephyr_lwip.c
+    ${DIAG_ROOT}/platform/zephyr/platform_doip.c
+    # NOTE: omit isotp.c, can_transport.c, zephyr_can.c for DoIP-only
+)
+```
+
+**Step 4 — Include paths:**
+
+```cmake
+target_include_directories(app PRIVATE
+    ${DIAG_ROOT}/transport/doip
+    ${DIAG_ROOT}/platform/zephyr
+)
+```
+
+**Step 5 — Call `eds_doip_platform_start()` in `main.c`:**
+
+```c
+#include "platform_doip.h"
+#include "doip_server.h"    // DOIP_PORT
+
+// After uds_generated_init(NULL, 0, 0):
+status = eds_doip_platform_start(0xE400U, DOIP_PORT, uds_generated_get_server());
+// DoIP server thread starts automatically via K_THREAD_DEFINE
+```
+
+See `examples/basic_ecu_doip/` for the complete working example.
+
+### 5b.3 FreeRTOS + LwIP integration (5 steps)
+
+Same structure as Zephyr but using the LwIP platform binding:
+
+**Step 1 — LwIP TCP must be enabled.** Call `lwip_init()` and bring up the netif
+before `vTaskStartScheduler()`.
+
+**Step 2 — Add `EDS_DOIP_ONLY_BUILD=1`** to compile definitions (same as Zephyr).
+
+**Step 3 — Add DoIP sources:**
+
+```cmake
+target_sources(app PRIVATE
+    ${DIAG_ROOT}/transport/doip/doip_server.c
+    ${DIAG_ROOT}/transport/doip/freertos_lwip.c
+    ${DIAG_ROOT}/platform/freertos/platform_doip.c
+)
+```
+
+**Step 4 — Call `eds_doip_platform_start_freertos()` before `vTaskStartScheduler()`:**
+
+```c
+#include "platform_doip.h"    // platform/freertos/platform_doip.h
+#include "doip_server.h"
+
+// After uds_generated_init(NULL, 0, 0):
+status = eds_doip_platform_start_freertos(
+    0xE400U,                        // logical address
+    DOIP_PORT,                      // 13400
+    uds_generated_get_server(),
+    4096U,                          // task stack bytes (0 = use default)
+    6U                              // task priority (0 = use default)
+);
+vTaskStartScheduler();
+```
+
+**Step 5 — Ensure LwIP netif is up** before the DoIP task unblocks (500 ms startup delay
+is built into `freertos_lwip.c` to give LwIP time to initialise after scheduler start).
+
+See `examples/basic_ecu_doip_freertos/` for the complete working example.
+
+### 5b.4 Testing with xaloqi-tester
+
+With the ECU running on native_sim or hardware, use the xaloqi-tester `DoipBus`:
+
+```python
+import asyncio
+from xaloqi.tester import UdsTester, DoipBus, Session
+
+async def main():
+    async with UdsTester(
+        DoipBus("127.0.0.1"),    # or your ECU's IP
+        rx_id=0xE400,
+        tx_id=0x0E00,
+    ) as ecu:
+        await ecu.change_session(Session.EXTENDED)
+        vin = await ecu.read_did(0xF190)
+        print("VIN:", vin)
+
+asyncio.run(main())
+```
+
+Default `DoipBus` parameters match the EDS defaults:
+`source_address=0x0E00, target_address=0xE400, port=13400`.
+
+### 5b.5 "transport: both" — CAN and DoIP simultaneously
+
+For ECUs that must serve diagnostics on both CAN and Ethernet simultaneously
+(e.g. a zonal gateway), set `transport: both` in YAML and include all CAN and DoIP
+sources. Both transports drive the same `uds_server_ctx_t` — session state is shared.
+Do not set `EDS_DOIP_ONLY_BUILD=1` in this configuration.
+
 
 ---
 
