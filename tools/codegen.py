@@ -792,6 +792,18 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     safeboot_platform = safeboot_block.get("platform", "zephyr")
     safeboot_max_block = int(safeboot_block.get("max_block_length", 256))
 
+    # Transport configuration (v1.6.0 — additive, optional)
+    # transport: can   — ISO-TP over CAN only (default when ecu: block absent)
+    # transport: doip  — DoIP over Ethernet only (EDS_DOIP_ONLY_BUILD)
+    # transport: both  — ISO-TP CAN + DoIP simultaneously
+    ecu_block  = cfg.get("ecu", {}) or {}
+    transport  = ecu_block.get("transport", "can").lower()
+    doip_block = ecu_block.get("doip", {}) or {}
+    doip_logical_address = doip_block.get("logical_address", "0xE400")
+    doip_source_address  = doip_block.get("source_address", "0x0E00")
+    doip_port            = int(doip_block.get("port", 13400))
+    is_doip = transport in ("doip", "both")
+
     return {
         "ecu_name":              meta["ecu_name"],
         "version":               meta["version"],
@@ -807,6 +819,12 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "safeboot_enabled":      safeboot_enabled,
         "safeboot_platform":     safeboot_platform,
         "safeboot_max_block":    safeboot_max_block,
+        # Transport context (v1.6.0)
+        "transport":             transport,
+        "is_doip":               is_doip,
+        "doip_logical_address":  doip_logical_address,
+        "doip_source_address":   doip_source_address,
+        "doip_port":             doip_port,
     }
 
 
