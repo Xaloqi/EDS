@@ -121,6 +121,29 @@ SESSION_ORDINAL: Dict[str, int] = {
 }
 
 # =============================================================================
+# SOVD CDA — static service list (all 14 EDS services)
+# =============================================================================
+
+#: Static list of all 14 UDS services implemented by EDS.
+#: Used in SOVD CDA generation (--sovd flag).  Same for every ECU.
+SOVD_DIAGNOSTIC_SERVICES: List[Dict[str, str]] = [
+    {"sid": "0x10", "name": "DiagnosticSessionControl"},
+    {"sid": "0x11", "name": "ECUReset"},
+    {"sid": "0x14", "name": "ClearDiagnosticInformation"},
+    {"sid": "0x19", "name": "ReadDTCInformation"},
+    {"sid": "0x22", "name": "ReadDataByIdentifier"},
+    {"sid": "0x27", "name": "SecurityAccess"},
+    {"sid": "0x28", "name": "CommunicationControl"},
+    {"sid": "0x2E", "name": "WriteDataByIdentifier"},
+    {"sid": "0x31", "name": "RoutineControl"},
+    {"sid": "0x34", "name": "RequestDownload"},
+    {"sid": "0x36", "name": "TransferData"},
+    {"sid": "0x37", "name": "RequestTransferExit"},
+    {"sid": "0x3E", "name": "TesterPresent"},
+    {"sid": "0x85", "name": "ControlDTCSetting"},
+]
+
+# =============================================================================
 # Phase 3 — ASIL level configuration
 # =============================================================================
 
@@ -742,6 +765,102 @@ def _build_can_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "rx_is_extended":  rx_val > CAN_ID_11BIT_MAX,
         "tx_is_extended":  tx_val > CAN_ID_11BIT_MAX,
     }
+
+
+# =============================================================================
+# SOVD CDA — context builder and renderer
+# =============================================================================
+
+def build_sovd_cda(cfg):
+    """
+    Build an OpenSOVD 1.0 CDA (Capability Description and Advertisement)
+    dict from a loaded diagnostics_config.yaml.
+
+    Serialised with json.dumps(indent=2) into generated/sovd_cda.json.
+    Building a Python dict avoids JSON escaping issues that a Jinja2
+    template would introduce for JSON output.
+    """
+    meta       = cfg["metadata"]
+    ecu_block  = cfg.get("ecu", {}) or {}
+    transport  = ecu_block.get("transport", "can").lower()
+    doip_block = ecu_block.get("doip", {}) or {}
+    is_doip    = transport in ("doip", "both")
+
+    # DID entries — use semantic session names, not internal C constants
+    did_entries = []
+    for did in cfg.get("dids", []):
+        access = did.get("access", [])
+        entry = {
+            "id":              _normalise_hex(did["id"]),
+            "name":            did["name"],
+            "dataLengthBytes": did.get("data_length", 4),
+            "access":          list(access),
+            "minSession":      did.get("min_session", "default"),
+            "readSecurityLevel":  did.get("read_security_level", 0),
+            "writeSecurityLevel": did.get("write_security_level", 0)
+                                  if "write" in access else None,
+        }
+        did_entries.append(entry)
+
+    dtc_entries = []
+    for dtc in cfg.get("dtcs", []):
+        dtc_entries.append({
+            "code":        _normalise_hex(dtc["code"]),
+            "description": dtc.get("description", ""),
+            "severity":    dtc.get("severity", "check_at_next_halt"),
+        })
+
+    routine_entries = []
+    for routine in cfg.get("routines", []):
+        support = list(routine.get("support", ["start"]))
+        routine_entries.append({
+            "id":                    _normalise_hex(routine["id"]),
+            "name":                  routine["name"],
+            "minSession":            routine.get("min_session", "extended"),
+            "securityLevel":         routine.get("security_level", 0),
+            "supportedSubFunctions": support,
+        })
+
+    cda = {
+        "sovdVersion": "1.0.0",
+        "generatedBy": "Xaloqi EDS codegen v1.6.0",
+        "generatedAt": _now_utc(),
+        "ecuIdentification": {
+            "name":    meta["ecu_name"],
+            "version": meta["version"],
+        },
+        "transportInfo": {
+            "protocol": "DoIP" if is_doip else "ISO-TP",
+        },
+        "dataIdentifiers":    did_entries,
+        "dtcs":               dtc_entries,
+        "routines":           routine_entries,
+        "diagnosticServices": SOVD_DIAGNOSTIC_SERVICES,
+    }
+
+    if is_doip:
+        cda["ecuIdentification"]["logicalAddress"] = doip_block.get(
+            "logical_address", "0xE400"
+        )
+        cda["ecuIdentification"]["sourceAddress"] = doip_block.get(
+            "source_address", "0x0E00"
+        )
+        cda["transportInfo"]["port"] = int(doip_block.get("port", 13400))
+
+    return cda
+
+
+def render_sovd_cda(cfg, output_dir):
+    """
+    Render a SOVD CDA JSON file into output_dir/sovd_cda.json.
+
+    Returns the absolute path string of the written file.
+    """
+    cda      = build_sovd_cda(cfg)
+    out_path = output_dir / "sovd_cda.json"
+    out_path.write_text(json.dumps(cda, indent=2) + "\n", encoding="utf-8")
+    print(f"  [OK]     {out_path}")
+    return str(out_path.resolve())
 
 
 def build_generated_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -2003,6 +2122,19 @@ def main() -> None:
         ),
     )
 
+    # ── SOVD flag ────────────────────────────────────────────────────────────
+    parser.add_argument(
+        "--sovd",
+        action="store_true",
+        default=False,
+        help=(
+            "Generate an OpenSOVD 1.0 CDA JSON file (sovd_cda.json) alongside C "
+            "output.  Describes ECU diagnostic capabilities (DIDs, DTCs, routines, "
+            "transport) for Eclipse SDV tooling and OEM SOVD clients.  "
+            "Output: <out>/sovd_cda.json"
+        ),
+    )
+
     args = parser.parse_args()
 
     config_path  = Path(args.config).resolve()
@@ -2038,6 +2170,10 @@ def main() -> None:
         print(f"  GUITypes : ENABLED  → {_gui_out_dir}")
     else:
         print("  GUITypes : disabled  (pass --gui-types to enable)")
+    if args.sovd:
+        print(f"  SOVD     : ENABLED  → {output_dir / 'sovd_cda.json'}")
+    else:
+        print("  SOVD     : disabled  (pass --sovd to enable)")
     if args.dry_run:
         print("  Mode     : DRY RUN (no files will be written)")
     print()
@@ -2162,6 +2298,7 @@ def main() -> None:
         print("\n[3/5] DRY RUN — skipping standard file generation.")
         print("[4/5] DRY RUN — skipping safety wrapper generation.")
         print("[4B]  DRY RUN — skipping test generation.")
+        print("[4D]  DRY RUN — skipping SOVD CDA generation.")
         print("[5/5] DRY RUN — skipping manifest.")
         print("\nDry run complete. Config is valid.")
         return
@@ -2191,6 +2328,15 @@ def main() -> None:
               f"({routine_count} routine(s)).")
     else:
         print("[4C] No routines configured — routine_handlers skipped.")
+
+    # ── Step 4D: SOVD CDA generation (--sovd) ───────────────────────────────
+    if args.sovd:
+        print("[4D] Generating SOVD CDA (--sovd)...")
+        sovd_path = render_sovd_cda(cfg, output_dir)
+        written.append(sovd_path)
+        print(f"\n      SOVD CDA written: {output_dir / 'sovd_cda.json'}")
+    else:
+        print("[4D] SOVD CDA skipped (pass --sovd to enable).")
 
     # ── Step 4B: Test generation (Phase 4, optional) ────────────────────────
     if test_gen:
