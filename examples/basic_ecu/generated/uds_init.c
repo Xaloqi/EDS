@@ -1,3 +1,5 @@
+
+
 /*
  * =============================================================================
  * Xaloqi EDS
@@ -63,10 +65,13 @@
 #include "dtc_database.h"
 #include "dtc_mirror.h"
 #include "routine_database.h"
+#ifndef EDS_DOIP_ONLY_BUILD
 #include "isotp.h"
 #include "can_transport.h"
+#endif /* EDS_DOIP_ONLY_BUILD */
 #include "generated_config.h"
 #include "safety_config.h"
+
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -82,7 +87,9 @@
 static uds_session_ctx_t  s_session_ctx;
 static uds_security_ctx_t s_security_ctx;
 static uds_server_ctx_t   s_server_ctx;
+#ifndef EDS_DOIP_ONLY_BUILD
 static isotp_ctx_t        s_isotp_ctx;
+#endif /* EDS_DOIP_ONLY_BUILD */
 
 /** Guard: true once uds_generated_init() has completed successfully. */
 static bool s_initialized = false;
@@ -103,16 +110,22 @@ static bool s_initialized = false;
  * @return UDS_STATUS_ERR_ALREADY_INITIALIZED if called more than once.
  * @return Propagated UDS_STATUS_ERR_* on any sub-init failure.
  */
+#ifndef EDS_DOIP_ONLY_BUILD
 uds_status_t uds_generated_init(
     can_transport_t *can,
     uint32_t         rx_can_id,
     uint32_t         tx_can_id)
+#else
+uds_status_t uds_generated_init(
+    void    *can,
+    uint32_t rx_can_id,
+    uint32_t tx_can_id)
+#endif /* EDS_DOIP_ONLY_BUILD */
 {
     uds_status_t status;
 
-    if (can == NULL) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
+    /* can == NULL is valid for DoIP-only builds (transport: doip).
+     * ISO-TP init is skipped below when no CAN transport is provided. */
 
     if (s_initialized) {
         return UDS_STATUS_ERR_ALREADY_INITIALIZED;
@@ -234,6 +247,8 @@ uds_status_t uds_generated_init(
      *   0x40 = maintenance_only
      */
     {
+
+
         status = dtc_database_register(
             (uint32_t)12583168UL,
             (uint8_t)0x20U,
@@ -243,6 +258,8 @@ uds_status_t uds_generated_init(
             return status;
         }
 
+
+
         status = dtc_database_register(
             (uint32_t)12583424UL,
             (uint8_t)0x40U,
@@ -251,6 +268,7 @@ uds_status_t uds_generated_init(
         if (status != UDS_STATUS_OK) {
             return status;
         }
+
 
     }
 
@@ -291,12 +309,15 @@ uds_status_t uds_generated_init(
      * Only executed when routines are declared in the YAML config.
      * Defined in generated/routine_handlers.c.
      */
+
     status = routine_handlers_register_all();
     if (status != UDS_STATUS_OK) {
         return status;
     }
 
+
     /* ── Step 5.7: Flash operations (SafeBoot — MCUboot DFU) ──────────────
+
      *
      * SafeBoot is DISABLED (safeboot.enabled not set in diagnostics_config.yaml).
      *
@@ -310,7 +331,9 @@ uds_status_t uds_generated_init(
      *
      * Then regenerate: python3 tools/codegen.py --config <yaml> --out generated/
      *                                            --safety-wrappers --asil-level B
+
      */
+
     /* ── Step 6: Session layer ─────────────────────────────────────────────
      *
      * Starts in UDS_SESSION_DEFAULT. S3server timer armed.
@@ -436,7 +459,8 @@ uds_status_t uds_generated_init(
      * block_size = 0: no block size limit (tester decides segmentation pace).
      * stmin_ms   = 0: no minimum separation time enforced by this ECU.
      */
-    {
+#ifndef EDS_DOIP_ONLY_BUILD
+    if (can != NULL) {
         isotp_cfg_t isotp_cfg;
         (void)memset(&isotp_cfg, 0, sizeof(isotp_cfg));
 
@@ -451,6 +475,7 @@ uds_status_t uds_generated_init(
             return status;
         }
     }
+#endif /* EDS_DOIP_ONLY_BUILD */
 
     s_initialized = true;
 
@@ -475,6 +500,7 @@ uds_server_ctx_t *uds_generated_get_server(void)
 /**
  * @brief Return pointer to the statically allocated ISO-TP context.
  */
+#ifndef EDS_DOIP_ONLY_BUILD
 isotp_ctx_t *uds_generated_get_isotp(void)
 {
     if (!s_initialized) {
@@ -482,5 +508,6 @@ isotp_ctx_t *uds_generated_get_isotp(void)
     }
     return &s_isotp_ctx;
 }
+#endif /* EDS_DOIP_ONLY_BUILD */
 
 /* End of uds_init.c */
