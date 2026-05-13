@@ -307,7 +307,7 @@ for t in "${TESTS[@]}"; do
 
     # ── Run ────────────────────────────────────────────────────────────
     # [FIX-SETE] Same set -e + $() trap applies to test binary execution.
-    run_out=$("${bin}" 2>&1) && run_rc=0 || run_rc=$?
+    run_out=$(timeout 30 "${bin}" 2>&1) && run_rc=0 || run_rc=$?
 
     if [[ $run_rc -eq 0 ]]; then
         printf "  %-45s  PASS\n" "${t}"
