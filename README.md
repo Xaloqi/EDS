@@ -94,10 +94,11 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 | **Code generation** | YAML → 14 C/H/py templates · CLI + React GUI · reproducible deterministic output |
 | **Test generation** | YAML → pytest suite per DID and DTC · simulator mode (no hardware) · firmware harness mode |
 | **CANoe CAPL** | YAML → `.can` scripts for CANoe import · per-DID, per-DTC, core services |
+| **SOVD CDA** | `--sovd` flag: YAML → OpenSOVD 1.0 `sovd_cda.json` — DIDs, DTCs, routines, transport, all 14 services · DoIP ECUs include `logicalAddress` and `port` · Eclipse SDV / OEM SOVD clients |
 | **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
 | **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |
-| **CI pipeline** | 13-job GitHub Actions · codegen · unit tests · harness tests · Zephyr builds · FreeRTOS ARM builds · MISRA analysis · MCP server tests · DoIP integration (native_sim + DoipBus) |
+| **CI pipeline** | 14-job GitHub Actions · codegen · unit tests · harness tests · Zephyr builds · FreeRTOS ARM builds · MISRA analysis · MCP server tests · DoIP integration (native_sim + DoipBus) · SOVD CDA generation |
 
 **Safety properties verified by CI on every commit:**
 - Zero dynamic memory allocation (`malloc`/`free` grep gate)
