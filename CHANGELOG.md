@@ -6,6 +6,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.7.0] — SOVD Bridge (OpenSOVD CDA generation) — 2026-05-13
+
+### Added — SOVD CDA codegen output
+
+`tools/codegen.py --sovd`: new optional flag that generates a valid OpenSOVD 1.0
+Capability Description and Advertisement (CDA) JSON file (`sovd_cda.json`) alongside
+the standard C output. Pure-Python implementation — no Jinja2 template required.
+`build_sovd_cda(cfg)` builds the CDA dict directly; `render_sovd_cda()` writes it
+with `json.dumps(indent=2)`.
+
+The CDA captures the full ECU diagnostic profile from `diagnostics_config.yaml`:
+
+- All configured DIDs with `id`, `name`, `dataLengthBytes`, `access`, `minSession`,
+  `readSecurityLevel`, `writeSecurityLevel`
+- All configured DTCs with `code`, `description`, `severity`
+- All configured routines with `id`, `name`, `minSession`, `securityLevel`,
+  `supportedSubFunctions`
+- Static list of all 14 EDS UDS services (`diagnosticServices`)
+- `transportInfo.protocol`: `"DoIP"` or `"ISO-TP"` derived from `ecu.transport`
+- `ecuIdentification.logicalAddress`, `ecuIdentification.sourceAddress`,
+  `transportInfo.port`: present only when `transport` is `doip` or `both`
+
+Session names use semantic strings (`"default"`, `"extended"`, `"programming"`) —
+not internal C constants — so the JSON is directly readable by SOVD clients and
+Eclipse SDV tooling.
+
+### Changed — CI
+
+`.github/workflows/ci.yml`: added `sovd-codegen` job (job 14 of 14). Imports
+`build_sovd_cda` and `load_config` directly from `tools/codegen.py` — no template
+checkout required. Validates CDA structure, transport protocol, DID/DTC/routine
+counts, and presence/absence of `logicalAddress` for CAN vs DoIP ECUs.
+
+---
+
 ## [1.6.0] — DoIP (ISO 13400-2) transport — 2026-05-13
 
 ### Added — DoIP server for Zephyr and FreeRTOS
