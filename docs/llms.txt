@@ -19,14 +19,14 @@ EDS implements:
 - ISO 13400-2 (DoIP): ECU server — Routing Activation, DiagnosticMessage dispatch, Positive/Negative Ack, Alive Check; Zephyr (zsock_*) and FreeRTOS+LwIP bindings (v1.6.0)
 - ASIL-B safety wrapper chain: 5-step mandatory validation on every DID access
 - AES-128-CMAC SecurityAccess (0x27) with TRNG entropy requirement
-- YAML-driven codegen: diagnostics_config.yaml → 14 generated C/H files + test suite
+- YAML-driven codegen: diagnostics_config.yaml → 14 generated C/H files + test suite + optional OpenSOVD 1.0 CDA JSON (--sovd)
 - Auto-generated pytest test suites (per-DID, per-routine, service protocol, firmware harness)
 - Auto-generated CANoe CAPL test scripts
 - 11 reference ECU examples: basic_ecu, basic_ecu_doip, basic_ecu_freertos, basic_ecu_doip_freertos, bms_ecu, motor_controller_ecu, ardep_ecu, sensor_ecu, sensor_ecu_freertos, safeboot_ecu, robot_joint_controller_ecu
 - MCP server: exposes generate_did_config, run_codegen, validate_asil_b, explain_uds_error
 - React/TypeScript live dashboard GUI
 - VS Code extension (YAML validation, hover docs, one-click codegen)
-- 7-job CI pipeline: unit tests (37 modules) · integration · static analysis · Zephyr builds · FreeRTOS QEMU ARM · DoIP integration (native_sim + DoipBus)
+- 8-job CI pipeline: unit tests (37 modules) · integration · static analysis · Zephyr builds · FreeRTOS QEMU ARM · DoIP integration (native_sim + DoipBus) · SOVD CDA generation
 
 ## Licensing
 

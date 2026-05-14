@@ -90,8 +90,11 @@ diagnostics_config.yaml
          ├─── Test Suite ─────────── generated/tests/*.py
          │                           (--test-gen flag)
          │
-         └─── GUI Catalog ─────────── gui/src/generated/catalog.ts
-                                      (--gui-types flag)
+         ├─── GUI Catalog ─────────── gui/src/generated/catalog.ts
+         │                           (--gui-types flag)
+         │
+         └─── SOVD CDA ───────────── generated/sovd_cda.json
+                                      (--sovd flag, pure Python — no template)
 ```
 
 ---
@@ -221,6 +224,10 @@ routines:
 ## 6. Template Catalogue
 
 All 14 templates in `tools/templates/`:
+
+Note: the SOVD CDA output (`--sovd`) is generated directly by `build_sovd_cda()` in
+`codegen.py` — it uses no Jinja2 template. `json.dumps(indent=2)` is used instead to
+avoid JSON-escaping issues.
 
 | Template | Output file | Description |
 |---|---|---|
@@ -421,12 +428,13 @@ python3 tools/codegen.py \
   --test-gen               Generate pytest suite in <out>/tests/
   --gui-types              Generate gui/src/generated/catalog.ts
   --gui-out     <dir>      Override GUI output directory
+  --sovd                   Generate OpenSOVD 1.0 CDA JSON (sovd_cda.json)
   --no-manifest            Skip manifest.json (use in CI)
   --dry-run                Validate config only; write no files
   --template-dir <dir>     Override tools/templates/ location
 ```
 
-Example — DoIP ECU with safety wrappers:
+Example — DoIP ECU with safety wrappers and SOVD CDA:
 
 ```bash
 python3 tools/codegen.py \
@@ -434,7 +442,9 @@ python3 tools/codegen.py \
   --out     examples/basic_ecu_doip/generated/ \
   --safety-wrappers \
   --asil-level B \
+  --sovd \
   --no-manifest
+# Produces generated/sovd_cda.json alongside the standard C files.
 ```
 
 Example — BMS ECU with full test generation:
@@ -521,6 +531,62 @@ Generated files must not be manually edited. Any manual change will be overwritt
 ```
 
 ---
+
+---
+
+## 13b. SOVD CDA Output (--sovd)
+
+When `--sovd` is passed, codegen writes `<out>/sovd_cda.json` — a valid
+OpenSOVD 1.0 Capability Description and Advertisement document describing
+the ECU's complete diagnostic profile. This file can be consumed by Eclipse
+SDV tooling, OEM SOVD clients, or any tool that understands the OpenSOVD
+1.0 schema.
+
+### Structure
+
+```json
+{
+  "sovdVersion": "1.0.0",
+  "generatedBy":  "Xaloqi EDS codegen v1.6.0",
+  "generatedAt":  "<ISO 8601 UTC>",
+  "ecuIdentification": {
+    "name":    "<ecu_name>",
+    "version": "<version>",
+    "logicalAddress": "0xE400",   // DoIP only
+    "sourceAddress":  "0x0E00"    // DoIP only
+  },
+  "transportInfo": {
+    "protocol": "DoIP",           // or "ISO-TP" for CAN
+    "port": 13400                 // DoIP only
+  },
+  "dataIdentifiers": [ ... ],
+  "dtcs":            [ ... ],
+  "routines":        [ ... ],
+  "diagnosticServices": [ ... ]   // static list of all 14 EDS services
+}
+```
+
+### Key design choices
+
+- `ecuIdentification.logicalAddress`, `ecuIdentification.sourceAddress`, and
+  `transportInfo.port` are **only emitted** when `ecu.transport` is `doip` or `both`.
+  CAN ECUs produce a clean CDA without these fields.
+- Session names use semantic strings (`"default"`, `"extended"`, `"programming"`) —
+  not the internal C constants (`UDS_SESSION_DEFAULT`) — so the JSON is directly
+  readable without knowledge of the EDS internals.
+- `writeSecurityLevel` is `null` for read-only DIDs (where `"write"` is absent from
+  the `access` list).
+- `diagnosticServices` is a static list of all 14 UDS services EDS implements; it
+  does not vary per ECU and is identical in every generated CDA.
+- Implementation is pure Python in `build_sovd_cda()` — `json.dumps(indent=2)` is
+  used directly rather than a Jinja2 template, which avoids JSON-escaping issues and
+  produces valid JSON by construction.
+
+### CI
+
+The `sovd-codegen` CI job validates the output for both `basic_ecu` (CAN) and
+`basic_ecu_doip` (DoIP) on every push, without requiring EDS-toolchain templates.
+It imports `build_sovd_cda` and `load_config` directly from `tools/codegen.py`.
 
 ## 14. Generated Code Constraints
 
