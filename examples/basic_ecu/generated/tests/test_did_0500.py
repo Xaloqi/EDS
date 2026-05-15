@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-04-21T07:31:56Z
+# Generated : 2026-05-15T08:59:24Z
 #
 # DID       : 0x0500  (Coolant Temperature)
 # Access    : read
