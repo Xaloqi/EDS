@@ -108,6 +108,37 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 
 ---
 
+## Using EDS as a west module
+
+If you have an existing Zephyr application and want to add EDS as an out-of-tree module, add the following to your project's `west.yml`:
+
+```yaml
+manifest:
+  remotes:
+    - name: xaloqi
+      url-base: https://github.com/Xaloqi
+
+  projects:
+    - name: EDS
+      remote: xaloqi
+      revision: v1.6.0
+      path: modules/eds
+```
+
+Then run `west update`. Zephyr picks up the Kconfig symbols from `zephyr/module.yml` automatically — `CONFIG_UDS_*`, `CONFIG_ISOTP_*`, and `CONFIG_DIAG_*` are available in your `prj.conf` without any manual include path changes.
+
+Each EDS example has its own self-contained `CMakeLists.txt`. To add EDS to your own app, add the EDS sources directly:
+
+```cmake
+# In your app's CMakeLists.txt, after find_package(Zephyr):
+add_subdirectory(${ZEPHYR_EDS_MODULE_DIR}/core eds_core)
+add_subdirectory(${ZEPHYR_EDS_MODULE_DIR}/transport eds_transport)
+```
+
+The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the module is registered.
+
+---
+
 ## Quick start
 
 ### Prerequisites

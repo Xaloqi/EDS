@@ -13,18 +13,30 @@
 #        west build -b nucleo_h743zi2 examples/basic_ecu
 #
 #   2. ECOSYSTEM SUBMISSION (E2 — when repo is public):
-#      This file also satisfies the Zephyr module registry requirements.
-#      To submit EDS to the Zephyr ecosystem page, open a PR to:
-#        https://github.com/zephyrproject-rtos/zephyr
-#      adding the following entry to zephyr/west.yml under `projects:`:
+#      This file satisfies the zephyr/module.yml requirement for third-party
+#      module listing. Submit EDS to the awesome-zephyr-rtos lists by opening
+#      PRs to:
+#        https://github.com/zephyrproject-rtos/awesome-zephyr-rtos  (official)
+#        https://github.com/golioth/awesome-zephyr-rtos              (community)
+#      Add to the "Networking & Protocols" section in each README.md:
 #
-#        - name: embedded-diagnostics-suite
-#          url: https://github.com/Xaloqi/EDS
-#          revision: v1.3.0
-#          path: modules/eds
+#        - [Xaloqi EDS](https://github.com/Xaloqi/EDS) - ISO 14229 UDS
+#          diagnostics stack with ISO-TP and DoIP transports, ASIL-B safety
+#          wrappers, and YAML-driven code generation.
 #
-#      The Zephyr project team reviews module PRs against the checklist at:
-#        https://docs.zephyrproject.org/latest/contribute/modules.html
+#      Users add EDS to their own west.yml (do NOT submit to zephyrproject-rtos
+#      west.yml — that requires zephyrproject-rtos org membership + TSC approval):
+#
+#        remotes:
+#          - name: xaloqi
+#            url-base: https://github.com/Xaloqi
+#        projects:
+#          - name: EDS
+#            remote: xaloqi
+#            revision: v1.6.0
+#            path: modules/eds
+#
+#      Verified against: Zephyr v3.7.0, west v1.5.0
 #
 # REFERENCE: https://docs.zephyrproject.org/latest/develop/modules.html
 #
