@@ -16,6 +16,10 @@ extern const char *unity_current_test;
 /* ── internal helpers ─────────────────────────────────────────────────────── */
 void unity_fail(const char *file, int line, const char *msg);
 
+/* Forward declarations — test files define these; weak defaults in test_main.c */
+void setUp(void);
+void tearDown(void);
+
 #define UNITY_BEGIN()  do { unity_tests_run=0; unity_tests_passed=0; unity_tests_failed=0; } while(0)
 
 #define UNITY_END()    unity_print_summary()
