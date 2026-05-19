@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
-## [1.7.0] — SOVD Bridge (OpenSOVD CDA generation) — 2026-05-13
+## [1.7.0] — SOVD Bridge (OpenSOVD CDA generation)
 
 ### Added — SOVD CDA codegen output
 
@@ -41,7 +41,7 @@ counts, and presence/absence of `logicalAddress` for CAN vs DoIP ECUs.
 
 ---
 
-## [1.6.0] — DoIP (ISO 13400-2) transport — 2026-05-13
+## [1.6.0] — DoIP (ISO 13400-2) transport
 
 ### Added — DoIP server for Zephyr and FreeRTOS
 
@@ -100,7 +100,7 @@ Existing configs without these fields continue to build unchanged.
 
 ---
 
-##  [1.5.0] — TestLab integration + testgen refactor — 2026-05-07
+##  [1.5.0] — TestLab integration + testgen refactor
 ### Added — testlab_config.yaml standalone mode (TestLab)
 
 xaloqi/tester/_config.py: full input validation with precise error messages
@@ -162,7 +162,7 @@ xaloqi/__version__ = "1.0.0" added.
 LICENSE_COMMERCIAL.txt created.
 [project.urls] added to pyproject.toml.
 
-## [1.4.0] — Job Engine + CI expansion — 2026-04-30
+## [1.4.0] — Job Engine + CI expansion
 
 ### Added — Job Engine (IDEA-032)
 
@@ -229,7 +229,7 @@ LICENSE_COMMERCIAL.txt created.
 
 ---
 
-## [1.3.0] — Platform housekeeping + FreeRTOS API — 2026-04-20
+## [1.3.0] — Platform housekeeping + FreeRTOS API
 
 ### Fixed — Platform structure
 
@@ -294,7 +294,7 @@ LICENSE_COMMERCIAL.txt created.
 
 ---
 
-## [1.3.0] — SafeBoot + Sensor + Robotics Examples — 2026-04-15
+## [1.3.0] — SafeBoot + Sensor + Robotics Examples
 
 **Status: All 16 CI jobs green. Three new examples. SafeBoot codegen automation complete.**
 
@@ -363,7 +363,7 @@ LICENSE_COMMERCIAL.txt created.
 
 ---
 
-## [1.2.0] — FreeRTOS Platform Support — 2026-04-15
+## [1.2.0] — FreeRTOS Platform Support
 
 **Status: All 13 CI jobs green. FreeRTOS HAL complete. Zephyr builds unaffected.**
 
@@ -433,7 +433,7 @@ LICENSE_COMMERCIAL.txt created.
 
 ---
 
-## [1.1.0] — Commercial Readiness — 2026-03-26
+## [1.1.0] — Commercial Readiness
 
 **Status: Pre-release hardening. All CI jobs green. Codebase is feature-complete for v1.1.x
 evaluation builds. Remaining open items are licensing, hardware validation, and community
@@ -481,10 +481,8 @@ publishing — none block technical evaluation.**
 
 ### Notes
 - All licensing decisions (D1–D10) resolved. GPL v2 runtime, commercial toolchain.
-- Payment platform: Polar.sh.
-- Legal entity: Raul Latorre Fortes, trading as Xaloqi, Frankfurt am Main, Germany.
 
-## [1.1.0] — Layer 4 + Layer 5 Complete — 2026-03-18
+## [1.1.0] — Layer 4 + Layer 5 Complete
 
 **Status: All v1.0.0 tests still passing. New CAPL generation and VS Code extension added.**
 
@@ -541,7 +539,7 @@ publishing — none block technical evaluation.**
 
 ---
 
-## [1.0.0] — Phase 9 Complete — 2026-03-11
+## [1.0.0] — Phase 9 Complete
 
 **Status: All tests passing. 35/35 unit tests. 68/68 harness tests.**
 
@@ -582,7 +580,7 @@ publishing — none block technical evaluation.**
 
 ---
 
-## [0.9.0] — Phase 8 — 2026-02-15
+## [0.9.0] — Phase 8
 
 ### Added
 - ARDEP fourth ECU example with DFU support
@@ -597,7 +595,7 @@ publishing — none block technical evaluation.**
 
 ---
 
-## [0.8.0] — Phase 7 — 2026-01-20
+## [0.8.0] — Phase 7
 
 ### Added
 - BMS ECU example with cell voltage and temperature DIDs
@@ -611,7 +609,7 @@ publishing — none block technical evaluation.**
 
 ---
 
-## [0.5.0] — Phase 5 — 2025-11-10
+## [0.5.0] — Phase 5
 
 ### Added
 - Initial code generator (`tools/codegen.py`) with 3 templates
@@ -623,7 +621,7 @@ publishing — none block technical evaluation.**
 
 ---
 
-## [0.1.0] — Phase 1 — 2025-09-01
+## [0.1.0] — Phase 1
 
 ### Added
 - Repository structure and architecture documents

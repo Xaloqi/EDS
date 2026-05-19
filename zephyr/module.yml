@@ -41,7 +41,7 @@
 # REFERENCE: https://docs.zephyrproject.org/latest/develop/modules.html
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# Maintainer:  Raul Latorre Fortes <contact@xaloqi.com>
+# Maintainer:  Xaloqi <contact@xaloqi.com>
 # Homepage:    https://github.com/Xaloqi/EDS
 # =============================================================================
 
@@ -94,7 +94,7 @@ build:
 # Zephyr version:   v3.7.0+
 # License:          GPL-2.0-only (runtime); Apache-2.0 (examples)
 #
-# Maintainer:       Raul Latorre Fortes <contact@xaloqi.com>
+# Maintainer:       Xaloqi <contact@xaloqi.com>
 # Homepage:         https://github.com/Xaloqi/EDS
 
 blobs: []
