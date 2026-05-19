@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-05-15T08:59:24Z
+# Generated : 2026-05-19T12:19:25Z
 #
 # DID       : 0xF18C  (ECU Serial Number)
 # Access    : read

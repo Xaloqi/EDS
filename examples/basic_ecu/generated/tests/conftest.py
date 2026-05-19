@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-05-15T08:59:24Z
+# Generated : 2026-05-19T12:19:25Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -260,6 +260,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         return bytes([0x50, sub, p2_hi, p2_lo, p2s_hi, p2s_lo])
     if sid == 0x3E:
         if len(pdu) < 2: return nrc(0x3E, 0x13)
+        if (pdu[1] & 0x7F) != 0x00: return nrc(0x3E, 0x12)  # subFunctionNotSupported
         if pdu[1] & 0x80: return None
         return bytes([0x7E, 0x00])
     if sid == 0x11:
