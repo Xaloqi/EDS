@@ -67,7 +67,7 @@ west init -m https://github.com/Xaloqi/EDS --mr v1.4.0 .
 west update
 ```
 
-> **Note:** Replace `LatorreEngineering` with the actual GitHub org/username. On a slow connection the
+> **Note:** On a slow connection the
 > `west update` step can take up to 10 minutes. It only runs once.
 
 After `west update` your workspace looks like this:
