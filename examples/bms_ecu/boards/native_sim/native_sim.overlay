@@ -1,0 +1,44 @@
+/*
+ * =============================================================================
+ * Xaloqi EDS
+ * examples/bms_ecu/boards/native_sim/native_sim.overlay
+ *
+ * Device Tree overlay for the native_sim (host simulation) board target.
+ *
+ * PURPOSE:
+ *   Enables a virtual CAN controller backed by Zephyr's CAN loopback driver.
+ *   This allows the full BMS diagnostics stack to run on a Linux/macOS host
+ *   without real hardware, routing all CAN TX frames back to the RX path.
+ *
+ * SIMULATION USAGE:
+ *   west build -b native_sim examples/bms_ecu \
+ *     -- -DDIAG_SKIP_CODEGEN=ON \
+ *     -DDTC_OVERLAY_FILE=examples/bms_ecu/boards/native_sim/native_sim.overlay
+ *   ./build/zephyr/zephyr.exe
+ *
+ * NOTE: This overlay is identical in structure to the root boards/native_sim
+ *       overlay. It is duplicated here so that the bms_ecu example can be
+ *       built independently without requiring the caller to reference the
+ *       root boards/ directory.
+ * =============================================================================
+ */
+
+/ {
+	aliases {
+		/* Map the 'can0' alias used in main.c to the loopback CAN device. */
+		can0 = &can_loopback0;
+	};
+};
+
+/*
+ * Loopback CAN controller node.
+ *
+ * compatible = "zephyr,can-loopback": Software loopback driver.
+ * Frames sent via can_send() are immediately queued to the RX filter.
+ *
+ * bus-speed: 500000 bps (ISO 15765-4 default for 11-bit addressing).
+ */
+&can_loopback0 {
+	status = "okay";
+	bus-speed = <500000>;
+};

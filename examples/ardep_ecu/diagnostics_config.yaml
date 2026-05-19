@@ -1,0 +1,564 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/ardep_ecu/diagnostics_config.yaml
+#
+# PURPOSE: ARDEP I/O Controller ECU — diagnostics configuration.
+#
+# TARGET HARDWARE: Mercedes-Benz ARDEP (Automotive Rapid DEvelopment Platform)
+#   Board : ardep (boards/mercedes/ardep in the ARDEP Zephyr workspace)
+#   MCU   : STM32G4-series Cortex-M4 @ 170 MHz (ARDEP v2.0 hardware)
+#   CAN   : FDCAN transceiver, onboard (no external components needed)
+#   LIN   : LIN transceiver, onboard
+#   I/O   : Arduino headers + PowerIO Shield (6× high-side switch, 48V/3A)
+#
+# CONTEXT: ARDEP UPGRADE PATH
+#   ARDEP ships with UDS support via the driftregion/iso14229 library —
+#   a minimal, MIT-licensed C implementation with no ASIL documentation,
+#   no test generation, and no MISRA compliance record.
+#
+#   This configuration demonstrates replacing that integration with the
+#   Xaloqi EDS: ASIL-B safety wrappers, AES-CMAC security,
+#   MISRA deviation log, and auto-generated test suites — with identical
+#   Zephyr CAN driver integration.
+#
+# ECU ROLE: Automotive I/O Controller (typical ARDEP use case)
+#   The ARDEP PowerIO Shield provides:
+#     - 6× high-side switches (up to 48V / 3A each)
+#     - 6× digital/analog inputs
+#   This configuration models a body-domain I/O controller managing:
+#     - Output actuators (lighting, relays, solenoids)
+#     - Input sensors (voltage, current, digital state)
+#     - Bus gateway function (CAN ↔ LIN routing status)
+#     - Firmware update support (DFU over UDS — ARDEP's primary use case)
+#
+# UPGRADE GUIDE: docs/ARDEP_UPGRADE_GUIDE.md
+#
+# VERSION: 1.0.0
+# SPDX-License-Identifier: Apache-2.0
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name:    "ARDEP_IOController"
+  version:     "1.0.0"
+  description: >
+    ARDEP Automotive I/O Controller — diagnostics configuration.
+    Demonstrates EDS stack on the Mercedes-Benz ARDEP hardware platform
+    as a drop-in upgrade from the driftregion/iso14229 library.
+
+# -----------------------------------------------------------------------------
+# Timing parameters
+# ISO 14229-1 §7.2 / ARDEP default timing configuration
+# P2_server_max is intentionally conservative for prototyping use
+# -----------------------------------------------------------------------------
+timing:
+  p2_server_max_ms:       25     # Max ECU response time (ISO default: 50ms)
+  p2_star_server_max_ms:  5000   # Extended response pending window
+  s3_server_timeout_ms:   5000   # Tester-present keepalive timeout
+
+# =============================================================================
+# DIDs — Data Identifiers
+#
+# Section layout:
+#   A. ECU identity       (0xF1xx  — ISO 14229-1 Annex F)
+#   B. Output state       (0x20xx  — ARDEP PowerIO outputs)
+#   C. Input state        (0x21xx  — ARDEP PowerIO inputs)
+#   D. CAN/LIN bus status (0x22xx  — gateway function)
+#   E. ECU health         (0x23xx  — system health monitoring)
+#   F. Calibration        (0x24xx  — OEM-configurable parameters)
+# =============================================================================
+
+dids:
+  # ── A. ECU Identity ────────────────────────────────────────────────────────
+
+  - id:   "0xF190"
+    name: "VehicleIdentificationNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17            # ISO 14229-1 Annex F: VIN always 17 bytes
+
+  - id:   "0xF18C"
+    name: "ECUSerialNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 8             # 8-char alphanumeric serial
+
+  - id:   "0xF187"
+    name: "VehicleManufacturerSparePartNumber"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 11            # Supplier part number
+
+  - id:   "0xF189"
+    name: "ECUSoftwareVersionNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4             # Major.Minor.Patch.Build (1 byte each)
+
+  - id:   "0xF197"
+    name: "SystemSupplierIdentifierDataIdentifier"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 5             # CAGE code (5 chars, SAE J2012)
+
+  # ── B. PowerIO Output State ────────────────────────────────────────────────
+  # ARDEP PowerIO Shield: 6× high-side switches
+  # Data layout: 1 byte bitmask [Out6|Out5|Out4|Out3|Out2|Out1|Fault|Enable]
+  # Scaling: bit-field (no scaling factor)
+
+  - id:   "0x2001"
+    name: "PowerIO_OutputStateBitmask"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1             # 1 byte: bits 0-5 = output state, bit 6 = fault
+
+  - id:   "0x2002"
+    name: "PowerIO_Output1_Current_mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2             # uint16 mA, range 0–3000 mA
+
+  - id:   "0x2003"
+    name: "PowerIO_Output2_Current_mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0x2004"
+    name: "PowerIO_Output3_Current_mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0x2005"
+    name: "PowerIO_Output4_Current_mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0x2006"
+    name: "PowerIO_Output5_Current_mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0x2007"
+    name: "PowerIO_Output6_Current_mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0x2010"
+    name: "PowerIO_OutputControl"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1    # Security level 1 required to actuate outputs
+    data_length: 1             # Same bitmask format as 0x2001 (writable)
+
+  # ── C. PowerIO Input State ─────────────────────────────────────────────────
+  # 6 analog/digital inputs, ARDEP Arduino header + HV Shield
+
+  - id:   "0x2101"
+    name: "PowerIO_InputStateBitmask"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1             # 1 byte: bits 0-5 = digital input state
+
+  - id:   "0x2102"
+    name: "PowerIO_Input1_Voltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2             # uint16 mV, 0–48000 mV (12-bit ADC scaled)
+
+  - id:   "0x2103"
+    name: "PowerIO_Input2_Voltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0x2104"
+    name: "PowerIO_Input3_Voltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  # ── D. CAN / LIN Bus Status ────────────────────────────────────────────────
+  # ARDEP has onboard CAN and LIN transceivers — gateway status DIDs
+
+  - id:   "0x2201"
+    name: "CAN_BusStatus"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # Byte 0: state (0=OK, 1=error_passive, 2=bus_off, 3=init)
+    # Byte 1: tx_error_count (0–255)
+
+  - id:   "0x2202"
+    name: "CAN_RxFrameCount"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4             # uint32 cumulative RX frame counter
+
+  - id:   "0x2203"
+    name: "CAN_TxFrameCount"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4             # uint32 cumulative TX frame counter
+
+  - id:   "0x2211"
+    name: "LIN_BusStatus"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # Byte 0: state (0=OK, 1=no_response, 2=framing_error, 3=idle)
+
+  - id:   "0x2212"
+    name: "LIN_SlaveCount"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1             # Number of responding LIN slaves (0–16)
+
+  # ── E. ECU Health Monitoring ───────────────────────────────────────────────
+
+  - id:   "0x2301"
+    name: "ECU_SupplyVoltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2             # uint16 mV, automotive range 6000–16000 mV
+
+  - id:   "0x2302"
+    name: "ECU_InternalTemperature_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # int8 signed °C (offset encoding: value = T + 40, range -40 to +215°C)
+
+  - id:   "0x2303"
+    name: "ECU_UptimeSeconds"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4             # uint32 seconds since last reset
+
+  - id:   "0x2304"
+    name: "ECU_ResetCounter"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2             # uint16 NVM-backed reset count
+
+  - id:   "0x2305"
+    name: "ECU_LastResetReason"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # 0x00=PowerOn, 0x01=Watchdog, 0x02=Software, 0x03=ExternalPin
+
+  - id:   "0x2306"
+    name: "ECU_DiagnosticStackVersion"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 3             # Major.Minor.Patch (EDS stack version)
+
+  # ── F. Calibration / OEM Configuration ────────────────────────────────────
+  # Parameters requiring extended session + security unlock to modify
+
+  - id:   "0x2401"
+    name: "CAN_BusBitrate_kbps"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2
+    # uint16 kbps: 125, 250, 500, 1000 (applied on next reset)
+
+  - id:   "0x2402"
+    name: "LIN_BusBaudrate_bps"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2
+    # uint16: 2400, 9600, 19200 (applied on next reset)
+
+  - id:   "0x2403"
+    name: "PowerIO_OvercurrentThreshold_mA"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2             # uint16 mA: 500–3000 mA protection threshold
+
+  - id:   "0x2404"
+    name: "WatchdogTimeout_ms"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2             # uint16 ms: 50–1000 ms watchdog window
+
+  # ── Firmware update support (DFU — ARDEP's primary feature) ───────────────
+  # These DIDs support the ARDEP firmware loader workflow.
+  # The actual data transfer uses service 0x34/0x36/0x37 (RequestDownload/
+  # TransferData/RequestTransferExit) — which EDS implements as future services.
+  # These DIDs provide pre-programming metadata readable without a session change.
+
+  - id:   "0x2501"
+    name: "FirmwareVersion_Active"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4             # Major.Minor.Patch.Build
+
+  - id:   "0x2502"
+    name: "FirmwareVersion_Pending"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4             # All-zero if no pending update
+
+  - id:   "0x2503"
+    name: "FirmwareUpdateStatus"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # 0x00=Idle, 0x01=DownloadPending, 0x02=VerifyOK, 0x03=VerifyFail
+
+# =============================================================================
+# DTCs — Diagnostic Trouble Codes
+#
+# SAE J2012-DA severity encoding:
+#   0x20 = check_at_next_halt   (non-safety, maintenance)
+#   0x40 = maintenance_only     (informational, no fault lamp)
+#   0x08 = emission_related     (MIL-triggering)
+#
+# Code range: 0xC0xxxx = Network communication faults (ISO 15031-6)
+#             0xB0xxxx = Body/I-O faults
+#             0xU0xxxx = Network/communication (generic)
+# =============================================================================
+
+dtcs:
+  # ── Network / Communication ────────────────────────────────────────────────
+
+  - code:        "0xC00100"
+    description: "CAN bus communication loss — no frames received > 500ms"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC00200"
+    description: "CAN bus error passive — TX/RX error counters exceeded 127"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC00300"
+    description: "CAN bus off — transmitter disabled by bus-off recovery"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC01000"
+    description: "LIN bus no response — no slave response within timeout"
+    severity:    "maintenance_only"
+
+  - code:        "0xC01100"
+    description: "LIN bus framing error — break field or sync byte invalid"
+    severity:    "maintenance_only"
+
+  # ── PowerIO Output Faults ──────────────────────────────────────────────────
+
+  - code:        "0xB00100"
+    description: "Output 1 overcurrent — load current exceeded threshold"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xB00200"
+    description: "Output 2 overcurrent — load current exceeded threshold"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xB00300"
+    description: "Output 3 overcurrent — load current exceeded threshold"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xB00400"
+    description: "Output 4 overcurrent — load current exceeded threshold"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xB00500"
+    description: "Output 5 overcurrent — load current exceeded threshold"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xB00600"
+    description: "Output 6 overcurrent — load current exceeded threshold"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xB01000"
+    description: "PowerIO open load — output commanded ON but no current detected"
+    severity:    "maintenance_only"
+
+  # ── ECU Health ─────────────────────────────────────────────────────────────
+
+  - code:        "0xC0FF00"
+    description: "Supply voltage low — below 9.0V for > 500ms"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC0FF10"
+    description: "Supply voltage high — above 16.0V for > 100ms"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC0FF20"
+    description: "ECU overtemperature — internal junction > 125°C"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC0FF30"
+    description: "Watchdog reset event — firmware failed to service watchdog"
+    severity:    "maintenance_only"
+
+  - code:        "0xC0FF40"
+    description: "NVM write failure — diagnostic session statistics not persisted"
+    severity:    "maintenance_only"
+
+  # ── Firmware Update ────────────────────────────────────────────────────────
+
+  - code:        "0xC0FE00"
+    description: "Firmware image verification failed — CRC mismatch"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC0FE10"
+    description: "Firmware download incomplete — transfer interrupted"
+    severity:    "maintenance_only"
+
+routines:
+  - id:   "0xFF00"
+    name: "ECU_SelfTest"
+    description: "Run internal self-test: RAM check, ROM CRC, sensor plausibility"
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+  - id:   "0xFF01"
+    name: "ResetCalibrationToDefaults"
+    description: "Reset all writable calibration DIDs to factory values in NVM"
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start"]
+
+  - id:   "0xFF10"
+    name: "EraseApplicationFlash"
+    description: "Erase application flash sector — prerequisite for MCUboot DFU"
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start", "results"]
+
+  - id:   "0xFF11"
+    name: "VerifyApplicationImage"
+    description: "Verify MCUboot image CRC and signature in secondary slot"
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start", "results"]
+
+  - id:   "0xFF20"
+    name: "ActivateOutputChannel"
+    description: "Activate a single PowerIO high-side output for workshop testing"
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "stop", "results"]
+
+  - id:   "0xFF21"
+    name: "MeasureSupplyVoltage"
+    description: "Trigger precision ADC measurement of supply voltage and return result"
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]

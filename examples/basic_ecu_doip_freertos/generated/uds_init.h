@@ -3,9 +3,9 @@
  * Xaloqi EDS
  * FILE: GENERATED — uds_init.h
  *
- * ECU       : BasicECU
- * Version   : 0.1.0
- * Generated : 2026-04-21T07:31:56Z
+ * ECU       : BasicECU_DoIP_FreeRTOS
+ * Version   : 1.6.0
+ * Generated : 2026-05-19T13:34:42Z
  *
  * PURPOSE: Public interface for the generated UDS stack initialisation module.
  *

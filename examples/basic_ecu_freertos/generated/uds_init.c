@@ -1,5 +1,3 @@
-
-
 /*
  * =============================================================================
  * Xaloqi EDS
@@ -7,7 +5,7 @@
  *
  * ECU       : BasicECU
  * Version   : 0.1.0
- * Generated : 2026-04-21T07:32:03Z
+ * Generated : 2026-05-19T13:34:42Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -71,7 +69,6 @@
 #endif /* EDS_DOIP_ONLY_BUILD */
 #include "generated_config.h"
 #include "safety_config.h"
-
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -247,8 +244,6 @@ uds_status_t uds_generated_init(
      *   0x40 = maintenance_only
      */
     {
-
-
         status = dtc_database_register(
             (uint32_t)12583168UL,
             (uint8_t)0x20U,
@@ -258,8 +253,6 @@ uds_status_t uds_generated_init(
             return status;
         }
 
-
-
         status = dtc_database_register(
             (uint32_t)12583424UL,
             (uint8_t)0x40U,
@@ -268,7 +261,6 @@ uds_status_t uds_generated_init(
         if (status != UDS_STATUS_OK) {
             return status;
         }
-
 
     }
 
@@ -309,15 +301,12 @@ uds_status_t uds_generated_init(
      * Only executed when routines are declared in the YAML config.
      * Defined in generated/routine_handlers.c.
      */
-
     status = routine_handlers_register_all();
     if (status != UDS_STATUS_OK) {
         return status;
     }
 
-
     /* ── Step 5.7: Flash operations (SafeBoot — MCUboot DFU) ──────────────
-
      *
      * SafeBoot is DISABLED (safeboot.enabled not set in diagnostics_config.yaml).
      *
@@ -331,9 +320,7 @@ uds_status_t uds_generated_init(
      *
      * Then regenerate: python3 tools/codegen.py --config <yaml> --out generated/
      *                                            --safety-wrappers --asil-level B
-
      */
-
     /* ── Step 6: Session layer ─────────────────────────────────────────────
      *
      * Starts in UDS_SESSION_DEFAULT. S3server timer armed.

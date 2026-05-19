@@ -1,0 +1,484 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/sensor_ecu/diagnostics_config.yaml
+#
+# PURPOSE: Zone controller ECU with real sensor integration.
+#
+#          Demonstrates the complete sensor → DID → DTC pattern:
+#
+#            Zephyr sensor API
+#              └─ sensor_sample_fetch()   reads ambient temp + supply voltage
+#              └─ sensor_channel_get()    extracts measurement
+#                   │
+#                   ▼
+#            did_handlers_impl.c
+#              └─ sensor_ecu_read_ambient_temp()   → DID 0xD001
+#              └─ sensor_ecu_read_supply_voltage() → DID 0xD002
+#                   │
+#                   ▼
+#            sensor_monitor thread (sensor_monitor.c)
+#              └─ checks thresholds every 100 ms
+#              └─ calls dtc_database_set_status() when fault detected
+#                   │
+#                   ▼
+#            UDS tester sends 0x19 ReadDTCInformation
+#              └─ returns active DTCs with status byte
+#
+# TARGET HARDWARE:
+#   Any Zephyr-supported board with:
+#     - A temperature sensor (DT alias: temp-sensor-0)
+#       Examples: SHTC3, LM75A, MCP9808, NTC on ADC channel
+#     - A voltage monitor (DT alias: voltage-sensor-0)
+#       Examples: INA219, ADC voltage divider, dedicated PMIC
+#
+#   On native_sim: stub implementations return synthetic values that
+#   cycle through normal → fault → recovery to demonstrate DTC behaviour.
+#
+# DID ADDRESS MAP:
+#   0xD0xx  — D0 = "Diagnostics/Data" : sensor measurements
+#   0xF1xx  — ISO 14229-1 Annex F     : ECU identity (standardized)
+#
+# PHYSICAL ENCODING:
+#   Temperature : int8, offset encoding: raw = T_°C + 40
+#                 Range: −40 °C (raw 0) to +215 °C (raw 255)
+#                 Valid ECU operating range: −40 to +85 °C
+#   Voltage     : uint16, LSB = 1 mV
+#                 Range: 0–65535 mV (0–65.5 V)
+#                 Nominal ECU supply: 9000–16000 mV (9–16 V)
+#   Bitmask     : uint8 bit-field (see sensor_ecu.h for bit definitions)
+#
+# VERSION: 1.0.0
+# SPDX-License-Identifier: Apache-2.0
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name:    "SensorECU"
+  version:     "1.0.0"
+  description: >
+    Zone controller ECU demonstrating real sensor integration with Xaloqi EDS.
+    Reads ambient temperature and supply voltage via the Zephyr sensor API,
+    exposes measurements as UDS DIDs, and raises DTCs on out-of-range conditions.
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+# =============================================================================
+# DIDs — Data Identifiers
+# =============================================================================
+
+dids:
+
+  # ── ECU identity (ISO 14229-1 Annex F) ─────────────────────────────────────
+
+  - id:   "0xF190"
+    name: "VehicleIdentificationNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+  - id:   "0xF18C"
+    name: "ECUSerialNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 8
+
+  # ── Live sensor measurements ────────────────────────────────────────────────
+
+  - id:   "0xD001"
+    name: "AmbientTemperature"
+    description: >
+      Ambient temperature measured by the on-board temperature sensor.
+      Encoding: raw = T_°C + 40. Range: −40 °C (0x00) to +215 °C (0xFF).
+      DTCs 0xD00101 / 0xD00102 activate when outside −40 to +85 °C.
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1                   # int8 offset-encoded: raw = T_°C + 40
+
+  - id:   "0xD002"
+    name: "SupplyVoltage"
+    description: >
+      ECU supply voltage measured at the power input rail.
+      Encoding: uint16 big-endian, LSB = 1 mV.
+      Nominal range: 9000–16000 mV (9–16 V).
+      DTCs 0xD00201 / 0xD00202 activate outside this range.
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2                   # uint16 big-endian, mV
+
+  - id:   "0xD003"
+    name: "SensorStatusBitmask"
+    description: >
+      Sensor health status flags. Bit definitions (sensor_ecu.h):
+        Bit 0: TEMP_SENSOR_OK     — temperature sensor reading is valid
+        Bit 1: VOLTAGE_SENSOR_OK  — voltage sensor reading is valid
+        Bit 2: TEMP_FAULT_HIGH    — temperature above upper threshold
+        Bit 3: TEMP_FAULT_LOW     — temperature below lower threshold
+        Bit 4: VOLTAGE_FAULT_HIGH — voltage above upper threshold
+        Bit 5: VOLTAGE_FAULT_LOW  — voltage below lower threshold
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1                   # uint8 bitmask
+
+  # ── Calibration (writable, extended session + security) ────────────────────
+
+  - id:   "0xD010"
+    name: "TemperatureThresholdHigh"
+    description: >
+      Upper temperature fault threshold.
+      Encoding: same as 0xD001 (raw = T_°C + 40).
+      Default: 0x7D (85 °C). Range: 0–255.
+      Stored in NVM. Reset to factory default via routine 0xFF00.
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 1
+
+  - id:   "0xD011"
+    name: "TemperatureThresholdLow"
+    description: >
+      Lower temperature fault threshold.
+      Encoding: same as 0xD001 (raw = T_°C + 40).
+      Default: 0x00 (−40 °C). Range: 0–255.
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 1
+
+# =============================================================================
+# DTCs — Diagnostic Trouble Codes
+#
+# Format: 0xXXYYZZ
+#   XX — subsystem: D0 = sensor subsystem
+#   YY — sensor:    01 = temperature, 02 = voltage
+#   ZZ — fault:     01 = high/over-range, 02 = low/under-range
+# =============================================================================
+
+dtcs:
+
+  - code:        "0xD00101"
+    description: "Ambient temperature sensor — over-range (> threshold high)"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xD00102"
+    description: "Ambient temperature sensor — under-range (< threshold low)"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xD00201"
+    description: "Supply voltage — over-range (> 16.0 V)"
+    severity:    "immediate_display"
+
+  - code:        "0xD00202"
+    description: "Supply voltage — under-range (< 9.0 V)"
+    severity:    "immediate_display"
+
+# =============================================================================
+# Routines
+# =============================================================================
+
+routines:
+
+  - id:   "0xFF00"
+    name: "ResetSensorCalibration"
+    description: "Reset temperature thresholds to factory defaults (−40 / +85 °C)"
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "results"]
+
+  - id:   "0xFF01"
+    name: "SensorSelfTest"
+    description: >
+      Run sensor plausibility check: verify temperature reading is within
+      physical bounds (−40 to +215 °C) and voltage is > 0 V. Returns
+      pass/fail status byte in the routine results record.
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+# =============================================================================
+# Jobs — Xaloqi Job Engine (Developer and Professional tiers)
+#
+# Run with:
+#   python3 tools/jobrunner.py \
+#     --config examples/sensor_ecu/diagnostics_config.yaml \
+#     --job    <job_name> \
+#     --mode   vcan --iface vcan0
+#
+# Dry-run (no ECU required):
+#   python3 tools/jobrunner.py \
+#     --config examples/sensor_ecu/diagnostics_config.yaml \
+#     --all --dry-run
+#
+# JSON output for TestLab AI:
+#   python3 tools/jobrunner.py \
+#     --config examples/sensor_ecu/diagnostics_config.yaml \
+#     --job    field_diagnostic_read \
+#     --mode   vcan \
+#     --json   results/sensor_ecu_$(date +%Y%m%d_%H%M%S).json
+# =============================================================================
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # field_diagnostic_read
+  #
+  # Read-only snapshot of all sensor measurements and active DTCs.
+  # Safe to run at any time — no writes, no security unlock required.
+  # Use this job during development to quickly check sensor health.
+  # ---------------------------------------------------------------------------
+  field_diagnostic_read:
+    description: >
+      Read-only snapshot of all sensor measurements and active DTCs.
+      No security access required. Safe to run on a live ECU at any time.
+    timeout_ms:  10000
+    on_failure:  continue
+    steps:
+      # Read all default-session DIDs: VIN, serial, temp, voltage, status bitmask
+      - action:       foreach_did
+        min_session:  default
+        expect_ok:    false
+        save_results: true
+
+      # Extend session to also capture calibration threshold DIDs
+      - action: session
+        value:  extended
+
+      - action:       foreach_did
+        min_session:  extended
+        expect_ok:    false
+        save_results: true
+
+      # Capture all active DTCs
+      - action:   read_dtc
+        sub_fn:   reportAllSupportedDTCs
+        save_as:  active_dtcs
+
+      # Return to default session
+      - action: session
+        value:  default
+
+  # ---------------------------------------------------------------------------
+  # sensor_health_check
+  #
+  # Reads live sensor values and the status bitmask, then runs the ECU's
+  # built-in SensorSelfTest routine to verify plausibility. Use during
+  # bring-up or after a firmware update to confirm sensor integration is
+  # working correctly.
+  # ---------------------------------------------------------------------------
+  sensor_health_check:
+    description: >
+      Read live sensor measurements, check the status bitmask, and run
+      the SensorSelfTest routine. Use during bring-up or post-flash to
+      confirm sensor integration is functioning correctly.
+    timeout_ms:  15000
+    on_failure:  continue
+    steps:
+      - action: session
+        value:  extended
+
+      # Read live sensor values
+      - action:    read_did
+        did:       "0xD001"
+        save_as:   ambient_temp
+        expect_ok: true
+
+      - action:    read_did
+        did:       "0xD002"
+        save_as:   supply_voltage
+        expect_ok: true
+
+      - action:    read_did
+        did:       "0xD003"
+        save_as:   sensor_status
+        expect_ok: true
+
+      # Run the ECU's built-in plausibility self-test
+      - action:   routine
+        id:       "0xFF01"
+        sub_fn:   start
+        save_as:  selftest_result
+
+      # Get self-test results
+      - action:   routine
+        id:       "0xFF01"
+        sub_fn:   requestResults
+        save_as:  selftest_output
+
+      # Assert self-test did not return an NRC
+      - action:   assert
+        variable: selftest_result
+        not_nrc:  true
+
+      # Check for any active DTCs
+      - action:   read_dtc
+        sub_fn:   reportAllSupportedDTCs
+        save_as:  active_dtcs
+
+      - action: session
+        value:  default
+
+  # ---------------------------------------------------------------------------
+  # calibration_reset
+  #
+  # Resets temperature fault thresholds to factory defaults using the
+  # ResetSensorCalibration routine (0xFF00), then reads them back to
+  # confirm the values were restored. Requires security level 1.
+  # ---------------------------------------------------------------------------
+  calibration_reset:
+    description: >
+      Reset temperature fault thresholds to factory defaults (−40 / +85 °C)
+      via routine 0xFF00, then verify the calibration DIDs read back correctly.
+      Requires extended session and security level 1.
+    timeout_ms:  15000
+    on_failure:  abort
+    steps:
+      - action: session
+        value:  extended
+
+      - action: security_access
+        level:  1
+
+      # Run reset routine
+      - action:   routine
+        id:       "0xFF00"
+        sub_fn:   start
+        save_as:  reset_result
+
+      - action:   assert
+        variable: reset_result
+        not_nrc:  true
+
+      # Read back thresholds to confirm reset
+      - action:    read_did
+        did:       "0xD010"
+        save_as:   temp_high_after
+        expect_ok: true
+
+      - action:    read_did
+        did:       "0xD011"
+        save_as:   temp_low_after
+        expect_ok: true
+
+      # Verify threshold lengths (1 byte each)
+      - action:   assert
+        variable: temp_high_after
+        length:   1
+
+      - action:   assert
+        variable: temp_low_after
+        length:   1
+
+      - action: session
+        value:  default
+
+  # ---------------------------------------------------------------------------
+  # calibration_write
+  #
+  # Write custom temperature fault thresholds to the ECU.
+  # Defaults shown: high = 70 °C (raw 0x6E), low = −20 °C (raw 0x14).
+  # Adjust the data values to match your application's operating range.
+  # Requires extended session and security level 1.
+  # ---------------------------------------------------------------------------
+  calibration_write:
+    description: >
+      Write custom temperature fault thresholds and verify with read-back.
+      Default values: high = 70 °C (raw 0x6E), low = −20 °C (raw 0x14).
+      Edit 'data' fields to match your application's operating range.
+      Requires extended session and security level 1.
+    timeout_ms:  15000
+    on_failure:  abort
+    steps:
+      - action: session
+        value:  extended
+
+      - action: security_access
+        level:  1
+
+      # Write high threshold: 70 °C → raw = 70 + 40 = 110 = 0x6E
+      - action: write_did
+        did:    "0xD010"
+        data:   "6E"
+
+      # Write low threshold: −20 °C → raw = −20 + 40 = 20 = 0x14
+      - action: write_did
+        did:    "0xD011"
+        data:   "14"
+
+      # Read back and verify
+      - action:    read_did
+        did:       "0xD010"
+        save_as:   temp_high_written
+        expect_ok: true
+
+      - action:    read_did
+        did:       "0xD011"
+        save_as:   temp_low_written
+        expect_ok: true
+
+      - action:   assert
+        variable: temp_high_written
+        length:   1
+
+      - action:   assert
+        variable: temp_low_written
+        length:   1
+
+      - action: session
+        value:  default
+
+  # ---------------------------------------------------------------------------
+  # dtc_clear_and_verify
+  #
+  # Clears all DTCs, waits briefly for the sensor monitor thread to run
+  # one cycle, then reads DTCs back to check whether any faults are
+  # immediately re-raised by the ECU. Use after resolving a fault condition
+  # to confirm the ECU is healthy.
+  # ---------------------------------------------------------------------------
+  dtc_clear_and_verify:
+    description: >
+      Clear all DTCs, allow the sensor monitor one cycle (500 ms), then
+      read back to check if faults re-assert immediately. Use after
+      resolving a fault condition to confirm the ECU is healthy.
+    timeout_ms:  10000
+    on_failure:  continue
+    steps:
+      - action: session
+        value:  extended
+
+      - action: clear_dtc
+        group:  "0xFFFFFF"
+
+      # Wait one sensor monitor cycle (100 ms period + margin)
+      - action: delay
+        ms:     500
+
+      # Read back — if faults immediately re-assert, the condition persists
+      - action:   read_dtc
+        sub_fn:   reportAllSupportedDTCs
+        save_as:  dtcs_after_clear
+
+      - action: session
+        value:  default

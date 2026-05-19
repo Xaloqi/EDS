@@ -1,0 +1,270 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/robot_joint_controller_ecu/diagnostics_config.yaml
+#
+# PURPOSE: Robot joint controller ECU — diagnostics configuration.
+#
+#          Demonstrates Xaloqi EDS in a robotics context. A joint controller
+#          manages one or more servo axes: position, velocity, torque, fault
+#          state, and calibration. UDS diagnostics give the robot controller
+#          (or a bench engineer) access to live joint state, fault history,
+#          and calibration parameters over CAN.
+#
+# WHY UDS FOR ROBOTICS?
+#   Automotive UDS is increasingly used in robot controllers because:
+#     - The ISO 14229 toolchain (CANoe, INCA, scan tools) is already in
+#       many robotics labs and production lines
+#     - ISO-TP handles multi-byte responses cleanly (joint config dumps)
+#     - Security access prevents accidental calibration writes from HMIs
+#     - DTC persistence gives field engineers a fault history without a
+#       separate logging system
+#     - Zephyr is widely used in collaborative and mobile robots; EDS
+#       integrates directly with the Zephyr sensor and motor APIs
+#
+# TARGET:
+#   Any Zephyr-supported MCU with CAN, controlling 1–4 servo axes.
+#   Tested: native_sim (loopback), STM32H7 (FDCAN)
+#   FreeRTOS: same YAML — replace DID handler bodies with your vendor HAL.
+#
+# DID ADDRESS MAP:
+#   0xA0xx  — A0 = "Axis 0" : first joint axis
+#   0xA1xx  — A1 = "Axis 1" : second joint axis (optional)
+#   0xB0xx  — B0 = "Bus"    : CAN bus and controller health
+#   0xF1xx  — ISO 14229-1 Annex F : ECU identity
+#
+# PHYSICAL ENCODING:
+#   Position  : int32 big-endian, LSB = 0.001 degree (millidegrees)
+#               Range: ±2,147,483 degrees (>> any mechanical limit)
+#   Velocity  : int16 big-endian, LSB = 0.01 rpm
+#   Torque    : int16 big-endian, LSB = 0.01 Nm
+#   Temperature: int8 offset-encoded, raw = T_°C + 40
+#   Status    : uint8 bitmask (see robot_ecu.h)
+#
+# VERSION: 1.0.0
+# SPDX-License-Identifier: Apache-2.0
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name:    "RobotJointController"
+  version:     "1.0.0"
+  description: >
+    Joint controller ECU for a single-arm robot (1–2 servo axes).
+    Exposes live joint state, fault history, and calibration parameters
+    via ISO 14229 UDS over CAN. Compatible with standard automotive scan
+    tools (CANoe, INCA, peak-can-tools) and Xaloqi EDS toolchain.
+
+
+can:
+  rx_can_id: "0x7DF"  # ISO 15765-4 functional addressing (request)
+  tx_can_id: "0x7E8"  # ISO 15765-4 physical response (ECU address 0)
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+# =============================================================================
+# DIDs
+# =============================================================================
+
+dids:
+
+  # ── ECU identity ────────────────────────────────────────────────────────────
+
+  - id:   "0xF190"
+    name: "RobotSerialNumber"
+    description: "17-byte robot serial number (ISO VIN field, repurposed)"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+  - id:   "0xF18C"
+    name: "ControllerSerialNumber"
+    description: "8-byte joint controller board serial number"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 8
+
+  # ── Axis 0: live state ──────────────────────────────────────────────────────
+
+  - id:   "0xA000"
+    name: "Axis0Position"
+    description: >
+      Current joint position in millidegrees (0.001°).
+      int32 big-endian. Range: ±2,147,483 mdeg = ±2147°.
+      Mechanical limits enforced by the motor driver independently.
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4
+
+  - id:   "0xA001"
+    name: "Axis0Velocity"
+    description: >
+      Current joint velocity in 0.01 rpm units.
+      int16 big-endian. Range: ±32767 → ±327.67 rpm.
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0xA002"
+    name: "Axis0Torque"
+    description: >
+      Current joint torque in 0.01 Nm units.
+      int16 big-endian. Range: ±32767 → ±327.67 Nm.
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0xA003"
+    name: "Axis0MotorTemperature"
+    description: >
+      Motor winding temperature. int8 offset-encoded: raw = T_°C + 40.
+      Fault threshold: 85 °C (DTC 0xA00101 activates above this).
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+
+  - id:   "0xA004"
+    name: "Axis0StatusBitmask"
+    description: >
+      Axis 0 health flags (uint8):
+        Bit 0: ENABLED       — axis is enabled and accepting commands
+        Bit 1: IN_POSITION   — position error < tolerance window
+        Bit 2: FAULT_ACTIVE  — any fault DTC is currently active
+        Bit 3: HOME_COMPLETE — homing sequence completed successfully
+        Bit 4: OVERTEMP      — motor temperature > 85 °C
+        Bit 5: OVERCURRENT   — current > rated peak (>1 s)
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+
+  # ── Axis 0: calibration (writable, extended session + security) ─────────────
+
+  - id:   "0xA010"
+    name: "Axis0PositionOffset"
+    description: >
+      Zero-position calibration offset in millidegrees.
+      int32 big-endian. Added to raw encoder count to derive absolute position.
+      Stored in NVM. Apply new offset via routine 0xFF01 (ApplyCalibration).
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 4
+
+  - id:   "0xA011"
+    name: "Axis0SoftLimitPositive"
+    description: >
+      Software positive travel limit in millidegrees (int32 big-endian).
+      DTC 0xA00301 activates when position exceeds this limit.
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 4
+
+  - id:   "0xA012"
+    name: "Axis0SoftLimitNegative"
+    description: >
+      Software negative travel limit in millidegrees (int32 big-endian).
+      DTC 0xA00302 activates when position is below this limit.
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 4
+
+# =============================================================================
+# DTCs
+#
+# Format: 0xAXYYZZ
+#   A  — robot/automation domain
+#   X  — axis: 0 = axis 0, 1 = axis 1
+#   YY — subsystem: 00=motor, 01=encoder, 02=drive, 03=limit
+#   ZZ — fault type: 01=high/over, 02=low/under, 03=loss/timeout
+# =============================================================================
+
+dtcs:
+
+  - code:        "0xA00101"
+    description: "Axis 0 motor over-temperature (> 85 °C)"
+    severity:    "immediate_display"
+
+  - code:        "0xA00201"
+    description: "Axis 0 drive over-current (> rated peak)"
+    severity:    "immediate_display"
+
+  - code:        "0xA00103"
+    description: "Axis 0 encoder signal loss (no valid position update > 50 ms)"
+    severity:    "immediate_display"
+
+  - code:        "0xA00301"
+    description: "Axis 0 positive soft limit exceeded"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xA00302"
+    description: "Axis 0 negative soft limit exceeded"
+    severity:    "check_at_next_halt"
+
+# =============================================================================
+# Routines
+# =============================================================================
+
+routines:
+
+  - id:   "0xFF00"
+    name: "HomeAxis0"
+    description: >
+      Execute axis 0 homing sequence: move at reduced velocity until
+      home sensor triggers, set position = 0 + Axis0PositionOffset.
+      Blocks until complete (P2* response pending used for slow motion).
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "results"]
+
+  - id:   "0xFF01"
+    name: "ApplyCalibration"
+    description: >
+      Apply and persist any pending calibration DIDs (0xA010–0xA012)
+      to NVM. Changes written via DID 0x2E take effect in RAM immediately
+      but are not persisted until this routine runs.
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "results"]
+
+  - id:   "0xFF02"
+    name: "ClearFaultHistory"
+    description: >
+      Clear all DTC fault history (equivalent to UDS 0x14 for the full
+      DTC group). Use when a fault has been diagnosed and repaired.
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start"]

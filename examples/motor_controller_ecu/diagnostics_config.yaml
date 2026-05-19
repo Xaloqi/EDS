@@ -1,0 +1,590 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/motor_controller_ecu/diagnostics_config.yaml
+#
+# PURPOSE: Traction Inverter / Motor Controller ECU — diagnostics configuration.
+#
+# TARGET HARDWARE: Generic automotive traction inverter ECU
+#   MCU   : STM32H7-series Cortex-M7 @ 480 MHz (or equivalent)
+#   CAN   : ISO 11898-2 high-speed CAN at 500 kbps
+#   MOTOR : Interior permanent-magnet synchronous motor (IPMSM), 3-phase
+#   DRIVE : 3-phase IGBT or SiC MOSFET inverter bridge, 400 V / 800 V platform
+#   SENSOR: Resolver or sin/cos encoder for rotor position; 3× phase current shunts
+#
+# CONTEXT: Traction Inverter / Motor Controller
+#   The motor controller ECU is the other half of every EV powertrain — the
+#   BMS example covers the energy-storage side; this example covers the
+#   power-conversion side. Together they represent a complete EV drivetrain
+#   diagnostic picture.
+#
+#   The motor controller governs:
+#     - Field-oriented control (FOC): torque and flux current regulation
+#     - Rotor position / speed sensing (resolver or encoder)
+#     - Phase current measurement and protection (overcurrent, short-circuit)
+#     - DC-link voltage monitoring and pre-charge control
+#     - IGBT / SiC gate-driver health (desaturation, overcurrent)
+#     - Thermal management: junction temperatures, coolant monitoring
+#     - Active discharge of DC-link capacitor on HV removal
+#     - Regenerative braking coordination with the BMS
+#
+#   Diagnostic access is required by:
+#     - OEM production EOL calibration (resolver offset, current sensor trim)
+#     - Field service scan tools (fault read, phase balance test)
+#     - NVH / NVS validation teams (motor speed, torque accuracy)
+#     - Calibration engineers (PI controller gains, derating curves)
+#
+# DID ADDRESS MAP:
+#   0xF1xx  — ISO 14229-1 Annex F  : ECU identity (standardized)
+#   0xE001  — E0 = "Electrical/Motor": Motor electrical measurements
+#   0xE100  — E1 = "Electrical/Phase": Phase-level measurements
+#   0xE200  — E2 = "Electrical/DC"  : DC-link measurements
+#   0xE300  — E3 = "Energy/Thermal" : Temperature measurements
+#   0xE400  — E4 = "Energy/Control" : FOC controller signals
+#   0xE500  — E5 = "ECU/System"     : ECU health and calibration
+#
+# VERSION: 1.0.0
+# SPDX-License-Identifier: Apache-2.0
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name:    "MotorController_Inverter"
+  version:     "1.0.0"
+  description: >
+    Traction Inverter / Motor Controller ECU diagnostics configuration.
+    IPMSM field-oriented control, 400 V / 800 V platform, resolver position
+    sensing, 3-phase IGBT/SiC bridge. Companion example to bms_ecu — together
+    they cover the complete EV powertrain diagnostic surface.
+
+# -----------------------------------------------------------------------------
+# Timing parameters
+# ISO 14229-1 §7.2 timing. P2 = 25 ms — motor controller is a real-time
+# embedded system; 25 ms is achievable for all read-only DIDs. FOC runs at
+# ≥ 10 kHz; DID reads are background priority and non-blocking.
+# -----------------------------------------------------------------------------
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+# =============================================================================
+# DIDs — Data Identifiers
+#
+# Physical encoding conventions (consistent with SAE J1939 motor SPNs):
+#   Speed    : int16 signed, LSB = 1 rpm  (−32768..+32767 rpm)
+#   Torque   : int16 signed, LSB = 0.1 Nm (−3276.8..+3276.7 Nm)
+#   Current  : int16 signed, LSB = 100 mA (±3276.7 A)
+#   Voltage  : uint16,       LSB = 1 mV   (0–65535 mV for DC-link)
+#   Temp     : int8 signed,  offset-encoded: raw = T_degC + 40
+#   Position : uint16,       LSB = 360°/65536 = 0.00549°  (electrical angle)
+#   Bitmask  : uint8 or uint16, bit-field, no scaling
+#   Power    : int16 signed, LSB = 10 W   (±327.67 kW)
+#   Modulation: uint8,       LSB = 0.4 %  (0–100 % maps to 0–250)
+# =============================================================================
+
+dids:
+
+  # ── A. ECU Identity (ISO 14229-1 Annex F) ──────────────────────────────────
+
+  - id:   "0xF190"
+    name: "VehicleIdentificationNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+  - id:   "0xF18C"
+    name: "ECUSerialNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 8
+
+  - id:   "0xF187"
+    name: "VehicleManufacturerSparePartNumber"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 11
+
+  - id:   "0xF189"
+    name: "ECUSoftwareVersionNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4            # Major.Minor.Patch.Build
+
+  # ── B. Motor Electrical Measurements (0xE001 range) ────────────────────────
+  # Primary signals for torque/speed control monitoring.
+
+  - id:   "0xE001"
+    name: "MC_RotorSpeed_rpm"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 1 rpm. Positive = forward direction.
+    # Derived from resolver decoder (RDC) or encoder counter.
+    # Range: ±20 000 rpm (limited by inverter switching frequency headroom).
+
+  - id:   "0xE002"
+    name: "MC_TorqueDemand_01Nm"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 0.1 Nm.
+    # Torque demand received from vehicle supervisory controller (VSC)
+    # over CAN (SAE J1939 / OEM-specific message). Positive = motoring.
+
+  - id:   "0xE003"
+    name: "MC_TorqueActual_01Nm"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 0.1 Nm.
+    # Estimated actual torque from FOC current model:
+    # T = 1.5 * p * (λ_f * Iq + (Ld - Lq) * Id * Iq)
+    # where p = pole pairs, λ_f = flux linkage, Ld/Lq = d/q inductances.
+
+  - id:   "0xE004"
+    name: "MC_RotorElectricalAngle_raw"
+    access:
+      - read
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # uint16. LSB = 360°/65536 ≈ 0.0055° (electrical angle).
+    # Raw output from resolver decoder or encoder interpolator.
+    # Extended session: raw position data useful for calibration only.
+
+  - id:   "0xE005"
+    name: "MC_MechanicalPower_10W"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 10 W. P_mech = T_actual × ω (shaft power).
+    # Positive = motoring (electrical energy → mechanical output).
+    # Negative = regenerating (kinetic energy → electrical).
+
+  # ── C. Phase Current Measurements (0xE100 range) ───────────────────────────
+  # Three-phase currents are the innermost FOC feedback loop.
+  # Phase A + Phase B measured directly; Phase C derived (Ia + Ib + Ic = 0).
+
+  - id:   "0xE101"
+    name: "MC_PhaseA_Current_100mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 100 mA. Measured by inline shunt + ADC.
+    # Peak rating: ±2000 A (peak phase current for short-burst overload).
+
+  - id:   "0xE102"
+    name: "MC_PhaseB_Current_100mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0xE103"
+    name: "MC_PhaseC_Current_100mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # Derived: Ic = -(Ia + Ib). Stored for diagnostic readability.
+
+  - id:   "0xE104"
+    name: "MC_Iq_Current_100mA"
+    access:
+      - read
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 100 mA.
+    # q-axis (torque-producing) current after Park transform.
+    # Extended session: FOC frame signals for calibration engineers.
+
+  - id:   "0xE105"
+    name: "MC_Id_Current_100mA"
+    access:
+      - read
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 100 mA.
+    # d-axis (flux-producing) current. Negative for MTPA flux weakening.
+
+  # ── D. DC-Link Measurements (0xE200 range) ─────────────────────────────────
+  # DC bus between battery contactor and inverter bridge.
+
+  - id:   "0xE201"
+    name: "MC_DCLink_Voltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4
+    # uint32 mV. 400 V platform: nominal 350–420 V = 350000–420000 mV.
+    # 800 V platform: nominal 700–840 V.
+    # Measured by isolated voltage divider on inverter HV bus.
+
+  - id:   "0xE202"
+    name: "MC_DCLink_Current_100mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 100 mA.
+    # DC bus current (from battery side). Positive = discharge (motoring).
+    # P_dc = V_dc × I_dc. Used for efficiency monitoring and BMS coordination.
+
+  - id:   "0xE203"
+    name: "MC_ModulationIndex_04pct"
+    access:
+      - read
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # uint8. LSB = 0.4 %. Raw 250 = 100% = full DC-link utilisation (overmod).
+    # SVPWM: linear range 0–86.6% (m < 1/√3). Extended for calibration only.
+
+  # ── E. Thermal Measurements (0xE300 range) ─────────────────────────────────
+  # Thermal management is the primary long-term performance limiter.
+  # Gate driver and IGBT/SiC junction temperatures are safety-critical.
+
+  - id:   "0xE301"
+    name: "MC_IGBT_PhaseA_JunctionTemp_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # int8 offset-encoded. raw = T + 40. Range −40..+215 °C.
+    # Estimated junction temperature: T_j = T_case + P_loss × R_th(j-c).
+    # SiC MOSFET: continuous rating +175 °C; protection threshold +165 °C.
+
+  - id:   "0xE302"
+    name: "MC_IGBT_PhaseB_JunctionTemp_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+
+  - id:   "0xE303"
+    name: "MC_IGBT_PhaseC_JunctionTemp_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+
+  - id:   "0xE304"
+    name: "MC_MotorStatorTemp_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # int8 offset-encoded. NTC or KTY84 embedded in stator winding.
+    # Continuous winding rating typically +155 °C (Class F insulation).
+
+  - id:   "0xE305"
+    name: "MC_CoolantInletTemp_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # int8 offset-encoded. Coolant inlet NTC at inverter cold-plate.
+    # Feed-forward for thermal derating prediction.
+
+  # ── F. FOC Controller State (0xE400 range) ──────────────────────────────────
+  # FOC internal signals for calibration and diagnostics.
+  # Most require extended session — unsuitable for field personnel.
+
+  - id:   "0xE401"
+    name: "MC_FaultStatusBitmask"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # uint16 bitmask — mirrors active DTC set for quick scan-tool triage:
+    #   bit 0  = Phase overcurrent
+    #   bit 1  = Gate driver desaturation (short-circuit)
+    #   bit 2  = DC link overvoltage
+    #   bit 3  = DC link undervoltage
+    #   bit 4  = IGBT overtemperature
+    #   bit 5  = Motor overtemperature
+    #   bit 6  = Resolver signal loss / plausibility
+    #   bit 7  = Current sensor fault
+    #   bit 8  = CAN communication loss (VSC)
+    #   bit 9  = MCU watchdog reset
+    #   bit 10-15 = reserved
+
+  - id:   "0xE402"
+    name: "MC_OperatingMode"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # uint8 enum:
+    #   0x00 = Init
+    #   0x01 = Idle (HV present, motor standstill)
+    #   0x02 = Motoring (positive torque demand)
+    #   0x03 = Regenerating (negative torque demand / regen braking)
+    #   0x04 = ActiveDischarge (discharging DC-link capacitor)
+    #   0x05 = FaultLimp (reduced torque after recoverable fault)
+    #   0xFF = ShutdownFault (HV inhibited, non-recoverable fault latch)
+
+  # ── G. Calibration Parameters (0xE500 range) ────────────────────────────────
+  # Parameters requiring extended session + security unlock to modify.
+
+  - id:   "0xE501"
+    name: "MC_ResolverOffset_raw"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2
+    # uint16. Resolver mechanical-to-electrical offset (angle correction).
+    # Set at EOL after rotor locking fixture calibration procedure.
+    # Write: security level 1 required — incorrect offset causes torque error.
+
+  - id:   "0xE502"
+    name: "MC_TorqueScalingFactor_01pct"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2
+    # uint16. LSB = 0.1 %. Torque output scaling trim (nominal = 1000 = 100.0%).
+    # Adjusted at EOL to account for motor-to-motor torque constant variation.
+    # Valid range: 850–1150 (85.0–115.0%).
+
+  - id:   "0xE503"
+    name: "MC_CurrentSensorTrim_100uA"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2
+    # int16 signed. LSB = 100 µA. Current sensor zero-offset trim.
+    # Applied to all three phase current measurements.
+    # Set at EOL with motor unpowered (zero-current reference state).
+
+# =============================================================================
+# DTCs — Diagnostic Trouble Codes
+#
+# Motor controller DTC code range:
+#   0xD2xxxx = Traction / powertrain faults (OEM-specific range)
+#   0xC0xxxx = Network communication faults (ISO 15031-6 generic)
+#
+# All traction-inverter protection faults trigger gate-driver shutdown
+# (all IGBTs switched off) within the hardware protection threshold
+# (e.g. DESAT comparator < 2 µs). DTCs capture the triggering condition
+# for post-fault root-cause analysis.
+# =============================================================================
+
+dtcs:
+
+  # ── Phase and gate-driver protection ───────────────────────────────────────
+
+  - code:        "0xD20100"
+    description: "Phase overcurrent — at least one phase current exceeded peak current limit"
+    severity:    "check_at_next_halt"
+    # Hardware protection: comparator trip < 500 ns. Gate-driver shuts down.
+    # Root cause: motor winding insulation failure; short in cable loom.
+
+  - code:        "0xD20200"
+    description: "Gate driver desaturation — IGBT/SiC short-circuit detected by DESAT circuit"
+    severity:    "check_at_next_halt"
+    # DESAT comparator monitors collector-emitter voltage during conduction.
+    # Root cause: motor phase-to-phase short; gate driver supply undervoltage.
+
+  # ── DC-link protection ─────────────────────────────────────────────────────
+
+  - code:        "0xD20300"
+    description: "DC-link overvoltage — bus voltage exceeded maximum continuous rating"
+    severity:    "check_at_next_halt"
+    # On 400 V platform: threshold typically 450 V.
+    # Root cause: regen braking with BMS contactors open; capacitor failure.
+
+  - code:        "0xD20400"
+    description: "DC-link undervoltage — bus voltage dropped below minimum operating threshold"
+    severity:    "check_at_next_halt"
+    # Threshold: typically 250 V (400 V platform).
+    # Root cause: BMS contactor open under load; pre-charge timeout.
+
+  # ── Thermal protection ─────────────────────────────────────────────────────
+
+  - code:        "0xD20500"
+    description: "IGBT overtemperature — estimated junction temperature exceeded protection threshold"
+    severity:    "check_at_next_halt"
+    # Threshold: 165 °C (SiC) or 150 °C (IGBT). Derate starts at −15 °C below.
+    # Root cause: cooling system failure; blocked cold-plate; peak load in traffic.
+
+  - code:        "0xD20600"
+    description: "Motor stator overtemperature — winding NTC exceeded Class F insulation limit"
+    severity:    "check_at_next_halt"
+    # Threshold: 150 °C (continuous); 155 °C (trip).
+    # Root cause: sustained high-torque operation; coolant supply loss.
+
+  # ── Sensor faults ──────────────────────────────────────────────────────────
+
+  - code:        "0xD20700"
+    description: "Resolver signal loss — sin/cos amplitude below minimum or plausibility check failed"
+    severity:    "check_at_next_halt"
+    # Plausibility: sin² + cos² must equal 1 ± tolerance.
+    # Root cause: cable break; resolver excitation supply fault; bearing failure.
+
+  - code:        "0xD20800"
+    description: "Current sensor fault — phase current out of plausibility range at zero torque"
+    severity:    "check_at_next_halt"
+    # Zero-torque check: |Iq|, |Id| must be < threshold with motor at standstill.
+    # Root cause: shunt resistor open; ADC reference supply fault.
+
+  # ── Communication fault ────────────────────────────────────────────────────
+
+  - code:        "0xC00100"
+    description: "CAN communication loss — no torque demand frames from VSC for > 100 ms"
+    severity:    "check_at_next_halt"
+    # 100 ms timeout is aggressive — VSC frames typically at 10 ms cycle.
+    # Protective action: zero torque demand; active discharge initiated.
+
+  # ── MCU fault ──────────────────────────────────────────────────────────────
+
+  - code:        "0xD20900"
+    description: "MCU watchdog reset — firmware failed to service watchdog within timeout"
+    severity:    "check_at_next_halt"
+    # NVM-backed reset counter and last-reset-reason register.
+    # Root cause: software hang in ISR; runaway interrupt storm.
+
+# =============================================================================
+# Routines — RoutineControl (0x31) services
+#
+# Motor controller routines cover:
+#   - Self-test (RAM, ROM CRC, gate driver comms, resolver plausibility)
+#   - Phase current balance test (compares A/B/C at known operating point)
+#   - Gate driver functional test (low-voltage shot test, no HV required)
+#   - Resolver offset calibration (EOL / rotor alignment procedure)
+#   - Force motor inhibit (safety interlock for workshop procedures)
+# =============================================================================
+
+routines:
+
+  - id:   "0xCC00"
+    name: "MC_SelfTest"
+    description: >
+      Execute motor controller internal self-test: RAM march, ROM CRC32,
+      gate-driver SPI communication check, resolver excitation supply voltage,
+      current sensor zero-offset plausibility. Reports pass/fail status byte.
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+  - id:   "0xCC01"
+    name: "MC_PhaseBalanceTest"
+    description: >
+      Apply a controlled low-speed motoring point and measure phase current
+      amplitude across all three phases. Reports the per-phase RMS deviation
+      from the mean as a 3-byte result record [A_delta, B_delta, C_delta]
+      in units of 100 mA. Used at EOL to detect winding asymmetry and
+      current sensor calibration errors.
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "results"]
+
+  - id:   "0xCC02"
+    name: "MC_GateDriverFunctionalTest"
+    description: >
+      Exercise each gate driver channel in sequence at low duty cycle without
+      HV present (pre-charge not required). Verifies DESAT comparator response,
+      Miller clamp, and gate-drive undervoltage lockout. Returns a 6-bit
+      pass/fail bitmask (one bit per switch: UH, UL, VH, VL, WH, WL).
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "results"]
+
+  - id:   "0xCC10"
+    name: "MC_ResolverOffsetCalibration"
+    description: >
+      Perform resolver-to-encoder offset calibration with rotor locked at a
+      known mechanical position (aligns d-axis to a reference phase).
+      Measures and stores the electrical angle offset into DID 0xE501
+      (MC_ResolverOffset_raw). Requires the rotor to be locked by a fixture
+      before starting. Returns the measured offset as uint16.
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start", "results"]
+
+  - id:   "0xCC11"
+    name: "MC_ForceMotorInhibit"
+    description: >
+      Assert a gate-driver disable signal and inhibit all switching
+      independently of the FOC controller. Used during high-voltage wiring
+      work in the workshop to guarantee the inverter cannot produce back-EMF
+      even if a software fault occurs. Must be explicitly stopped (sub-fn 0x02)
+      before HV can be re-enabled.
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "stop"]
+
+  - id:   "0xCC12"
+    name: "MC_ClearFaultHistory"
+    description: >
+      Clear all DTC fault history and reset the internal fault latch flags.
+      DTC status bytes reset per ISO 14229-1 Annex D. Programming session
+      and security access required to prevent accidental clearing in field.
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start"]

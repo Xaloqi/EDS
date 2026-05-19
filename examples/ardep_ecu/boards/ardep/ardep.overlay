@@ -1,0 +1,80 @@
+/*
+ * =============================================================================
+ * Xaloqi EDS
+ * boards/ardep/ardep.overlay
+ *
+ * Device Tree overlay for the Mercedes-Benz ARDEP (Automotive Rapid
+ * DEvelopment Platform) board.
+ *
+ * PURPOSE:
+ *   Maps the 'can0' alias used by zephyr_can.c to the ARDEP's onboard
+ *   FDCAN controller and sets the diagnostic CAN bus speed to the
+ *   ISO 15765-4 default of 500 kbps.
+ *
+ * HARDWARE:
+ *   The ARDEP board (mercedes/ardep in the ARDEP Zephyr workspace) includes
+ *   onboard CAN and LIN transceivers — no external components are required.
+ *   The CAN transceiver is connected directly to the FDCAN peripheral of the
+ *   onboard STM32G4-series MCU.
+ *
+ * WORKSPACE SETUP:
+ *   This overlay requires the ARDEP board definition to be present in the
+ *   Zephyr workspace. To add ARDEP board support:
+ *
+ *     # In your west.yml, add the ARDEP module:
+ *     - name: ardep
+ *       url: https://github.com/mercedes-benz/ardep
+ *       revision: main
+ *       path: ardep
+ *
+ *     # Then:
+ *     west update
+ *     west build -b ardep examples/ardep_ecu
+ *
+ *   See docs/ARDEP_UPGRADE_GUIDE.md for full integration instructions.
+ *
+ * FDCAN NODE NAME:
+ *   The ARDEP board file defines its FDCAN node as &fdcan1 (STM32G4 naming).
+ *   Adjust &fdcan1 to &fdcan2 if your ARDEP wiring uses FDCAN2 instead.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ * =============================================================================
+ */
+
+/ {
+	aliases {
+		/*
+		 * Map the 'can0' alias expected by zephyr_can.c to the ARDEP's
+		 * onboard FDCAN controller node.
+		 *
+		 * NOTE: The exact FDCAN node label (&fdcan1 below) comes from the
+		 * ARDEP board DTS file (boards/mercedes/ardep/ardep.dts).
+		 * Verify in the ARDEP repo if this changes across hardware revisions.
+		 */
+		can0 = &fdcan1;
+	};
+};
+
+/*
+ * ARDEP FDCAN1 configuration for UDS diagnostics.
+ *
+ * ISO 15765-4 specifies 500 kbps as the standard diagnostic CAN bus speed.
+ * The ARDEP onboard transceiver supports up to 1 Mbps nominal.
+ *
+ * timing: bus-speed and sample-point are set for a robust 500 kbps link.
+ * The sample-point of 87.5% (875 in Zephyr's per-mille notation) is the
+ * CiA 601 recommended value for automotive CAN.
+ */
+&fdcan1 {
+	status     = "okay";
+	bus-speed  = <500000>;    /* 500 kbps — ISO 15765-4 diagnostic default */
+	sample-point = <875>;     /* 87.5% — CiA 601 automotive recommendation */
+
+	can-transceiver {
+		/*
+		 * ARDEP onboard CAN transceiver maximum bitrate.
+		 * Standard ISO 11898-2 high-speed transceivers support 1 Mbit/s.
+		 */
+		max-bitrate = <1000000>;
+	};
+};

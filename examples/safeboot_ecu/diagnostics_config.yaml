@@ -1,0 +1,164 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/safeboot_ecu/diagnostics_config.yaml
+#
+# PURPOSE: SafeBoot ECU — MCUboot DFU over UDS demonstration.
+#
+#          Setting safeboot.enabled: true causes codegen to generate a
+#          zephyr_flash_ops_init() call in uds_init.c, wiring the MCUboot
+#          secondary-slot flash driver into the UDS download services
+#          (0x34 RequestDownload / 0x36 TransferData / 0x37 RequestTransferExit)
+#          automatically.
+#
+#          Without SafeBoot: any 0x34 request → NRC 0x22 (conditionsNotCorrect).
+#          With SafeBoot:    0x34 → flash erase → 0x36 × N → 0x37 → MCUboot swap.
+#
+# DFU SEQUENCE (performed by the tester tool or CI script):
+#
+#   1. DiagnosticSessionControl  0x10 0x02  → programming session
+#   2. SecurityAccess            0x27 0x01  → request seed
+#   3. SecurityAccess            0x27 0x02 <key>  → unlock level 1
+#   4. RequestDownload           0x34 ...   → erase secondary slot, get block size
+#   5. TransferData              0x36 × N   → write firmware blocks
+#   6. RequestTransferExit       0x37       → verify CRC, accept image
+#   7. ECUReset                  0x11 0x01  → reboot → MCUboot swaps image_1 → image_0
+#
+# SAFETY:
+#   - Programming session + Security Level 1 required (enforced by ACL)
+#   - CRC-32 verified by service_0x37 before image is accepted (REQ-FLASH-003)
+#   - Address range validated against MCUboot secondary slot bounds (REQ-FLASH-002)
+#   - Primary slot (image_0) never written directly
+#
+# TARGET:
+#   STM32 Nucleo-H743ZI2 with MCUboot bootloader
+#   Requires: CONFIG_MCUBOOT=y, CONFIG_FLASH_MAP=y, image_1 partition in DTS
+#
+# VERSION: 1.0.0
+# SPDX-License-Identifier: Apache-2.0
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name:    "SafeBootECU"
+  version:     "1.0.0"
+  description: >
+    Zone controller ECU with MCUboot DFU over UDS.
+    Demonstrates safeboot.enabled: true — codegen wires zephyr_flash_ops_init()
+    automatically so 0x34/0x36/0x37 accept firmware downloads without manual
+    flash ops registration.
+
+timing:
+  p2_server_max_ms:       50     # Extended for flash erase (0x78 pending used)
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+# =============================================================================
+# SafeBoot configuration
+# =============================================================================
+
+safeboot:
+  enabled: true
+  platform: zephyr
+  max_block_length: 256   # bytes per TransferData block (CAN classical: 256 recommended)
+
+# =============================================================================
+# DIDs
+# =============================================================================
+
+dids:
+
+  - id:   "0xF190"
+    name: "VehicleIdentificationNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+  - id:   "0xF18C"
+    name: "ECUSerialNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 8
+
+  - id:   "0xF181"
+    name: "ApplicationSoftwareIdentification"
+    description: >
+      Running firmware version string. Format: "<major>.<minor>.<patch>".
+      Read after DFU to confirm the new image is running.
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 8
+
+  - id:   "0xF186"
+    name: "ActiveDiagnosticSession"
+    description: >
+      Current UDS session: 0x01 default, 0x02 programming, 0x03 extended.
+      Useful for tester scripts to confirm session before starting DFU.
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+
+  - id:   "0xF18A"
+    name: "SystemSupplierIdentifier"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 10
+
+# =============================================================================
+# DTCs
+# =============================================================================
+
+dtcs:
+
+  - code:        "0xF00001"
+    description: "DFU transfer CRC mismatch — image rejected (REQ-FLASH-003)"
+    severity:    "immediate_display"
+
+  - code:        "0xF00002"
+    description: "DFU flash erase failure"
+    severity:    "immediate_display"
+
+  - code:        "0xF00003"
+    description: "DFU flash write failure"
+    severity:    "immediate_display"
+
+# =============================================================================
+# Routines
+# =============================================================================
+
+routines:
+
+  - id:   "0xFF00"
+    name: "CheckProgrammingPreconditions"
+    description: >
+      Verify preconditions before starting a DFU session:
+      - Supply voltage in range (9–16 V)
+      - No active safety-critical DTCs
+      - Not currently in motion (if applicable)
+      Returns 0x01 (PASS) or 0x02 (FAIL) + failure reason byte in results record.
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+  - id:   "0xFF01"
+    name: "VerifyBootloaderIntegrity"
+    description: >
+      Run MCUboot self-check on the primary slot CRC. Returns pass/fail.
+      Useful for post-DFU verification before releasing to production.
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start", "results"]

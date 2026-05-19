@@ -1,0 +1,81 @@
+/*
+ * =============================================================================
+ * Xaloqi EDS
+ * boards/native_sim/native_sim.overlay
+ * examples/sensor_ecu/
+ *
+ * Device Tree overlay for native_sim (host simulation).
+ *
+ * Provides:
+ *   - CAN loopback (same as all other examples)
+ *   - Two stub sensor nodes using zephyr,temperature-sensor-stub and
+ *     zephyr,voltage-sensor-stub drivers (native_sim only)
+ *
+ * On real hardware, replace these nodes with your physical sensor:
+ *
+ *   Temperature sensor examples:
+ *     SHTC3 (I2C):   compatible = "sensirion,shtc3";
+ *     LM75A (I2C):   compatible = "lm75";
+ *     MCP9808 (I2C): compatible = "microchip,mcp9808";
+ *     NTC on ADC:    compatible = "ntc-thermistor-generic";
+ *
+ *   Voltage sensor examples:
+ *     INA219 (I2C):  compatible = "ti,ina219";
+ *     ADC divider:   compatible = "voltage-divider";
+ *
+ * The aliases (temp-sensor-0, voltage-sensor-0) are the only coupling
+ * between sensor_monitor.c and the board DTS. Change the alias target
+ * to point at your physical sensor node and the application code is
+ * unchanged.
+ * =============================================================================
+ */
+
+/ {
+    aliases {
+        /* CAN loopback — same as basic_ecu */
+        can0 = &can_loopback0;
+
+        /*
+         * Sensor aliases — sensor_monitor.c resolves devices by these names.
+         * On native_sim: point to stub driver nodes below.
+         * On hardware: point to the physical sensor node in your board DTS.
+         */
+        temp-sensor-0    = &temp_stub;
+        voltage-sensor-0 = &voltage_stub;
+    };
+
+    /*
+     * Stub temperature sensor for native_sim.
+     *
+     * The "zephyr,temperature-stub" driver is a minimal in-tree
+     * Zephyr driver that returns synthetic values from a configurable
+     * internal counter. It simulates:
+     *   - Normal operation (25 °C)
+     *   - Over-temperature fault cycle (> 85 °C after ~10 s)
+     *   - Recovery to normal
+     *
+     * If the stub driver is not available in your Zephyr version,
+     * sensor_monitor.c degrades gracefully: DID 0xD001 returns 0xFF
+     * and no temp DTCs are set.
+     *
+     * Enable with: CONFIG_SENSOR_STUB=y in native_sim.conf
+     */
+    temp_stub: temp-stub {
+        compatible = "zephyr,temperature-stub";
+        status = "okay";
+    };
+
+    /*
+     * Stub voltage sensor for native_sim.
+     * Returns synthetic 12 V nominal with periodic low-voltage excursions.
+     */
+    voltage_stub: voltage-stub {
+        compatible = "zephyr,voltage-stub";
+        status = "okay";
+    };
+};
+
+&can_loopback0 {
+    status = "okay";
+    bus-speed = <500000>;
+};

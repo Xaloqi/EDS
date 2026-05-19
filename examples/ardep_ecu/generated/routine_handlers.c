@@ -1,0 +1,227 @@
+// File: generated/routine_handlers.c
+// GENERATED — do NOT edit manually.
+// ECU: ARDEP_IOController  v1.0.0  Generated: 2026-05-19T13:34:41Z
+
+#include "routine_handlers.h"
+#include "routine_database.h"
+#include "uds_types.h"
+
+/* =============================================================
+ * Routine callback stubs
+ * Replace each stub body with your ECU application logic.
+ * ============================================================= */
+
+/* RID 0xFF00 — ECU_SelfTest : startRoutine stub */
+uds_status_t routine_start_ecu_selftest(
+    const uint8_t *opt_buf, uint8_t opt_len,
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement routine logic */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF00 — ECU_SelfTest : requestRoutineResults stub */
+uds_status_t routine_results_ecu_selftest(
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)result_buf; (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: return routine results */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF01 — ResetCalibrationToDefaults : startRoutine stub */
+uds_status_t routine_start_resetcalibrationtodefaults(
+    const uint8_t *opt_buf, uint8_t opt_len,
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement routine logic */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF10 — EraseApplicationFlash : startRoutine stub */
+uds_status_t routine_start_eraseapplicationflash(
+    const uint8_t *opt_buf, uint8_t opt_len,
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement routine logic */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF10 — EraseApplicationFlash : requestRoutineResults stub */
+uds_status_t routine_results_eraseapplicationflash(
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)result_buf; (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: return routine results */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF11 — VerifyApplicationImage : startRoutine stub */
+uds_status_t routine_start_verifyapplicationimage(
+    const uint8_t *opt_buf, uint8_t opt_len,
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement routine logic */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF11 — VerifyApplicationImage : requestRoutineResults stub */
+uds_status_t routine_results_verifyapplicationimage(
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)result_buf; (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: return routine results */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF20 — ActivateOutputChannel : startRoutine stub */
+uds_status_t routine_start_activateoutputchannel(
+    const uint8_t *opt_buf, uint8_t opt_len,
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement routine logic */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF20 — ActivateOutputChannel : stopRoutine stub */
+uds_status_t routine_stop_activateoutputchannel(
+    const uint8_t *opt_buf, uint8_t opt_len,
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement stop logic */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF20 — ActivateOutputChannel : requestRoutineResults stub */
+uds_status_t routine_results_activateoutputchannel(
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)result_buf; (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: return routine results */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF21 — MeasureSupplyVoltage : startRoutine stub */
+uds_status_t routine_start_measuresupplyvoltage(
+    const uint8_t *opt_buf, uint8_t opt_len,
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement routine logic */
+    return UDS_STATUS_OK;
+}
+
+/* RID 0xFF21 — MeasureSupplyVoltage : requestRoutineResults stub */
+uds_status_t routine_results_measuresupplyvoltage(
+    uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
+{
+    (void)result_buf; (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: return routine results */
+    return UDS_STATUS_OK;
+}
+
+/* Register all routines with routine_database */
+uds_status_t routine_handlers_register_all(void)
+{
+    uds_status_t status;
+    routine_entry_t entry;
+
+    /* RID 0xFF00 — ECU_SelfTest */
+    entry.rid            = (uint16_t)65280U;
+    entry.support_flags  = (uint8_t)(ROUTINE_SUPPORT_START | ROUTINE_SUPPORT_RESULTS);
+    entry.min_session    = (uint8_t)UDS_SESSION_EXTENDED;
+    entry.security_level = (uint8_t)0U;
+    entry.start_cb       = routine_start_ecu_selftest;
+    entry.stop_cb        = NULL;
+    entry.results_cb     = routine_results_ecu_selftest;
+    entry.description    = "ECU_SelfTest";
+    status = routine_database_register(&entry);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    /* RID 0xFF01 — ResetCalibrationToDefaults */
+    entry.rid            = (uint16_t)65281U;
+    entry.support_flags  = (uint8_t)(ROUTINE_SUPPORT_START);
+    entry.min_session    = (uint8_t)UDS_SESSION_EXTENDED;
+    entry.security_level = (uint8_t)1U;
+    entry.start_cb       = routine_start_resetcalibrationtodefaults;
+    entry.stop_cb        = NULL;
+    entry.results_cb     = NULL;
+    entry.description    = "ResetCalibrationToDefaults";
+    status = routine_database_register(&entry);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    /* RID 0xFF10 — EraseApplicationFlash */
+    entry.rid            = (uint16_t)65296U;
+    entry.support_flags  = (uint8_t)(ROUTINE_SUPPORT_START | ROUTINE_SUPPORT_RESULTS);
+    entry.min_session    = (uint8_t)UDS_SESSION_PROGRAMMING;
+    entry.security_level = (uint8_t)1U;
+    entry.start_cb       = routine_start_eraseapplicationflash;
+    entry.stop_cb        = NULL;
+    entry.results_cb     = routine_results_eraseapplicationflash;
+    entry.description    = "EraseApplicationFlash";
+    status = routine_database_register(&entry);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    /* RID 0xFF11 — VerifyApplicationImage */
+    entry.rid            = (uint16_t)65297U;
+    entry.support_flags  = (uint8_t)(ROUTINE_SUPPORT_START | ROUTINE_SUPPORT_RESULTS);
+    entry.min_session    = (uint8_t)UDS_SESSION_PROGRAMMING;
+    entry.security_level = (uint8_t)1U;
+    entry.start_cb       = routine_start_verifyapplicationimage;
+    entry.stop_cb        = NULL;
+    entry.results_cb     = routine_results_verifyapplicationimage;
+    entry.description    = "VerifyApplicationImage";
+    status = routine_database_register(&entry);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    /* RID 0xFF20 — ActivateOutputChannel */
+    entry.rid            = (uint16_t)65312U;
+    entry.support_flags  = (uint8_t)(ROUTINE_SUPPORT_START | ROUTINE_SUPPORT_STOP | ROUTINE_SUPPORT_RESULTS);
+    entry.min_session    = (uint8_t)UDS_SESSION_EXTENDED;
+    entry.security_level = (uint8_t)1U;
+    entry.start_cb       = routine_start_activateoutputchannel;
+    entry.stop_cb        = routine_stop_activateoutputchannel;
+    entry.results_cb     = routine_results_activateoutputchannel;
+    entry.description    = "ActivateOutputChannel";
+    status = routine_database_register(&entry);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    /* RID 0xFF21 — MeasureSupplyVoltage */
+    entry.rid            = (uint16_t)65313U;
+    entry.support_flags  = (uint8_t)(ROUTINE_SUPPORT_START | ROUTINE_SUPPORT_RESULTS);
+    entry.min_session    = (uint8_t)UDS_SESSION_EXTENDED;
+    entry.security_level = (uint8_t)0U;
+    entry.start_cb       = routine_start_measuresupplyvoltage;
+    entry.stop_cb        = NULL;
+    entry.results_cb     = routine_results_measuresupplyvoltage;
+    entry.description    = "MeasureSupplyVoltage";
+    status = routine_database_register(&entry);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    return UDS_STATUS_OK;
+}

@@ -3,9 +3,9 @@
  * Xaloqi EDS
  * FILE: GENERATED — did_handlers.h
  *
- * ECU       : BasicECU
- * Version   : 0.1.0
- * Generated : 2026-04-21T07:31:56Z
+ * ECU       : BasicECU_DoIP
+ * Version   : 1.6.0
+ * Generated : 2026-05-19T13:34:42Z
  *
  * PURPOSE: Declarations for all generated DID read/write handler functions
  *          and the generated DID registration entry point.

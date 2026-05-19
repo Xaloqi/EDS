@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-05-19T12:19:25Z
+# Generated : 2026-05-19T13:30:48Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -308,7 +308,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if len(pdu) < 4: return nrc(0x2E, 0x13)
         did_id = (pdu[1] << 8) | pdu[2]; meta = state._dids_meta; entry = meta.get(did_id)
         if entry is None or not entry['access_write']: return nrc(0x2E, 0x31)
-        if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: return nrc(0x2E, 0x31)
+        if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: return nrc(0x2E, 0x7F)
         if entry['write_sec'] > 0 and not state.sec_unlocked.get(entry['write_sec']): return nrc(0x2E, 0x33)
         data = pdu[3:]
         if len(data) != entry['data_length']: return nrc(0x2E, 0x13)
@@ -317,13 +317,18 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if len(pdu) < 2: return nrc(0x19, 0x13)
         sub = pdu[1]
         if sub == 0x01:
-            n = len(state.dtcs)
-            return bytes([0x59, 0x01, 0xFF, 0x01, (n >> 8) & 0xFF, n & 0xFF])
+            if len(pdu) < 3: return nrc(0x19, 0x13)
+            mask = pdu[2]
+            n = sum(1 for d in state.dtcs if d['status'] & mask)
+            return bytes([0x59, 0x01, mask, 0x01, (n >> 8) & 0xFF, n & 0xFF])
         if sub == 0x02:
-            resp = bytearray([0x59, 0x02, 0xFF])
+            if len(pdu) < 3: return nrc(0x19, 0x13)
+            mask = pdu[2]
+            resp = bytearray([0x59, 0x02, mask])
             for d in state.dtcs:
-                c = d['code']
-                resp.extend([(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, d['status']])
+                if d['status'] & mask:
+                    c = d['code']
+                    resp.extend([(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, d['status']])
             return bytes(resp)
         return nrc(0x19, 0x12)
     if sid == 0x14:

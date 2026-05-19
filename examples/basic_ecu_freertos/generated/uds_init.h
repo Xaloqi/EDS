@@ -1,5 +1,3 @@
-
-
 /*
  * =============================================================================
  * Xaloqi EDS
@@ -7,7 +5,7 @@
  *
  * ECU       : BasicECU
  * Version   : 0.1.0
- * Generated : 2026-04-21T07:32:03Z
+ * Generated : 2026-05-19T13:34:42Z
  *
  * PURPOSE: Public interface for the generated UDS stack initialisation module.
  *

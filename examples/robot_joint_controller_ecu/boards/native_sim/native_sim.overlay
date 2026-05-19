@@ -1,0 +1,18 @@
+/*
+ * Xaloqi EDS — robot_joint_controller_ecu
+ * boards/native_sim/native_sim.overlay
+ *
+ * CAN loopback for native_sim simulation.
+ * No sensor aliases needed — DID handlers return stub joint state values.
+ * On real hardware, replace can0 alias with your CAN peripheral node.
+ */
+/ {
+    aliases {
+        can0 = &can_loopback0;
+    };
+};
+
+&can_loopback0 {
+    status = "okay";
+    bus-speed = <500000>;
+};

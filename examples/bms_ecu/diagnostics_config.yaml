@@ -1,0 +1,536 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/bms_ecu/diagnostics_config.yaml
+#
+# PURPOSE: Battery Management System (BMS) ECU — diagnostics configuration.
+#
+# TARGET HARDWARE: Generic automotive passenger-car BMS ECU
+#   MCU   : STM32H7-series Cortex-M7 (or equivalent)
+#   CAN   : ISO 11898-2 high-speed CAN at 500 kbps
+#   CELLS : Up to 96s configuration (8 groups of 12 cells in series)
+#   PACK  : 400V nominal / 800V support, up to 200 kWh usable
+#
+# CONTEXT: Battery Management Systems
+#   A BMS ECU is among the most safety-critical embedded applications in an
+#   EV platform. It governs:
+#     - Cell voltage monitoring (overvoltage / undervoltage protection)
+#     - Temperature monitoring (overtemperature / undertemperature protection)
+#     - State estimation: SoC (State of Charge) and SoH (State of Health)
+#     - Current measurement and integration
+#     - Contactor control and isolation monitoring
+#     - Active / passive cell balancing
+#     - Communication with vehicle supervisory controller (VSC) over CAN
+#
+#   Diagnostic access is required by:
+#     - OEM production end-of-line (EOL) test stations
+#     - Dealer / field service scan tools (ISO 15031 OBD2 compatible subset)
+#     - Engineering validation teams
+#     - Fleet telematics systems (extended session, restricted SIDs)
+#
+# DID ADDRESS MAP:
+#   0xF1xx  — ISO 14229-1 Annex F  : ECU identity (standardized)
+#   0xDB00  — DB = "Battery"        : Pack-level measurements
+#   0xDC00  — DC = "Cell groups"    : Cell group voltage blocks
+#   0xDD00  — DD = "Degrees/Temps"  : Temperature measurements
+#   0xDE00  — DE = "Drive/Energy"   : State estimation (SoC, SoH, energy)
+#   0xDF00  — DF = "Driver/Control" : Contactor and balancing control
+#   0xD900  — D9 = "Diag/System"   : System health and calibration
+#
+# VERSION: 1.0.0
+# SPDX-License-Identifier: Apache-2.0
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name:    "BMS_MainController"
+  version:     "1.0.0"
+  description: >
+    Battery Management System — main controller ECU diagnostics configuration.
+    Generic automotive passenger-car BMS: 96s cell topology, 400V nominal pack,
+    active and passive balancing, dual-path contactor control, isolation
+    monitoring, and ISO 26262 ASIL-D functional safety target.
+
+# -----------------------------------------------------------------------------
+# Timing parameters
+# ISO 14229-1 §7.2 timing configuration — conservative for BMS use case.
+# P2_server_max is 50 ms (ISO default) — BMS computations can be slow due to
+# Kalman filter / SoC estimation algorithms running in extended session.
+# -----------------------------------------------------------------------------
+timing:
+  p2_server_max_ms:       50     # Max ECU response time (ISO 14229 default)
+  p2_star_server_max_ms:  5000   # Extended response pending window
+  s3_server_timeout_ms:   5000   # Tester-present keepalive timeout
+
+# =============================================================================
+# DIDs — Data Identifiers
+#
+# Physical encoding conventions (consistent with SAE J1939 BMS SPNs):
+#   Voltage   : uint16, LSB = 1 mV  (0–65535 mV covers 0–65.5 V per group)
+#   Current   : int16 signed, LSB = 100 mA  (+/- 3276.7 A)
+#   Temperature: int8 signed, offset encoding: raw = T_degC + 40 (−40..+215 °C)
+#   SoC       : uint8, LSB = 0.4 %   (0–100 % maps to raw 0–250)
+#   SoH       : uint8, LSB = 0.4 %   (0–100 % maps to raw 0–250)
+#   Power     : int16 signed, LSB = 10 W  (+/- 327.67 kW)
+#   Bitmask   : uint8 or uint16, bit-field, no scaling
+# =============================================================================
+
+dids:
+
+  # ── A. ECU Identity (ISO 14229-1 Annex F) ──────────────────────────────────
+
+  - id:   "0xF190"
+    name: "VehicleIdentificationNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17            # ISO 14229-1 Annex F: VIN always 17 bytes
+
+  - id:   "0xF18C"
+    name: "ECUSerialNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 8             # 8-char alphanumeric serial
+
+  - id:   "0xF187"
+    name: "VehicleManufacturerSparePartNumber"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 11            # Supplier part number (OEM format)
+
+  - id:   "0xF189"
+    name: "ECUSoftwareVersionNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4             # Major.Minor.Patch.Build (1 byte each)
+
+  # ── B. Pack-Level Measurements (0xDB00 range) ──────────────────────────────
+  # Pack = sum of all cells in series. Monitoring at pack level is the first
+  # line of overcurrent and overvoltage protection.
+
+  - id:   "0xDB00"
+    name: "BMS_PackVoltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4
+    # uint32 mV. 400V pack = 400000 mV. Range 0–800000 mV (800V platform).
+    # Measured by high-side cell monitoring IC chain and verified by isolated
+    # voltage divider on MCU ADC for cross-check.
+
+  - id:   "0xDB01"
+    name: "BMS_PackCurrent_100mA"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 100 mA. Positive = discharge, negative = charge.
+    # Measured via shunt resistor or Hall-effect current sensor.
+    # Range: -3276.8 A to +3276.7 A (covers fast-charge and peak discharge).
+
+  - id:   "0xDB02"
+    name: "BMS_PackPower_10W"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # int16 signed. LSB = 10 W. Computed: P = V_pack * I_pack.
+    # Positive = discharge (power delivered to inverter).
+
+  - id:   "0xDB03"
+    name: "BMS_ContactorState"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # uint8 bitmask:
+    #   bit 0 = MainPos contactor closed
+    #   bit 1 = MainNeg contactor closed
+    #   bit 2 = PreCharge contactor closed
+    #   bit 3 = HV_interlock OK
+    #   bit 4 = Contactor weld detected (fault latch)
+    #   bit 5-7 = reserved
+
+  - id:   "0xDB04"
+    name: "BMS_InsulationResistance_kOhm"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # uint16 kΩ. ISO 6469-1 requires ≥ 100 Ω/V. For 400V = 40 kΩ minimum.
+    # Measured by isolation monitoring device (IMD, e.g. Bender ISOMETER).
+    # 0xFFFF = measurement in progress or IMD not available.
+
+  # ── C. Cell Group Voltages (0xDC00 range) ──────────────────────────────────
+  # 8 cell groups (e.g. 12s per group = 96s total).
+  # Each group voltage is the sum of cells in that segment.
+  # LSB = 1 mV. 12 cells × 4.2 V max = 50400 mV per group.
+
+  - id:   "0xDC01"
+    name: "BMS_CellGroup1_Voltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2            # uint16 mV, 0–65535 mV
+
+  - id:   "0xDC02"
+    name: "BMS_CellGroup2_Voltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0xDC03"
+    name: "BMS_CellGroup3_Voltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0xDC04"
+    name: "BMS_CellGroup4_Voltage_mV"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  # ── D. Temperature Measurements (0xDD00 range) ─────────────────────────────
+  # Temperature is the most common source of BMS safety faults.
+  # Multiple sensors: cell stack, coolant inlet/outlet, electronics board.
+
+  - id:   "0xDD00"
+    name: "BMS_MaxCellTemperature_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # int8 offset-encoded. raw = T_degC + 40. Range −40 to +215 °C.
+    # Reports highest cell temperature across all NTC sensors in pack.
+    # Safety threshold: OT fault at +60 °C (charge), +70 °C (discharge).
+
+  - id:   "0xDD01"
+    name: "BMS_MinCellTemperature_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # int8 offset-encoded. raw = T_degC + 40.
+    # Reports lowest cell temperature. Critical for cold-soak charge limits.
+    # Charging below 0 °C risks lithium plating and permanent capacity loss.
+
+  - id:   "0xDD02"
+    name: "BMS_CoolantInletTemperature_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # int8 offset-encoded. raw = T_degC + 40.
+    # Coolant inlet NTC — used for thermal model feed-forward.
+
+  - id:   "0xDD03"
+    name: "BMS_BMSBoardTemperature_degC"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # int8 offset-encoded. BMS PCB ambient NTC, near power stage.
+
+  # ── E. State Estimation (0xDE00 range) ─────────────────────────────────────
+  # SoC and SoH are the primary customer-facing BMS outputs.
+  # Balancing state provides insight into long-term pack health.
+
+  - id:   "0xDE00"
+    name: "BMS_StateOfCharge_04pct"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # uint8. LSB = 0.4 %. Raw 0 = 0%, raw 250 = 100%.
+    # Kalman-filter-based SoC. Updated every 100 ms during active HV.
+
+  - id:   "0xDE01"
+    name: "BMS_StateOfHealth_04pct"
+    access:
+      - read
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # uint8. LSB = 0.4 %. Raw 250 = 100% (new cell capacity).
+    # Derived from full-cycle capacity integration. Extended session: prevents
+    # untrained service personnel from misinterpreting degradation data.
+
+  - id:   "0xDE02"
+    name: "BMS_BalancingStateBitmask"
+    access:
+      - read
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+    # uint8 bitmask:
+    #   bit 0 = passive balancing active (dissipative)
+    #   bit 1 = active balancing active (redistributive)
+    #   bit 2 = balancing inhibited (temperature too low)
+    #   bit 3 = balancing inhibited (contactor open)
+    #   bit 4-7 = reserved
+
+  # ── F. System Health and Calibration (0xD900 range) ────────────────────────
+
+  - id:   "0xD900"
+    name: "BMS_FaultFlagsBitmask"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+    # uint16 bitmask — mirrors active DTC set for quick scan-tool triage:
+    #   bit 0  = Cell overvoltage
+    #   bit 1  = Cell undervoltage
+    #   bit 2  = Cell overtemperature (discharge)
+    #   bit 3  = Cell overtemperature (charge)
+    #   bit 4  = Pack overcurrent
+    #   bit 5  = Isolation fault
+    #   bit 6  = Contactor weld
+    #   bit 7  = Current sensor fault
+    #   bit 8  = CAN communication loss (vehicle network)
+    #   bit 9  = Internal MCU fault
+    #   bit 10-15 = reserved
+
+  - id:   "0xD901"
+    name: "BMS_FullChargeCapacity_Wh"
+    access:
+      - read
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4
+    # uint32 Wh. Measured full-charge capacity from last completed full cycle.
+    # Nominally matches design capacity (e.g. 75000 Wh for 75 kWh pack).
+    # Extended session: same rationale as SoH.
+
+  - id:   "0xD910"
+    name: "BMS_OVThreshold_mV"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2
+    # uint16 mV. Cell overvoltage protection threshold.
+    # OEM default: 4200 mV (NMC chemistry). Range: 3800–4350 mV.
+    # Write requires security level 1 to prevent accidental modification.
+
+  - id:   "0xD911"
+    name: "BMS_UVThreshold_mV"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2
+    # uint16 mV. Cell undervoltage protection threshold.
+    # OEM default: 2800 mV (NMC chemistry). Range: 2500–3200 mV.
+
+# =============================================================================
+# DTCs — Diagnostic Trouble Codes
+#
+# BMS DTC code range:
+#   0xD1xxxx = Propulsion/energy-storage faults (OEM-specific range)
+#   0xC0xxxx = Network communication faults (ISO 15031-6 generic)
+#
+# Severity encoding (SAE J2012-DA):
+#   check_at_next_halt    : Yellow warning lamp, vehicle still driveable
+#   maintenance_only      : No lamp, logged for service interval
+#   emission_related      : (not applicable for BMS; included for completeness)
+#
+# For BMS, most protection faults are safety-relevant and trigger a
+# contactor-open protective shutdown. The DTC captures the root cause
+# for post-fault analysis.
+# =============================================================================
+
+dtcs:
+
+  # ── Cell voltage faults ────────────────────────────────────────────────────
+
+  - code:        "0xD10100"
+    description: "Cell group overvoltage — at least one cell group exceeded OV threshold"
+    severity:    "check_at_next_halt"
+    # Protective action: contactor open. Inhibit charge.
+    # Root cause: charger current limit not enforced; balancing failure.
+
+  - code:        "0xD10200"
+    description: "Cell group undervoltage — at least one cell group dropped below UV threshold"
+    severity:    "check_at_next_halt"
+    # Protective action: contactor open. Inhibit discharge.
+    # Root cause: over-discharge; aged cells with high internal resistance.
+
+  # ── Temperature faults ─────────────────────────────────────────────────────
+
+  - code:        "0xD10300"
+    description: "Cell overtemperature during discharge — cell NTC exceeded OT_discharge threshold"
+    severity:    "check_at_next_halt"
+    # Protective action: derate discharge current; contactor open at 75 °C.
+    # Root cause: cooling system failure; extreme ambient temperature.
+
+  - code:        "0xD10400"
+    description: "Cell overtemperature during charge — cell NTC exceeded OT_charge threshold"
+    severity:    "check_at_next_halt"
+    # Protective action: inhibit charging. OT_charge threshold is lower than
+    # discharge because exothermic reactions during charge are additive.
+
+  # ── Current and isolation faults ───────────────────────────────────────────
+
+  - code:        "0xD10500"
+    description: "Pack overcurrent — pack current exceeded continuous current limit"
+    severity:    "check_at_next_halt"
+    # Protective action: contactor open after 10 ms debounce.
+    # Root cause: inverter fault; external short circuit.
+
+  - code:        "0xD10600"
+    description: "Isolation fault — pack-to-chassis isolation resistance below 100 Ohm/V"
+    severity:    "check_at_next_halt"
+    # ISO 6469-1 compliance: isolation monitoring mandatory at HV > 60 VDC.
+    # Protective action: hazard lamp; inhibit HV enable on next ignition cycle.
+    # Root cause: coolant contamination; wiring chafe; connector ingress.
+
+  # ── Contactor fault ────────────────────────────────────────────────────────
+
+  - code:        "0xD10700"
+    description: "Contactor weld detected — contactor failed to open on command"
+    severity:    "check_at_next_halt"
+    # Detected by back-EMF diagnostic: contactor coil de-energized but
+    # auxiliary contact still closed, or HV persists after open command.
+    # Protective action: disable pre-charge; set HV inhibit flag in NVM.
+
+  # ── Sensor faults ──────────────────────────────────────────────────────────
+
+  - code:        "0xD10800"
+    description: "Current sensor fault — sensor output out of plausibility range or open circuit"
+    severity:    "check_at_next_halt"
+    # Root cause: shunt wiring break; Hall-effect sensor supply fault.
+    # SoC estimation degrades to voltage-only mode (lower accuracy).
+
+  # ── Communication fault ────────────────────────────────────────────────────
+
+  - code:        "0xC00100"
+    description: "CAN communication loss — no frames received from VSC/BCM for > 500 ms"
+    severity:    "check_at_next_halt"
+    # Protective action: inhibit HV enable; enter fail-safe SoC hold mode.
+    # Root cause: CAN bus termination failure; gateway ECU reset.
+
+  # ── Internal MCU fault ─────────────────────────────────────────────────────
+
+  - code:        "0xD10900"
+    description: "BMS internal MCU fault — watchdog reset or RAM check failure on startup"
+    severity:    "check_at_next_halt"
+    # Detected at ECU startup: watchdog reset counter in NVM, RAM march test.
+    # Protective action: inhibit HV enable until cleared by service tool.
+
+# =============================================================================
+# Routines — RoutineControl (0x31) services
+#
+# Routines provide test and calibration procedures that cannot be expressed
+# as simple DID read/write operations. Each routine is atomic from the
+# tester's perspective (Start → wait → Results).
+#
+# BMS routines cover:
+#   - Self-test (RAM, ROM, cell monitoring IC comms)
+#   - Cell balancing control (workshop-initiated)
+#   - Contactor functional test (workshop-initiated)
+#   - SoC reset / recalibration (factory / reprogramming session)
+# =============================================================================
+
+routines:
+
+  - id:   "0xBB00"
+    name: "BMS_SelfTest"
+    description: >
+      Execute BMS internal self-test sequence: RAM march, ROM CRC32 verify,
+      cell monitoring IC SPI communication check, NTC sensor plausibility,
+      current sensor zero-current calibration check.
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+  - id:   "0xBB01"
+    name: "BMS_ForcePassiveBalance"
+    description: >
+      Initiate passive (dissipative) cell balancing on command. The routine
+      runs for 60 seconds maximum and may be stopped early. Used in EOL
+      production to balance newly assembled packs to within ±5 mV.
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "stop", "results"]
+
+  - id:   "0xBB02"
+    name: "BMS_ContactorFunctionalTest"
+    description: >
+      Cycle main positive and negative contactors under controlled conditions.
+      Verifies coil drive, auxiliary contact feedback, and weld detection
+      circuit. Requires no HV load attached (workshop environment).
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "results"]
+
+  - id:   "0xBB10"
+    name: "BMS_ResetSoCToFullCharge"
+    description: >
+      Reset SoC estimator to 100% and recalibrate full-charge capacity
+      register to last measured capacity. Used after full-charge validation
+      on end-of-line or after cell replacement.
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start"]
+
+  - id:   "0xBB11"
+    name: "BMS_ClearFaultHistory"
+    description: >
+      Clear all DTC fault history and reset the internal fault latch flags.
+      DTC status byte reset per ISO 14229-1 Annex D. Requires programming
+      session and security access to prevent accidental clearing in the field.
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start"]

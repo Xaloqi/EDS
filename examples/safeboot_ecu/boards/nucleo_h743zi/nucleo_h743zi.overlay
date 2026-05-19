@@ -1,0 +1,244 @@
+/*
+ * =============================================================================
+ * Xaloqi EDS
+ * boards/nucleo_h743zi/nucleo_h743zi.overlay
+ *
+ * Device Tree overlay for the STMicroelectronics NUCLEO-H743ZI2 board.
+ *
+ * PURPOSE: Configures the STM32H743's FDCAN1 peripheral as the diagnostic
+ *          CAN channel. FDCAN1 is wired to the CN10 connector on the
+ *          NUCLEO-H743ZI2 board, where a CAN transceiver (e.g. TJA1051)
+ *          must be connected externally.
+ *
+ * HARDWARE SETUP:
+ *   NUCLEO-H743ZI2 → CAN Transceiver (TJA1051 or equivalent)
+ *   PD0  (FDCAN1_RX)  → TJA1051 RXD
+ *   PD1  (FDCAN1_TX)  → TJA1051 TXD
+ *   3.3V               → TJA1051 VCC (via 3.3V regulator)
+ *   GND                → TJA1051 GND
+ *   TJA1051 CANH/CANL → OBD-II or automotive CAN bus
+ *
+ * CAN BUS PARAMETERS:
+ *   Bus speed: 500 kbit/s  (ISO 15765-4 §4.2 for 11-bit CAN IDs)
+ *   Sample point: 87.5%   (matches CANopen and automotive ECU convention)
+ *
+ * PINMUX:
+ *   PD0 / PD1 are the default FDCAN1 pins on STM32H7 series.
+ *   Alternative pins (PH13/PH14 on NUCLEO-H743ZI2 CN10) can be used by
+ *   replacing pinctrl-0 with &fdcan1_rx_ph13 and &fdcan1_tx_ph14.
+ *
+ * WATCHDOG:
+ *   The IWDG (Independent Watchdog) is enabled with a 100 ms window,
+ *   matching CONFIG_DIAG_WDT_WINDOW_MS in prj.conf.
+ *   The IWDG clock source is LSI (~32 kHz); prescaler and reload values
+ *   are computed by the Zephyr IWDG driver from the window-ms property.
+ *
+ * SAFETY: This overlay is a starting point. OEM integration must:
+ *   [ ] Verify PD0/PD1 pinout against actual board schematic
+ *   [ ] Validate 500 kbit/s sample point against network analyser
+ *   [ ] Enable CAN termination resistor (120 Ω) on bus endpoints
+ *   [ ] Qualify FDCAN1 against ISO 11898-1 electrical requirements
+ * =============================================================================
+ */
+
+#include <zephyr/dt-bindings/pinctrl/stm32-pinctrl.h>
+
+/* ── Pin control for FDCAN1 ────────────────────────────────────────────────
+ *
+ * PD0 = FDCAN1_RX (AF9)
+ * PD1 = FDCAN1_TX (AF9)
+ *
+ * Both pins configured as:
+ *   - slew-rate = "very-high-speed"  (required for CAN signal integrity)
+ *   - drive-open-drain = no          (push-pull for TX, input for RX)
+ * ─────────────────────────────────────────────────────────────────────────── */
+&pinctrl {
+	fdcan1_rx_pd0: fdcan1_rx_pd0 {
+		pinmux = <STM32_PINMUX('D', 0, AF9)>;
+	};
+	fdcan1_tx_pd1: fdcan1_tx_pd1 {
+		pinmux = <STM32_PINMUX('D', 1, AF9)>;
+		slew-rate = "very-high-speed";
+	};
+};
+
+/* ── FDCAN1 node ────────────────────────────────────────────────────────────
+ *
+ * Configures the STM32H743 FDCAN1 controller for classic CAN 2.0B operation
+ * at 500 kbit/s. FDCAN FD-mode is deliberately disabled (classic frames only)
+ * to match ISO 15765-4 11-bit addressing requirements.
+ * ─────────────────────────────────────────────────────────────────────────── */
+&fdcan1 {
+	status = "okay";
+	pinctrl-0 = <&fdcan1_rx_pd0 &fdcan1_tx_pd1>;
+	pinctrl-names = "default";
+
+	/*
+	 * Sample point = 87.5% — standard automotive ECU configuration.
+	 * Computed as: (1 + prop-seg + phase-seg1) / (1 + prop-seg + phase-seg1 + phase-seg2)
+	 *
+	 * With FDCAN1 kernel clock at 80 MHz and prescaler=1:
+	 *   Bit time = 160 time quanta (TQ)
+	 *   prop-seg + phase-seg1 = 139 TQ
+	 *   phase-seg2            =  20 TQ
+	 *   Sample point = 140/160 = 87.5%
+	 *
+	 * FIX: bus-speed removed (deprecated in Zephyr 3.7 st,stm32h7-fdcan.yaml).
+	 *      Bus speed is configured via board DTS clock tree, not this property.
+	 * FIX: rx-fifo0-elements and tx-fifo-elements removed — these properties are
+	 *      not declared in st,stm32h7-fdcan.yaml for Zephyr 3.7 and cause a
+	 *      fatal gen_defines.py error: "not declared in 'properties:'".
+	 */
+	sample-point = <875>;
+};
+
+/* ── Alias: can0 → fdcan1 ───────────────────────────────────────────────────
+ *
+ * main.c uses DEVICE_DT_GET(DT_ALIAS(can0)) — this alias maps that to FDCAN1.
+ * ─────────────────────────────────────────────────────────────────────────── */
+/ {
+	aliases {
+		can0 = &fdcan1;
+		watchdog0 = &iwdg;
+	};
+};
+
+/* ── Independent Watchdog (IWDG) ────────────────────────────────────────────
+ *
+ * STM32H743 IWDG is clocked by LSI (~32 kHz, factory-trimmed to ±10%).
+ * The Zephyr IWDG driver converts the wdt_timeout_cfg.window.max value
+ * (in ms) to prescaler and reload register values automatically.
+ *
+ * 100 ms window: gives 100 poll iterations at 1 ms/iteration before reset.
+ * ─────────────────────────────────────────────────────────────────────────── */
+&iwdg {
+	status = "okay";
+};
+
+/* ── Hardware RNG (STM32H743 true random number generator) ─────────────────
+ *
+ * Enables the STM32H743ZI hardware RNG peripheral and maps it to the
+ * zephyr,entropy chosen node. This allows CONFIG_ENTROPY_GENERATOR=y to
+ * link the entropy driver and provide TRNG-backed seed generation for the
+ * UDS SecurityAccess AES-CMAC algorithm (Phase 1).
+ *
+ * The STM32H743ZI has a 32-bit hardware TRNG (HASH/RNG block) seeded by
+ * multiple on-chip analogue noise sources. Zephyr driver: st,stm32-rng.
+ *
+ * FIX (Phase 1 CI): CONFIG_ENTROPY_GENERATOR=y is now set in nucleo_h743zi.conf.
+ *   Without this node, DT_HAS_CHOSEN(zephyr_entropy)=1 (built-in board DTS)
+ *   but the entropy driver would not be linked → __device_dts_ord_N undefined.
+ * ─────────────────────────────────────────────────────────────────────────── */
+&rng {
+	status = "okay";
+};
+
+/ {
+	chosen {
+		zephyr,entropy = &rng;
+	};
+};
+
+/* ── UART3 for logging (ST-Link virtual COM port on NUCLEO-H743ZI2) ─────── */
+&usart3 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&usart3_tx_pd8 &usart3_rx_pd9>;
+	pinctrl-names = "default";
+};
+
+/* ── NVS flash partition for platform/nvm_store.c ───────────────────────────
+ *
+ * Reserves the last two 128 KB sectors (256 KB total) of the STM32H743ZI's
+ * 2 MB internal flash for Zephyr NVS (Non-Volatile Storage).
+ *
+ * STM32H743ZI dual-bank flash layout (2 MB total, base 0x08000000):
+ *   Bank 1: sectors 0–7  → 0x08000000 – 0x080FFFFF  (8 × 128 KB)
+ *   Bank 2: sectors 8–15 → 0x08100000 – 0x081FFFFF  (8 × 128 KB)
+ *
+ * NVS partition occupies the last 2 sectors of Bank 2:
+ *   Flash-relative offset: 0x001C0000  (1.75 MB from flash base)
+ *   Size: 0x00040000  (256 KB = 2 × 128 KB sectors)
+ *   Physical address: 0x081C0000 – 0x081FFFFF
+ *
+ * Zephyr NVS requires a minimum of 2 sectors for wear levelling.
+ * Two 128 KB sectors provide ample space for the six NVM keys used by this
+ * application (security counters, DTC mirror, session stats, lifecycle
+ * counter, schema version — all well under 1 KB total).
+ *
+ * nvm_store_init() receives the flash device pointer and partition offset at
+ * runtime via the nvm_store_cfg_t parameter passed from main.c using the
+ * FIXED_PARTITION_DEVICE(diag_nvs) and FIXED_PARTITION_OFFSET(diag_nvs)
+ * DTS accessor macros.
+ *
+ * NOTE: The application firmware image must remain below 1.75 MB (0x1C0000
+ * bytes) to avoid overwriting this partition. The basic_ecu firmware is
+ * comfortably within this limit (< 256 KB for a typical Zephyr application).
+ * =============================================================================
+ */
+/* ── Flash partition table ───────────────────────────────────────────────────
+ *
+ * STM32H743ZI dual-bank flash: 2 MB total, base 0x08000000.
+ *   Bank 1: sectors 0–7  → 0x08000000–0x080FFFFF  (8 × 128 KB)
+ *   Bank 2: sectors 8–15 → 0x08100000–0x081FFFFF  (8 × 128 KB)
+ *
+ * Layout (exactly 2 MB):
+ *
+ *   Offset     Size    Label        Purpose
+ *   ─────────  ──────  ───────────  ────────────────────────────────────────
+ *   0x000000   896 KB  image-0      Primary firmware slot — app is flashed here.
+ *   0x0E0000   896 KB  image-1      Secondary / OTA staging slot.
+ *                                   platform/zephyr_flash_ops.c writes DFU
+ *                                   payloads here via FLASH_AREA_ID(image_1).
+ *   0x1C0000   256 KB  diag_nvs     Zephyr NVS (security counters, DTC mirror,
+ *                                   session stats). Needs ≥ 2 sectors for WL.
+ *
+ * FIX (CI 2026-03-30): previous layout had label "mcuboot" on the app slot and
+ * no image-1 partition. FLASH_AREA_ID(image_1) in zephyr_flash_ops.c requires
+ * a partition labelled "image-1" to exist in the DTS; without it the macro
+ * expands to an undeclared identifier → compile error. CONFIG_FLASH_MAP=y is
+ * already set in nucleo_h743zi.conf; the DTS label was the only missing piece.
+ */
+&flash0 {
+	/* [FIX] Delete the existing partitions node defined in the Zephyr base board DTS
+	 * (nucleo_h743zi2.dts) before redefining it.  The base DTS already has a node
+	 * labelled slot0_partition at partition@40000.  Our overlay was adding another
+	 * slot0_partition at partition@0, causing:
+	 *   devicetree error: Label 'slot0_partition' appears on partition@0 AND partition@40000
+	 * Fix: /delete-node/ removes the existing child, then we redefine from scratch
+	 * using unique DTS node names (eds_app_slot, eds_ota_slot, eds_nvs_slot) that
+	 * cannot conflict with the base board DTS.
+	 * FLASH_AREA_ID() resolves by the "label" property string, not the DTS node name,
+	 * so FLASH_AREA_ID(image_1) still resolves correctly. */
+	/delete-node/ partitions;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* Primary firmware image slot — 896 KB at flash base.
+		 * Dual-labelled: eds_app_slot (unique, avoids base-DTS conflict at @40000)
+		 * AND slot0_partition (satisfies the Zephyr base board DTS /chosen node:
+		 *   zephyr,code-partition = &slot0_partition
+		 * Without the slot0_partition label here that /chosen reference is
+		 * "undefined node label 'slot0_partition'" after our /delete-node/). */
+		slot0_partition: eds_app_slot: partition@0 {
+			label = "image-0";
+			reg = <0x00000000 0x000E0000>;
+		};
+
+		/* Secondary / OTA staging slot — 896 KB after image-0.
+		 * platform/zephyr_flash_ops.c targets this via FLASH_AREA_ID(image_1). */
+		eds_ota_slot: partition@e0000 {
+			label = "image-1";
+			reg = <0x000E0000 0x000E0000>;
+		};
+
+		/* NVS key-value store — last 256 KB (2 × 128 KB sectors). */
+		eds_nvs_slot: partition@1c0000 {
+			label = "diag_nvs";
+			reg = <0x001C0000 0x00040000>;
+		};
+	};
+};

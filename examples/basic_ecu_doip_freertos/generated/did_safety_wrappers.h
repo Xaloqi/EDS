@@ -3,9 +3,9 @@
  * Xaloqi EDS
  * FILE: GENERATED — generated/did_safety_wrappers.h
  *
- * ECU       : BasicECU
- * Version   : 0.1.0
- * Generated : 2026-04-21T07:31:56Z
+ * ECU       : BasicECU_DoIP_FreeRTOS
+ * Version   : 1.6.0
+ * Generated : 2026-05-19T13:34:42Z
  * ASIL Level: B
  *
  * PURPOSE: Declarations for per-DID safe accessor wrapper functions.
