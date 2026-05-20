@@ -1,15 +1,15 @@
 # Integration Guide
 
-## Xaloqi EDS — Zephyr RTOS, FreeRTOS, and DoIP (v1.6.0)
+## Xaloqi EDS — Zephyr RTOS, FreeRTOS, DoIP, and SOVD (v1.7.0)
 
 | Field | Value |
 |---|---|
-| Stack version | 1.3.0 |
+| Stack version | 1.7.0 |
 | Zephyr version | v3.7.0 (pinned in `west.yml`) |
 | FreeRTOS version | FreeRTOS-Kernel (any recent release; tested with HEAD) |
-| ISO standard | ISO 14229-1:2020 (UDS), ISO 15765-2:2016 (ISO-TP) |
+| ISO standard | ISO 14229-1:2020 (UDS), ISO 15765-2:2016 (ISO-TP), ISO 13400-2 (DoIP) |
 | Safety target | ASIL-B candidate |
-| Last updated | 2026-04-15 |
+| Last updated | 2026-05-20 |
 
 ---
 
@@ -20,7 +20,10 @@
 3. [Five Steps to Integrate into Your Zephyr ECU](#3-five-steps-to-integrate-into-your-zephyr-ecu)
 4. [FreeRTOS Integration](#freertos-integration)
 5. [SafeBoot — MCUboot DFU over UDS](#safeboot)
+5b. [DoIP Integration — Ethernet/TCP transport](#doip-integration)
 6. [Board Compatibility Matrix](#6-board-compatibility-matrix)
+7. [SOVD CDA — OpenSOVD 1.0 Capability Description](#7-sovd-cda)
+8. [Testing Your ECU — Simulator, Harness, and Robustness Campaign](#8-testing)
 
 ---
 
@@ -38,16 +41,16 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | 0x19 | ReadDTCInformation | **Implemented** | Sub-fn 0x01 reportNumberOfDTCByStatusMask, 0x02 reportDTCByStatusMask, 0x03 reportDTCSnapshotIdentification (returns empty identifier list — no freeze-frame data stored), 0x04 reportDTCSnapshotRecordByDTCNumber (returns empty record — no snapshot data stored), 0x06 reportDTCExtDataRecordByDTCNumber (returns empty record), 0x0A reportSupportedDTCs. All 8 DTC status bits supported (availability mask 0xFF). ISO 14229-1 DTC format (format ID 0x01). |
 | 0x22 | ReadDataByIdentifier | **Implemented** | Multi-DID requests (multiple DID pairs in one request) fully supported. ASIL-B 5-step safety wrapper enforced per DID. Max 64 DIDs configurable. |
 | 0x27 | SecurityAccess | **Implemented** | Odd sub-function = requestSeed, even = sendKey. Levels 1 and 2 active (0x01/0x02 and 0x03/0x04 sub-functions). AES-128-CMAC key derivation (RFC 4493). 8-byte seed with embedded sequence counter (replay protection). Lockout after configurable failed attempts. Key injection via `uds_security_algo_set_level_key()`. |
-| 0x28 | CommunicationControl | **Implemented** | Sub-fn 0x00 enableRxAndTx, 0x01 enableRxAndDisableTx, 0x02 disableRxAndEnableTx, 0x03 disableRxAndTx. communicationType byte: 0x01 normalCommunication, 0x02 nmCommunication, 0x03 both. State is reset to enabled on return to Default Session. |
+| 0x28 | CommunicationControl | **Implemented** | Sub-fn 0x00 enableRxAndTx, 0x01 enableRxAndDisableTx, 0x02 disableRxAndEnableTx, 0x03 disableRxAndTx. communicationType byte: 0x01 normalCommunication, 0x02 nmCommunication, 0x03 both. State is reset to enabled on return to Default Session. suppressPosRspMsgIndicationBit (bit 7) honoured (v1.7.0). |
 | 0x2E | WriteDataByIdentifier | **Implemented** | ASIL-B 5-step safety wrapper enforced per DID. Data length validated against DID definition. |
-| 0x31 | RoutineControl | **Implemented** | Sub-fn 0x01 startRoutine, 0x02 stopRoutine (optional per routine descriptor), 0x03 requestRoutineResults (optional). Session and security level enforced per-routine via `routine_entry_t.min_session` and `.security_level`. Routine option record forwarded to callback. Status record (0–64 bytes) appended to positive response. |
+| 0x31 | RoutineControl | **Implemented** | Sub-fn 0x01 startRoutine, 0x02 stopRoutine (optional per routine descriptor), 0x03 requestRoutineResults (optional). Session and security level enforced per-routine via `routine_entry_t.min_session` and `.security_level`. Routine option record forwarded to callback. Status record (0–64 bytes) appended to positive response. suppressPosRspMsgIndicationBit (bit 7) honoured (v1.7.0). |
 | 0x34 | RequestDownload | **Implemented** | Programming session + Level 1 security required (enforced by ACL table). Validates `dataFormatIdentifier` (0x00 only — no compression/encryption), parses `addressAndLengthFormatIdentifier` (1–4 byte address and size fields), validates target address range against the registered flash memory map (`uds_flash_ops_t`), erases flash, and initialises the block-transfer state machine. Returns `maxNumberOfBlockLength`. **Requires** `uds_flash_ops_register()` before the first 0x34 request (see Step 5 integration note). |
 | 0x36 | TransferData | **Implemented** | Programming session required. Validates block sequence counter (starts at 0x01, wraps 0xFF → 0x01 per REQ-DL-001 — counter 0x00 always rejected with NRC 0x73). Accumulates payload bytes in a write buffer, flushes full chunks to flash via `flash_write_cb`, and maintains a running CRC-32 accumulator. |
 | 0x37 | RequestTransferExit | **Implemented** | Programming session required. Flushes any remaining write-buffer bytes, optionally validates an optional 4-byte CRC-32 `transferRequestParameterRecord` (NRC 0x72 on mismatch), invokes `flash_verify_cb`, and resets the transfer state machine to IDLE. Enforces `bytes_remaining == 0` before accepting exit (NRC 0x31 if incomplete). |
 | 0x38 | RequestFileTransfer | **Out of scope** | — |
 | 0x3D | WriteMemoryByAddress | **Out of scope** | — |
 | 0x3E | TesterPresent | **Implemented** | Sub-fn 0x00 only (bits 6:0 must be 0x00). suppressPosRspMsgIndicationBit (bit 7) honoured. Resets S3Server session timeout. |
-| 0x85 | ControlDTCSetting | **Implemented** | Sub-fn 0x01 DTCSettingOn, 0x02 DTCSettingOff. dtcSettingControlOptionRecord bytes accepted but ignored (state is global). State auto-reset on return to Default Session. |
+| 0x85 | ControlDTCSetting | **Implemented** | Sub-fn 0x01 DTCSettingOn, 0x02 DTCSettingOff. dtcSettingControlOptionRecord bytes accepted but ignored (state is global). State auto-reset on return to Default Session. suppressPosRspMsgIndicationBit (bit 7) honoured (v1.7.0). |
 | 0x86 | ResponseOnEvent | **Out of scope** | — |
 | 0x87 | LinkControl | **Out of scope** | — |
 
@@ -169,7 +172,7 @@ manifest:
 
     - name: embedded-diagnostics-suite
       url: https://github.com/your-org/embedded-diagnostics-suite
-      revision: v1.4.0            # pin to a release tag
+      revision: v1.7.0            # pin to a release tag
       path: eds
 ```
 
@@ -1057,6 +1060,198 @@ No changes to the EDS stack source files are required for new board support. The
 
 ---
 
+## 7. SOVD CDA — OpenSOVD 1.0 Capability Description {#7-sovd-cda}
+
+Added in **v1.7.0**. The `--sovd` flag generates a `sovd_cda.json` file alongside the
+standard C output. The CDA (Capability Description and Advertisement) is an OpenSOVD 1.0
+JSON document that describes your ECU's full diagnostic profile — DIDs, DTCs, routines,
+services, and transport — in a format directly readable by SOVD clients and Eclipse SDV
+tooling. No Jinja2 template is required; the output is built directly from the loaded YAML.
+
+### 7.1 Generate the CDA
+
+```bash
+python3 eds/tools/codegen.py \
+    --config  your_ecu/diagnostics_config.yaml \
+    --out     your_ecu/generated/ \
+    --safety-wrappers --asil-level B \
+    --sovd
+```
+
+This produces `your_ecu/generated/sovd_cda.json` alongside the standard C/H files.
+The flag is opt-in — omitting it leaves all existing behaviour unchanged.
+
+### 7.2 CDA structure
+
+```json
+{
+  "sovdVersion": "1.0.0",
+  "generatedBy": "Xaloqi EDS codegen v1.7.0",
+  "generatedAt": "2026-05-20T10:00:00Z",
+  "ecuIdentification": {
+    "name": "BasicECU",
+    "version": "0.1.0"
+  },
+  "transportInfo": {
+    "protocol": "ISO-TP"
+  },
+  "dataIdentifiers": [
+    {
+      "id": "0xF190",
+      "name": "Vehicle Identification Number",
+      "dataLengthBytes": 17,
+      "access": ["read"],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    }
+  ],
+  "dtcs": [ ... ],
+  "routines": [ ... ],
+  "diagnosticServices": [ ... ]
+}
+```
+
+Key design choices:
+- **Semantic session names** (`"default"`, `"extended"`, `"programming"`) — not C constants. SOVD clients can use these directly.
+- **`writeSecurityLevel: null`** for read-only DIDs — explicit rather than omitted.
+- **DoIP ECUs** include `ecuIdentification.logicalAddress`, `ecuIdentification.sourceAddress`, and `transportInfo.port`.
+- **`diagnosticServices`**: static list of all 14 implemented EDS services with SID and name.
+- **Idempotent**: two runs with the same YAML produce identical content (only `generatedAt` differs).
+
+### 7.3 DoIP CDA
+
+For a DoIP ECU (`ecu.transport: doip`), the CDA includes the transport addresses:
+
+```json
+{
+  "transportInfo": {
+    "protocol": "DoIP",
+    "port": 13400
+  },
+  "ecuIdentification": {
+    "name": "BasicECU_DoIP",
+    "version": "1.6.0",
+    "logicalAddress": "0xE400",
+    "sourceAddress": "0x0E00"
+  }
+}
+```
+
+### 7.4 Use with Eclipse SDV tooling
+
+Import `sovd_cda.json` into Eclipse KUKSA, SDV.core, or any OpenSOVD 1.0-compatible
+tool to browse your ECU's diagnostic profile, auto-generate test plans, or populate
+a digital twin. The JSON is self-contained — no EDS toolchain required on the tool side.
+
+### 7.5 Validation
+
+Phase J of the robustness campaign (`test_robustness_J_sovd_cda.py`, 43 tests) validates
+every field of the CDA against the source YAML on every CI run. Run it directly:
+
+```bash
+cd examples/basic_ecu/generated/tests
+pytest test_robustness_J_sovd_cda.py -v
+```
+
+---
+
+## 8. Testing Your ECU — Simulator, Harness, and Robustness Campaign {#8-testing}
+
+EDS ships with three complementary test layers. All three run without CAN hardware.
+
+### 8.1 Layer 1 — Simulator pytest suite (per-ECU, generated)
+
+Generated by `codegen.py --test-gen` into `your_ecu/generated/tests/`. Tests each DID,
+DTC, session, and routine in the inline Python simulator. No xaloqi-tester required.
+
+```bash
+cd your_ecu/generated/tests
+pytest . -v --can-interface=simulator
+```
+
+**What it proves:** The generated configuration is correct — DID IDs, access rules,
+session gates, security levels, and routine sub-functions all match your YAML.
+
+**Typical run time:** < 5 seconds for a 10-DID ECU.
+
+### 8.2 Layer 2 — Harness integration tests (compiled C stack)
+
+`build_harness.sh` compiles the full C UDS stack and runs 68 in-process integration
+tests via an AF_UNIX loopback socket. These tests hit real compiled firmware — not a
+Python re-implementation.
+
+```bash
+bash eds/build_harness.sh        # build only (zero-warning gate)
+bash eds/build_harness.sh --run  # build + run 68 tests
+```
+
+**What it proves:** The compiled C service handlers, AES-128-CMAC key derivation,
+ISO-TP multi-frame assembly, and ASIL-B safety wrappers all produce byte-exact
+ISO 14229-1 compliant responses.
+
+**Requirement:** `gcc` only — no Zephyr, no FreeRTOS, no hardware.
+
+### 8.3 Layer 3 — Robustness campaign (369 tests, 10 phases)
+
+Covers protocol edge cases, security state machines, codegen limits, and SOVD CDA
+fidelity. Runs against the `basic_ecu` inline simulator.
+
+```bash
+cd examples/basic_ecu/generated/tests
+pytest test_robustness_A_codegen.py \
+       test_robustness_B_protocol.py \
+       test_robustness_C_security.py \
+       test_robustness_D_customer_journey.py \
+       test_robustness_E_data_integrity.py \
+       test_robustness_F_codegen_limits.py \
+       test_robustness_G_resilience.py \
+       test_robustness_H_protocol_precision.py \
+       test_robustness_I_nrc_wdbi_sa.py \
+       test_robustness_J_sovd_cda.py \
+       --can-interface=simulator -q
+```
+
+| Phase | Tests | Covers |
+|---|---|---|
+| A | 22 | Generated file presence, C safety markers, GCC syntax |
+| B | 42 | All 14 UDS services — positive and negative responses |
+| C | 21 | SecurityAccess CMAC, lockout, replay |
+| D | 30 | Full customer workflow; all 11 ECU example configs |
+| E | 35 | DID data integrity, DTC lifecycle, session isolation |
+| F | 54 | Codegen limits, GCC syntax gate for all 11 ECU C files |
+| G | 47 | Malformed PDUs, suppress-response bit, YAML↔simulator consistency |
+| H | 41 | Timing bytes, multi-DID RDBI, DTC record format, routine lifecycle |
+| I | 34 | NRC 3-byte format, WDBI check ordering, SA level isolation |
+| J | 43 | SOVD CDA structure, field fidelity, DoIP fields, idempotency |
+
+**What it proves:** Protocol compliance depth beyond the happy path — the cases that
+CANoe testers and OEM lab tools exercise during supplier qualification.
+
+### 8.4 Recommended CI integration
+
+```yaml
+# In your project's CI (GitHub Actions, GitLab CI, etc.):
+
+- name: EDS simulator tests
+  run: |
+    python3 eds/tools/codegen.py \
+      --config your_ecu/diagnostics_config.yaml \
+      --out your_ecu/generated/ \
+      --safety-wrappers --test-gen
+    cd your_ecu/generated/tests
+    pytest . --can-interface=simulator -q
+
+- name: EDS harness tests
+  run: |
+    bash eds/build_harness.sh --run
+```
+
+Both steps require only `gcc` and `python3` — no hardware agents, no docker images,
+no CAN interfaces.
+
+---
+
 ## Quick Reference
 
 ### Build Commands
@@ -1067,6 +1262,12 @@ python3 eds/tools/codegen.py \
     --config  your_ecu/diagnostics_config.yaml \
     --out     your_ecu/generated/ \
     --safety-wrappers --asil-level B --test-gen
+
+# Also generate OpenSOVD 1.0 CDA (optional, v1.7.0+)
+python3 eds/tools/codegen.py \
+    --config  your_ecu/diagnostics_config.yaml \
+    --out     your_ecu/generated/ \
+    --safety-wrappers --asil-level B --sovd
 
 # Build for simulation (no hardware)
 west build -b native_sim your_ecu \
@@ -1120,7 +1321,8 @@ pytest test_firmware_services.py -v
 | Safety model | `docs/Safety_Model.md` |
 | ASIL-B threading model | `docs/threading_guide.md` |
 | Code generation system | `docs/CODEGEN_ARCHITECTURE.md` |
-| Testing strategy | `docs/TESTING_STRATEGY.md` |
+| Testing strategy | `docs/TESTING_STRATEGY.md` · Section 8 of this guide |
+| SOVD CDA generation | Section 7 of this guide · `tools/codegen.py --sovd` |
 | ARDEP upgrade guide | `docs/ARDEP_UPGRADE_GUIDE.md` |
 | AES-CMAC security changes | `docs/PHASE1_SECURITY_CHANGES.md` |
 | OEM key injection + security configuration | the Security Integration Guide (Professional tier — xaloqi.com) |
