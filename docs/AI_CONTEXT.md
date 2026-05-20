@@ -780,7 +780,7 @@ both comply. (v1.7.0 fixed compliance for 0x11, 0x28, 0x31, 0x85 in the simulato
 
 ## Robustness Test Campaign (v1.7.0)
 
-404 pytest tests in `examples/basic_ecu/generated/tests/`, runnable without hardware:
+439 pytest tests in `examples/basic_ecu/generated/tests/`, runnable without hardware:
 
 ```bash
 cd examples/basic_ecu/generated/tests
@@ -795,6 +795,7 @@ pytest test_robustness_A_codegen.py \
        test_robustness_I_nrc_wdbi_sa.py \
        test_robustness_J_sovd_cda.py \
        test_robustness_K_error_quality.py \
+       test_robustness_L_codegen_output_fidelity.py \
        --can-interface=simulator -q
 ```
 
@@ -811,6 +812,7 @@ pytest test_robustness_A_codegen.py \
 | I | 34 | NRC 3-byte format/SID echo, WDBI check ordering, SA level isolation |
 | J | 43 | SOVD CDA semantic fidelity: structure, DID/DTC/routine fields, DoIP fields, idempotency |
 | K | 35 | Codegen error quality: bad YAML exits non-zero with actionable keyword in stderr |
+| L | 35 | Codegen output fidelity: generated C contains correct DID IDs, data lengths, timing constants, DTC severity bytes, routine flags |
 
 ---
 

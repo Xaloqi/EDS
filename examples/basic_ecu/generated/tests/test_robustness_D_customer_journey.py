@@ -301,6 +301,7 @@ class TestAllECUExamplesPytest:
             "--ignore", os.path.join(test_dir, "test_robustness_I_nrc_wdbi_sa.py"),
             "--ignore", os.path.join(test_dir, "test_robustness_J_sovd_cda.py"),
             "--ignore", os.path.join(test_dir, "test_robustness_K_error_quality.py"),
+            "--ignore", os.path.join(test_dir, "test_robustness_L_codegen_output_fidelity.py"),
         ], cwd=test_dir)
         # Exit 5 = no tests ran (all skipped when xaloqi-tester absent); treat as pass
         assert r.returncode in (0, 5), (

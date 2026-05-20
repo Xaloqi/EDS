@@ -36,11 +36,11 @@ Jinja2 template (`tools/templates/conftest.py.j2`) that generates them:
 - `examples/sensor_ecu/generated/tests/conftest.py`
 - `examples/sensor_ecu_freertos/generated/tests/conftest.py`
 
-### Added — 326-test robustness campaign (Phases A–K)
+### Added — 326-test robustness campaign (Phases A–L)
 
-Complete protocol conformance and simulator fidelity campaign across 11 phases.
+Complete protocol conformance and simulator fidelity campaign across 12 phases.
 All phases run in `--can-interface=simulator` mode — no hardware required.
-Total: **404 tests** in `examples/basic_ecu/generated/tests/`.
+Total: **439 tests** in `examples/basic_ecu/generated/tests/`.
 
 | Phase | File                              | Tests | What it validates |
 |-------|-----------------------------------|-------|-------------------|
@@ -55,6 +55,7 @@ Total: **404 tests** in `examples/basic_ecu/generated/tests/`.
 | I     | `test_robustness_I_nrc_wdbi_sa.py` | 34   | NRC format/SID echo for every service, WDBI check ordering (session→security→length), SecurityAccess level isolation (lockout, mismatch, independent state) |
 | J     | `test_robustness_J_sovd_cda.py`    | 43   | SOVD CDA semantic fidelity: top-level structure, DID/DTC/routine counts and field values, hex normalisation, semantic session names, DoIP fields present/absent, idempotency |
 | K     | `test_robustness_K_error_quality.py` | 35 | Codegen error message quality: every bad YAML exits non-zero with an actionable keyword (field name, hex value, or standard reference) in stderr |
+| L     | `test_robustness_L_codegen_output_fidelity.py` | 35 | Codegen output fidelity: generated C files contain correct DID decimal IDs, data lengths, access flags, timing constants, DTC severity bytes, and routine support flags |
 
 **Phase G** (`test_robustness_G_resilience.py`, 47 tests):
 - `TestMalformedPDUResilience` (13): empty PDU → NRC 0x13, unknown SID → NRC 0x11,
@@ -122,23 +123,37 @@ Also added to `codegen.py` `validate_config()`:
 - Write-DID safety gate (REQ-SAFE-006): writable DIDs without an explicit `data_length`
   are now rejected with a message referencing REQ-SAFE-006 and the 0x2E handler.
 
+**Phase L** (`test_robustness_L_codegen_output_fidelity.py`, 35 tests):
+- `TestSanity` (2): codegen exits 0, all expected files generated
+- `TestGeneratedConfigH` (8): p2/p2*/s3 timing values, DID/DTC counts, ECU name,
+  version, and include guard all match the controlled test YAML
+- `TestDIDHandlersH` (5): handler count macro (2U), read declarations for both DIDs,
+  write declaration for read-write DID, no spurious write declaration for read-only DID
+- `TestDIDHandlersC` (10): 0xF190→61840U, 0xF187→61831U, data_length 17U/11U,
+  DID_ACCESS_READ|WRITE flag for F187, exactly one WRITE flag in file, session constants,
+  write_cb function name set for F187, write_cb = NULL exactly once (F190)
+- `TestDTCUDSInit` (5): 0xC00100→12583168UL, severity 0x20U, description text,
+  exactly one `dtc_database_register` call site, no 0x40U (maintenance_only absent)
+- `TestRoutineHandlersC` (5): 0xFF00/0xFF01 present, ROUTINE_SUPPORT_START|RESULTS
+  for FF00, UDS_SESSION_PROGRAMMING for FF01, no results stub for start-only routine
+
 ### Changed — CI
 
 `.github/workflows/ci.yml` `robustness-tests` job updated:
-- Phase count: 6 phases / 245 tests → 11 phases / 404 tests
-- Added individual `pytest` steps for Phases G, H, I, J, K with short descriptions
-- Final assertion: `404 passed`
+- Phase count: 6 phases / 245 tests → 12 phases / 439 tests
+- Added individual `pytest` steps for Phases G, H, I, J, K, L with short descriptions
+- Final assertion: `439 passed`
 - Phase comments updated with per-phase test counts A(22) B(42) C(21) D(30) E(35)
-  F(54) G(47) H(41) I(34) J(43) K(35)
+  F(54) G(47) H(41) I(34) J(43) K(35) L(35)
 
 `.github/workflows/ci.yml` `integration-tests` job: added `--ignore` flags for
 `test_robustness_G_resilience.py`, `test_robustness_H_protocol_precision.py`,
 `test_robustness_I_nrc_wdbi_sa.py`, `test_robustness_J_sovd_cda.py`,
-`test_robustness_K_error_quality.py`
+`test_robustness_K_error_quality.py`, `test_robustness_L_codegen_output_fidelity.py`
 (they run in the dedicated `robustness-tests` job).
 
 `test_robustness_D_customer_journey.py` `TestAllECUExamplesPytest`: added `--ignore`
-for Phases G, H, I, J, K to prevent recursive collection when running all 11 ECU examples.
+for Phases G, H, I, J, K, L to prevent recursive collection when running all 11 ECU examples.
 
 ### Added — SOVD CDA codegen output
 
