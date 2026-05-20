@@ -474,6 +474,7 @@ jobs:
             --ignore=test_robustness_F_codegen_limits.py \
             --ignore=test_robustness_G_resilience.py \
             --ignore=test_robustness_H_protocol_precision.py \
+            --ignore=test_robustness_I_nrc_wdbi_sa.py \
             --tb=short \
             --can-interface=simulator \
             -q
@@ -491,6 +492,7 @@ jobs:
             --ignore=test_robustness_F_codegen_limits.py \
             --ignore=test_robustness_G_resilience.py \
             --ignore=test_robustness_H_protocol_precision.py \
+            --ignore=test_robustness_I_nrc_wdbi_sa.py \
             --can-interface=simulator --tb=no 2>&1 | tail -1)
           echo "Result: $result"
           echo "$result" | grep -q "failed" && exit 1 || true
@@ -1133,9 +1135,11 @@ jobs:
   #             YAML ↔ simulator metadata consistency
   #   H (41) — P2/P2* timing precision, multi-DID RDBI batching, DTC record
   #             format, routine lifecycle completeness
+  #   I (34) — NRC format/SID echo for all services, WDBI check ordering,
+  #             SecurityAccess level mismatch and fail-count isolation
   # ──────────────────────────────────────────────────────────────────────────
   robustness-tests:
-    name: "Robustness Campaign (292 tests, 8 phases)"
+    name: "Robustness Campaign (326 tests, 9 phases)"
     runs-on: ubuntu-22.04
 
     steps:
@@ -1193,7 +1197,12 @@ jobs:
           cd examples/basic_ecu/generated/tests
           python3 -m pytest test_robustness_H_protocol_precision.py -v --tb=short -q
 
-      - name: Assert full campaign total (292 tests, 0 failures)
+      - name: Run Phase I — NRC SID echo, WDBI check ordering, SA level isolation
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest test_robustness_I_nrc_wdbi_sa.py -v --tb=short -q
+
+      - name: Assert full campaign total (326 tests, 0 failures)
         run: |
           cd examples/basic_ecu/generated/tests
           result=$(python3 -m pytest \
@@ -1205,8 +1214,9 @@ jobs:
             test_robustness_F_codegen_limits.py \
             test_robustness_G_resilience.py \
             test_robustness_H_protocol_precision.py \
+            test_robustness_I_nrc_wdbi_sa.py \
             --tb=no -q 2>&1 | tail -2)
           echo "$result"
           echo "$result" | grep -q "failed" && exit 1 || true
-          echo "$result" | grep -qE "^(292|[2-9][0-9]{2}) passed" \
-            || (echo "ERROR: Expected 292 passed — count changed" && exit 1)
+          echo "$result" | grep -qE "^(326|[2-9][0-9]{2}) passed" \
+            || (echo "ERROR: Expected 326 passed — count changed" && exit 1)
