@@ -1271,7 +1271,6 @@ jobs:
   harness-tests:
     name: "Harness Integration Tests (68 C tests, MISRA-clean build)"
     runs-on: ubuntu-22.04
-    if: hashFiles('harness/harness_main.c') != ''
 
     steps:
       - uses: actions/checkout@v4
@@ -1283,11 +1282,15 @@ jobs:
 
       - name: Build harness (MISRA-clean warning set, zero warnings)
         run: |
+          [ -f harness/harness_main.c ] \
+            || { echo "Harness C sources not present (commercial-only) — skipped."; exit 0; }
           bash build_harness.sh
           echo "[harness] Build succeeded — zero warnings confirmed"
 
       - name: Run 68 harness integration tests
         run: |
+          [ -f harness/harness_main.c ] \
+            || { echo "Harness C sources not present (commercial-only) — skipped."; exit 0; }
           bash build_harness.sh --run 2>&1 | tee /tmp/harness_output.txt
           grep -q "ALL 68 HARNESS TESTS PASSED" /tmp/harness_output.txt \
             || (echo "ERROR: Expected ALL 68 HARNESS TESTS PASSED" && exit 1)
