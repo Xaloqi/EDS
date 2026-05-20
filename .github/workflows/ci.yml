@@ -1271,6 +1271,7 @@ jobs:
   harness-tests:
     name: "Harness Integration Tests (68 C tests, MISRA-clean build)"
     runs-on: ubuntu-22.04
+    if: hashFiles('harness/harness_main.c') != ''
 
     steps:
       - uses: actions/checkout@v4

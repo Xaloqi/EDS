@@ -20,6 +20,12 @@ import pytest
 EDS_ROOT  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 CODEGEN   = os.path.join(EDS_ROOT, "tools", "codegen.py")
 
+_TEMPLATES_OK = os.path.isdir(os.path.join(EDS_ROOT, "tools", "templates"))
+_skip_no_tpl  = pytest.mark.skipif(
+    not _TEMPLATES_OK,
+    reason="Jinja2 templates not present (commercial-only, not in public repo)"
+)
+
 ALL_EXAMPLES = [
     "basic_ecu",
     "basic_ecu_doip",
@@ -148,6 +154,7 @@ def _gen_n_dids_yaml(n: int, data_length: int = 4) -> str:
 # data_length boundary tests
 # ---------------------------------------------------------------------------
 
+@_skip_no_tpl
 class TestDataLengthBoundaries:
     """Verify codegen accepts [1, 64] and rejects 0 and ≥ 65 under ASIL-B."""
 
@@ -308,6 +315,7 @@ class TestDuplicateAndReservedIDs:
 # DID count limits
 # ---------------------------------------------------------------------------
 
+@_skip_no_tpl
 class TestDIDCountLimits:
     """ASIL-B and schema both cap DID count at 64."""
 
@@ -327,6 +335,7 @@ class TestDIDCountLimits:
 # ASIL-B write security constraints
 # ---------------------------------------------------------------------------
 
+@_skip_no_tpl
 class TestASILBWriteSecurityConstraints:
     """write_security_level: 0 on a write-capable DID is a fatal ASIL-B error."""
 
@@ -443,6 +452,7 @@ class TestMissingRequiredFields:
 # Generated C compilation gate
 # ---------------------------------------------------------------------------
 
+@_skip_no_tpl
 class TestGeneratedCCompilation:
     """
     For all 11 ECU examples, run gcc -fsyntax-only on each generated .c file.
@@ -483,6 +493,7 @@ class TestGeneratedCCompilation:
 # Generated Python file integrity
 # ---------------------------------------------------------------------------
 
+@_skip_no_tpl
 class TestGeneratedPythonIntegrity:
     """Verify no Jinja2 template artifacts remain in generated .py files."""
 

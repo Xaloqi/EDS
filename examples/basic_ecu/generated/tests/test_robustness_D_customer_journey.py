@@ -20,6 +20,14 @@ EDS_ROOT  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 CODEGEN   = os.path.join(EDS_ROOT, "tools", "codegen.py")
 VERIFY_COUNTS = os.path.join(EDS_ROOT, "scripts", "verify_did_counts.py")
 
+# Jinja2 templates are commercial-only (EDS-toolchain symlink).
+# Classes that run codegen with --safety-wrappers are skipped when unavailable.
+_TEMPLATES_OK = os.path.isdir(os.path.join(EDS_ROOT, "tools", "templates"))
+_skip_no_tpl  = pytest.mark.skipif(
+    not _TEMPLATES_OK,
+    reason="Jinja2 templates not present (commercial-only, not in public repo)"
+)
+
 ALL_EXAMPLES = [
     "basic_ecu",
     "basic_ecu_doip",
@@ -161,6 +169,7 @@ def _codegen(yaml_content, out_dir, extra_args=None):
     return r.returncode, r.stdout + r.stderr, gen_dir
 
 
+@_skip_no_tpl
 class TestCustomerStartFromScratch:
     """Simulate a customer who receives EDS and creates their first ECU config."""
 
@@ -256,6 +265,7 @@ class TestCustomerStartFromScratch:
             assert len(can_files) >= 2, f"Expected at least 2 .can files, got: {can_files}"
 
 
+@_skip_no_tpl
 class TestAllECUExamplesCodegen:
     """All 11 ECU example configs must codegen cleanly (exit 0)."""
 
