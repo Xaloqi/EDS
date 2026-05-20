@@ -1,6 +1,6 @@
 // File: generated/routine_handlers.h
 // GENERATED — do NOT edit manually.
-// ECU: MotorController_Inverter  v1.0.0  Generated: 2026-05-19T13:34:40Z
+// ECU: MotorController_Inverter  v1.0.0  Generated: 2026-05-20T07:21:48Z
 
 #ifndef ROUTINE_HANDLERS_H
 #define ROUTINE_HANDLERS_H

@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP
  * Version   : 1.6.0
- * Generated : 2026-05-19T13:34:42Z
+ * Generated : 2026-05-20T07:21:47Z
  * ASIL Level: B
  *
  * PURPOSE: Per-DID safe accessor implementations (ASIL-B).

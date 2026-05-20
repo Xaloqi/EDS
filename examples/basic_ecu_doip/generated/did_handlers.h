@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP
  * Version   : 1.6.0
- * Generated : 2026-05-19T13:34:42Z
+ * Generated : 2026-05-20T07:21:47Z
  *
  * PURPOSE: Declarations for all generated DID read/write handler functions
  *          and the generated DID registration entry point.

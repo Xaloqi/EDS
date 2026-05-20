@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU
  * Version   : 0.1.0
- * Generated : 2026-05-15T08:59:24Z
+ * Generated : 2026-05-19T17:30:37Z
  *
  * PURPOSE: Compile-time constants derived from diagnostics_config.yaml.
  *          Provides all protocol timing parameters, CAN addressing, and
@@ -102,6 +102,6 @@
 
 #define GEN_ECU_NAME            "BasicECU"
 #define GEN_ECU_VERSION         "0.1.0"
-#define GEN_GENERATED_TIMESTAMP "2026-05-15T08:59:24Z"
+#define GEN_GENERATED_TIMESTAMP "2026-05-19T17:30:37Z"
 
 #endif /* GENERATED_CONFIG_H */

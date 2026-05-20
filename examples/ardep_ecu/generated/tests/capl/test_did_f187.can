@@ -1,0 +1,394 @@
+/*
+ * =============================================================================
+ * GENERATED — do NOT edit manually.
+ * Regenerate: python3 tools/testgen.py --capl \
+ *                 --config <diagnostics_config.yaml> --out generated/
+ *
+ * ECU       : ARDEP_IOController
+ * Version   : 1.0.0
+ * Generated : 2026-05-19T13:51:10Z
+ *
+ * FILE: test_did_f187.can
+ *
+ * DID       : 0xF187  (VehicleManufacturerSparePartNumber)
+ * Access    : read + write
+ * Session   : extended (ordinal 3)
+ * Read sec  : 0 (no auth required)
+ * Write sec : 1 (SecurityAccess level 1 required)
+ * Bytes     : 11
+ *
+ * PURPOSE: Exhaustive CAPL test cases for DID 0xF187:
+ *   TC_F187_Read_HappyPath      — positive read, correct response
+ *   TC_F187_Read_ResponseEcho   — DID echo bytes in response
+ *   TC_F187_Read_ResponseLen    — data length = 11 bytes
+ *   TC_F187_Read_WrongSession   — NRC 0x7F in default session
+ *   TC_F187_Write_HappyPath     — positive write
+ *   TC_F187_Write_WrongLength   — NRC 0x13 for wrong data length
+ *   TC_F187_Write_WrongSession  — NRC 0x7F in default session
+ *   TC_F187_Write_SecurityLocked — NRC 0x33 when locked
+ *   TC_F187_Read_MultipleTimes  — stability: 5 consecutive reads
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ * =============================================================================
+ */
+
+includes
+{
+  /* Include master suite for shared variables, helpers, and ISO-TP layer */
+}
+
+/* ── DID constants ───────────────────────────────────────────────────────── */
+variables
+{
+  const word  kDid_F187            = 61831;
+  const byte  kDid_F187_Hi        = 0xF1;
+  const byte  kDid_F187_Lo        = 0x87;
+  const dword kDid_F187_DataLen   = 11;
+  const int   kDid_F187_RespLen   = 14;  /* 0x62 + DID_HI + DID_LO + data */
+  const int   kDid_F187_MinSess   = 3;
+  const int   kDid_F187_RSec      = 0;
+  const int   kDid_F187_WSec      = 1;
+}
+
+/* ── Precondition helper for this DID ────────────────────────────────────── */
+
+/*
+ * SetupRead_F187 — enter required session and security level for a read.
+ * Returns 1 on success, 0 if setup failed.
+ */
+int SetupRead_F187()
+{
+  if (!Uds_EnterSession(kSessExtended))    return 0;
+  return 1;
+}
+
+/*
+ * SetupWrite_F187 — enter required session and security level for a write.
+ */
+int SetupWrite_F187()
+{
+  if (!Uds_EnterSession(kSessExtended))    return 0;
+  if (!Uds_UnlockLevel(1)) return 0;
+  return 1;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  READ TEST CASES
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * TC_F187_Read_HappyPath
+ * Verify positive ReadDataByIdentifier response for DID 0xF187.
+ */
+testcase TC_F187_Read_HappyPath()
+{
+  int rc;
+  TestCaseDescription(
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — ReadDataByIdentifier happy path");
+
+  if (!SetupRead_F187()) {
+    TestCaseFail("Precondition setup failed");
+    return;
+  }
+
+  rc = Uds_ReadDid(kDid_F187_Hi,
+                   kDid_F187_Lo);
+
+  AssertPositiveResponse(rc, kSidRDBI, "RDBI_0xF187_PositiveResponse");
+  Uds_EnterSession(kSessDefault);
+}
+
+/*
+ * TC_F187_Read_ResponseEcho
+ * Verify response echoes DID bytes 0xF1, 0x87.
+ */
+testcase TC_F187_Read_ResponseEcho()
+{
+  int rc;
+  TestCaseDescription(
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — response echoes DID bytes at positions [1],[2]");
+
+  if (!SetupRead_F187()) {
+    TestCaseFail("Precondition setup failed");
+    return;
+  }
+
+  rc = Uds_ReadDid(kDid_F187_Hi,
+                   kDid_F187_Lo);
+
+  if (rc < 3) {
+    TestStepFail("RDBI_0xF187_Echo", "Response too short: %d bytes", rc);
+    gTestFailCount++;
+  } else if (gRxBuf[1] != kDid_F187_Hi ||
+             gRxBuf[2] != kDid_F187_Lo) {
+    TestStepFail("RDBI_0xF187_Echo",
+      "DID echo mismatch: got 0x%02X%02X, expected 0xF187",
+      gRxBuf[1], gRxBuf[2]);
+    gTestFailCount++;
+  } else {
+    TestStepPass("RDBI_0xF187_Echo",
+      "DID echo correct: 0x%02X%02X", gRxBuf[1], gRxBuf[2]);
+    gTestPassCount++;
+  }
+  Uds_EnterSession(kSessDefault);
+}
+
+/*
+ * TC_F187_Read_ResponseLen
+ * Verify data payload = 11 bytes (total response = 14 bytes).
+ */
+testcase TC_F187_Read_ResponseLen()
+{
+  int rc;
+  TestCaseDescription(
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — response data length = 11 bytes");
+
+  if (!SetupRead_F187()) {
+    TestCaseFail("Precondition setup failed");
+    return;
+  }
+
+  rc = Uds_ReadDid(kDid_F187_Hi,
+                   kDid_F187_Lo);
+
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDBI + kPosDelta)) {
+    AssertResponseLength(gRxLen,
+      kDid_F187_RespLen,
+      "RDBI_0xF187_ResponseLength");
+  } else {
+    TestStepFail("RDBI_0xF187_ResponseLength",
+      "Cannot check length — no positive response");
+    gTestFailCount++;
+  }
+  Uds_EnterSession(kSessDefault);
+}
+
+/*
+ * TC_F187_Read_WrongSession
+ * Verify NRC 0x7F (serviceNotSupportedInActiveSession) when reading from default session.
+ * DID 0xF187 requires extended session.
+ */
+testcase TC_F187_Read_WrongSession()
+{
+  int rc;
+  TestCaseDescription(
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — NRC 0x7F when accessed in default session");
+
+  /* Deliberately stay in default session */
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(kDid_F187_Hi,
+                   kDid_F187_Lo);
+
+  AssertNegativeResponse(rc, kNrcSvcNotSuppInSess,
+    "RDBI_0xF187_WrongSession_NRC0x7F");
+}
+
+
+/*
+ * TC_F187_Read_MultipleTimes
+ * Verify DID 0xF187 responds consistently across 5 consecutive reads.
+ * Detects: race conditions, buffer reuse bugs, handler side-effects.
+ */
+testcase TC_F187_Read_MultipleTimes()
+{
+  int   rc;
+  int   i;
+  int   failCount;
+  dword firstLen;
+  TestCaseDescription(
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — 5 consecutive reads, consistent responses");
+
+  if (!SetupRead_F187()) {
+    TestCaseFail("Precondition setup failed");
+    return;
+  }
+
+  failCount = 0;
+  firstLen  = 0;
+
+  for (i = 0; i < 5; i++) {
+    rc = Uds_ReadDid(kDid_F187_Hi,
+                     kDid_F187_Lo);
+    if (rc < 0 || gRxBuf[0] != (byte)(kSidRDBI + kPosDelta)) {
+      failCount++;
+      TestStepFail("RDBI_0xF187_Multi",
+        "Read %d of 5 failed: rc=%d NRC=0x%02X", i+1, rc,
+        (rc >= 3) ? gRxBuf[2] : 0xFF);
+    } else {
+      if (i == 0) {
+        firstLen = gRxLen;
+      } else if (gRxLen != firstLen) {
+        failCount++;
+        TestStepFail("RDBI_0xF187_Multi",
+          "Read %d length %d != first read length %d", i+1, gRxLen, firstLen);
+      }
+    }
+    testWaitForDelay(5);   /* 5 ms gap between consecutive requests */
+  }
+
+  if (failCount == 0) {
+    TestStepPass("RDBI_0xF187_Multi",
+      "All 5 reads successful, consistent length %d bytes", firstLen);
+    gTestPassCount++;
+  } else {
+    gTestFailCount++;
+  }
+  Uds_EnterSession(kSessDefault);
+}
+  /* access_read */
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  WRITE TEST CASES
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * TC_F187_Write_HappyPath
+ * Verify positive WriteDataByIdentifier response for DID 0xF187.
+ * Writes 11 bytes of 0xAA pattern.
+ */
+testcase TC_F187_Write_HappyPath()
+{
+  int   rc;
+  byte  data[11];
+  dword i;
+  TestCaseDescription(
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — WriteDataByIdentifier happy path (11 bytes)");
+
+  if (!SetupWrite_F187()) {
+    TestCaseFail("Write precondition setup failed");
+    return;
+  }
+
+  /* Fill with 0xAA test pattern */
+  for (i = 0; i < 11; i++) {
+    data[i] = 0xAA;
+  }
+
+  rc = Uds_WriteDid(kDid_F187_Hi,
+                    kDid_F187_Lo,
+                    data, 11);
+
+  AssertPositiveResponse(rc, kSidWDBI, "WDBI_0xF187_PositiveResponse");
+
+  /* Readback verification: read the DID we just wrote */
+  if (!SetupRead_F187()) return;
+  rc = Uds_ReadDid(kDid_F187_Hi,
+                   kDid_F187_Lo);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDBI + kPosDelta)) {
+    TestStepPass("WDBI_0xF187_Readback", "DID readable after write");
+    gTestPassCount++;
+  } else {
+    TestStepFail("WDBI_0xF187_Readback", "DID not readable after write");
+    gTestFailCount++;
+  }
+  Uds_EnterSession(kSessDefault);
+}
+
+/*
+ * TC_F187_Write_WrongLength
+ * Verify NRC 0x13 (incorrectMessageLengthOrInvalidFormat) when wrong data length.
+ * Sends 10 bytes instead of 11.
+ */
+testcase TC_F187_Write_WrongLength()
+{
+  int  rc;
+  byte shortData[10];
+  dword i;
+  TestCaseDescription(
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — NRC 0x13 for wrong data length");
+
+  if (!SetupWrite_F187()) {
+    TestCaseFail("Write precondition setup failed");
+    return;
+  }
+
+  /* Send 10 byte(s) instead of 11 */
+  for (i = 0; i < 10; i++) {
+    shortData[i] = 0x00;
+  }
+  rc = Uds_WriteDid(kDid_F187_Hi,
+                    kDid_F187_Lo,
+                    shortData, 10);
+
+  AssertNegativeResponse(rc, kNrcIncorrectMsgLen,
+    "WDBI_0xF187_WrongLength_NRC0x13");
+  Uds_EnterSession(kSessDefault);
+}
+
+/*
+ * TC_F187_Write_WrongSession
+ * Verify NRC 0x7F (serviceNotSupportedInActiveSession) when writing from default session.
+ */
+testcase TC_F187_Write_WrongSession()
+{
+  int   rc;
+  byte  data[11];
+  dword i;
+  TestCaseDescription(
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — NRC 0x7F on write in default session");
+
+  Uds_EnterSession(kSessDefault);
+
+  for (i = 0; i < 11; i++) {
+    data[i] = 0x00;
+  }
+  rc = Uds_WriteDid(kDid_F187_Hi,
+                    kDid_F187_Lo,
+                    data, 11);
+
+  AssertNegativeResponse(rc, kNrcSvcNotSuppInSess,
+    "WDBI_0xF187_WrongSession_NRC0x7F");
+}
+
+/*
+ * TC_F187_Write_SecurityLocked
+ * Verify NRC 0x33 (securityAccessDenied) when attempting write without security unlock.
+ */
+testcase TC_F187_Write_SecurityLocked()
+{
+  int   rc;
+  byte  data[11];
+  dword i;
+  TestCaseDescription(
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — NRC 0x33 on write when security locked");
+
+  /* Enter session but do NOT unlock */
+  Uds_EnterSession(kSessExtended);
+
+  for (i = 0; i < 11; i++) {
+    data[i] = 0x00;
+  }
+  rc = Uds_WriteDid(kDid_F187_Hi,
+                    kDid_F187_Lo,
+                    data, 11);
+
+  AssertNegativeResponse(rc, kNrcSecAccessDenied,
+    "WDBI_0xF187_SecurityLocked_NRC0x33");
+  Uds_EnterSession(kSessDefault);
+}
+  /* access_write */
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  DID TEST GROUP
+ *  Call this from the master test suite's maintest.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+testgroup TG_DID_F187()
+{
+  TestGroupDescription(
+    "DID 0xF187 — VehicleManufacturerSparePartNumber | RW | 11 bytes | extended session | R-sec=0 W-sec=1");
+
+  TC_F187_Read_HappyPath();
+  TC_F187_Read_ResponseEcho();
+  TC_F187_Read_ResponseLen();
+  TC_F187_Read_WrongSession();
+  TC_F187_Read_MultipleTimes();
+  TC_F187_Write_HappyPath();
+  TC_F187_Write_WrongLength();
+  TC_F187_Write_WrongSession();
+  TC_F187_Write_SecurityLocked();
+}

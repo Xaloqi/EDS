@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-05-19T13:34:41Z
+ * Generated : 2026-05-20T07:21:48Z
  *
  * PURPOSE: Compile-time constants derived from diagnostics_config.yaml.
  *          Provides all protocol timing parameters, CAN addressing, and
@@ -102,6 +102,6 @@
 
 #define GEN_ECU_NAME            "RobotJointController"
 #define GEN_ECU_VERSION         "1.0.0"
-#define GEN_GENERATED_TIMESTAMP "2026-05-19T13:34:41Z"
+#define GEN_GENERATED_TIMESTAMP "2026-05-20T07:21:48Z"
 
 #endif /* GENERATED_CONFIG_H */

@@ -4,7 +4,7 @@
 #
 # ECU       : MotorController_Inverter
 # Version   : 1.0.0
-# Generated : 2026-05-19T13:34:40Z
+# Generated : 2026-05-20T07:21:48Z
 #
 # DID       : 0xE105  (MC_Id_Current_100mA)
 # Access    : read

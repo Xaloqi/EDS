@@ -1,0 +1,794 @@
+/*
+ * =============================================================================
+ * GENERATED — do NOT edit manually.
+ * Regenerate: python3 tools/testgen.py --capl \
+ *                 --config <diagnostics_config.yaml> --out generated/
+ *
+ * ECU       : ARDEP_IOController
+ * Version   : 1.0.0
+ * Generated : 2026-05-19T13:51:10Z
+ *
+ * FILE: test_dtcs.can
+ *
+ * PURPOSE: CANoe/CAPL test cases for all 19 DTCs registered in ARDEP_IOController.
+ *
+ * DTCs covered:
+ *   0xC00100  CAN bus communication loss — no frames received > 500ms
+ *   0xC00200  CAN bus error passive — TX/RX error counters exceeded 127
+ *   0xC00300  CAN bus off — transmitter disabled by bus-off recovery
+ *   0xC01000  LIN bus no response — no slave response within timeout
+ *   0xC01100  LIN bus framing error — break field or sync byte invalid
+ *   0xB00100  Output 1 overcurrent — load current exceeded threshold
+ *   0xB00200  Output 2 overcurrent — load current exceeded threshold
+ *   0xB00300  Output 3 overcurrent — load current exceeded threshold
+ *   0xB00400  Output 4 overcurrent — load current exceeded threshold
+ *   0xB00500  Output 5 overcurrent — load current exceeded threshold
+ *   0xB00600  Output 6 overcurrent — load current exceeded threshold
+ *   0xB01000  PowerIO open load — output commanded ON but no current detected
+ *   0xC0FF00  Supply voltage low — below 9.0V for > 500ms
+ *   0xC0FF10  Supply voltage high — above 16.0V for > 100ms
+ *   0xC0FF20  ECU overtemperature — internal junction > 125°C
+ *   0xC0FF30  Watchdog reset event — firmware failed to service watchdog
+ *   0xC0FF40  NVM write failure — diagnostic session statistics not persisted
+ *   0xC0FE00  Firmware image verification failed — CRC mismatch
+ *   0xC0FE10  Firmware download incomplete — transfer interrupted
+ *
+ * Services under test:
+ *   0x19  ReadDTCInformation (sub-fn 0x02, 0x06, 0x0A)
+ *   0x14  ClearDiagnosticInformation
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ * =============================================================================
+ */
+
+variables
+{
+  /* ── DTC codes ─────────────────────────────────────────────────────────── */
+  const dword kDtc_C00100 = 12583168;  /* CAN bus communication loss — no frames received > 500ms */
+  const dword kDtc_C00200 = 12583424;  /* CAN bus error passive — TX/RX error counters exceeded 127 */
+  const dword kDtc_C00300 = 12583680;  /* CAN bus off — transmitter disabled by bus-off recovery */
+  const dword kDtc_C01000 = 12587008;  /* LIN bus no response — no slave response within timeout */
+  const dword kDtc_C01100 = 12587264;  /* LIN bus framing error — break field or sync byte invalid */
+  const dword kDtc_B00100 = 11534592;  /* Output 1 overcurrent — load current exceeded threshold */
+  const dword kDtc_B00200 = 11534848;  /* Output 2 overcurrent — load current exceeded threshold */
+  const dword kDtc_B00300 = 11535104;  /* Output 3 overcurrent — load current exceeded threshold */
+  const dword kDtc_B00400 = 11535360;  /* Output 4 overcurrent — load current exceeded threshold */
+  const dword kDtc_B00500 = 11535616;  /* Output 5 overcurrent — load current exceeded threshold */
+  const dword kDtc_B00600 = 11535872;  /* Output 6 overcurrent — load current exceeded threshold */
+  const dword kDtc_B01000 = 11538432;  /* PowerIO open load — output commanded ON but no current detected */
+  const dword kDtc_C0FF00 = 12648192;  /* Supply voltage low — below 9.0V for > 500ms */
+  const dword kDtc_C0FF10 = 12648208;  /* Supply voltage high — above 16.0V for > 100ms */
+  const dword kDtc_C0FF20 = 12648224;  /* ECU overtemperature — internal junction > 125°C */
+  const dword kDtc_C0FF30 = 12648240;  /* Watchdog reset event — firmware failed to service watchdog */
+  const dword kDtc_C0FF40 = 12648256;  /* NVM write failure — diagnostic session statistics not persisted */
+  const dword kDtc_C0FE00 = 12647936;  /* Firmware image verification failed — CRC mismatch */
+  const dword kDtc_C0FE10 = 12647952;  /* Firmware download incomplete — transfer interrupted */
+
+  const byte  kDtcStatusMaskAll    = 0xFF;   /* reportDTCByStatusMask: all */
+  const byte  kDtcStatusConfirmed  = 0x08;   /* ISO 14229 statusBit3: confirmed DTC */
+  const byte  kDtcStatusTestFailed = 0x01;   /* ISO 14229 statusBit0: testFailed */
+}
+
+/* ── DTC reporting helpers ─────────────────────────────────────────────── */
+
+/*
+ * Dtc_IsPresentInResponse — search for a 3-byte DTC code in gRxBuf.
+ * Response format for 0x19 0x02: 0x59 0x02 <statusAvail> [dtc3bytes status]...
+ * Returns 1 if found, 0 if not.
+ */
+int Dtc_IsPresentInResponse(dword dtcCode)
+{
+  dword i;
+  byte  hi, mid, lo;
+
+  if (gRxLen < 3) return 0;
+
+  hi  = (byte)((dtcCode >> 16) & 0xFF);
+  mid = (byte)((dtcCode >>  8) & 0xFF);
+  lo  = (byte)( dtcCode        & 0xFF);
+
+  /* Skip 0x59 0x02 <statusAvail>, entries start at byte 3, stride = 4 */
+  for (i = 3; i + 3 < gRxLen; i += 4) {
+    if (gRxBuf[i] == hi && gRxBuf[i+1] == mid && gRxBuf[i+2] == lo) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/*
+ * Dtc_GetStatusByte — return status byte for a DTC code in response.
+ * Returns status byte, or 0xFF if DTC not found.
+ */
+byte Dtc_GetStatusByte(dword dtcCode)
+{
+  dword i;
+  byte  hi, mid, lo;
+
+  if (gRxLen < 3) return 0xFF;
+
+  hi  = (byte)((dtcCode >> 16) & 0xFF);
+  mid = (byte)((dtcCode >>  8) & 0xFF);
+  lo  = (byte)( dtcCode        & 0xFF);
+
+  for (i = 3; i + 3 < gRxLen; i += 4) {
+    if (gRxBuf[i] == hi && gRxBuf[i+1] == mid && gRxBuf[i+2] == lo) {
+      return gRxBuf[i + 3];
+    }
+  }
+  return 0xFF;
+}
+
+/*
+ * Dtc_CountInResponse — return the number of DTC entries in a 0x59 0x02 response.
+ */
+int Dtc_CountInResponse()
+{
+  if (gRxLen < 3) return 0;
+  return (int)((gRxLen - 3) / 4);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  DTC TEST CASES
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * TC_DTC_ClearAll_Extended
+ * Verify ClearDiagnosticInformation (0x14 FF FF FF) in extended session.
+ * Post-condition: no DTCs present.
+ */
+testcase TC_DTC_ClearAll_Extended()
+{
+  int rc;
+  int dtcCount;
+  TestCaseDescription("ClearDiagnosticInformation (0x14) — clear all DTCs, verify clean slate");
+
+  Uds_EnterSession(kSessExtended);
+  rc = Uds_ClearDtcs();
+  AssertPositiveResponse(rc, 0x54, "ClearDTC_PositiveResponse");
+
+  /* Verify no DTCs remain */
+  Uds_EnterSession(kSessDefault);
+  rc = Uds_ReadDtcByStatus(kDtcStatusMaskAll);
+  AssertPositiveResponse(rc, kSidRDTCI, "ClearDTC_VerifyEmpty_Response");
+
+  dtcCount = Dtc_CountInResponse();
+  if (dtcCount == 0) {
+    TestStepPass("ClearDTC_VerifyEmpty", "Zero DTCs after clear (correct)");
+    gTestPassCount++;
+  } else {
+    TestStepFail("ClearDTC_VerifyEmpty",
+      "%d DTC(s) still present after clear", dtcCount);
+    gTestFailCount++;
+  }
+}
+
+/*
+ * TC_DTC_ClearAll_DefaultSession_Denied
+ * Verify ClearDiagnosticInformation in default session returns NRC 0x7F.
+ * ISO 14229 requires extended or programming session for 0x14.
+ */
+testcase TC_DTC_ClearAll_DefaultSession_Denied()
+{
+  int rc;
+  TestCaseDescription("0x14 ClearDTC in default session — expect NRC 0x7F");
+
+  Uds_EnterSession(kSessDefault);
+  rc = Uds_ClearDtcs();
+  AssertNegativeResponse(rc, kNrcSvcNotSuppInSess, "ClearDTC_DefaultSess_NRC0x7F");
+}
+
+/*
+ * TC_DTC_RDTCI_ReportByStatusMask_FF
+ * Verify ReadDTCInformation sub-fn 0x02 statusMask=0xFF.
+ * Response must be positive; statusAvailabilityMask in byte 2.
+ */
+testcase TC_DTC_RDTCI_ReportByStatusMask_FF()
+{
+  int rc;
+  TestCaseDescription("0x19 0x02 0xFF — ReadDTCInformation by status mask, all");
+
+  Uds_EnterSession(kSessDefault);
+  rc = Uds_ReadDtcByStatus(kDtcStatusMaskAll);
+  AssertPositiveResponse(rc, kSidRDTCI, "RDTCI_0x02_0xFF_Response");
+
+  /* Minimum valid response: 0x59 0x02 <statusAvailMask> = 3 bytes */
+  if (gRxLen >= 3) {
+    TestStepPass("RDTCI_0x02_0xFF_Structure",
+      "Response structure valid: SID=0x%02X sub=0x%02X statusAvail=0x%02X",
+      gRxBuf[0], gRxBuf[1], gRxBuf[2]);
+    gTestPassCount++;
+  } else {
+    TestStepFail("RDTCI_0x02_0xFF_Structure",
+      "Response too short: %d bytes", gRxLen);
+    gTestFailCount++;
+  }
+}
+
+/*
+ * TC_DTC_RDTCI_ReportSupportedDTC
+ * Verify ReadDTCInformation sub-fn 0x0A (reportSupportedDTCs).
+ * Response must list all 19 registered DTCs.
+ */
+testcase TC_DTC_RDTCI_ReportSupportedDTC()
+{
+  byte  pdu[2];
+  int   rc;
+  int   expectedCount;
+  int   actualCount;
+  TestCaseDescription("0x19 0x0A — reportSupportedDTCs, expect 19 DTCs");
+
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x0A;   /* reportSupportedDTCs */
+  Uds_EnterSession(kSessDefault);
+  rc = UdsRequest(pdu, 2);
+  AssertPositiveResponse(rc, kSidRDTCI, "RDTCI_0x0A_Response");
+
+  expectedCount = 19;
+  actualCount   = Dtc_CountInResponse();
+
+  if (actualCount >= expectedCount) {
+    TestStepPass("RDTCI_0x0A_Count",
+      "Supported DTC count %d >= expected %d", actualCount, expectedCount);
+    gTestPassCount++;
+  } else {
+    TestStepFail("RDTCI_0x0A_Count",
+      "Supported DTC count %d < expected %d", actualCount, expectedCount);
+    gTestFailCount++;
+  }
+}
+
+/*
+ * TC_DTC_RDTCI_ExtendedData_AllDTCs
+ * Verify ReadDTCInformation sub-fn 0x06 (reportDTCExtDataRecordByDTCNumber)
+ * for each registered DTC.
+ */
+testcase TC_DTC_RDTCI_ExtendedData_AllDTCs()
+{
+  byte  pdu[6];
+  int   rc;
+  TestCaseDescription("0x19 0x06 — readDTCExtDataRecord for each registered DTC");
+
+  Uds_EnterSession(kSessDefault);
+
+  /* DTC 0xC00100: CAN bus communication loss — no frames received > 500ms */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0x01);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C00100",
+      "DTC 0xC00100 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C00100",
+        "DTC 0xC00100 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C00100",
+        "DTC 0xC00100 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC00200: CAN bus error passive — TX/RX error counters exceeded 127 */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0x02);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C00200",
+      "DTC 0xC00200 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C00200",
+        "DTC 0xC00200 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C00200",
+        "DTC 0xC00200 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC00300: CAN bus off — transmitter disabled by bus-off recovery */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0x03);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C00300",
+      "DTC 0xC00300 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C00300",
+        "DTC 0xC00300 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C00300",
+        "DTC 0xC00300 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC01000: LIN bus no response — no slave response within timeout */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0x10);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C01000",
+      "DTC 0xC01000 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C01000",
+        "DTC 0xC01000 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C01000",
+        "DTC 0xC01000 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC01100: LIN bus framing error — break field or sync byte invalid */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0x11);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C01100",
+      "DTC 0xC01100 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C01100",
+        "DTC 0xC01100 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C01100",
+        "DTC 0xC01100 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xB00100: Output 1 overcurrent — load current exceeded threshold */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xB0);
+  pdu[3] = (byte)(0x01);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_B00100",
+      "DTC 0xB00100 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_B00100",
+        "DTC 0xB00100 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_B00100",
+        "DTC 0xB00100 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xB00200: Output 2 overcurrent — load current exceeded threshold */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xB0);
+  pdu[3] = (byte)(0x02);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_B00200",
+      "DTC 0xB00200 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_B00200",
+        "DTC 0xB00200 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_B00200",
+        "DTC 0xB00200 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xB00300: Output 3 overcurrent — load current exceeded threshold */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xB0);
+  pdu[3] = (byte)(0x03);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_B00300",
+      "DTC 0xB00300 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_B00300",
+        "DTC 0xB00300 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_B00300",
+        "DTC 0xB00300 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xB00400: Output 4 overcurrent — load current exceeded threshold */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xB0);
+  pdu[3] = (byte)(0x04);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_B00400",
+      "DTC 0xB00400 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_B00400",
+        "DTC 0xB00400 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_B00400",
+        "DTC 0xB00400 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xB00500: Output 5 overcurrent — load current exceeded threshold */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xB0);
+  pdu[3] = (byte)(0x05);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_B00500",
+      "DTC 0xB00500 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_B00500",
+        "DTC 0xB00500 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_B00500",
+        "DTC 0xB00500 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xB00600: Output 6 overcurrent — load current exceeded threshold */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xB0);
+  pdu[3] = (byte)(0x06);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_B00600",
+      "DTC 0xB00600 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_B00600",
+        "DTC 0xB00600 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_B00600",
+        "DTC 0xB00600 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xB01000: PowerIO open load — output commanded ON but no current detected */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xB0);
+  pdu[3] = (byte)(0x10);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_B01000",
+      "DTC 0xB01000 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_B01000",
+        "DTC 0xB01000 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_B01000",
+        "DTC 0xB01000 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC0FF00: Supply voltage low — below 9.0V for > 500ms */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0xFF);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C0FF00",
+      "DTC 0xC0FF00 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C0FF00",
+        "DTC 0xC0FF00 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C0FF00",
+        "DTC 0xC0FF00 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC0FF10: Supply voltage high — above 16.0V for > 100ms */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0xFF);
+  pdu[4] = (byte)(0x10);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C0FF10",
+      "DTC 0xC0FF10 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C0FF10",
+        "DTC 0xC0FF10 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C0FF10",
+        "DTC 0xC0FF10 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC0FF20: ECU overtemperature — internal junction > 125°C */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0xFF);
+  pdu[4] = (byte)(0x20);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C0FF20",
+      "DTC 0xC0FF20 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C0FF20",
+        "DTC 0xC0FF20 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C0FF20",
+        "DTC 0xC0FF20 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC0FF30: Watchdog reset event — firmware failed to service watchdog */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0xFF);
+  pdu[4] = (byte)(0x30);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C0FF30",
+      "DTC 0xC0FF30 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C0FF30",
+        "DTC 0xC0FF30 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C0FF30",
+        "DTC 0xC0FF30 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC0FF40: NVM write failure — diagnostic session statistics not persisted */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0xFF);
+  pdu[4] = (byte)(0x40);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C0FF40",
+      "DTC 0xC0FF40 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C0FF40",
+        "DTC 0xC0FF40 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C0FF40",
+        "DTC 0xC0FF40 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC0FE00: Firmware image verification failed — CRC mismatch */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0xFE);
+  pdu[4] = (byte)(0x00);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C0FE00",
+      "DTC 0xC0FE00 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C0FE00",
+        "DTC 0xC0FE00 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C0FE00",
+        "DTC 0xC0FE00 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+  /* DTC 0xC0FE10: Firmware download incomplete — transfer interrupted */
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x06;   /* reportDTCExtDataRecordByDTCNumber */
+  pdu[2] = (byte)(0xC0);
+  pdu[3] = (byte)(0xFE);
+  pdu[4] = (byte)(0x10);
+  pdu[5] = 0xFF;   /* all extended data records */
+  rc = UdsRequest(pdu, 6);
+  if (rc > 0 && gRxBuf[0] == (byte)(kSidRDTCI + kPosDelta)) {
+    TestStepPass("RDTCI_0x06_C0FE10",
+      "DTC 0xC0FE10 ext data response: %d bytes", gRxLen);
+    gTestPassCount++;
+  } else {
+    /* NRC 0x31 is acceptable if DTC has no extended data record */
+    if (gLastNrc == kNrcReqOutOfRange) {
+      TestStepPass("RDTCI_0x06_C0FE10",
+        "DTC 0xC0FE10 NRC 0x31 — no ext data (acceptable)");
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x06_C0FE10",
+        "DTC 0xC0FE10 unexpected NRC 0x%02X", gLastNrc);
+      gTestFailCount++;
+    }
+  }
+
+}
+
+/*
+ * TC_DTC_RDTCI_InvalidSubFunction
+ * Verify NRC 0x12 (subFunctionNotSupported) for an invalid sub-function.
+ */
+testcase TC_DTC_RDTCI_InvalidSubFunction()
+{
+  byte pdu[2];
+  int  rc;
+  TestCaseDescription("0x19 0xEE — invalid sub-function returns NRC 0x12");
+
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0xEE;   /* invalid sub-function */
+  Uds_EnterSession(kSessDefault);
+  rc = UdsRequest(pdu, 2);
+  AssertNegativeResponse(rc, 0x12, "RDTCI_InvalidSubFn_NRC0x12");
+}
+
+/*
+ * TC_DTC_RDTCI_ReportNumberOfDTC
+ * Verify ReadDTCInformation sub-fn 0x01 (reportNumberOfDTCByStatusMask).
+ */
+testcase TC_DTC_RDTCI_ReportNumberOfDTC()
+{
+  byte pdu[3];
+  int  rc;
+  TestCaseDescription("0x19 0x01 0xFF — reportNumberOfDTCByStatusMask");
+
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x01;
+  pdu[2] = 0xFF;
+  Uds_EnterSession(kSessDefault);
+  rc = UdsRequest(pdu, 3);
+  AssertPositiveResponse(rc, kSidRDTCI, "RDTCI_0x01_Response");
+
+  /* Response: 0x59 0x01 <statusAvail> <dtcFormatId> <countHi> <countLo> = 6 bytes */
+  if (gRxLen >= 6) {
+    dword count;
+    count = ((dword)gRxBuf[4] << 8) | (dword)gRxBuf[5];
+    TestStepPass("RDTCI_0x01_Count", "DTC count field: %d DTCs", count);
+    gTestPassCount++;
+  } else {
+    TestStepFail("RDTCI_0x01_Structure", "Response too short: %d bytes", gRxLen);
+    gTestFailCount++;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  DTC TEST GROUP
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+testgroup TG_DTCTests()
+{
+  TestGroupDescription("DTC Tests — 19 registered DTCs, services 0x14 / 0x19");
+
+  TC_DTC_ClearAll_Extended();
+  TC_DTC_ClearAll_DefaultSession_Denied();
+  TC_DTC_RDTCI_ReportByStatusMask_FF();
+  TC_DTC_RDTCI_ReportSupportedDTC();
+  TC_DTC_RDTCI_ExtendedData_AllDTCs();
+  TC_DTC_RDTCI_InvalidSubFunction();
+  TC_DTC_RDTCI_ReportNumberOfDTC();
+}

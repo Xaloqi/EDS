@@ -4,7 +4,7 @@
 #
 # ECU       : SensorECU
 # Version   : 1.0.0
-# Generated : 2026-05-19T13:34:41Z
+# Generated : 2026-05-20T07:21:49Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -163,6 +163,8 @@ class _InlineEcuState:
     def __init__(self) -> None:
         self.session: int = 0x01
         self.sec_unlocked: dict = {}
+        self.sec_fail_count: dict = {}
+        self.routine_started: dict = {}
         self.pending_seed: Optional[bytes] = None
         self.pending_level: Optional[int] = None
         self.did_store: dict = {
@@ -268,7 +270,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if len(pdu) < 2: return nrc(0x10, 0x13)
         sub = pdu[1] & 0x7F
         if sub not in (0x01, 0x02, 0x03): return nrc(0x10, 0x12)
-        state.session = sub; state.sec_unlocked.clear()
+        state.session = sub; state.sec_unlocked.clear(); state.sec_fail_count.clear()
         state.pending_seed = state.pending_level = None
         if pdu[1] & 0x80: return None
         p2_hi=0; p2_lo=25; p2s_hi=19; p2s_lo=136
@@ -282,7 +284,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if len(pdu) < 2: return nrc(0x11, 0x13)
         sub = pdu[1] & 0x7F
         if sub not in (0x01, 0x02, 0x03): return nrc(0x11, 0x12)
-        state.session = 0x01; state.sec_unlocked.clear()
+        state.session = 0x01; state.sec_unlocked.clear(); state.sec_fail_count.clear()
         return bytes([0x51, sub])
     if sid == 0x27:
         if len(pdu) < 2: return nrc(0x27, 0x13)
@@ -290,21 +292,26 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         sub = pdu[1]
         if sub % 2 == 1:
             level = (sub + 1) // 2
-            if state.sec_unlocked.get(level): return bytes([0x67, sub] + [0x00] * 8)
+            if state.sec_fail_count.get(level, 0) >= 3: return nrc(0x27, 0x36)
+            if state.sec_unlocked.get(level): return bytes([0x67, sub] + [0x00] * ALGO_SEED_LEN)
             import os as _os
             seed = _os.urandom(6) + bytes([0x00, level & 0xFF])
             state.pending_seed = seed; state.pending_level = level
             return bytes([0x67, sub]) + seed
         else:
             level = sub // 2
+            if state.sec_fail_count.get(level, 0) >= 3: return nrc(0x27, 0x36)
             if state.pending_seed is None or state.pending_level != level: return nrc(0x27, 0x24)
-            if len(pdu) != 6: return nrc(0x27, 0x13)
+            if len(pdu) != 2 + ALGO_KEY_LEN: return nrc(0x27, 0x13)
             key_material = _LEVEL_KEYS.get(level, _LEVEL_KEYS[1])
-            expected = (aes_cmac(key_material, state.pending_seed)[:4]
+            expected = (aes_cmac(key_material, state.pending_seed)[:ALGO_KEY_LEN]
                         if _XALOQI_AVAILABLE else
-                        _EcuSimulator._cmac(None, key_material, state.pending_seed)[:4])
+                        _EcuSimulator._cmac(key_material, state.pending_seed)[:ALGO_KEY_LEN])
             state.pending_seed = state.pending_level = None
-            if bytes(pdu[2:]) != expected: return nrc(0x27, 0x35)
+            if bytes(pdu[2:]) != expected:
+                state.sec_fail_count[level] = state.sec_fail_count.get(level, 0) + 1
+                return nrc(0x27, 0x35)
+            state.sec_fail_count[level] = 0
             state.sec_unlocked[level] = True
             return bytes([0x67, sub])
     if sid == 0x22:
@@ -314,7 +321,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         for i in range(1, len(pdu), 2):
             did_id = (pdu[i] << 8) | pdu[i + 1]; entry = meta.get(did_id)
             if entry is None: return nrc(0x22, 0x31)
-            if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: return nrc(0x22, 0x31)
+            if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: return nrc(0x22, 0x7F)
             if entry['read_sec'] > 0 and not state.sec_unlocked.get(entry['read_sec']): return nrc(0x22, 0x33)
             resp.extend([pdu[i], pdu[i+1]])
             resp.extend(state.did_store.get(did_id, bytearray(entry['data_length'])))
@@ -347,6 +354,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
             return bytes(resp)
         return nrc(0x19, 0x12)
     if sid == 0x14:
+        if state.session == 0x01: return nrc(0x14, 0x7F)
         for d in state.dtcs: d['status'] = 0x00
         return bytes([0x54])
     if sid == 0x31:
@@ -360,7 +368,21 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if sub_fn == 0x01 and 'start'   not in entry['support']: return nrc(0x31, 0x12)
         if sub_fn == 0x02 and 'stop'    not in entry['support']: return nrc(0x31, 0x12)
         if sub_fn == 0x03 and 'results' not in entry['support']: return nrc(0x31, 0x12)
+        if sub_fn == 0x03 and not state.routine_started.get(rid, False): return nrc(0x31, 0x22)
+        if sub_fn == 0x01: state.routine_started[rid] = True
         return bytes([0x71, sub_fn, pdu[2], pdu[3]])
+    if sid == 0x28:
+        if len(pdu) < 2: return nrc(0x28, 0x13)
+        if state.session == 0x01: return nrc(0x28, 0x7F)
+        sub = pdu[1] & 0x7F
+        if sub > 0x03: return nrc(0x28, 0x12)
+        return bytes([0x68, sub])
+    if sid == 0x85:
+        if len(pdu) < 2: return nrc(0x85, 0x13)
+        if state.session == 0x01: return nrc(0x85, 0x7F)
+        sub = pdu[1] & 0x7F
+        if sub not in (0x01, 0x02): return nrc(0x85, 0x12)
+        return bytes([0xC5, sub])
     return bytes([0x7F, sid, 0x11])
 
 

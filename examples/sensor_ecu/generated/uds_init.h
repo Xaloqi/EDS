@@ -5,7 +5,7 @@
  *
  * ECU       : SensorECU
  * Version   : 1.0.0
- * Generated : 2026-05-19T13:34:41Z
+ * Generated : 2026-05-20T07:21:49Z
  *
  * PURPOSE: Public interface for the generated UDS stack initialisation module.
  *

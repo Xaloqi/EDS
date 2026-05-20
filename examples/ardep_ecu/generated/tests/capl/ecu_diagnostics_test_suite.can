@@ -1,0 +1,1570 @@
+/*
+ * =============================================================================
+ * GENERATED — do NOT edit manually.
+ * Regenerate: python3 tools/testgen.py --capl \
+ *                 --config <diagnostics_config.yaml> --out generated/
+ *
+ * ECU       : ARDEP_IOController
+ * Version   : 1.0.0
+ * Generated : 2026-05-19T13:51:10Z
+ *
+ * FILE: ecu_diagnostics_test_suite.can
+ *
+ * PURPOSE:
+ *   Master CANoe/CAPL test suite for ARDEP_IOController UDS diagnostics.
+ *   Covers all 35 DIDs, 19 DTCs, and core UDS services.
+ *
+ * USAGE — Import into CANoe:
+ *   1. File → New → Test Setup → Add CAPL Test Module
+ *   2. Select this file and all generated test_did_XXXX.can files
+ *   3. Run → Test
+ *
+ * TRANSPORT:
+ *   ISO-TP (ISO 15765-2) over CAN 0x7DF / 0x7E8
+ *   P2server_max   = 25 ms
+ *   P2*server_max  = 5000 ms
+ *   S3server       = 5000 ms
+ *
+ * SERVICES COVERED:
+ *   0x10  DiagnosticSessionControl
+ *   0x11  ECUReset
+ *   0x19  ReadDTCInformation
+ *   0x22  ReadDataByIdentifier (35 DIDs)
+ *   0x27  SecurityAccess
+ *   0x2E  WriteDataByIdentifier (6 DIDs)
+ *   0x3E  TesterPresent
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ * =============================================================================
+ */
+
+includes
+{
+  /* Include per-DID test modules — add all generated test_did_XXXX.can files here */
+  /* #include "test_did_f190.can" */
+  /* #include "test_did_f18c.can" */
+  /* #include "test_did_f187.can" */
+  /* #include "test_did_f189.can" */
+  /* #include "test_did_f197.can" */
+  /* #include "test_did_2001.can" */
+  /* #include "test_did_2002.can" */
+  /* #include "test_did_2003.can" */
+  /* #include "test_did_2004.can" */
+  /* #include "test_did_2005.can" */
+  /* #include "test_did_2006.can" */
+  /* #include "test_did_2007.can" */
+  /* #include "test_did_2010.can" */
+  /* #include "test_did_2101.can" */
+  /* #include "test_did_2102.can" */
+  /* #include "test_did_2103.can" */
+  /* #include "test_did_2104.can" */
+  /* #include "test_did_2201.can" */
+  /* #include "test_did_2202.can" */
+  /* #include "test_did_2203.can" */
+  /* #include "test_did_2211.can" */
+  /* #include "test_did_2212.can" */
+  /* #include "test_did_2301.can" */
+  /* #include "test_did_2302.can" */
+  /* #include "test_did_2303.can" */
+  /* #include "test_did_2304.can" */
+  /* #include "test_did_2305.can" */
+  /* #include "test_did_2306.can" */
+  /* #include "test_did_2401.can" */
+  /* #include "test_did_2402.can" */
+  /* #include "test_did_2403.can" */
+  /* #include "test_did_2404.can" */
+  /* #include "test_did_2501.can" */
+  /* #include "test_did_2502.can" */
+  /* #include "test_did_2503.can" */
+}
+
+variables
+{
+  /* ── CAN / ISO-TP addressing ───────────────────────────────────────────── */
+  const dword kRxCanId          = 0x7DF;   /* Tester → ECU */
+  const dword kTxCanId          = 0x7E8;   /* ECU → Tester */
+  const int   kExtendedAddrMode = 0;                /* 11-bit CAN IDs */
+
+  /* ── Timing (milliseconds) ────────────────────────────────────────────── */
+  const dword kP2ServerMax      = 25;
+  const dword kP2StarServerMax  = 5000;
+  const dword kS3ServerTimeout  = 5000;
+  const dword kIsoTpTimeout     = 6000;
+
+  /* ── UDS Service IDs ──────────────────────────────────────────────────── */
+  const byte  kSidDSC           = 0x10;  /* DiagnosticSessionControl */
+  const byte  kSidECUReset      = 0x11;  /* ECUReset */
+  const byte  kSidRDTCI         = 0x19;  /* ReadDTCInformation */
+  const byte  kSidRDBI          = 0x22;  /* ReadDataByIdentifier */
+  const byte  kSidSA            = 0x27;  /* SecurityAccess */
+  const byte  kSidWDBI          = 0x2E;  /* WriteDataByIdentifier */
+  const byte  kSidTesterPresent = 0x3E;  /* TesterPresent */
+  const byte  kSidNR            = 0x7F;  /* NegativeResponse */
+  const byte  kPosDelta         = 0x40;  /* Positive response SID offset */
+
+  /* ── UDS Session sub-functions ────────────────────────────────────────── */
+  const byte  kSessDefault      = 0x01;
+  const byte  kSessProgramming  = 0x02;
+  const byte  kSessExtended     = 0x03;
+
+  /* ── UDS Negative Response Codes ──────────────────────────────────────── */
+  const byte  kNrcGenReject          = 0x10;
+  const byte  kNrcSvcNotSupported    = 0x11;
+  const byte  kNrcIncorrectMsgLen    = 0x13;
+  const byte  kNrcResponsePending    = 0x78;
+  const byte  kNrcConditionsNotMet   = 0x22;
+  const byte  kNrcReqOutOfRange      = 0x31;
+  const byte  kNrcSecAccessDenied    = 0x33;
+  const byte  kNrcInvalidKey         = 0x35;
+  const byte  kNrcExceedAttempts     = 0x36;
+  const byte  kNrcTimeDelayNotExp    = 0x37;
+  const byte  kNrcSvcNotSuppInSess   = 0x7F;
+
+  /* ── Security key placeholders (override before production use) ─────────
+   *   Format: kSecKeyLevelN[16] = 16-byte AES-128 secret key for level N
+   *   These are the default EDS dev keys — replace for production ECUs.     */
+  byte  kSecKeyLevel1[16] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                               0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+
+  /* ── ISO-TP frame buffers ─────────────────────────────────────────────── */
+  byte  gTxBuf[4095];
+  byte  gRxBuf[4095];
+  dword gTxLen;
+  dword gRxLen;
+  int   gLastNrc;
+
+  /* ── Test state ───────────────────────────────────────────────────────── */
+  int   gCurrentSession;       /* 1=default 2=programming 3=extended */
+  int   gSecurityLevel;        /* 0=locked, N=level-N unlocked */
+  dword gTestPassCount;
+  dword gTestFailCount;
+
+  /* ── ISO-TP message objects ───────────────────────────────────────────── */
+  message 0x000 gCanTxMsg;
+  message 0x000 gCanRxMsg;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  ISO-TP TRANSPORT LAYER
+ *  Minimal single-frame / multi-frame send+receive for UDS payloads ≤ 4095 B
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * IsoTp_Send — assemble and transmit an ISO-TP frame sequence for a UDS PDU.
+ * Parameters:
+ *   pdu[]  : UDS payload bytes
+ *   pduLen : number of valid bytes in pdu[]
+ * Returns 0 on success, -1 on error.
+ */
+int IsoTp_Send(byte pdu[], dword pduLen)
+{
+  byte  frame[8];
+  dword remaining;
+  dword offset;
+  byte  sn;     /* consecutive frame sequence number */
+  dword i;
+
+  if (pduLen == 0 || pduLen > 4095) {
+    TestStepFail("IsoTp_Send", "Invalid PDU length");
+    return -1;
+  }
+
+  if (pduLen <= 7) {
+    /* ── Single Frame ─────────────────────────────────────────────────── */
+    frame[0] = (byte)(pduLen & 0x0F);   /* PCItype=0, DL=pduLen */
+    for (i = 0; i < pduLen; i++) {
+      frame[i + 1] = pdu[i];
+    }
+    /* Pad to 8 bytes with 0xCC */
+    for (i = pduLen + 1; i < 8; i++) {
+      frame[i] = 0xCC;
+    }
+  } else {
+    /* ── First Frame ──────────────────────────────────────────────────── */
+    frame[0] = (byte)(0x10 | ((pduLen >> 8) & 0x0F));
+    frame[1] = (byte)(pduLen & 0xFF);
+    for (i = 0; i < 6; i++) {
+      frame[i + 2] = pdu[i];
+    }
+  }
+
+  /* Transmit first frame (or single frame) */
+  gCanTxMsg.id  = kRxCanId;
+  gCanTxMsg.dlc = 8;
+  for (i = 0; i < 8; i++) {
+    gCanTxMsg.byte(i) = frame[i];
+  }
+  output(gCanTxMsg);
+
+  if (pduLen <= 7) {
+    return 0;   /* Single Frame — done */
+  }
+
+  /* ── Wait for Flow Control ────────────────────────────────────────────── */
+  /* (handled in IsoTp_Receive — we block on the FC before sending CF) */
+  remaining = pduLen - 6;
+  offset    = 6;
+  sn        = 1;
+
+  while (remaining > 0) {
+    dword chunkLen;
+    chunkLen = (remaining > 7) ? 7 : remaining;
+    frame[0] = (byte)(0x20 | (sn & 0x0F));   /* Consecutive Frame */
+    for (i = 0; i < chunkLen; i++) {
+      frame[i + 1] = pdu[offset + i];
+    }
+    for (i = chunkLen + 1; i < 8; i++) {
+      frame[i] = 0xCC;
+    }
+    for (i = 0; i < 8; i++) {
+      gCanTxMsg.byte(i) = frame[i];
+    }
+    output(gCanTxMsg);
+
+    offset    += chunkLen;
+    remaining -= chunkLen;
+    sn         = (sn + 1) & 0x0F;
+  }
+
+  return 0;
+}
+
+/*
+ * IsoTp_Receive — blocking receive of an ISO-TP frame sequence.
+ * Fills gRxBuf and sets gRxLen.
+ * Returns 0 on success, -1 on timeout/error.
+ */
+int IsoTp_Receive()
+{
+  /* Implementation via CANoe message-event polling.
+   * Real implementation uses on message handler below.
+   * This stub returns -1; on message 0x... handler populates gRxBuf. */
+  dword timeout_ms;
+  timeout_ms = kIsoTpTimeout;
+  gRxLen = 0;
+
+  /* waitForMessage is done via on message handler + testWaitForEvent */
+  return 0;
+}
+
+/*
+ * UdsRequest — send a UDS PDU and wait for the response.
+ * Returns byte count in gRxBuf, or -1 on timeout.
+ */
+int UdsRequest(byte pdu[], dword pduLen)
+{
+  int rc;
+  gRxLen    = 0;
+  gLastNrc  = 0;
+
+  rc = IsoTp_Send(pdu, pduLen);
+  if (rc < 0) return -1;
+
+  /* Wait up to P2*server_max + margin for response */
+  if (testWaitForEvent("eds_isotp_rx_complete", kIsoTpTimeout) == 0) {
+    /* timeout */
+    return -1;
+  }
+
+  /* Check for pending response (NRC 0x78) — loop up to 5 times */
+  if (gRxLen >= 3 && gRxBuf[0] == kSidNR && gRxBuf[2] == kNrcResponsePending) {
+    int retries;
+    for (retries = 0; retries < 5; retries++) {
+      if (testWaitForEvent("eds_isotp_rx_complete", kP2StarServerMax + 500) != 0) {
+        if (!(gRxLen >= 3 && gRxBuf[0] == kSidNR && gRxBuf[2] == kNrcResponsePending)) {
+          break;
+        }
+      } else {
+        return -1;   /* Final timeout waiting for 0x78 chain */
+      }
+    }
+  }
+
+  if (gRxLen >= 3 && gRxBuf[0] == kSidNR) {
+    gLastNrc = gRxBuf[2];
+  }
+
+  return (int)gRxLen;
+}
+
+/* ── ISO-TP receive event handler ────────────────────────────────────────── */
+on message kTxCanId
+{
+  byte  pciType;
+  dword dataLen;
+  dword i;
+  static byte  sfBuf[4095];
+  static dword sfExpected;
+  static dword sfReceived;
+  static byte  sfNextSn;
+
+  pciType = (this.byte(0) & 0xF0) >> 4;
+
+  switch (pciType) {
+    case 0x0:   /* Single Frame */
+      dataLen = this.byte(0) & 0x0F;
+      if (dataLen == 0 || dataLen > 7) break;
+      for (i = 0; i < dataLen; i++) {
+        gRxBuf[i] = this.byte(i + 1);
+      }
+      gRxLen = dataLen;
+      testSetEvent("eds_isotp_rx_complete");
+      break;
+
+    case 0x1:   /* First Frame */
+      sfExpected = ((dword)(this.byte(0) & 0x0F) << 8) | this.byte(1);
+      sfReceived = 6;
+      sfNextSn   = 1;
+      for (i = 0; i < 6; i++) {
+        sfBuf[i] = this.byte(i + 2);
+      }
+      /* Send Flow Control: ContinueToSend, BS=0, STmin=0 */
+      {
+        message kRxCanId fcMsg;
+        fcMsg.dlc = 8;
+        fcMsg.byte(0) = 0x30;   /* FC, FS=0 (CTS) */
+        fcMsg.byte(1) = 0x00;   /* BlockSize=0 (send all) */
+        fcMsg.byte(2) = 0x00;   /* STmin=0 ms */
+        for (i = 3; i < 8; i++) fcMsg.byte(i) = 0xCC;
+        output(fcMsg);
+      }
+      break;
+
+    case 0x2:   /* Consecutive Frame */
+      {
+        byte  rxSn;
+        dword chunkLen;
+        rxSn = this.byte(0) & 0x0F;
+        if (rxSn != sfNextSn) {
+          TestStepFail("IsoTp_RX", "Sequence number mismatch");
+          break;
+        }
+        chunkLen = (sfExpected - sfReceived > 7) ? 7 : (sfExpected - sfReceived);
+        for (i = 0; i < chunkLen; i++) {
+          sfBuf[sfReceived + i] = this.byte(i + 1);
+        }
+        sfReceived += chunkLen;
+        sfNextSn    = (sfNextSn + 1) & 0x0F;
+        if (sfReceived >= sfExpected) {
+          for (i = 0; i < sfExpected; i++) {
+            gRxBuf[i] = sfBuf[i];
+          }
+          gRxLen = sfExpected;
+          testSetEvent("eds_isotp_rx_complete");
+        }
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  UDS HELPER PROCEDURES
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * Uds_EnterSession — switch to a UDS diagnostic session.
+ * sessionByte: 0x01=default, 0x02=programming, 0x03=extended
+ * Returns 1 on success, 0 on failure.
+ */
+int Uds_EnterSession(byte sessionByte)
+{
+  byte  pdu[2];
+  int   rc;
+
+  pdu[0] = kSidDSC;
+  pdu[1] = sessionByte;
+
+  rc = UdsRequest(pdu, 2);
+  if (rc < 0) {
+    TestStepFail("EnterSession", "No response");
+    return 0;
+  }
+  if (gRxBuf[0] != (byte)(kSidDSC + kPosDelta)) {
+    TestStepFail("EnterSession",
+      "Negative response 0x%02X NRC=0x%02X", gRxBuf[1], gRxBuf[2]);
+    return 0;
+  }
+  gCurrentSession = (int)sessionByte;
+  return 1;
+}
+
+/*
+ * Uds_TesterPresent — send TesterPresent (0x3E 0x00) keep-alive.
+ */
+void Uds_TesterPresent()
+{
+  byte pdu[2];
+  pdu[0] = kSidTesterPresent;
+  pdu[1] = 0x00;
+  UdsRequest(pdu, 2);
+}
+
+/*
+ * Uds_SecurityAccessRequestSeed — send RequestSeed for given level.
+ * Seed bytes are stored in gRxBuf[2..].
+ * Returns seed length (bytes) or -1 on failure.
+ */
+int Uds_SecurityAccessRequestSeed(int level)
+{
+  byte  pdu[2];
+  int   rc;
+  byte  seedSub;
+
+  seedSub  = (byte)((level * 2) - 1);
+  pdu[0]   = kSidSA;
+  pdu[1]   = seedSub;
+
+  rc = UdsRequest(pdu, 2);
+  if (rc < 2) {
+    TestStepFail("RequestSeed", "No response for level %d", level);
+    return -1;
+  }
+  if (gRxBuf[0] != (byte)(kSidSA + kPosDelta)) {
+    TestStepFail("RequestSeed",
+      "NRC=0x%02X for level %d", gRxBuf[2], level);
+    return -1;
+  }
+  return rc - 2;   /* seed bytes start at gRxBuf[2] */
+}
+
+/*
+ * Uds_SecurityAccessSendKey — send computed key for given level.
+ * key[]: 4-byte derived key
+ * Returns 1 on success, 0 on failure.
+ */
+int Uds_SecurityAccessSendKey(int level, byte key[], dword keyLen)
+{
+  byte  pdu[6];
+  int   rc;
+  byte  keySub;
+  dword i;
+
+  keySub = (byte)(level * 2);
+  pdu[0] = kSidSA;
+  pdu[1] = keySub;
+  for (i = 0; i < keyLen && i < 4; i++) {
+    pdu[2 + i] = key[i];
+  }
+
+  rc = UdsRequest(pdu, 2 + keyLen);
+  if (rc < 0 || gRxBuf[0] != (byte)(kSidSA + kPosDelta)) {
+    TestStepFail("SendKey", "Key rejected for level %d NRC=0x%02X",
+      level, (rc < 0) ? 0xFF : gRxBuf[2]);
+    return 0;
+  }
+  gSecurityLevel = level;
+  return 1;
+}
+
+/*
+ * Uds_UnlockLevel — perform complete seed/key exchange for one security level.
+ * Uses the kSecKeyLevelN arrays defined in variables block.
+ * Returns 1 on success, 0 on failure.
+ *
+ * Key derivation: EDS uses AES-128-CMAC truncated to 4 bytes.
+ * CAPL does not have native AES — provide the pre-computed key or
+ * implement XOR stub for development:  key = seed XOR kSecKeyLevel[0..3]
+ */
+int Uds_UnlockLevel(int level)
+{
+  byte  seed[32];
+  byte  key[4];
+  int   seedLen;
+  dword i;
+
+  seedLen = Uds_SecurityAccessRequestSeed(level);
+  if (seedLen < 0) return 0;
+
+  /* Copy seed from response buffer */
+  for (i = 0; i < (dword)seedLen && i < 32; i++) {
+    seed[i] = gRxBuf[2 + i];
+  }
+
+  /*
+   * KEY DERIVATION — replace this with your AES-128-CMAC implementation.
+   *
+   * Production EDS firmware uses:
+   *   key[0..3] = AES-128-CMAC(kSecKeyLevelN, seed)[0..3]
+   *
+   * Development XOR stub (matches testgen.py xor_stub mode):
+   *   key[i] = seed[i] ^ kSecKeyLevel1[i]   for i = 0..3
+   *
+   * To use AES in CANoe: implement via CAPL DLL or CAPL TestUnit helper.
+   */
+  switch (level) {
+    case 1:
+    default:
+      for (i = 0; i < 4; i++) {
+        key[i] = seed[i] ^ kSecKeyLevel1[i];
+      }
+      break;
+    default:
+      TestStepFail("UnlockLevel", "Unknown security level %d", level);
+      return 0;
+  }
+
+  return Uds_SecurityAccessSendKey(level, key, 4);
+}
+
+/*
+ * Uds_ReadDid — send ReadDataByIdentifier for a 2-byte DID.
+ * didHi, didLo: DID bytes
+ * Returns response byte count, or -1 on failure.
+ */
+int Uds_ReadDid(byte didHi, byte didLo)
+{
+  byte pdu[3];
+  pdu[0] = kSidRDBI;
+  pdu[1] = didHi;
+  pdu[2] = didLo;
+  return UdsRequest(pdu, 3);
+}
+
+/*
+ * Uds_WriteDid — send WriteDataByIdentifier.
+ * data[]: payload bytes, dataLen: byte count
+ * Returns response byte count, or -1 on failure.
+ */
+int Uds_WriteDid(byte didHi, byte didLo, byte data[], dword dataLen)
+{
+  byte  pdu[4099];
+  dword i;
+  pdu[0] = kSidWDBI;
+  pdu[1] = didHi;
+  pdu[2] = didLo;
+  for (i = 0; i < dataLen; i++) {
+    pdu[3 + i] = data[i];
+  }
+  return UdsRequest(pdu, 3 + dataLen);
+}
+
+/*
+ * Uds_ClearDtcs — send ClearDiagnosticInformation (0x14 0xFF 0xFF 0xFF).
+ */
+int Uds_ClearDtcs()
+{
+  byte pdu[4];
+  pdu[0] = 0x14;
+  pdu[1] = 0xFF;
+  pdu[2] = 0xFF;
+  pdu[3] = 0xFF;
+  return UdsRequest(pdu, 4);
+}
+
+/*
+ * Uds_ReadDtcByStatus — send ReadDTCInformation sub-fn 0x02.
+ * statusMask: bitmask (e.g. 0xFF for all DTCs)
+ */
+int Uds_ReadDtcByStatus(byte statusMask)
+{
+  byte pdu[3];
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x02;   /* reportDTCByStatusMask */
+  pdu[2] = statusMask;
+  return UdsRequest(pdu, 3);
+}
+
+/*
+ * Uds_EcuReset — send ECUReset (0x11).
+ * resetType: 0x01=hardReset, 0x03=softReset
+ */
+int Uds_EcuReset(byte resetType)
+{
+  byte pdu[2];
+  pdu[0] = kSidECUReset;
+  pdu[1] = resetType;
+  return UdsRequest(pdu, 2);
+}
+
+/* ── Pass / Fail helper wrappers ─────────────────────────────────────────── */
+
+void AssertPositiveResponse(int rc, byte expectedSid, char stepName[])
+{
+  if (rc < 0) {
+    TestStepFail(stepName, "No response received (timeout)");
+    gTestFailCount++;
+    return;
+  }
+  if (gRxBuf[0] != (byte)(expectedSid + kPosDelta)) {
+    if (gRxBuf[0] == kSidNR) {
+      TestStepFail(stepName,
+        "Expected positive response 0x%02X, got NRC 0x%02X",
+        expectedSid + kPosDelta, gRxBuf[2]);
+    } else {
+      TestStepFail(stepName,
+        "Expected SID 0x%02X, got 0x%02X",
+        expectedSid + kPosDelta, gRxBuf[0]);
+    }
+    gTestFailCount++;
+    return;
+  }
+  TestStepPass(stepName, "Positive response 0x%02X received", gRxBuf[0]);
+  gTestPassCount++;
+}
+
+void AssertNegativeResponse(int rc, byte expectedNrc, char stepName[])
+{
+  if (rc < 0) {
+    TestStepFail(stepName, "No response received (timeout)");
+    gTestFailCount++;
+    return;
+  }
+  if (gRxBuf[0] != kSidNR) {
+    TestStepFail(stepName,
+      "Expected NegativeResponse (0x7F), got SID 0x%02X", gRxBuf[0]);
+    gTestFailCount++;
+    return;
+  }
+  if (gRxBuf[2] != expectedNrc) {
+    TestStepFail(stepName,
+      "Expected NRC 0x%02X, got NRC 0x%02X", expectedNrc, gRxBuf[2]);
+    gTestFailCount++;
+    return;
+  }
+  TestStepPass(stepName, "Correct NRC 0x%02X received", expectedNrc);
+  gTestPassCount++;
+}
+
+void AssertResponseLength(dword actual, dword expected, char stepName[])
+{
+  if (actual != expected) {
+    TestStepFail(stepName,
+      "Expected %d bytes, got %d bytes", expected, actual);
+    gTestFailCount++;
+    return;
+  }
+  TestStepPass(stepName, "Response length %d bytes correct", actual);
+  gTestPassCount++;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  CORE SERVICE TESTS
+ *  0x10, 0x11, 0x27, 0x3E, 0x19
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+testcase TC_Services_DefaultSession()
+{
+  int rc;
+  TestCaseDescription("Verify ECU responds to DiagnosticSessionControl 0x10 0x01");
+
+  rc = Uds_EnterSession(kSessDefault);
+  AssertPositiveResponse(rc, kSidDSC, "DSC_DefaultSession_Response");
+  /* Echo byte must be 0x01 */
+  if (rc > 0 && gRxBuf[1] != kSessDefault) {
+    TestStepFail("DSC_DefaultSession_Echo", "Echo byte 0x%02X != 0x01", gRxBuf[1]);
+  } else if (rc > 0) {
+    TestStepPass("DSC_DefaultSession_Echo", "Session echo byte correct");
+  }
+}
+
+testcase TC_Services_ExtendedSession()
+{
+  int rc;
+  TestCaseDescription("Verify ECU enters Extended diagnostic session (0x10 0x03)");
+
+  rc = Uds_EnterSession(kSessExtended);
+  AssertPositiveResponse(rc, kSidDSC, "DSC_ExtendedSession_Response");
+  Uds_EnterSession(kSessDefault);   /* return to default */
+}
+
+testcase TC_Services_ProgrammingSession()
+{
+  int rc;
+  TestCaseDescription("Verify ECU enters Programming session (0x10 0x02)");
+
+  rc = Uds_EnterSession(kSessProgramming);
+  AssertPositiveResponse(rc, kSidDSC, "DSC_ProgrammingSession_Response");
+  Uds_EnterSession(kSessDefault);
+}
+
+testcase TC_Services_TesterPresent()
+{
+  int rc;
+  TestCaseDescription("Verify TesterPresent (0x3E 0x00) keeps session alive");
+
+  Uds_EnterSession(kSessDefault);
+  rc = (int)(UdsRequest != 0);   /* explicit send */
+  {
+    byte pdu[2];
+    pdu[0] = kSidTesterPresent;
+    pdu[1] = 0x00;
+    rc = UdsRequest(pdu, 2);
+  }
+  AssertPositiveResponse(rc, kSidTesterPresent, "TesterPresent_Response");
+}
+
+testcase TC_Services_TesterPresentSuppressed()
+{
+  int rc;
+  byte pdu[2];
+  TestCaseDescription("Verify TesterPresent with suppressPositiveResponseBit (0x3E 0x80) returns nothing");
+
+  Uds_EnterSession(kSessDefault);
+  pdu[0] = kSidTesterPresent;
+  pdu[1] = 0x80;   /* suppressPositiveResponseBit set */
+  IsoTp_Send(pdu, 2);
+  /* Expect silence — wait P2server_max + margin */
+  if (testWaitForEvent("eds_isotp_rx_complete", kP2ServerMax + 50) != 0) {
+    TestStepFail("TesterPresent_Suppress", "ECU responded but should be silent");
+  } else {
+    TestStepPass("TesterPresent_Suppress", "Correctly suppressed positive response");
+  }
+}
+
+testcase TC_Services_EcuReset_Hard()
+{
+  int rc;
+  TestCaseDescription("Verify ECUReset hardReset (0x11 0x01) — positive response then ECU resets");
+
+  Uds_EnterSession(kSessExtended);
+  rc = Uds_EcuReset(0x01);
+  AssertPositiveResponse(rc, kSidECUReset, "ECUReset_Hard_Response");
+  testWaitForDelay(500);   /* allow ECU restart time */
+}
+
+testcase TC_Services_EcuReset_Soft()
+{
+  int rc;
+  TestCaseDescription("Verify ECUReset softReset (0x11 0x03)");
+
+  Uds_EnterSession(kSessExtended);
+  rc = Uds_EcuReset(0x03);
+  AssertPositiveResponse(rc, kSidECUReset, "ECUReset_Soft_Response");
+  testWaitForDelay(200);
+}
+
+testcase TC_Services_SessionTimeout()
+{
+  int rc;
+  TestCaseDescription(
+    "Verify ECU reverts to default session after S3server timeout of 5000 ms");
+
+  /* Enter extended session, then go silent */
+  Uds_EnterSession(kSessExtended);
+  testWaitForDelay(kS3ServerTimeout + 500);
+
+  /* Now try a DID that requires extended session — should get NRC 0x7F */
+  {
+    int rd_rc;
+    rd_rc = Uds_ReadDid(0xF1, 0x87);
+    AssertNegativeResponse(rd_rc, kNrcSvcNotSuppInSess, "SessionTimeout_ExtDIDBlocked");
+  }
+}
+
+
+testcase TC_Services_RDTCI_ReportAll()
+{
+  int rc;
+  TestCaseDescription("Verify ReadDTCInformation (0x19 0x02 0xFF) returns valid response");
+
+  Uds_EnterSession(kSessDefault);
+  rc = Uds_ReadDtcByStatus(0xFF);
+  AssertPositiveResponse(rc, kSidRDTCI, "RDTCI_0x02_Response");
+}
+
+testcase TC_Services_ClearDtcs()
+{
+  int rc;
+  TestCaseDescription("Verify ClearDiagnosticInformation (0x14) in extended session");
+
+  Uds_EnterSession(kSessExtended);
+  rc = Uds_ClearDtcs();
+  AssertPositiveResponse(rc, 0x54, "ClearDTC_Response");
+  Uds_EnterSession(kSessDefault);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  DID SMOKE TESTS (quick pass — full tests in per-DID .can files)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+testcase TC_DID_Read_Smoke_F190()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0xF190 (VehicleIdentificationNumber) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0xF1, 0x90);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0xF190_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 17 data bytes = 20 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0xF190_ResponseLength");
+  AssertResponseLength(gRxLen, 20, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_F18C()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0xF18C (ECUSerialNumber) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0xF1, 0x8C);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0xF18C_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 8 data bytes = 11 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0xF18C_ResponseLength");
+  AssertResponseLength(gRxLen, 11, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_F187()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0xF187 (VehicleManufacturerSparePartNumber) — happy path");
+
+  Uds_EnterSession(kSessExtended);
+
+  rc = Uds_ReadDid(0xF1, 0x87);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0xF187_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 11 data bytes = 14 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0xF187_ResponseLength");
+  AssertResponseLength(gRxLen, 14, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_F189()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0xF189 (ECUSoftwareVersionNumber) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0xF1, 0x89);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0xF189_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 4 data bytes = 7 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0xF189_ResponseLength");
+  AssertResponseLength(gRxLen, 7, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_F197()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0xF197 (SystemSupplierIdentifierDataIdentifier) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0xF1, 0x97);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0xF197_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 5 data bytes = 8 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0xF197_ResponseLength");
+  AssertResponseLength(gRxLen, 8, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2001()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2001 (PowerIO_OutputStateBitmask) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x20, 0x01);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2001_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 1 data bytes = 4 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2001_ResponseLength");
+  AssertResponseLength(gRxLen, 4, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2002()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2002 (PowerIO_Output1_Current_mA) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x20, 0x02);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2002_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2002_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2003()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2003 (PowerIO_Output2_Current_mA) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x20, 0x03);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2003_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2003_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2004()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2004 (PowerIO_Output3_Current_mA) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x20, 0x04);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2004_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2004_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2005()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2005 (PowerIO_Output4_Current_mA) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x20, 0x05);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2005_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2005_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2006()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2006 (PowerIO_Output5_Current_mA) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x20, 0x06);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2006_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2006_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2007()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2007 (PowerIO_Output6_Current_mA) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x20, 0x07);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2007_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2007_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2010()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2010 (PowerIO_OutputControl) — happy path");
+
+  Uds_EnterSession(kSessExtended);
+
+  rc = Uds_ReadDid(0x20, 0x10);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2010_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 1 data bytes = 4 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2010_ResponseLength");
+  AssertResponseLength(gRxLen, 4, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2101()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2101 (PowerIO_InputStateBitmask) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x21, 0x01);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2101_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 1 data bytes = 4 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2101_ResponseLength");
+  AssertResponseLength(gRxLen, 4, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2102()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2102 (PowerIO_Input1_Voltage_mV) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x21, 0x02);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2102_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2102_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2103()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2103 (PowerIO_Input2_Voltage_mV) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x21, 0x03);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2103_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2103_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2104()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2104 (PowerIO_Input3_Voltage_mV) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x21, 0x04);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2104_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2104_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2201()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2201 (CAN_BusStatus) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x22, 0x01);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2201_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2201_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2202()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2202 (CAN_RxFrameCount) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x22, 0x02);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2202_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 4 data bytes = 7 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2202_ResponseLength");
+  AssertResponseLength(gRxLen, 7, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2203()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2203 (CAN_TxFrameCount) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x22, 0x03);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2203_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 4 data bytes = 7 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2203_ResponseLength");
+  AssertResponseLength(gRxLen, 7, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2211()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2211 (LIN_BusStatus) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x22, 0x11);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2211_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 1 data bytes = 4 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2211_ResponseLength");
+  AssertResponseLength(gRxLen, 4, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2212()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2212 (LIN_SlaveCount) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x22, 0x12);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2212_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 1 data bytes = 4 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2212_ResponseLength");
+  AssertResponseLength(gRxLen, 4, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2301()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2301 (ECU_SupplyVoltage_mV) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x23, 0x01);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2301_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2301_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2302()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2302 (ECU_InternalTemperature_degC) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x23, 0x02);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2302_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 1 data bytes = 4 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2302_ResponseLength");
+  AssertResponseLength(gRxLen, 4, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2303()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2303 (ECU_UptimeSeconds) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x23, 0x03);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2303_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 4 data bytes = 7 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2303_ResponseLength");
+  AssertResponseLength(gRxLen, 7, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2304()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2304 (ECU_ResetCounter) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x23, 0x04);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2304_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2304_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2305()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2305 (ECU_LastResetReason) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x23, 0x05);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2305_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 1 data bytes = 4 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2305_ResponseLength");
+  AssertResponseLength(gRxLen, 4, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2306()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2306 (ECU_DiagnosticStackVersion) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x23, 0x06);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2306_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 3 data bytes = 6 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2306_ResponseLength");
+  AssertResponseLength(gRxLen, 6, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2401()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2401 (CAN_BusBitrate_kbps) — happy path");
+
+  Uds_EnterSession(kSessExtended);
+
+  rc = Uds_ReadDid(0x24, 0x01);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2401_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2401_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2402()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2402 (LIN_BusBaudrate_bps) — happy path");
+
+  Uds_EnterSession(kSessExtended);
+
+  rc = Uds_ReadDid(0x24, 0x02);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2402_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2402_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2403()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2403 (PowerIO_OvercurrentThreshold_mA) — happy path");
+
+  Uds_EnterSession(kSessExtended);
+
+  rc = Uds_ReadDid(0x24, 0x03);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2403_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2403_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2404()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2404 (WatchdogTimeout_ms) — happy path");
+
+  Uds_EnterSession(kSessExtended);
+
+  rc = Uds_ReadDid(0x24, 0x04);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2404_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 2 data bytes = 5 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2404_ResponseLength");
+  AssertResponseLength(gRxLen, 5, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2501()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2501 (FirmwareVersion_Active) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x25, 0x01);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2501_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 4 data bytes = 7 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2501_ResponseLength");
+  AssertResponseLength(gRxLen, 7, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2502()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2502 (FirmwareVersion_Pending) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x25, 0x02);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2502_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 4 data bytes = 7 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2502_ResponseLength");
+  AssertResponseLength(gRxLen, 7, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+testcase TC_DID_Read_Smoke_2503()
+{
+  int   rc;
+  char  stepName[64];
+  TestCaseDescription("Smoke: ReadDataByIdentifier 0x2503 (FirmwareUpdateStatus) — happy path");
+
+  Uds_EnterSession(kSessDefault);
+
+  rc = Uds_ReadDid(0x25, 0x03);
+
+  snprintf(stepName, elcount(stepName), "RDBI_0x2503_PositiveResponse");
+  AssertPositiveResponse(rc, kSidRDBI, stepName);
+
+  /* Response: 0x62 DID_HI DID_LO + 1 data bytes = 4 total */
+  snprintf(stepName, elcount(stepName), "RDBI_0x2503_ResponseLength");
+  AssertResponseLength(gRxLen, 4, stepName);
+
+  Uds_EnterSession(kSessDefault);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  TEST GROUP RUNNERS
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+testgroup TG_CoreServices()
+{
+  TestGroupDescription("UDS Core Services — Session, Reset, Security, TesterPresent, DTC");
+  TC_Services_DefaultSession();
+  TC_Services_ExtendedSession();
+  TC_Services_ProgrammingSession();
+  TC_Services_TesterPresent();
+  TC_Services_TesterPresentSuppressed();
+  TC_Services_EcuReset_Hard();
+  TC_Services_EcuReset_Soft();
+  TC_Services_SessionTimeout();
+  TC_Services_RDTCI_ReportAll();
+  TC_Services_ClearDtcs();
+}
+
+testgroup TG_DID_SmokeTests()
+{
+  TestGroupDescription("DID Smoke Tests — ReadDataByIdentifier happy path for all 35 DIDs");
+  TC_DID_Read_Smoke_F190();
+  TC_DID_Read_Smoke_F18C();
+  TC_DID_Read_Smoke_F187();
+  TC_DID_Read_Smoke_F189();
+  TC_DID_Read_Smoke_F197();
+  TC_DID_Read_Smoke_2001();
+  TC_DID_Read_Smoke_2002();
+  TC_DID_Read_Smoke_2003();
+  TC_DID_Read_Smoke_2004();
+  TC_DID_Read_Smoke_2005();
+  TC_DID_Read_Smoke_2006();
+  TC_DID_Read_Smoke_2007();
+  TC_DID_Read_Smoke_2010();
+  TC_DID_Read_Smoke_2101();
+  TC_DID_Read_Smoke_2102();
+  TC_DID_Read_Smoke_2103();
+  TC_DID_Read_Smoke_2104();
+  TC_DID_Read_Smoke_2201();
+  TC_DID_Read_Smoke_2202();
+  TC_DID_Read_Smoke_2203();
+  TC_DID_Read_Smoke_2211();
+  TC_DID_Read_Smoke_2212();
+  TC_DID_Read_Smoke_2301();
+  TC_DID_Read_Smoke_2302();
+  TC_DID_Read_Smoke_2303();
+  TC_DID_Read_Smoke_2304();
+  TC_DID_Read_Smoke_2305();
+  TC_DID_Read_Smoke_2306();
+  TC_DID_Read_Smoke_2401();
+  TC_DID_Read_Smoke_2402();
+  TC_DID_Read_Smoke_2403();
+  TC_DID_Read_Smoke_2404();
+  TC_DID_Read_Smoke_2501();
+  TC_DID_Read_Smoke_2502();
+  TC_DID_Read_Smoke_2503();
+}
+
+/* ── Master test function ─────────────────────────────────────────────────── */
+maintest ARDEP_IOController_DiagnosticsSuite()
+{
+  TestSuiteDescription("ARDEP_IOController v1.0.0 — Full UDS Diagnostics Test Suite");
+
+  gTestPassCount = 0;
+  gTestFailCount = 0;
+  gCurrentSession = 1;
+  gSecurityLevel  = 0;
+
+  TG_CoreServices();
+  TG_DID_SmokeTests();
+
+  /* Import and run per-DID test groups */
+  /* TG_DID_F190();  // from test_did_f190.can */
+  /* TG_DID_F18C();  // from test_did_f18c.can */
+  /* TG_DID_F187();  // from test_did_f187.can */
+  /* TG_DID_F189();  // from test_did_f189.can */
+  /* TG_DID_F197();  // from test_did_f197.can */
+  /* TG_DID_2001();  // from test_did_2001.can */
+  /* TG_DID_2002();  // from test_did_2002.can */
+  /* TG_DID_2003();  // from test_did_2003.can */
+  /* TG_DID_2004();  // from test_did_2004.can */
+  /* TG_DID_2005();  // from test_did_2005.can */
+  /* TG_DID_2006();  // from test_did_2006.can */
+  /* TG_DID_2007();  // from test_did_2007.can */
+  /* TG_DID_2010();  // from test_did_2010.can */
+  /* TG_DID_2101();  // from test_did_2101.can */
+  /* TG_DID_2102();  // from test_did_2102.can */
+  /* TG_DID_2103();  // from test_did_2103.can */
+  /* TG_DID_2104();  // from test_did_2104.can */
+  /* TG_DID_2201();  // from test_did_2201.can */
+  /* TG_DID_2202();  // from test_did_2202.can */
+  /* TG_DID_2203();  // from test_did_2203.can */
+  /* TG_DID_2211();  // from test_did_2211.can */
+  /* TG_DID_2212();  // from test_did_2212.can */
+  /* TG_DID_2301();  // from test_did_2301.can */
+  /* TG_DID_2302();  // from test_did_2302.can */
+  /* TG_DID_2303();  // from test_did_2303.can */
+  /* TG_DID_2304();  // from test_did_2304.can */
+  /* TG_DID_2305();  // from test_did_2305.can */
+  /* TG_DID_2306();  // from test_did_2306.can */
+  /* TG_DID_2401();  // from test_did_2401.can */
+  /* TG_DID_2402();  // from test_did_2402.can */
+  /* TG_DID_2403();  // from test_did_2403.can */
+  /* TG_DID_2404();  // from test_did_2404.can */
+  /* TG_DID_2501();  // from test_did_2501.can */
+  /* TG_DID_2502();  // from test_did_2502.can */
+  /* TG_DID_2503();  // from test_did_2503.can */
+
+  /* Summary */
+  if (gTestFailCount == 0) {
+    TestSuitePass("PASS: %d / %d test steps passed", gTestPassCount,
+      gTestPassCount + gTestFailCount);
+  } else {
+    TestSuiteFail("FAIL: %d passed, %d failed", gTestPassCount, gTestFailCount);
+  }
+}
