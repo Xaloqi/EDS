@@ -1,5 +1,9 @@
 # Xaloqi EDS — Installation Guide
 
+> **This file is for commercial license customers.** It is included in the Developer and
+> Professional ZIP archives and describes how to install the toolchain files into your EDS
+> repo. Community users cloning the public repo can ignore this file.
+
 **Product:** Xaloqi EDS (Xaloqi Embedded Diagnostic Suite)  
 **Version:** v1.7.0  
 **Support:** contact@xaloqi.com
@@ -129,7 +133,7 @@ Alternatively, set the environment variable: `export XALOQI_LICENSE_KEY=YOUR-KEY
 Verify activation:
 
 ```bash
-python3 tools/activate.py --status
+python3 tools/activate.py --check
 ```
 
 Expected output:

@@ -36,7 +36,7 @@ Jinja2 template (`tools/templates/conftest.py.j2`) that generates them:
 - `examples/sensor_ecu/generated/tests/conftest.py`
 - `examples/sensor_ecu_freertos/generated/tests/conftest.py`
 
-### Added — 326-test robustness campaign (Phases A–L)
+### Added — 439-test robustness campaign (Phases A–L)
 
 Complete protocol conformance and simulator fidelity campaign across 12 phases.
 All phases run in `--can-interface=simulator` mode — no hardware required.

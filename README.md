@@ -2,7 +2,7 @@
 # Xaloqi Embedded Diagnostics Suite
 
 [![CI](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml/badge.svg)](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v1.6.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.6.0)
+[![Version](https://img.shields.io/badge/version-v1.7.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.7.0)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Zephyr](https://img.shields.io/badge/Zephyr-v3.7%2B-brightgreen)](https://zephyrproject.org)
 
@@ -69,7 +69,7 @@ python3 tools/codegen.py \
 ```bash
 # Simulator (CI, no hardware)
 west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay
+  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
 west build -t run
 
 # STM32 Nucleo-H743ZI2
@@ -98,7 +98,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 | **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
 | **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |
-| **CI pipeline** | 14-job GitHub Actions · codegen · unit tests · harness tests · Zephyr builds · FreeRTOS ARM builds · MISRA analysis · MCP server tests · DoIP integration (native_sim + DoipBus) · SOVD CDA generation |
+| **CI pipeline** | GitHub Actions — unit tests · integration tests · Zephyr builds (native_sim + STM32) · FreeRTOS ARM · MISRA analysis · DoIP integration · SOVD CDA · full robustness campaign (439 tests) |
 
 **Safety properties verified by CI on every commit:**
 - Zero dynamic memory allocation (`malloc`/`free` grep gate)
@@ -121,7 +121,7 @@ manifest:
   projects:
     - name: EDS
       remote: xaloqi
-      revision: v1.6.0
+      revision: v1.7.0
       path: modules/eds
 ```
 
@@ -145,7 +145,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.6.0 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.7.0 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 ```
@@ -161,7 +161,7 @@ python3 tools/codegen.py \
 
 # Build and run in simulator
 west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay
+  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
 west build -t run
 ```
 
@@ -193,11 +193,11 @@ For the full FreeRTOS integration guide (callbacks, NVM, reset, production porti
 ### Run the test suite
 
 ```bash
-# 36 Unity unit tests (host-native, no Zephyr SDK needed)
+# 37 Unity unit tests (host-native, no Zephyr SDK needed)
 bash build_tests.sh
 
-# 68 harness integration tests
-bash build_harness.sh
+# 68 harness integration tests (Professional tier — requires harness/ sources)
+# bash build_harness.sh
 
 # Generated pytest suite (simulator mode)
 cd examples/basic_ecu/generated/tests && pytest test_services.py test_did_*.py -v --can-interface=simulator
