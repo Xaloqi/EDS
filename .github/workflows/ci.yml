@@ -459,13 +459,19 @@ jobs:
           echo "PASS: basic_ecu pre-committed test files present"
 
       - name: Run generated integration tests (simulator mode)
-        # [FIX] Exclude test_firmware_services.py — it requires the `firmware_bus`
-        # fixture from conftest_firmware.py, only active in firmware-integration-tests.
-        # Running it here causes 57 fixture-not-found ERRORs.
+        # Excludes test_firmware_services.py (needs firmware_bus fixture) and
+        # all test_robustness_*.py files — those run in the dedicated
+        # robustness-tests job which also installs gcc for the Phase F GCC gate.
         run: |
           cd examples/basic_ecu/generated/tests
           python3 -m pytest . -v \
             --ignore=test_firmware_services.py \
+            --ignore=test_robustness_A_codegen.py \
+            --ignore=test_robustness_B_protocol.py \
+            --ignore=test_robustness_C_security.py \
+            --ignore=test_robustness_D_customer_journey.py \
+            --ignore=test_robustness_E_data_integrity.py \
+            --ignore=test_robustness_F_codegen_limits.py \
             --tb=short \
             --can-interface=simulator \
             -q
@@ -475,6 +481,12 @@ jobs:
           cd examples/basic_ecu/generated/tests
           result=$(python3 -m pytest . -q \
             --ignore=test_firmware_services.py \
+            --ignore=test_robustness_A_codegen.py \
+            --ignore=test_robustness_B_protocol.py \
+            --ignore=test_robustness_C_security.py \
+            --ignore=test_robustness_D_customer_journey.py \
+            --ignore=test_robustness_E_data_integrity.py \
+            --ignore=test_robustness_F_codegen_limits.py \
             --can-interface=simulator --tb=no 2>&1 | tail -1)
           echo "Result: $result"
           echo "$result" | grep -q "failed" && exit 1 || true
@@ -1098,3 +1110,83 @@ jobs:
           assert len(cda["routines"])        == len(cfg.get("routines", [])),        "Routine count mismatch"
           print("PASS: basic_ecu_doip CDA valid")
           EOF
+
+  # ── Job: robustness-tests ─────────────────────────────────────────────────
+  #
+  # Runs the full 6-phase robustness campaign (204 tests) against the inline
+  # ECU simulator. No xaloqi-tester required. Installs gcc for the Phase F
+  # GCC syntax gate which catches template regressions that silently produce
+  # broken C before they reach a customer.
+  #
+  # Phases:
+  #   A (22) — codegen boundary + invalid-input rejection
+  #   B (42) — UDS protocol correctness for all services
+  #   C (21) — SecurityAccess state machine exhaustive tests
+  #   D (30) — customer journey + all 11 ECU examples codegen clean
+  #   E (35) — DID data integrity, DTC lifecycle, session/security isolation
+  #   F (54) — codegen limits, GCC syntax gate for all 11 ECU .c files
+  # ──────────────────────────────────────────────────────────────────────────
+  robustness-tests:
+    name: "Robustness Campaign (204 tests, 6 phases)"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc python3 python3-pip
+
+      - name: Install Python dependencies
+        run: pip install pyyaml jinja2 pytest pycryptodome
+
+      - name: Verify gcc available (Phase F GCC gate)
+        run: gcc --version
+
+      - name: Run Phase A — codegen boundary tests
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest test_robustness_A_codegen.py -v --tb=short -q
+
+      - name: Run Phase B — protocol correctness tests
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest test_robustness_B_protocol.py -v --tb=short -q
+
+      - name: Run Phase C — security state machine tests
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest test_robustness_C_security.py -v --tb=short -q
+
+      - name: Run Phase D — customer journey + multi-ECU regression
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest test_robustness_D_customer_journey.py -v --tb=short -q
+
+      - name: Run Phase E — data integrity and runtime behavioral correctness
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest test_robustness_E_data_integrity.py -v --tb=short -q
+
+      - name: Run Phase F — codegen limits and GCC compilation gate
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest test_robustness_F_codegen_limits.py -v --tb=short -q
+
+      - name: Assert full campaign total (204 tests, 0 failures)
+        run: |
+          cd examples/basic_ecu/generated/tests
+          result=$(python3 -m pytest \
+            test_robustness_A_codegen.py \
+            test_robustness_B_protocol.py \
+            test_robustness_C_security.py \
+            test_robustness_D_customer_journey.py \
+            test_robustness_E_data_integrity.py \
+            test_robustness_F_codegen_limits.py \
+            --tb=no -q 2>&1 | tail -2)
+          echo "$result"
+          echo "$result" | grep -q "failed" && exit 1 || true
+          echo "$result" | grep -qE "^(204|[2-9][0-9]{2}) passed" \
+            || (echo "ERROR: Expected 204 passed — count changed" && exit 1)
