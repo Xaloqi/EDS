@@ -472,6 +472,7 @@ jobs:
             --ignore=test_robustness_D_customer_journey.py \
             --ignore=test_robustness_E_data_integrity.py \
             --ignore=test_robustness_F_codegen_limits.py \
+            --ignore=test_robustness_G_resilience.py \
             --tb=short \
             --can-interface=simulator \
             -q
@@ -487,6 +488,7 @@ jobs:
             --ignore=test_robustness_D_customer_journey.py \
             --ignore=test_robustness_E_data_integrity.py \
             --ignore=test_robustness_F_codegen_limits.py \
+            --ignore=test_robustness_G_resilience.py \
             --can-interface=simulator --tb=no 2>&1 | tail -1)
           echo "Result: $result"
           echo "$result" | grep -q "failed" && exit 1 || true
@@ -1113,7 +1115,7 @@ jobs:
 
   # ── Job: robustness-tests ─────────────────────────────────────────────────
   #
-  # Runs the full 6-phase robustness campaign (204 tests) against the inline
+  # Runs the full 7-phase robustness campaign (251 tests) against the inline
   # ECU simulator. No xaloqi-tester required. Installs gcc for the Phase F
   # GCC syntax gate which catches template regressions that silently produce
   # broken C before they reach a customer.
@@ -1125,9 +1127,11 @@ jobs:
   #   D (30) — customer journey + all 11 ECU examples codegen clean
   #   E (35) — DID data integrity, DTC lifecycle, session/security isolation
   #   F (54) — codegen limits, GCC syntax gate for all 11 ECU .c files
+  #   G (47) — malformed PDU resilience, CMAC round-trip, suppress-response bit,
+  #             YAML ↔ simulator metadata consistency
   # ──────────────────────────────────────────────────────────────────────────
   robustness-tests:
-    name: "Robustness Campaign (204 tests, 6 phases)"
+    name: "Robustness Campaign (251 tests, 7 phases)"
     runs-on: ubuntu-22.04
 
     steps:
@@ -1175,7 +1179,12 @@ jobs:
           cd examples/basic_ecu/generated/tests
           python3 -m pytest test_robustness_F_codegen_limits.py -v --tb=short -q
 
-      - name: Assert full campaign total (204 tests, 0 failures)
+      - name: Run Phase G — malformed PDU resilience, CMAC, suppress-response, YAML consistency
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest test_robustness_G_resilience.py -v --tb=short -q
+
+      - name: Assert full campaign total (251 tests, 0 failures)
         run: |
           cd examples/basic_ecu/generated/tests
           result=$(python3 -m pytest \
@@ -1185,8 +1194,9 @@ jobs:
             test_robustness_D_customer_journey.py \
             test_robustness_E_data_integrity.py \
             test_robustness_F_codegen_limits.py \
+            test_robustness_G_resilience.py \
             --tb=no -q 2>&1 | tail -2)
           echo "$result"
           echo "$result" | grep -q "failed" && exit 1 || true
-          echo "$result" | grep -qE "^(204|[2-9][0-9]{2}) passed" \
-            || (echo "ERROR: Expected 204 passed — count changed" && exit 1)
+          echo "$result" | grep -qE "^(251|[2-9][0-9]{2}) passed" \
+            || (echo "ERROR: Expected 251 passed — count changed" && exit 1)

@@ -266,6 +266,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         sub = pdu[1] & 0x7F
         if sub not in (0x01, 0x02, 0x03): return nrc(0x11, 0x12)
         state.session = 0x01; state.sec_unlocked.clear(); state.sec_fail_count.clear()
+        if pdu[1] & 0x80: return None
         return bytes([0x51, sub])
     if sid == 0x27:
         if len(pdu) < 2: return nrc(0x27, 0x13)
@@ -340,7 +341,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         return bytes([0x54])
     if sid == 0x31:
         if len(pdu) < 4: return nrc(0x31, 0x13)
-        sub_fn = pdu[1]
+        sub_fn = pdu[1] & 0x7F
         if sub_fn < 0x01 or sub_fn > 0x03: return nrc(0x31, 0x12)
         rid = (pdu[2] << 8) | pdu[3]; meta = state._routines_meta; entry = meta.get(rid)
         if entry is None: return nrc(0x31, 0x31)
@@ -351,18 +352,21 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if sub_fn == 0x03 and 'results' not in entry['support']: return nrc(0x31, 0x12)
         if sub_fn == 0x03 and not state.routine_started.get(rid, False): return nrc(0x31, 0x22)
         if sub_fn == 0x01: state.routine_started[rid] = True
+        if pdu[1] & 0x80: return None
         return bytes([0x71, sub_fn, pdu[2], pdu[3]])
     if sid == 0x28:
         if len(pdu) < 2: return nrc(0x28, 0x13)
         if state.session == 0x01: return nrc(0x28, 0x7F)
         sub = pdu[1] & 0x7F
         if sub > 0x03: return nrc(0x28, 0x12)
+        if pdu[1] & 0x80: return None
         return bytes([0x68, sub])
     if sid == 0x85:
         if len(pdu) < 2: return nrc(0x85, 0x13)
         if state.session == 0x01: return nrc(0x85, 0x7F)
         sub = pdu[1] & 0x7F
         if sub not in (0x01, 0x02): return nrc(0x85, 0x12)
+        if pdu[1] & 0x80: return None
         return bytes([0xC5, sub])
     return bytes([0x7F, sid, 0x11])
 
