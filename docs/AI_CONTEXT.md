@@ -13,10 +13,11 @@ ISO 15765-2 (ISO-TP) diagnostics stack for embedded RTOS targets. It is YAML-dri
 describe your DIDs, DTCs, and routines in YAML, run the code generator, and receive
 ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 
-**Version:** v1.6.0
+**Version:** v1.7.0
 **Target RTOS:** Zephyr v3.7+ · FreeRTOS (any version with static allocation support)
 **Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 (hardware) · QEMU ARM Cortex-M4 (FreeRTOS CI)
 **Transport:** ISO-TP over CAN (default) · DoIP over Ethernet/TCP (v1.6.0+)
+**OpenSOVD CDA:** `--sovd` flag generates `sovd_cda.json` (v1.7.0+)
 
 ---
 
@@ -58,7 +59,7 @@ EDS/
 ├── scripts/
 │   ├── build_tests.sh
 │   └── build_harness.sh
-└── .github/workflows/ci.yml   # 17-job CI pipeline
+└── .github/workflows/ci.yml   # 7-job public CI pipeline (unit, integration, static, zephyr×2, freertos, harness)
 ```
 
 **Golden rule:** Never hand-edit files in `generated/`. They are overwritten on every codegen run.
@@ -171,6 +172,7 @@ Options:
   --asil-level [A|B]      ASIL target level (default: B)
   --test-gen              Also generate pytest test suite into <out>/tests/
   --gui-types             Also generate gui/src/generated/catalog.ts
+  --sovd                  Generate sovd_cda.json (OpenSOVD 1.0 CDA) alongside C output
   --no-manifest           Skip JSON manifest file
   --dry-run               Validate only — write nothing
 ```
@@ -189,6 +191,7 @@ Options:
 | `safety_config.h` | ASIL compile-time macro configuration |
 | `uds_init.h` | `uds_generated_init()` declaration |
 | `uds_init.c` | Full UDS + DTC + DID + flash-ops initialisation sequence |
+| `sovd_cda.json` | OpenSOVD 1.0 CDA (DIDs, DTCs, routines, transport info) — only with `--sovd` |
 
 ---
 
@@ -743,6 +746,12 @@ UDS tester to unlock level 2: send `27 03` → receive seed → compute AES-128-
 | TesterPresent | 0x3E | ✅ | Keep-alive; responseRequired sub-fn only |
 | ControlDTCSetting | 0x85 | ✅ | DTCSettingOn / DTCSettingOff |
 
+**Suppress-response bit (ISO 14229-1 §7.5.3):** When bit 7 of the sub-function byte is set (`0x80`),
+the ECU must return no response. EDS enforces this for all 6 services that have a sub-function byte:
+0x10 (DSC), 0x11 (ECUReset), 0x28 (CommunicationControl), 0x31 (RoutineControl),
+0x3E (TesterPresent), 0x85 (ControlDTCSetting). The generated inline simulator and the C stack
+both comply. (v1.7.0 fixed compliance for 0x11, 0x28, 0x31, 0x85 in the simulator.)
+
 ---
 
 ## Checklist for a New ECU (Zephyr — CAN transport)
@@ -766,6 +775,38 @@ UDS tester to unlock level 2: send `27 03` → receive seed → compute AES-128-
 5. In your CAN RX ISR: call `eds_platform_can_input(&frame)`
 6. Run testgen and pytest — **identical commands to Zephyr**
 7. `cmake -B build -DEDS_PLATFORM=freertos -DFREERTOS_DIR=/path/to/FreeRTOS-Kernel -GNinja examples/my_ecu_freertos && ninja -C build`
+
+---
+
+## Robustness Test Campaign (v1.7.0)
+
+326 pytest tests in `examples/basic_ecu/generated/tests/`, runnable without hardware:
+
+```bash
+cd examples/basic_ecu/generated/tests
+pytest test_robustness_A_codegen.py \
+       test_robustness_B_protocol.py \
+       test_robustness_C_security.py \
+       test_robustness_D_customer_journey.py \
+       test_robustness_E_data_integrity.py \
+       test_robustness_F_codegen_limits.py \
+       test_robustness_G_resilience.py \
+       test_robustness_H_protocol_precision.py \
+       test_robustness_I_nrc_wdbi_sa.py \
+       --can-interface=simulator -q
+```
+
+| Phase | Tests | What it covers |
+|---|---|---|
+| A | 22 | Generated file presence, C safety markers, GCC syntax |
+| B | 42 | Session transitions, TesterPresent, ECUReset, all 14 service NRCs |
+| C | 21 | CMAC SecurityAccess unlock/lockout/replay |
+| D | 30 | Customer workflow (fresh YAML → codegen → pytest), all 11 ECU examples |
+| E | 35 | DID read/write integrity, DTC lifecycle, session isolation |
+| F | 54 | Max DID/DTC/routine counts, GCC syntax gate for all 11 ECU C files |
+| G | 47 | Malformed PDU resilience, CMAC round-trip, suppress-response bit, YAML↔simulator consistency |
+| H | 41 | DSC timing precision, multi-DID RDBI batch, DTC record format, routine lifecycle |
+| I | 34 | NRC 3-byte format/SID echo, WDBI check ordering, SA level isolation |
 
 ---
 
@@ -914,5 +955,5 @@ tool-level assertions. Requires `pyyaml` only.
 
 ---
 
-*EDS v1.4.0 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
+*EDS v1.7.0 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
 *Runtime: GPL v2 · Examples: Apache 2.0 · Tools + IDE + GUI: Commercial*
