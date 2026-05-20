@@ -6,7 +6,99 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
-## [1.7.0] — SOVD Bridge (OpenSOVD CDA generation)
+## [1.7.0] — Robustness Campaign + SOVD Bridge
+
+### Fixed — Protocol compliance: suppress-response bit (ISO 14229-1 §7.5.3)
+
+Four UDS services in the generated inline simulator were returning positive
+responses instead of `None` when the suppress-response bit (sub-function byte
+bit 7 = `0x80`) was set by the tester.
+
+| SID  | Service            | Bug description                                              |
+|------|--------------------|--------------------------------------------------------------|
+| 0x11 | ECUReset           | Returned `b'\x51\xNN'` instead of `None`                    |
+| 0x28 | CommunicationControl | Returned `b'\x68\xNN'` instead of `None`                  |
+| 0x31 | RoutineControl     | Also masked sub_fn incorrectly (`pdu[1]` not `pdu[1] & 0x7F`), causing NRC 0x12 on valid suppress-response requests |
+| 0x85 | ControlDTCSetting  | Returned `b'\xC5\xNN'` instead of `None`                    |
+
+Fix applied to all 11 ECU `generated/tests/conftest.py` files and to the
+Jinja2 template (`tools/templates/conftest.py.j2`) that generates them:
+
+- `examples/basic_ecu/generated/tests/conftest.py`
+- `examples/basic_ecu_doip/generated/tests/conftest.py`
+- `examples/basic_ecu_doip_freertos/generated/tests/conftest.py`
+- `examples/basic_ecu_freertos/generated/tests/conftest.py`
+- `examples/bms_ecu/generated/tests/conftest.py`
+- `examples/motor_controller_ecu/generated/tests/conftest.py`
+- `examples/ardep_ecu/generated/tests/conftest.py`
+- `examples/robot_joint_controller_ecu/generated/tests/conftest.py`
+- `examples/safeboot_ecu/generated/tests/conftest.py`
+- `examples/sensor_ecu/generated/tests/conftest.py`
+- `examples/sensor_ecu_freertos/generated/tests/conftest.py`
+
+### Added — 326-test robustness campaign (Phases A–I)
+
+Complete protocol conformance and simulator fidelity campaign across 9 phases.
+All phases run in `--can-interface=simulator` mode — no hardware required.
+Total: **326 tests** in `examples/basic_ecu/generated/tests/`.
+
+| Phase | File                              | Tests | What it validates |
+|-------|-----------------------------------|-------|-------------------|
+| A     | `test_robustness_A_codegen.py`    | 22    | Generated file presence, C marker correctness, test file presence, GCC syntax |
+| B     | `test_robustness_B_protocol.py`   | 42    | Session transitions, TesterPresent, ECUReset, all 14 service NRCs |
+| C     | `test_robustness_C_security.py`   | 21    | CMAC SecurityAccess unlock/lockout, replay, all session levels |
+| D     | `test_robustness_D_customer_journey.py` | 30 | Full customer workflow (fresh YAML → codegen → pytest), all 11 ECU examples |
+| E     | `test_robustness_E_data_integrity.py` | 35 | DID read/write data integrity, DTC lifecycle, session isolation |
+| F     | `test_robustness_F_codegen_limits.py` | 54 | Max DID/DTC/routine counts, GCC syntax gate for all 11 ECU C files |
+| G     | `test_robustness_G_resilience.py` | 47    | Malformed PDU handling, CMAC end-to-end, suppress-response bit (all 6 services), YAML ↔ simulator metadata consistency |
+| H     | `test_robustness_H_protocol_precision.py` | 41 | DSC timing byte precision (P2=25ms=0x0019, P2\*=5000ms=0x1388), multi-DID RDBI batching, DTC record format (3-byte code + 1-byte status), routine lifecycle |
+| I     | `test_robustness_I_nrc_wdbi_sa.py` | 34   | NRC format/SID echo for every service, WDBI check ordering (session→security→length), SecurityAccess level isolation (lockout, mismatch, independent state) |
+
+**Phase G** (`test_robustness_G_resilience.py`, 47 tests):
+- `TestMalformedPDUResilience` (13): empty PDU → NRC 0x13, unknown SID → NRC 0x11,
+  truncated PDU per service, 256-SID fuzz
+- `TestEndToEndCMACFlow` (11): requestSeed → CMAC → sendKey round-trip, wrong key →
+  NRC 0x35, 3-failure lockout → NRC 0x36, seed randomness, L1+L2 independent
+- `TestSuppressResponseBit` (11): all 6 services with sub-function, verifies `None`
+  response when bit 7 set (exposed the 4 compliance bugs above)
+- `TestYAMLSimulatorConsistency` (12): parse `diagnostics_config.yaml` and verify
+  `_dids_meta` and `_routines_meta` in the inline simulator match exactly
+
+**Phase H** (`test_robustness_H_protocol_precision.py`, 41 tests):
+- `TestDSCTimingPrecision` (8): P2/P2\* big-endian byte values exact across all
+  3 session types; re-entry timing unchanged
+- `TestMultiDIDReadByIdentifier` (11): 2/3/4/5 DID batch read, echo order, NRC on
+  unknown DID in batch, WDBI→RDBI round-trip, session-gated DID
+- `TestReadDTCPrecision` (11): sub 0x01 layout (6 bytes, count field), sub 0x02
+  4-byte record format, DTC code byte order (`0xC00100` → `[0xC0, 0x01, 0x00]`)
+- `TestRoutineControlLifecycle` (11): stop-before-start → NRC 0x22,
+  results-before-start → NRC 0x22, security-gated, programming session, re-start
+
+**Phase I** (`test_robustness_I_nrc_wdbi_sa.py`, 34 tests):
+- `TestNRCFormatAndSIDEcho` (13): for every service, NRC response is exactly 3 bytes
+  `[0x7F, requestSID, NRC_code]` — verifies SID echo and length (ISO 14229-1 §7.5.2)
+- `TestWDBICompleteness` (12): correct WDBI succeeds, 1-byte short/long/zero → NRC 0x13,
+  read-only DID → NRC 0x31, unknown DID → NRC 0x31; check ordering: session gate fires
+  before security gate, security gate fires before length gate
+- `TestSecurityAccessProtocolEdges` (9): level mismatch (seed L1, key L2) → NRC 0x24,
+  pending seed cleared after successful unlock, 1 wrong key then correct unlocks,
+  L1 lockout does not block L2, L1 unlock does not grant L2
+
+### Changed — CI
+
+`.github/workflows/ci.yml` `robustness-tests` job updated:
+- Phase count: 6 phases / 245 tests → 9 phases / 326 tests
+- Added individual `pytest` steps for Phases G, H, I with short descriptions
+- Final assertion: `326 passed`
+- Phase comments updated with per-phase test counts A(22) B(42) C(21) D(30) E(35)
+  F(54) G(47) H(41) I(34)
+
+`.github/workflows/ci.yml` `integration-tests` job: added `--ignore` flags for
+`test_robustness_G_resilience.py`, `test_robustness_H_protocol_precision.py`,
+`test_robustness_I_nrc_wdbi_sa.py` (they run in the dedicated `robustness-tests` job).
+
+`test_robustness_D_customer_journey.py` `TestAllECUExamplesPytest`: added `--ignore`
+for Phases G, H, I to prevent recursive collection when running all 11 ECU examples.
 
 ### Added — SOVD CDA codegen output
 

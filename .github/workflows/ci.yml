@@ -1,7 +1,7 @@
 # =============================================================================
 # Xaloqi EDS — .github/workflows/ci.yml
 #
-# Community tier CI pipeline — 6 jobs covering the public GPL runtime stack.
+# Community tier CI pipeline — 7 jobs covering the public GPL runtime stack.
 #
 # Jobs:
 #   1. unit-tests        — 36 host-side C unit tests (Unity framework)
@@ -10,8 +10,9 @@
 #   4. zephyr-native     — west build -b native_sim (basic_ecu, Zephyr v3.7)
 #   5. zephyr-stm32      — west build -b nucleo_h743zi (cross-compile, basic_ecu)
 #   6. freertos-qemu     — FreeRTOS ARM cross-compile + run (basic_ecu_freertos, QEMU M4)
+#   7. harness-tests     — build_harness.sh: MISRA-clean C build + 68 integration tests
 #
-# Additional CI jobs (codegen examples, GUI, MCP server, harness) run in the
+# Additional CI jobs (codegen examples, GUI, MCP server) run in the
 # private EDS-toolchain repo against the full Developer/Professional toolchain.
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1220,3 +1221,41 @@ jobs:
           echo "$result" | grep -q "failed" && exit 1 || true
           echo "$result" | grep -qE "^(326|[2-9][0-9]{2}) passed" \
             || (echo "ERROR: Expected 326 passed — count changed" && exit 1)
+
+  # ── Job 7: Harness integration tests (real compiled C UDS stack) ───────────
+  #
+  # Compiles the full C UDS stack with the Phase 7 MISRA-clean warning set
+  # and runs the 68 harness integration tests in-process (AF_UNIX loopback).
+  # Unlike the pytest simulator, these tests hit real compiled firmware —
+  # every assertion validates byte-exact PDUs from the C service handlers,
+  # AES-128-CMAC key derivation, ISO-TP multi-frame assembly, and the
+  # ASIL-B safety wrappers. Harness exits 1 and prints HARNESS FAILURES on
+  # any failure.
+  #
+  # Warning flags (zero-warning gate):
+  #   -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
+  #   -Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls
+  #   -Wlogical-op -Wduplicated-cond -Wimplicit-fallthrough=5
+  # ──────────────────────────────────────────────────────────────────────────
+  harness-tests:
+    name: "Harness Integration Tests (68 C tests, MISRA-clean build)"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc
+
+      - name: Build harness (MISRA-clean warning set, zero warnings)
+        run: |
+          ./build_harness.sh
+          echo "[harness] Build succeeded — zero warnings confirmed"
+
+      - name: Run 68 harness integration tests
+        run: |
+          ./build_harness.sh --run 2>&1 | tee /tmp/harness_output.txt
+          grep -q "ALL 68 HARNESS TESTS PASSED" /tmp/harness_output.txt \
+            || (echo "ERROR: Expected ALL 68 HARNESS TESTS PASSED" && exit 1)
