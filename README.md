@@ -320,13 +320,15 @@ The runtime stack (`core/`, `transport/`, `config/`, `platform/`) is GPL v2.
 ECU examples (`examples/`) are Apache 2.0.  
 Code generation tools and Safety Manual require a commercial license.
 
-→ **[Commercial licenses](https://xaloqi.com)**
+→ **[Commercial licenses](https://xaloqi.com)**  
+→ **[License activation & tier details](docs/COMMERCIAL_ONBOARDING.md)**
 
 ---
 
 ## Documentation
 
 - [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) — zero-to-running in 15 minutes
+- [`docs/COMMERCIAL_ONBOARDING.md`](docs/COMMERCIAL_ONBOARDING.md) — license activation, ZIP contents, CI/Docker setup, tier comparison
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — full module map and design decisions
 - [the Security Notice — seed entropy requirements](docs/SECURITY_NOTICE.md) — TRNG requirements, all-zero seed rejection, LFSR fallback behaviour. Full OEM key injection and HSM offload guide is included with the Professional tier (xaloqi.com).
 - [`docs/Safety_Model.md`](docs/Safety_Model.md) — ASIL-B architecture, REQ-SAFE-* traceability
