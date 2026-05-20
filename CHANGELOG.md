@@ -36,11 +36,11 @@ Jinja2 template (`tools/templates/conftest.py.j2`) that generates them:
 - `examples/sensor_ecu/generated/tests/conftest.py`
 - `examples/sensor_ecu_freertos/generated/tests/conftest.py`
 
-### Added — 326-test robustness campaign (Phases A–I)
+### Added — 326-test robustness campaign (Phases A–K)
 
-Complete protocol conformance and simulator fidelity campaign across 9 phases.
+Complete protocol conformance and simulator fidelity campaign across 11 phases.
 All phases run in `--can-interface=simulator` mode — no hardware required.
-Total: **369 tests** in `examples/basic_ecu/generated/tests/`.
+Total: **404 tests** in `examples/basic_ecu/generated/tests/`.
 
 | Phase | File                              | Tests | What it validates |
 |-------|-----------------------------------|-------|-------------------|
@@ -54,6 +54,7 @@ Total: **369 tests** in `examples/basic_ecu/generated/tests/`.
 | H     | `test_robustness_H_protocol_precision.py` | 41 | DSC timing byte precision (P2=25ms=0x0019, P2\*=5000ms=0x1388), multi-DID RDBI batching, DTC record format (3-byte code + 1-byte status), routine lifecycle |
 | I     | `test_robustness_I_nrc_wdbi_sa.py` | 34   | NRC format/SID echo for every service, WDBI check ordering (session→security→length), SecurityAccess level isolation (lockout, mismatch, independent state) |
 | J     | `test_robustness_J_sovd_cda.py`    | 43   | SOVD CDA semantic fidelity: top-level structure, DID/DTC/routine counts and field values, hex normalisation, semantic session names, DoIP fields present/absent, idempotency |
+| K     | `test_robustness_K_error_quality.py` | 35 | Codegen error message quality: every bad YAML exits non-zero with an actionable keyword (field name, hex value, or standard reference) in stderr |
 
 **Phase G** (`test_robustness_G_resilience.py`, 47 tests):
 - `TestMalformedPDUResilience` (13): empty PDU → NRC 0x13, unknown SID → NRC 0x11,
@@ -98,22 +99,46 @@ Total: **369 tests** in `examples/basic_ecu/generated/tests/`.
   DoIP protocol, port=13400, logicalAddress=0xE400, sourceAddress present; transport=both →
   DoIP; 14 diagnosticServices each with sid+name; two-call idempotency
 
+**Phase K** (`test_robustness_K_error_quality.py`, 35 tests):
+- `TestSanity` (2): valid YAML exits 0 and prints dry-run-complete message
+- `TestMetadataErrors` (5): missing metadata section, missing ecu_name, missing version,
+  schema_version mismatch (99 → rejected with "schema_version" keyword),
+  schema_version wrong type ("one" → rejected with "schema_version" keyword)
+- `TestDIDErrors` (13): id wrong hex length, invalid hex chars, no 0x prefix, duplicate DID
+  (asserts "already declared"), reserved id 0x0000, missing name, missing access,
+  invalid access value ("execute"), unknown min_session ("factory"),
+  read_security_level out of range (300 → asserts "255"), data_length zero,
+  data_length over max (9999 → asserts "4095"), write DID missing data_length
+  (asserts "REQ-SAFE-006")
+- `TestDTCErrors` (5): code wrong hex length, missing 0x prefix, invalid chars,
+  missing code field, duplicate DTC codes (asserts "already declared")
+- `TestTimingErrors` (3): p2 > p2_star, p2 zero, timing wrong type ("fast")
+- `TestRoutineErrors` (3): routine id wrong hex length, invalid chars, duplicate routine ids
+- `TestParseErrors` (3): unclosed bracket YAML, empty file, non-mapping root (list)
+
+Also added to `codegen.py` `validate_config()`:
+- `schema_version` validation: must be an integer equal to `SUPPORTED_SCHEMA_VERSION` (1).
+  Non-integer or unsupported version exits with actionable error naming the field.
+- Write-DID safety gate (REQ-SAFE-006): writable DIDs without an explicit `data_length`
+  are now rejected with a message referencing REQ-SAFE-006 and the 0x2E handler.
+
 ### Changed — CI
 
 `.github/workflows/ci.yml` `robustness-tests` job updated:
-- Phase count: 6 phases / 245 tests → 10 phases / 369 tests
-- Added individual `pytest` steps for Phases G, H, I, J with short descriptions
-- Final assertion: `369 passed`
+- Phase count: 6 phases / 245 tests → 11 phases / 404 tests
+- Added individual `pytest` steps for Phases G, H, I, J, K with short descriptions
+- Final assertion: `404 passed`
 - Phase comments updated with per-phase test counts A(22) B(42) C(21) D(30) E(35)
-  F(54) G(47) H(41) I(34) J(43)
+  F(54) G(47) H(41) I(34) J(43) K(35)
 
 `.github/workflows/ci.yml` `integration-tests` job: added `--ignore` flags for
 `test_robustness_G_resilience.py`, `test_robustness_H_protocol_precision.py`,
-`test_robustness_I_nrc_wdbi_sa.py`, `test_robustness_J_sovd_cda.py`
+`test_robustness_I_nrc_wdbi_sa.py`, `test_robustness_J_sovd_cda.py`,
+`test_robustness_K_error_quality.py`
 (they run in the dedicated `robustness-tests` job).
 
 `test_robustness_D_customer_journey.py` `TestAllECUExamplesPytest`: added `--ignore`
-for Phases G, H, I to prevent recursive collection when running all 11 ECU examples.
+for Phases G, H, I, J, K to prevent recursive collection when running all 11 ECU examples.
 
 ### Added — SOVD CDA codegen output
 

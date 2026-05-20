@@ -477,6 +477,7 @@ jobs:
             --ignore=test_robustness_H_protocol_precision.py \
             --ignore=test_robustness_I_nrc_wdbi_sa.py \
             --ignore=test_robustness_J_sovd_cda.py \
+            --ignore=test_robustness_K_error_quality.py \
             --tb=short \
             --can-interface=simulator \
             -q
@@ -496,6 +497,7 @@ jobs:
             --ignore=test_robustness_H_protocol_precision.py \
             --ignore=test_robustness_I_nrc_wdbi_sa.py \
             --ignore=test_robustness_J_sovd_cda.py \
+            --ignore=test_robustness_K_error_quality.py \
             --can-interface=simulator --tb=no 2>&1 | tail -1)
           echo "Result: $result"
           echo "$result" | grep -q "failed" && exit 1 || true
@@ -1122,7 +1124,7 @@ jobs:
 
   # ── Job: robustness-tests ─────────────────────────────────────────────────
   #
-  # Runs the full 10-phase robustness campaign (369 tests) against the inline
+  # Runs the full 11-phase robustness campaign (404 tests) against the inline
   # ECU simulator. No xaloqi-tester required. Installs gcc for the Phase F
   # GCC syntax gate which catches template regressions that silently produce
   # broken C before they reach a customer.
@@ -1142,9 +1144,11 @@ jobs:
   #             SecurityAccess level mismatch and fail-count isolation
   #   J (43) — SOVD CDA semantic fidelity: structure, DID/DTC/routine counts,
   #             hex normalisation, session names, DoIP fields, idempotency
+  #   K (35) — codegen error message quality: every bad YAML input is rejected
+  #             with exit code != 0 and an actionable keyword in stderr
   # ──────────────────────────────────────────────────────────────────────────
   robustness-tests:
-    name: "Robustness Campaign (369 tests, 10 phases)"
+    name: "Robustness Campaign (404 tests, 11 phases)"
     runs-on: ubuntu-22.04
 
     steps:
@@ -1212,7 +1216,12 @@ jobs:
           cd examples/basic_ecu/generated/tests
           python3 -m pytest test_robustness_J_sovd_cda.py -v --tb=short -q
 
-      - name: Assert full campaign total (369 tests, 0 failures)
+      - name: Run Phase K — codegen error message quality (exit code + actionable keywords)
+        run: |
+          cd examples/basic_ecu/generated/tests
+          python3 -m pytest test_robustness_K_error_quality.py -v --tb=short -q
+
+      - name: Assert full campaign total (404 tests, 0 failures)
         run: |
           cd examples/basic_ecu/generated/tests
           result=$(python3 -m pytest \
@@ -1226,11 +1235,12 @@ jobs:
             test_robustness_H_protocol_precision.py \
             test_robustness_I_nrc_wdbi_sa.py \
             test_robustness_J_sovd_cda.py \
+            test_robustness_K_error_quality.py \
             --tb=no -q 2>&1 | tail -2)
           echo "$result"
           echo "$result" | grep -q "failed" && exit 1 || true
-          echo "$result" | grep -qE "^(369|[3-9][0-9]{2}) passed" \
-            || (echo "ERROR: Expected 369 passed — count changed" && exit 1)
+          echo "$result" | grep -qE "^(404|[4-9][0-9]{2}) passed" \
+            || (echo "ERROR: Expected 404 passed — count changed" && exit 1)
 
   # ── Job 7: Harness integration tests (real compiled C UDS stack) ───────────
   #

@@ -185,6 +185,8 @@ _DTC_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{6}$")
 _RID_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{4}$")  # RID is 16-bit like DID
 _CAN_ID_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{1,8}$")
 
+SUPPORTED_SCHEMA_VERSION = 1
+
 # ISO 14229-1 DID constraints
 MAX_DID_COUNT     = 64
 MAX_DTC_COUNT     = 128
@@ -312,6 +314,19 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     Raises:
         SystemExit(1): on any validation failure, with a descriptive message.
     """
+
+    # ── schema_version ───────────────────────────────────────────────────────
+    schema_ver = cfg.get("schema_version")
+    if not isinstance(schema_ver, int):
+        _fatal(
+            f"VALIDATION: 'schema_version' must be an integer, got: {schema_ver!r}. "
+            f"Add 'schema_version: {SUPPORTED_SCHEMA_VERSION}' at the top of your config."
+        )
+    if schema_ver != SUPPORTED_SCHEMA_VERSION:
+        _fatal(
+            f"VALIDATION: schema_version {schema_ver} is not supported. "
+            f"This code generator supports schema_version {SUPPORTED_SCHEMA_VERSION} only."
+        )
 
     # ── Required sections ────────────────────────────────────────────────────
     for section in ("metadata", "timing", "dids"):
@@ -457,6 +472,14 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                     "for requestSeed use odd numbers. "
                     "Ensure this matches your 0x27 handler configuration."
                 )
+
+        # write DIDs must declare data_length explicitly (REQ-SAFE-006)
+        if "write" in access and "data_length" not in did:
+            _fatal(
+                f"{pfx}: DID has write access but 'data_length' is not declared. "
+                "REQ-SAFE-006 requires an explicit data_length for writable DIDs "
+                "to prevent buffer overruns in the 0x2E WriteDataByIdentifier handler."
+            )
 
         # data_length
         data_len = did.get("data_length", 1)
