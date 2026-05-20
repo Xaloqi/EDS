@@ -18,6 +18,15 @@ EDS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "
 CODEGEN   = os.path.join(EDS_ROOT, "tools", "codegen.py")
 BASIC_YAML = os.path.join(EDS_ROOT, "examples", "basic_ecu", "diagnostics_config.yaml")
 
+# Jinja2 templates live in EDS-toolchain (commercial-only) and are linked via symlink.
+# On the public CI runner the symlink target does not exist, so tests that require
+# actual file generation are skipped rather than failed.
+_TEMPLATES_OK = os.path.isdir(os.path.join(EDS_ROOT, "tools", "templates"))
+_skip_no_tpl  = pytest.mark.skipif(
+    not _TEMPLATES_OK,
+    reason="Jinja2 templates not present (commercial-only, not in public repo)"
+)
+
 MINIMAL_VALID = textwrap.dedent("""\
     schema_version: 1
     metadata:
@@ -287,6 +296,7 @@ class TestCodegenInvalidInputs:
         assert rc in (1, 2), f"Expected exit 1 or 2 for invalid DTC code hex, got {rc}"
 
 
+@_skip_no_tpl
 class TestCodegenValidInputs:
     """Codegen must succeed (exit 0) for valid inputs."""
 
@@ -316,6 +326,7 @@ class TestCodegenValidInputs:
             assert r.returncode == 0, f"Expected exit 0 for basic_ecu YAML, got {r.returncode}\n{r.stdout + r.stderr}"
 
 
+@_skip_no_tpl
 class TestCodegenOutputIntegrity:
     """Verify structure and safety guarantees of generated output files."""
 

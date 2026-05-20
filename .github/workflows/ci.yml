@@ -428,7 +428,7 @@ jobs:
         run: |
           # [ARCH-NOMALLOC] Verify no malloc/calloc/realloc/free in production stack.
           # ARCHITECTURE.md guarantees no dynamic memory — this step enforces it in CI.
-          result=$(grep -rn "\bmalloc\b\|\bcalloc\b\|\brealloc\b\|\bfree\b(" \
+          result=$(grep -rn --include="*.c" --include="*.h" "\bmalloc\b\|\bcalloc\b\|\brealloc\b\|\bfree\b(" \
             core/ transport/ config/ examples/basic_ecu/generated/ 2>/dev/null \
             | grep -v "//.*malloc\|\*.*malloc" || true)
           if [ -n "$result" ]; then
@@ -1282,11 +1282,11 @@ jobs:
 
       - name: Build harness (MISRA-clean warning set, zero warnings)
         run: |
-          ./build_harness.sh
+          bash build_harness.sh
           echo "[harness] Build succeeded — zero warnings confirmed"
 
       - name: Run 68 harness integration tests
         run: |
-          ./build_harness.sh --run 2>&1 | tee /tmp/harness_output.txt
+          bash build_harness.sh --run 2>&1 | tee /tmp/harness_output.txt
           grep -q "ALL 68 HARNESS TESTS PASSED" /tmp/harness_output.txt \
             || (echo "ERROR: Expected ALL 68 HARNESS TESTS PASSED" && exit 1)

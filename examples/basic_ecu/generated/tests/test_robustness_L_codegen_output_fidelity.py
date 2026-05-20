@@ -76,6 +76,20 @@ _YAML = textwrap.dedent("""\
         support: ["start"]
 """)
 
+# ── Templates availability check ──────────────────────────────────────────────
+#
+# Jinja2 templates live in EDS-toolchain (commercial-only) and are linked via
+# symlink at tools/templates → ../../../EDS-toolchain/tools/templates.
+# On the public CI runner the target does not exist, so the entire module is
+# skipped via pytestmark rather than failing with "template directory not found".
+
+_TEMPLATES_OK = os.path.isdir(os.path.join(EDS_ROOT, "tools", "templates"))
+
+pytestmark = pytest.mark.skipif(
+    not _TEMPLATES_OK,
+    reason="Jinja2 templates not present (commercial-only, not in public repo)"
+)
+
 # ── Generate once at module import ────────────────────────────────────────────
 
 _TMPDIR = tempfile.mkdtemp(prefix="eds_phase_l_")
@@ -85,12 +99,16 @@ _CFG    = os.path.join(_TMPDIR, "config.yaml")
 with open(_CFG, "w") as f:
     f.write(_YAML)
 
-_proc = subprocess.run(
-    [sys.executable, CODEGEN, "--config", _CFG, "--out", _OUT],
-    capture_output=True, text=True,
-)
-_RC  = _proc.returncode
-_LOG = _proc.stdout + _proc.stderr
+if _TEMPLATES_OK:
+    _proc = subprocess.run(
+        [sys.executable, CODEGEN, "--config", _CFG, "--out", _OUT],
+        capture_output=True, text=True,
+    )
+    _RC  = _proc.returncode
+    _LOG = _proc.stdout + _proc.stderr
+else:
+    _RC  = -1
+    _LOG = ""
 
 atexit.register(shutil.rmtree, _TMPDIR, ignore_errors=True)
 
