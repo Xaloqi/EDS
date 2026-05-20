@@ -6,7 +6,7 @@
 - Zephyr workspace with EDS checked out
 - A minimal ECU firmware built and running in the simulator
 - UDS service 0x22 (ReadDataByIdentifier) responding to requests
-- All 36 unit tests and 68 harness tests passing
+- All 37 unit tests passing
 
 **No prior Zephyr knowledge assumed.**
 
@@ -61,7 +61,7 @@ west --version   # must print 1.2 or newer
 mkdir eds-workspace && cd eds-workspace
 
 # Initialise the workspace from the EDS repository
-west init -m https://github.com/Xaloqi/EDS --mr v1.4.0 .
+west init -m https://github.com/Xaloqi/EDS --mr v1.7.0 .
 
 # Pull Zephyr and all dependencies (this downloads ~500 MB, takes 2-4 min)
 west update
@@ -161,7 +161,7 @@ python3 tools/codegen.py \
 ```bash
 # From the eds repo root
 west build -b native_sim examples/basic_ecu \
-    -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay
+    -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
 
 # Expected output ends with:
 # [100%] Linking C executable zephyr/zephyr.elf
@@ -228,14 +228,12 @@ You just sent ISO-TP framed UDS requests to a running Zephyr ECU and validated t
 ## Step 9 — Run All Tests (2 min)
 
 ```bash
-# Unit tests — 35 modules, all must pass
+# Unit tests — 37 modules, all must pass
 bash build_tests.sh
 
-# Harness tests — 68 tests, all must pass
-bash build_harness.sh
-
-# Integration tests
-pytest tests/integration/ -v
+# Integration tests (simulator mode, no hardware required)
+cd examples/basic_ecu/generated/tests
+pytest . --can-interface=simulator -v
 ```
 
 All three should complete with zero failures. If any fail, check the
@@ -414,7 +412,7 @@ Open any `diagnostics_config.yaml` and:
 cp -r examples/basic_ecu examples/my_ecu
 # Edit examples/my_ecu/diagnostics_config.yaml
 # Edit examples/my_ecu/src/ for your application
-west build -b native_sim examples/my_ecu -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay
+west build -b native_sim examples/my_ecu -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
 ```
 
 ### Flash real hardware (STM32 Nucleo-H743ZI2)
@@ -446,7 +444,7 @@ it resumes from where it stopped.
 You forgot the overlay argument. Always build native_sim with:
 ```bash
 west build -b native_sim examples/basic_ecu \
-    -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay
+    -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
 ```
 
 ### Build error: `can_frame_flags_t undeclared`
@@ -463,7 +461,7 @@ If the error persists, check `west.yml` and confirm the Zephyr revision is pinne
 pip3 install -r tools/requirements.txt
 ```
 
-### Unit tests fail: `35 tests expected, X found`
+### Unit tests fail: `37 tests expected, X found`
 
 The test count in `scripts/build_tests.sh` must match the actual test files. Run:
 ```bash
@@ -504,12 +502,11 @@ Run the integration tests in a second terminal to send traffic while it's runnin
 | Command | What it does |
 |---|---|
 | `python3 tools/codegen.py --config CONFIG --out OUTPUT_DIR --safety-wrappers --asil-level B` | Generate C code from YAML |
-| `west build -b native_sim examples/basic_ecu -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay` | Build simulator firmware |
+| `west build -b native_sim examples/basic_ecu -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay` | Build simulator firmware |
 | `west build -t run` | Run simulator |
 | `west build -b nucleo_h743zi2 examples/basic_ecu` | Cross-compile for Nucleo |
 | `west flash` | Flash to connected hardware |
-| `bash build_tests.sh` | Run 36 unit tests |
-| `bash build_harness.sh` | Run 68 harness tests |
+| `bash build_tests.sh` | Run 37 unit tests |
 | `pytest tests/integration/ -v` | Run Python integration tests |
 | `cd gui && npm ci && npm start` | Start GUI configurator |
 | `python3 tools/testgen.py --config CONFIG --out OUT` | Generate pytest test suite |
@@ -518,4 +515,4 @@ Run the integration tests in a second terminal to send traffic while it's runnin
 | `cd examples/basic_ecu/generated/tests && pytest . -v` | Run generated pytest suite |
 | `cd ide/vscode-extension && npx vsce package` | Build VS Code extension |
 
-For the full YAML schema and all five DID patterns, see [`CLAUDE_CONTEXT.md`](../CLAUDE_CONTEXT.md).
+For the full YAML schema and all five DID patterns, see [`AI_CONTEXT.md`](AI_CONTEXT.md).
