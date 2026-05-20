@@ -91,7 +91,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 | **ASIL-B safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
 | **Security** | AES-128-CMAC seed/key · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
 | **DTC persistence** | NVM mirror survives power cycles · 0x14 ClearDTC · 0x19 ReadDTCInformation |
-| **Code generation** | YAML → 14 C/H/py templates · CLI + React GUI · reproducible deterministic output |
+| **Code generation** | YAML → 14 C/H/py templates · CLI · reproducible deterministic output |
 | **Test generation** | YAML → pytest suite per DID and DTC · simulator mode (no hardware) · firmware harness mode |
 | **CANoe CAPL** | YAML → `.can` scripts for CANoe import · per-DID, per-DTC, core services |
 | **SOVD CDA** | `--sovd` flag: YAML → OpenSOVD 1.0 `sovd_cda.json` — DIDs, DTCs, routines, transport, all 14 services · DoIP ECUs include `logicalAddress` and `port` · Eclipse SDV / OEM SOVD clients |
@@ -203,17 +203,14 @@ bash build_harness.sh
 cd examples/basic_ecu/generated/tests && pytest test_services.py test_did_*.py -v --can-interface=simulator
 ```
 
-### GUI configurator (optional)
+### GUI configurator
 
-```bash
-cd gui && npm ci && npm run dev
-# → http://localhost:5173
-# Live dashboard + YAML configurator + one-click codegen
-```
+> **Included in Developer and Professional tiers** — not part of the open-source runtime.
+> [Get access → xaloqi.com](https://xaloqi.com)
 
 ![Xaloqi EDS GUI — live dashboard showing DIDs panel with sensor readings, DTC panel with active faults, Security Access walkthrough, Routines panel, and Raw Frames ISO-TP log](docs/assets/gui_dashboard.svg)
 
-*Eight panels: DIDs (read/write with live sparklines) · DTCs (active faults + status byte) · Security (seed/key exchange) · Routines (start/stop/results) · Raw Frames (ISO-TP log) · Console · Configurator · Overview. Demo mode runs without hardware: `bash gui/start-demo.sh`.*
+*Eight panels: DIDs (read/write with live sparklines) · DTCs (active faults + status byte) · Security (seed/key exchange) · Routines (start/stop/results) · Raw Frames (ISO-TP log) · Console · Configurator · Overview. Demo mode runs without hardware — no CAN hardware required.*
 
 ---
 
@@ -268,9 +265,9 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 | `config/` | DID database, DTC database, NVM mirror |
 | `platform/` | Platform abstraction layer — `platform/zephyr/` (Zephyr HAL) · `platform/freertos/` (FreeRTOS HAL) · `platform_api.h` (shared interface) |
 | `tools/` | `codegen.py`, `testgen.py`, 17 Jinja2 templates |
-| `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command |
+| `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command *(Developer/Professional tier)* |
 | `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · sensor\_ecu · safeboot\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
-| `gui/` | React/TypeScript configurator + live dashboard |
+| `gui/` | React/TypeScript configurator + live dashboard *(Developer/Professional tier)* |
 | `tests/` | 36 Unity unit tests, harness, Python integration tests |
 
 ---
