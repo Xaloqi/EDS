@@ -151,6 +151,31 @@ Expected output:
 If you see `[codegen] WARNING: No license found — running in community mode`, the key
 was not found. Check the [Troubleshooting](#troubleshooting) section below.
 
+> **Production key notice:** EDS ships with placeholder AES-128-CMAC keys in
+> `core/uds_security_algo.c`. A compile-time gate (`CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY`)
+> prevents accidental deployment — set it to `n` in your production `prj.conf` and inject
+> real keys via `uds_security_algo_set_level_key()` before calling `uds_generated_init()`.
+> Developer tier: see the inline comments in `core/uds_security_algo.c`.
+> Professional tier: full OEM key injection and HSM offload procedure is in
+> `safety_docs/SECURITY_INTEGRATION.md`.
+
+---
+
+## Developer Tier — SOVD CDA Output
+
+The `--sovd` flag generates an OpenSOVD 1.0 `sovd_cda.json` alongside the standard C
+files — useful for Eclipse SDV tooling and OEM SOVD clients:
+
+```bash
+python3 tools/codegen.py \
+  --config examples/bms_ecu/diagnostics_config.yaml \
+  --out    examples/bms_ecu/generated/ \
+  --safety-wrappers --asil-level B --sovd
+# → examples/bms_ecu/generated/sovd_cda.json
+```
+
+No additional dependencies required. The SOVD output is pure Python, no Jinja2 templates.
+
 ---
 
 ## Using Your License in CI / Docker

@@ -59,11 +59,13 @@ git checkout v1.7.0
 
 ```bash
 # From the EDS repo root:
-unzip /path/to/xaloqi-eds-developer-v1.7.0.zip
+unzip -o /path/to/xaloqi-eds-developer-v1.7.0.zip
 
 # Or for Professional:
-unzip /path/to/xaloqi-eds-professional-v1.7.0.zip
+unzip -o /path/to/xaloqi-eds-professional-v1.7.0.zip
 ```
+
+The `-o` flag overwrites existing files without prompting — required when updating an existing installation.
 
 This extracts the toolchain files directly into the repo tree. No separate directory. After extraction you will have:
 
@@ -96,7 +98,7 @@ EDS/
 ## Step 3 — Install Python dependencies
 
 ```bash
-pip install pyyaml jinja2 cryptography
+pip install pyyaml jinja2 cryptography PyJWT
 ```
 
 For the test suite and MCP server:
@@ -116,6 +118,11 @@ All dependencies are listed in `tools/requirements.txt`. To install everything a
 ```bash
 pip install -r tools/requirements.txt
 ```
+
+> **Note for Ubuntu 23.04+ / Debian 12+ users:** if `pip install` fails with
+> `externally-managed-environment`, either use a virtual environment
+> (`python3 -m venv .venv && source .venv/bin/activate`) or add
+> `--break-system-packages` to the pip command.
 
 ---
 

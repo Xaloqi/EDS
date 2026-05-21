@@ -230,7 +230,7 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 | `platform/` | Platform abstraction layer — `platform/zephyr/` (Zephyr HAL) · `platform/freertos/` (FreeRTOS HAL) · `platform_api.h` (shared interface) |
 | `tools/` | `codegen.py`, `testgen.py`, 17 Jinja2 templates |
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command |
-| `examples/` | basic\_ecu · basic\_ecu\_freertos · sensor\_ecu · safeboot\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
+| `examples/` | basic\_ecu · basic\_ecu\_freertos · basic\_ecu\_doip · basic\_ecu\_doip\_freertos · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard |
 | `tests/` | 36 Unity unit tests, harness, Python integration tests |
 
@@ -242,7 +242,10 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 |---|---|---|---|---|
 | `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2 |
 | `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU |
+| `basic_ecu_doip` | 5 | 2 | 3 | native\_sim (DoIP/Ethernet) |
+| `basic_ecu_doip_freertos` | 5 | 2 | 3 | QEMU Cortex-M4 (DoIP/Ethernet) |
 | `sensor_ecu` | 7 | 4 | 2 | native\_sim, any Zephyr sensor board |
+| `sensor_ecu_freertos` | 7 | 4 | 2 | QEMU Cortex-M4, any FreeRTOS MCU |
 | `safeboot_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 (MCUboot required) |
 | `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim, any Zephyr CAN board |
 | `bms_ecu` | 24 | 10 | 5 | native\_sim |
