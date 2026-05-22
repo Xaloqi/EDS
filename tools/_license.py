@@ -1,1 +1,1 @@
-../../../EDS-toolchain/tools/_license.py
+../../EDS-toolchain/tools/_license.py

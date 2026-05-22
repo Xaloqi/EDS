@@ -25,7 +25,7 @@
 #         --out examples/basic_ecu/generated/ --safety-wrappers --asil-level B --no-manifest
 #
 # USAGE:
-#   bash build_tests.sh              # Build + run all 35 tests
+#   bash build_tests.sh              # Build + run all 37 tests
 #   bash build_tests.sh --verbose    # Show individual test output
 #   bash build_tests.sh --keep-bin   # Keep binaries in build_test_host/
 #   bash build_tests.sh --coverage   # Build with gcov + generate lcov HTML report

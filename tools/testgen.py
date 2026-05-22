@@ -1,1 +1,1 @@
-../../../EDS-toolchain/tools/testgen.py
+../../EDS-toolchain/tools/testgen.py
