@@ -238,6 +238,7 @@ env:
   # both are delivered with purchased licenses. CI uses pre-committed
   # generated/ output and does not need live codegen to pass.
   XALOQI_LICENSE_SKIP: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
 
