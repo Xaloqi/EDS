@@ -757,3 +757,14 @@ add_diag_test(test_service_0x85
         ${DIAG_SRCS_SERVICES_FULL}
 )
 
+# ---------------------------------------------------------------------------
+# 37. test_doip_server
+#     Module under test: transport/doip/doip_server.c
+# ---------------------------------------------------------------------------
+add_diag_test(test_doip_server
+    SOURCES
+        "${TEST_UNIT_DIR}/test_doip_server.c"
+        "${DIAG_TRANSPORT}/doip/doip_server.c"
+        ${DIAG_SRCS_SERVICES_FULL}
+)
+
