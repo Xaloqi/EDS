@@ -91,7 +91,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 | **ASIL-B safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
 | **Security** | AES-128-CMAC seed/key · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
 | **DTC persistence** | NVM mirror survives power cycles · 0x14 ClearDTC · 0x19 ReadDTCInformation |
-| **Code generation** | YAML → 14 C/H/py templates · CLI · reproducible deterministic output |
+| **Code generation** | YAML → 17 Jinja2 templates · CLI · reproducible deterministic output |
 | **Test generation** | YAML → pytest suite per DID and DTC · simulator mode (no hardware) · firmware harness mode |
 | **CANoe CAPL** | YAML → `.can` scripts for CANoe import · per-DID, per-DTC, core services |
 | **SOVD CDA** | `--sovd` flag: YAML → OpenSOVD 1.0 `sovd_cda.json` — DIDs, DTCs, routines, transport, all 14 services · DoIP ECUs include `logicalAddress` and `port` · Eclipse SDV / OEM SOVD clients |

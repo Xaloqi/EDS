@@ -186,6 +186,18 @@ Eclipse SDV tooling.
 checkout required. Validates CDA structure, transport protocol, DID/DTC/routine
 counts, and presence/absence of `logicalAddress` for CAN vs DoIP ECUs.
 
+### Fixed — Pre-launch audit (v1.7.0 patch)
+
+- `tools/codegen.py`: added `__version__ = "1.7.0"` module-level constant.
+  Banner previously printed "Phase 4" (internal development label); now prints
+  `"Xaloqi EDS — Code Generator v1.7.0"` using the constant.
+- `tools/codegen.py` `build_sovd_cda()`: `generatedBy` field corrected from
+  `"Xaloqi EDS codegen v1.6.0"` to `"Xaloqi EDS codegen v1.7.0"`.
+- `INSTALL.md`: template count corrected 14 → 17; expected codegen output block
+  replaced with the actual `[1/5]…[5/5]` step format.
+- `tools/testlab.py` (`__version__`): synced from `"1.2.0"` to `"1.4.0"` to match
+  the current TestLab product version.
+
 ---
 
 ## [1.6.0] — DoIP (ISO 13400-2) transport
