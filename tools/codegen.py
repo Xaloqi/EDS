@@ -74,8 +74,6 @@ PHASE 3 ADDITIONS:
     - --asil-level CLI flag: sets ASIL level macro in safety_config.h.
     - write_manifest() updated to Phase 3 naming and safety flag tracking.
 
-VERSION : 0.4.0 (Phase 3)
-SPDX-License-Identifier: LicenseRef-Xaloqi-Commercial\n# Copyright (c) 2026 Xaloqi\n# Commercial license required. See LICENSE_COMMERCIAL.txt
 =============================================================================
 """
 
@@ -101,6 +99,8 @@ try:
 except ImportError:
     print("ERROR: Jinja2 is required.  pip install jinja2", file=sys.stderr)
     sys.exit(2)
+
+__version__ = "1.7.0"
 
 # =============================================================================
 # Constants
@@ -846,7 +846,7 @@ def build_sovd_cda(cfg):
 
     cda = {
         "sovdVersion": "1.0.0",
-        "generatedBy": "Xaloqi EDS codegen v1.6.0",
+        "generatedBy": "Xaloqi EDS codegen v1.7.0",
         "generatedAt": _now_utc(),
         "ecuIdentification": {
             "name":    meta["ecu_name"],
@@ -2174,7 +2174,7 @@ def main() -> None:
 
     # ── Banner ───────────────────────────────────────────────────────────────
     print("=" * 72)
-    print("  Xaloqi EDS — Code Generator (Phase 4)")
+    print(f"  Xaloqi EDS — Code Generator v{__version__}")
     print("=" * 72)
     print(f"  Config   : {config_path}")
     print(f"  Templates: {template_dir}")
