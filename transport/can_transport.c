@@ -24,7 +24,7 @@
  *           All public functions return uds_status_t. Explicit casts used.
  *
  * STANDARD: MISRA C:2012 alignment intended.
- * VERSION : 0.1.0
+ * VERSION : 1.7.0
  * SPDX-License-Identifier: GPL-2.0-only
  * =============================================================================
  */

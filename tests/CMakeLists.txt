@@ -2,7 +2,7 @@
 # Xaloqi EDS
 # FILE: tests/CMakeLists.txt
 #
-# PURPOSE: Host-native CMake build for all 36 unit test modules.
+# PURPOSE: Host-native CMake build for all 37 unit test modules.
 #          Compiles each test_*.c file together with its production sources
 #          and the Unity framework into a standalone executable. CTest then
 #          runs each executable and reports pass/fail based on exit code.
@@ -12,11 +12,11 @@
 #              -> tests/runner/test_main.c         (Unity main + lifecycle)
 #              -> tests/runner/ztest_shim.h        (ZTEST-to-Unity macro map)
 #              -> project/unity/unity.c            (Unity assertion engine)
-#              -> tests/unit_runnable/test_<module>.c  (canonical test cases — 36 modules)
+#              -> tests/unit_runnable/test_<module>.c  (canonical test cases — 37 modules)
 #              -> <production sources>             (modules under test)
 #              -> generated/ did_handlers.c etc.  (generated stubs)
 #
-#          This design allows all 36 modules to be tested on a CI runner
+#          This design allows all 37 modules to be tested on a CI runner
 #          without a Zephyr SDK or hardware target, using only GCC/Clang
 #          and CMake. Each test module compiles independently to avoid
 #          link-time symbol conflicts between test modules.
@@ -41,14 +41,14 @@
 #
 # SAFETY CONTEXT : Test infrastructure — not safety-assessed.
 # CODING STANDARD: MISRA C:2012 alignment intended (advisory for test code).
-# VERSION        : 1.0.0 (36 modules wired, unit_runnable/ is the single canonical test directory)
+# VERSION        : 1.7.0 (37 modules wired, unit_runnable/ is the single canonical test directory)
 # SPDX-License-Identifier: Apache-2.0
 # =============================================================================
 
 cmake_minimum_required(VERSION 3.16)
 
 project(diag_unit_tests
-    VERSION     1.0.0
+    VERSION     1.7.0
     LANGUAGES   C
     DESCRIPTION "Host-native Unity unit tests — Xaloqi EDS"
 )
@@ -87,7 +87,7 @@ set(DIAG_PLATFORM      "${DIAG_ROOT}/platform")
 set(DIAG_PLATFORM_ZEPHYR "${DIAG_ROOT}/platform/zephyr")
 set(DIAG_GENERATED     "${DIAG_ROOT}/generated")
 set(DIAG_UNITY         "${DIAG_ROOT}/project/unity")
-# [M2] Canonical test directory is unit_runnable/ (36 modules).
+# [M2] Canonical test directory is unit_runnable/ (37 modules).
 # tests/legacy_unit/ has been removed — unit_runnable/ is the single source of truth.
 # build_tests.sh and this CMakeLists.txt both reference unit_runnable/.
 set(TEST_UNIT_DIR      "${CMAKE_CURRENT_SOURCE_DIR}/unit_runnable")

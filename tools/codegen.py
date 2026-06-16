@@ -2213,10 +2213,7 @@ def main() -> None:
     # and the templates are also absent — but CI generates from the committed
     # generated/ directory and skips the template step (DIAG_SKIP_CODEGEN=ON),
     # so codegen is run in test-harness mode where it is pre-configured.
-    _license_skip = (
-        os.environ.get("XALOQI_LICENSE_SKIP", "").strip().lower()
-        in ("1", "true", "yes")
-    )
+    _license_skip = os.environ.get("XALOQI_LICENSE_SKIP") == "1"
 
     _lic_result = None
     if not _license_skip:

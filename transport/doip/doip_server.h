@@ -10,7 +10,7 @@
  *          Implements the ECU (entity) side of DoIP diagnostics over TCP/IP.
  *          This is the firmware counterpart to xaloqi-tester DoipBus (Python).
  *
- *          Supported in v1.6.0:
+ *          Supported in v1.7.0:
  *            - TCP connection accept (up to DOIP_MAX_CONNECTIONS)
  *            - Routing Activation Request/Response (Default type 0x00)
  *            - UDS DiagnosticMessage (0x8001): receive, dispatch, respond
@@ -19,7 +19,7 @@
  *            - Alive Check Request/Response (0x0007/0x0008)
  *            - Generic header validation (version 0x02, inverse byte)
  *
- *          Not implemented in v1.6.0 (documented, not planned):
+ *          Not implemented in v1.7.0 (documented, not planned):
  *            - UDP Vehicle Identification / Entity Status / PowerMode
  *            - DoIP Vehicle Announcement
  *            - TLS (plain TCP only)
@@ -192,8 +192,10 @@ typedef struct doip_server_state {
     uint16_t tester_address;      /**< Tester logical address (from routing activation). */
     bool     routing_active;      /**< True after successful routing activation. */
     void    *conn_ctx;            /**< Current active connection handle (NULL if none). */
-    uint8_t  rx_buf[DOIP_MAX_PDU_SIZE]; /**< Static receive buffer — no malloc. */
-    uint8_t  tx_buf[DOIP_MAX_PDU_SIZE]; /**< Static transmit buffer — no malloc. */
+    uint8_t  rx_buf[DOIP_MAX_PDU_SIZE]; /**< Static TCP receive buffer — no malloc. */
+    uint8_t  tx_buf[DOIP_MAX_PDU_SIZE]; /**< Static TCP transmit buffer — no malloc. */
+    uds_msg_buf_t uds_req;        /**< Static UDS request buffer — never on task stack. */
+    uds_msg_buf_t uds_resp;       /**< Static UDS response buffer — never on task stack. */
     uint32_t frames_received;    /**< Diagnostic counter: total frames received. */
     uint32_t frames_sent;        /**< Diagnostic counter: total frames sent. */
 } doip_server_state_t;

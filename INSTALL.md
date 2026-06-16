@@ -173,12 +173,23 @@ python3 tools/codegen.py \
 Expected output:
 
 ```
-[codegen] Loaded 24 DIDs, 10 DTCs, 5 routines
-[codegen] Generated: examples/bms_ecu/generated/uds_init.c
-[codegen] Generated: examples/bms_ecu/generated/did_handlers.c
-... (10 C/H files + test suite)
+========================================================================
+  Xaloqi EDS — Code Generator v1.7.0
+========================================================================
+  Config   : examples/bms_ecu/diagnostics_config.yaml
+  ...
+[1/5] Config loaded  — <N> DID(s), <N> DTC(s).
+[2/5] Base validation passed.
+[2B]  ASIL-B safety validation passed.
+[3/5] Rendering standard templates...
+  [OK]     generated/uds_init.c
+  [OK]     generated/did_handlers.c
+  ... (5 standard files + 3 safety wrapper files)
+[5/5] Manifest skipped (--no-manifest).
+
+========================================================================
   Generation complete.
-  Run tests: cd examples/bms_ecu/generated/tests && pytest . -v
+========================================================================
 ```
 
 ---
@@ -306,7 +317,7 @@ Accumulate results in CI and generate a weekly report as a build artifact:
       --config  examples/sensor_ecu/diagnostics_config.yaml \
       --out     reports/weekly_$(date +%V).html
   env:
-    XALOQI_LICENSE_SKIP: "0"
+    XALOQI_LICENSE_SKIP: "1"
 
 - name: Upload report
   uses: actions/upload-artifact@v4

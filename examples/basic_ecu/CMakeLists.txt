@@ -352,10 +352,8 @@ if(NOT DIAG_SKIP_CODEGEN AND TARGET run_codegen)
     add_dependencies(app run_codegen)
 endif()
 
-# Suppress the uds_msg_buf_t _Static_assert for all Zephyr example builds.
-# The Zephyr task stacks for these examples (4096-6144 bytes) are large enough
-# to hold the struct if needed, but all EDS stack buffers are module-level
-# statics — the assert would fire as a false positive on every compilation unit.
-# Zephyr's native_sim gets this via the CMakeLists.txt native_sim block;
-# hardware targets need it here.
+# Required for the build to compile: _Static_assert in uds_types.h fires at
+# translation-unit level whenever sizeof(uds_msg_buf_t) > EDS_MSG_BUF_MAX_STACK_BYTES.
+# No uds_msg_buf_t is allocated on the task stack in this build — all instances
+# are static members of their respective state structs (doip_server_state_t etc.).
 target_compile_definitions(app PRIVATE EDS_MSG_BUF_MAX_STACK_BYTES=8192)

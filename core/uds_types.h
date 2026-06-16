@@ -32,16 +32,14 @@ extern "C" {
  *   - #define UDS_STACK_VERSION in generated/safety_config.h (template)
  *   - "Stack version" field in docs/INTEGRATION_GUIDE.md
  *
- * [P1-5] Bumped from 0.1.0 → 1.0.0 to align with the published stack
- * version stated in docs/INTEGRATION_GUIDE.md and generated/safety_config.h.
- * The previous 0.1.0 value pre-dated the public API stabilisation at Phase 6.
+ * Bumped to 1.7.0 for the v1.7.0 commercial release.
  * -------------------------------------------------------------------------- */
 #define UDS_SUITE_VERSION_MAJOR  (1U)
-#define UDS_SUITE_VERSION_MINOR  (0U)
+#define UDS_SUITE_VERSION_MINOR  (7U)
 #define UDS_SUITE_VERSION_PATCH  (0U)
 
 /** Compile-time version string — matches UDS_STACK_VERSION in safety_config.h. */
-#define UDS_SUITE_VERSION_STRING "1.0.0"
+#define UDS_SUITE_VERSION_STRING "1.7.0"
 
 /* --------------------------------------------------------------------------
  * Buffer and protocol sizing constants

@@ -248,6 +248,12 @@ uds_status_t isotp_process_rx_frame(
                 return UDS_STATUS_ERR_TP_UNEXPECTED_PDU;
             }
 
+            /* Need at least CF PCI (1 byte) + some data. */
+            if (frame->dlc < (uint8_t)2U) {
+                ctx->rx_state = ISOTP_STATE_ERROR;
+                return UDS_STATUS_ERR_TP_FRAME_INVALID;
+            }
+
             remaining = ctx->rx_expected_len - ctx->rx_received_len;
             cf_data   = (uint8_t)(frame->dlc - (uint8_t)1U);
             copy_len  = ((uint16_t)cf_data < remaining) ? (uint16_t)cf_data : remaining;

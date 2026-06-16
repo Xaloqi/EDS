@@ -34,23 +34,22 @@ dids:
     name: "VIN"
     data_length: 17
     access: [read]
-    sessions: [default, extended]
-    read_handler: "vin_read"
+    min_session: default
+    read_security_level: 0
+    write_security_level: 0
 
   - id: "0xF187"
     name: "PartNumber"
     data_length: 10
     access: [read, write]
-    sessions: [extended, programming]
+    min_session: extended
     read_security_level: 0
     write_security_level: 1       # requires SecurityAccess unlock
-    read_handler: "part_number_read"
-    write_handler: "part_number_write"
 
 dtcs:
   - code: "0xD00101"
-    name: "VoltageHigh"
-    severity: high
+    description: "Battery voltage above threshold"
+    severity: check_at_next_halt
 ```
 
 **2. Generate everything:**

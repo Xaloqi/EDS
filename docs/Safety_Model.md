@@ -88,9 +88,9 @@ Seven ASIL-B requirements govern the diagnostics safety architecture, plus one A
 
 | ID | ASIL | Statement | Implementation |
 |---|---|---|---|
-| REQ-SAFE-001 | ASIL-B | All DID accesses shall be bounds-checked before execution | `uds_safety_check_bounds()` in every wrapper |
-| REQ-SAFE-002 | ASIL-B | Session state shall be validated prior to service dispatch | `uds_safety_check_session()` in every wrapper |
-| REQ-SAFE-003 | ASIL-B | Security level shall be checked before DID write operations | `uds_safety_check_security()` in every write wrapper |
+| REQ-SAFE-001 | ASIL-B | All DID accesses shall be bounds-checked before execution | `uds_safety_check_did_data_length()` in every wrapper |
+| REQ-SAFE-002 | ASIL-B | Session state shall be validated prior to service dispatch | `uds_safety_validate_session()` in every wrapper |
+| REQ-SAFE-003 | ASIL-B | Security level shall be checked before DID write operations | `uds_safety_validate_did_access()` in every write wrapper |
 | REQ-SAFE-004 | ASIL-B | NULL pointer dereferences shall be prevented at all entry points | `uds_safety_check_null_ptr()` at start of every wrapper |
 | REQ-SAFE-005 | ASIL-B | All initialisation shall be deterministic and sequenced | `uds_generated_init()` Steps 1–7 in fixed order |
 | REQ-SAFE-006 | ASIL-B | Diagnostic data_length fields shall match DID database records | Length comparison in every read/write wrapper |
@@ -169,15 +169,15 @@ Every DID access — read or write — passes through exactly five ordered check
             │    Failure → UDS_STATUS_ERR_DID_NOT_FOUND
             │
             ├─── Step 3: Session permission check ───────── REQ-SAFE-002
-            │    uds_safety_check_session(entry, active_session)
+            │    uds_safety_validate_session(session_ctx, entry->min_session)
             │    Failure → UDS_STATUS_ERR_SESSION_CONTROL
             │
             ├─── Step 4: Security level check ───────────── REQ-SAFE-003
-            │    uds_safety_check_security(entry, active_sec_level)
+            │    uds_safety_validate_did_access(entry, active_session, active_sec_level, dir)
             │    Failure → UDS_STATUS_ERR_SECURITY_ACCESS_DENIED
             │
             └─── Step 5: Data length bounds check ───────── REQ-SAFE-006
-                 uds_safety_check_bounds(buf_len, entry->data_length)
+                 uds_safety_check_did_data_length(entry, resp_buf, buf_len)
                  Failure → UDS_STATUS_ERR_INVALID_PARAM
                  │
                  ▼

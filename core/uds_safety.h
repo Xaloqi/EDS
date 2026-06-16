@@ -40,7 +40,7 @@
  *     uds_safety_check_did_data_length(entry, resp_buf, buf_len);
  *
  * CODING STANDARD: MISRA C:2012 alignment intended.
- * VERSION        : 0.4.0 (Phase 3)
+ * VERSION        : 1.7.0
  * SPDX-License-Identifier: GPL-2.0-only
  * =============================================================================
  */

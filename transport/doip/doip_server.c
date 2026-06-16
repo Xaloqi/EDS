@@ -227,7 +227,7 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
         uint16_t src_addr = ((uint16_t)payload[0] << 8U) | (uint16_t)payload[1];
         uint8_t  act_type = payload[2];
 
-        /* Only Default activation type (0x00) supported in v1.6.0. */
+        /* Only Default activation type (0x00) supported in v1.7.0. */
         if (act_type != 0x00U) {
             (void)doip_send_routing_activation_response(s, DOIP_RA_RESP_DENIED);
             return UDS_STATUS_OK;
@@ -296,29 +296,24 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
         (void)doip_send_diagnostic_positive_ack(s, src_addr, tgt_addr);
 
         /* --- Assemble request into uds_msg_buf_t and dispatch --- */
-        /* Both buffers are module-static inside doip_server_state_t.
-         * No stack allocation of uds_msg_buf_t (respects _Static_assert). */
-        uds_msg_buf_t req_buf;
-        uds_msg_buf_t resp_buf;
+        /* Use the static buffers in doip_server_state_t — no stack allocation
+         * of uds_msg_buf_t (each ~4 KB; would overflow a typical 4 KB task stack). */
+        uds_msg_buf_t * const req_buf  = &s->uds_req;
+        uds_msg_buf_t * const resp_buf = &s->uds_resp;
 
-        /* Suppress stack guard: doip_server_state_t provides the real buffers;
-         * these local uds_msg_buf_t are only used as alias views here.
-         * On embedded targets this translation unit is compiled with the same
-         * -DEDS_MSG_BUF_MAX_STACK_BYTES=8192 flag used by unit tests. */
-        (void)memset(&req_buf,  0, sizeof(req_buf));
-        (void)memset(&resp_buf, 0, sizeof(resp_buf));
-        (void)memcpy(req_buf.data, uds_pdu, (size_t)uds_len);
-        req_buf.length = (uint16_t)uds_len;
+        (void)memset(req_buf,  0, sizeof(*req_buf));
+        (void)memset(resp_buf, 0, sizeof(*resp_buf));
+        (void)memcpy(req_buf->data, uds_pdu, (size_t)uds_len);
+        req_buf->length = (uint16_t)uds_len;
 
         uds_status_t dispatch_rc = uds_server_process_request(uds_ctx,
-                                                               &req_buf,
-                                                               &resp_buf);
-        if (dispatch_rc == UDS_STATUS_OK && resp_buf.length > 0U) {
+                                                               req_buf,
+                                                               resp_buf);
+        if (dispatch_rc == UDS_STATUS_OK && resp_buf->length > 0U) {
             /* Encode DoIP Diagnostic Message response:
              * payload = our_logical_addr(2B) + tester_addr(2B) + UDS_resp(N) */
-            uint32_t resp_payload_len = (uint32_t)resp_buf.length + 4U;
+            uint32_t resp_payload_len = (uint32_t)resp_buf->length + 4U;
             if (resp_payload_len <= (uint32_t)(DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN)) {
-                /* Build in s->tx_buf to avoid stack allocation */
                 (void)doip_encode_header(s->tx_buf, DOIP_PT_DIAGNOSTIC_MSG,
                                          resp_payload_len);
                 s->tx_buf[DOIP_HEADER_LEN + 0U] = (uint8_t)((s->logical_address >> 8U) & 0xFFU);
@@ -326,8 +321,8 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
                 s->tx_buf[DOIP_HEADER_LEN + 2U] = (uint8_t)((s->tester_address >> 8U) & 0xFFU);
                 s->tx_buf[DOIP_HEADER_LEN + 3U] = (uint8_t)(s->tester_address & 0xFFU);
                 (void)memcpy(&s->tx_buf[DOIP_HEADER_LEN + 4U],
-                             resp_buf.data,
-                             (size_t)resp_buf.length);
+                             resp_buf->data,
+                             (size_t)resp_buf->length);
 
                 int send_rc = s_ops->tcp_send(s->conn_ctx,
                                               s->tx_buf,
@@ -339,7 +334,7 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
         }
         /* Suppress-positive-response: if dispatch returned suppress status,
          * no response frame is sent (ISO 14229-1 §7.5.2.4). This is
-         * handled inside uds_server_process_request — resp_buf.length == 0. */
+         * handled inside uds_server_process_request — resp_buf->length == 0. */
         s->frames_received++;
         return UDS_STATUS_OK;
     }
