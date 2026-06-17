@@ -111,7 +111,7 @@ static diag_wdt_t   s_wdt;
 
 static void on_isotp_rx_complete(
     const uint8_t *data,
-    uint16_t       length,
+    uint32_t       length,
     void          *arg)
 {
     uds_server_ctx_t *srv = (uds_server_ctx_t *)arg;
@@ -124,14 +124,14 @@ static void on_isotp_rx_complete(
     uint16_t i;
 
     if ((data == NULL) || (srv == NULL) || (tp == NULL)) { return; }
-    if ((length == 0U) || (length > (uint16_t)UDS_MAX_PAYLOAD_LEN)) { return; }
+    if ((length == 0U) || (length > (uint32_t)UDS_MAX_PAYLOAD_LEN)) { return; }
 
     (void)diag_mutex_lock(&s_session_lock);
 
-    for (i = 0U; i < length; i++) {
+    for (i = 0U; i < (uint16_t)length; i++) {
         s_req.data[i] = data[i];
     }
-    s_req.length  = length;
+    s_req.length  = (uint16_t)length;
     s_resp.length = 0U;
 
     (void)uds_server_process_request(srv, &s_req, &s_resp);

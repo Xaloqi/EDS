@@ -6,6 +6,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.7.1] — CAN FD ISO-TP support (ISO 15765-2 §9.8)
+
+### Added — CAN FD extensions to ISO-TP layer
+
+Four missing CAN FD paths from ISO 15765-2 §9.8, implemented in the GPL runtime.
+All paths are gated behind `isotp_cfg_t.use_fd = true` — existing Classic CAN
+configurations are unaffected (zero-initialised struct keeps `use_fd = false`).
+
+**API change**: `isotp_rx_complete_cb` length parameter and `isotp_transmit` length
+parameter widened from `uint16_t` to `uint32_t` for consistency with FD escape
+sequence ff_dl (32-bit). Internal state fields `rx_expected_len`, `rx_received_len`,
+`tx_total_len`, `tx_sent_len` also widened to `uint32_t`.
+
+| Gap | Frame type | Spec reference | Status |
+|-----|------------|----------------|--------|
+| SF RX escape  | `frame->is_fd && data[0]==0x00` → read `data[1]` as SF_DL (1–62 bytes) | §9.8.2 | Fixed |
+| FF RX escape  | `ff_dl==0` on FD frame → parse bytes 2–5 as 32-bit big-endian FF_DL | §9.8.3 | Fixed |
+| SF TX escape  | `use_fd && length ≤ 62` → emit `data[0]=0x00, data[1]=length, is_fd=true` | §9.8.2 | Fixed |
+| FF TX escape  | `use_fd && length > 4095` → emit `data[0..1]=0x10 0x00`, bytes 2–5 = 32-bit FF_DL | §9.8.3 | Fixed |
+
+New constants in `transport/isotp.h`:
+- `ISOTP_FD_SF_MAX_PAYLOAD_LEN (62U)` — max SF payload on CAN FD
+- `ISOTP_RX_BUF_LEN` — overridable compile-time RX buffer size (default: `UDS_MAX_PAYLOAD_LEN`)
+
+Added `bool use_fd` to both `isotp_cfg_t` and `isotp_ctx_t`. The Zephyr and FreeRTOS
+platform HAL bindings still target Classic CAN only; users enabling `use_fd=true`
+must supply a CAN FD-capable platform binding (tracked as a follow-up).
+
+### Added — 8 CAN FD unit tests
+
+New `ZTEST_SUITE(test_isotp_canfd)` in `tests/unit_runnable/test_isotp.c`:
+
+| Test | What it covers |
+|------|---------------|
+| `test_fd_sf_rx_10_bytes` | FD SF 10-byte payload RX |
+| `test_fd_sf_rx_62_bytes` | FD SF max 62-byte payload RX |
+| `test_fd_sf_rx_zero_dl` | SF_DL=0 → `UDS_STATUS_ERR_TP_FRAME_INVALID` |
+| `test_fd_sf_tx_10_bytes` | FD SF TX: byte 0=0x00, byte 1=10, `is_fd=true` |
+| `test_fd_ff_escape_rx_fits` | FF escape RX (ff_dl=100): RX_WAIT_CF + FC CTS sent |
+| `test_fd_ff_escape_rx_overflow` | FF escape RX (ff_dl=5000 > buffer) → FC OVFLW |
+| `test_fd_ff_escape_classic_can_rejected` | FF_DL=0 on Classic CAN → FRAME_INVALID |
+| `test_fd_ff_escape_tx` | FF escape TX (ff_dl=5000): bytes 0–5 encoding verified |
+
+### Changed — example callbacks
+
+All 7 example `on_isotp_rx_complete` callbacks updated:
+`uint16_t length` → `uint32_t length`; overflow guard updated from `(uint16_t)` to
+`(uint32_t)UDS_MAX_PAYLOAD_LEN`. Affects `basic_ecu`, `bms_ecu`, `sensor_ecu`,
+`sensor_ecu_freertos`, `ardep_ecu`, `robot_joint_controller_ecu`, `safeboot_ecu`.
+
+Reported in: https://github.com/Xaloqi/EDS/issues/14
+
+---
 ## [1.7.0] — Robustness Campaign + SOVD Bridge
 
 ### Fixed — Protocol compliance: suppress-response bit (ISO 14229-1 §7.5.3)

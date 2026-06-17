@@ -67,6 +67,25 @@ extern "C" {
 #define ISOTP_SF_MAX_PAYLOAD_LEN (7U)
 #endif
 
+/**
+ * Maximum payload bytes in a CAN FD Single Frame.
+ * ISO 15765-2:2016 §9.8.1: CAN FD frame = up to 64 bytes;
+ * 2 bytes consumed by the escape PCI (0x00 + SF_DL), leaving 62 bytes.
+ */
+#ifndef ISOTP_FD_SF_MAX_PAYLOAD_LEN
+#define ISOTP_FD_SF_MAX_PAYLOAD_LEN (62U)
+#endif
+
+/**
+ * Static RX reassembly buffer size in bytes.
+ * Defaults to UDS_MAX_PAYLOAD_LEN (4095).  Override at compile time
+ * (e.g. -DISOTOP_RX_BUF_LEN=131072) for large CAN FD OTA transfers.
+ * Must be at least 8 and no larger than UINT32_MAX.
+ */
+#ifndef ISOTP_RX_BUF_LEN
+#define ISOTP_RX_BUF_LEN (UDS_MAX_PAYLOAD_LEN)
+#endif
+
 /** Default block size (0 = no block size limit). */
 #ifndef ISOTP_DEFAULT_BLOCK_SIZE
 #define ISOTP_DEFAULT_BLOCK_SIZE (0U)
@@ -117,17 +136,17 @@ typedef struct isotp_ctx {
 
     /* RX state */
     isotp_state_t    rx_state;                          /**< Current RX state. */
-    uint8_t          rx_buf[UDS_MAX_PAYLOAD_LEN];       /**< Static RX reassembly buffer. */
-    uint16_t         rx_expected_len;                   /**< Total expected message length. */
-    uint16_t         rx_received_len;                   /**< Bytes received so far. */
+    uint8_t          rx_buf[ISOTP_RX_BUF_LEN];         /**< Static RX reassembly buffer. */
+    uint32_t         rx_expected_len;                   /**< Total expected message length. */
+    uint32_t         rx_received_len;                   /**< Bytes received so far. */
     uint8_t          rx_expected_sn;                    /**< Expected consecutive frame SN. */
     uint32_t         rx_cr_timer_ms;                    /**< Cr timeout countdown (ms). */
 
     /* TX state */
     isotp_state_t    tx_state;                          /**< Current TX state. */
     const uint8_t   *tx_data;                           /**< Pointer to TX data (not owned). */
-    uint16_t         tx_total_len;                      /**< Total bytes to transmit. */
-    uint16_t         tx_sent_len;                       /**< Bytes transmitted so far. */
+    uint32_t         tx_total_len;                      /**< Total bytes to transmit. */
+    uint32_t         tx_sent_len;                       /**< Bytes transmitted so far. */
     uint8_t          tx_sn;                             /**< TX consecutive frame sequence number. */
     uint8_t          tx_block_size;                     /**< Negotiated block size. */
     uint8_t          tx_stmin_ms;                       /**< Negotiated STmin in ms. */
@@ -141,6 +160,7 @@ typedef struct isotp_ctx {
     uint32_t         tx_can_id;                         /**< CAN ID to transmit on. */
     uint8_t          local_block_size;                  /**< Block size to advertise in FC. */
     uint8_t          local_stmin_ms;                    /**< STmin to advertise in FC (ms). */
+    bool             use_fd;                            /**< True: CAN FD mode (SF up to 62 B, FF escape for >4095 B). */
 
     /* Bound CAN transport interface. */
     can_transport_t *can;                               /**< Pointer to CAN transport interface. */
@@ -158,6 +178,7 @@ typedef struct isotp_cfg {
     uint32_t         tx_can_id;         /**< CAN ID to use for outgoing frames. */
     uint8_t          block_size;        /**< Block size to advertise to sender (0 = unlimited). */
     uint8_t          stmin_ms;          /**< Minimum separation time to advertise (ms). */
+    bool             use_fd;            /**< Set true to enable CAN FD SF/FF encoding. */
     can_transport_t *can;               /**< Pointer to initialized CAN transport interface. */
 } isotp_cfg_t;
 
@@ -177,7 +198,7 @@ typedef struct isotp_cfg {
  */
 typedef void (*isotp_rx_complete_cb)(
     const uint8_t *data,
-    uint16_t       length,
+    uint32_t       length,
     void          *arg
 );
 
@@ -240,14 +261,14 @@ uds_status_t isotp_process_rx_frame(
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx not initialized.
  * @return UDS_STATUS_ERR_BUSY if a TX is already in progress.
  * @return UDS_STATUS_ERR_INVALID_PARAM if length is zero.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if length exceeds UDS_MAX_PAYLOAD_LEN.
+ * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if length exceeds UDS_MAX_PAYLOAD_LEN and use_fd is false.
  *
  * @note TIMING: Timing-critical — TX initiation must occur within P2server_max.
  */
 uds_status_t isotp_transmit(
     isotp_ctx_t    *ctx,
     const uint8_t  *data,
-    uint16_t        length
+    uint32_t        length
 );
 
 /**

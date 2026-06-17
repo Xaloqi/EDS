@@ -265,7 +265,7 @@ static int diag_security_algo_init(void)
  * ============================================================================= */
 static void on_isotp_rx_complete(
     const uint8_t *data,
-    uint16_t       length,
+    uint32_t       length,
     void          *arg)
 {
     uds_server_ctx_t *srv = (uds_server_ctx_t *)arg;
@@ -278,17 +278,17 @@ static void on_isotp_rx_complete(
         return;
     }
 
-    if ((length == (uint16_t)0U) || (length > (uint16_t)UDS_MAX_PAYLOAD_LEN)) {
+    if ((length == (uint32_t)0U) || (length > (uint32_t)UDS_MAX_PAYLOAD_LEN)) {
         LOG_WRN("on_isotp_rx_complete: invalid length %u — PDU dropped.",
                 (unsigned)length);
         return;
     }
 
     /* Copy PDU into static request buffer. */
-    for (i = (uint16_t)0U; i < length; i++) {
+    for (i = (uint16_t)0U; i < (uint16_t)length; i++) {
         s_req_buf.data[i] = data[i];
     }
-    s_req_buf.length = length;
+    s_req_buf.length = (uint16_t)length;
     s_resp_buf.length = (uint16_t)0U;
 
     LOG_DBG("UDS RX: SID=0x%02X len=%u", (unsigned)data[0], (unsigned)length);

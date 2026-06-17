@@ -130,7 +130,7 @@ static int diag_security_algo_init(void)
  * ISO-TP RX completion callback
  * ---------------------------------------------------------------------------*/
 
-static void on_isotp_rx_complete(const uint8_t *data, uint16_t length, void *arg)
+static void on_isotp_rx_complete(const uint8_t *data, uint32_t length, void *arg)
 {
     uds_server_ctx_t *srv = (uds_server_ctx_t *)arg;
     isotp_ctx_t      *tp  = uds_generated_get_isotp();
@@ -140,14 +140,14 @@ static void on_isotp_rx_complete(const uint8_t *data, uint16_t length, void *arg
     if ((data == NULL) || (srv == NULL) || (tp == NULL)) {
         return;
     }
-    if ((length == 0U) || (length > (uint16_t)UDS_MAX_PAYLOAD_LEN)) {
+    if ((length == 0U) || (length > (uint32_t)UDS_MAX_PAYLOAD_LEN)) {
         return;
     }
 
-    for (i = 0U; i < length; i++) {
+    for (i = 0U; i < (uint16_t)length; i++) {
         s_req_buf.data[i] = data[i];
     }
-    s_req_buf.length  = length;
+    s_req_buf.length  = (uint16_t)length;
     s_resp_buf.length = 0U;
 
     (void)diag_mutex_lock(&s_session_lock);

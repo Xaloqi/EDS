@@ -108,14 +108,14 @@ static can_transport_t g_mock_can = {
 #define MAX_CB_DATA (256U)
 
 static uint8_t  g_cb_data[MAX_CB_DATA];
-static uint16_t g_cb_len;
+static uint32_t g_cb_len;
 static uint8_t  g_cb_count;
 
-static void rx_complete_cb(const uint8_t *data, uint16_t length, void *arg)
+static void rx_complete_cb(const uint8_t *data, uint32_t length, void *arg)
 {
     (void)arg;
     g_cb_count++;
-    if (length <= (uint16_t)MAX_CB_DATA) {
+    if (length <= (uint32_t)MAX_CB_DATA) {
         (void)memcpy(g_cb_data, data, (size_t)length);
     }
     g_cb_len = length;
