@@ -80,7 +80,7 @@ static void mock_reset(void)
 }
 
 /* Null RX callback — used for TX-only tests */
-static void null_rx_cb(const uint8_t *d, uint16_t l, void *a)
+static void null_rx_cb(const uint8_t *d, uint32_t l, void *a)
 {
     (void)d; (void)l; (void)a;
 }

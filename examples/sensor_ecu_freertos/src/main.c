@@ -100,7 +100,7 @@ static uds_msg_buf_t s_resp_buf;
 
 static void on_isotp_rx_complete(
     const uint8_t *data,
-    uint16_t       length,
+    uint32_t       length,
     void          *arg)
 {
     uds_server_ctx_t *srv = (uds_server_ctx_t *)arg;
@@ -109,12 +109,12 @@ static void on_isotp_rx_complete(
     uint16_t          i;
 
     if ((data == NULL) || (srv == NULL) || (tp == NULL)) { return; }
-    if ((length == (uint16_t)0U) || (length > (uint16_t)UDS_MAX_PAYLOAD_LEN)) { return; }
+    if ((length == (uint32_t)0U) || (length > (uint32_t)UDS_MAX_PAYLOAD_LEN)) { return; }
 
-    for (i = 0U; i < length; i++) {
+    for (i = 0U; i < (uint16_t)length; i++) {
         s_req_buf.data[i] = data[i];
     }
-    s_req_buf.length  = length;
+    s_req_buf.length  = (uint16_t)length;
     s_resp_buf.length = (uint16_t)0U;
 
     status = uds_server_process_request(srv, &s_req_buf, &s_resp_buf);

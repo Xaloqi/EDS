@@ -87,16 +87,16 @@ static can_transport_t g_mock_can = {
 
 /* RX callback state */
 static uint8_t  g_rx_cb_data[UDS_MAX_PAYLOAD_LEN];
-static uint16_t g_rx_cb_len;
+static uint32_t g_rx_cb_len;
 static bool     g_rx_cb_called;
 
-static void rx_complete_cb(const uint8_t *data, uint16_t length, void *arg)
+static void rx_complete_cb(const uint8_t *data, uint32_t length, void *arg)
 {
     (void)arg;
     g_rx_cb_called = true;
     g_rx_cb_len    = length;
-    if (length <= UDS_MAX_PAYLOAD_LEN) {
-        memcpy(g_rx_cb_data, data, length);
+    if (length <= (uint32_t)UDS_MAX_PAYLOAD_LEN) {
+        memcpy(g_rx_cb_data, data, (size_t)length);
     }
 }
 
@@ -118,7 +118,7 @@ static void rx_cb_reset(void)
     g_rx_cb_called = false;
 }
 
-/** Build a Zephyr-side CAN frame (helper). */
+/** Build a Classic CAN frame (helper). */
 static uds_can_frame_t make_can_frame(uint32_t id, const uint8_t *data, uint8_t dlc)
 {
     uds_can_frame_t f;
@@ -131,7 +131,17 @@ static uds_can_frame_t make_can_frame(uint32_t id, const uint8_t *data, uint8_t 
     return f;
 }
 
-/** Initialise a fresh isotp_ctx_t with the mock CAN transport. */
+#if ISOTP_ENABLE_CAN_FD
+/** Build a CAN FD frame (helper). */
+static uds_can_frame_t make_fd_frame(uint32_t id, const uint8_t *data, uint8_t dlc)
+{
+    uds_can_frame_t f = make_can_frame(id, data, dlc);
+    f.is_fd = true;
+    return f;
+}
+#endif /* ISOTP_ENABLE_CAN_FD */
+
+/** Initialise a fresh isotp_ctx_t with the mock CAN transport (Classic CAN). */
 static uds_status_t init_isotp(isotp_ctx_t *ctx)
 {
     isotp_cfg_t cfg;
@@ -140,9 +150,28 @@ static uds_status_t init_isotp(isotp_ctx_t *ctx)
     cfg.tx_can_id   = 0x7E8U;
     cfg.block_size  = 0U;
     cfg.stmin_ms    = 0U;
+#if ISOTP_ENABLE_CAN_FD
+    cfg.use_fd      = false;
+#endif
     cfg.can         = &g_mock_can;
     return isotp_init(ctx, &cfg);
 }
+
+#if ISOTP_ENABLE_CAN_FD
+/** Initialise a fresh isotp_ctx_t in CAN FD mode. */
+static uds_status_t init_isotp_fd(isotp_ctx_t *ctx)
+{
+    isotp_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.rx_can_id   = 0x7DFU;
+    cfg.tx_can_id   = 0x7E8U;
+    cfg.block_size  = 0U;
+    cfg.stmin_ms    = 0U;
+    cfg.use_fd      = true;
+    cfg.can         = &g_mock_can;
+    return isotp_init(ctx, &cfg);
+}
+#endif /* ISOTP_ENABLE_CAN_FD */
 
 /* =========================================================================
  * Test suite: isotp_init
@@ -422,9 +451,13 @@ ZTEST(test_isotp_rx_multi, test_cf_without_ff)
     zassert_false(g_rx_cb_called, "Callback must not fire for unexpected CF");
 }
 
+#if ISOTP_ENABLE_CAN_FD
 /**
- * TC-ISTP-RX-MF-004: FF payload length exceeds UDS_MAX_PAYLOAD_LEN
- *                     → UDS_STATUS_ERR_TP_OVERFLOW.
+ * TC-ISTP-RX-MF-004: CAN FD FF escape sequence with FF_DL > ISOTP_RX_BUF_LEN
+ *                     → UDS_STATUS_ERR_TP_OVERFLOW + FC OVFLW transmitted.
+ *
+ * Sends an FD FF with 32-bit FF_DL = 5000 (> 4095 = ISOTP_RX_BUF_LEN).
+ * Bytes 0-1 = 0x10 0x00 (escape); bytes 2-5 = big-endian 5000 = 0x00001388.
  */
 ZTEST(test_isotp_rx_multi, test_ff_overflow)
 {
@@ -432,17 +465,248 @@ ZTEST(test_isotp_rx_multi, test_ff_overflow)
     rx_cb_reset();
     isotp_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t ff_payload[] = {
+        0x10U, 0x00U,               /* FF type, escape sequence trigger */
+        0x00U, 0x00U, 0x13U, 0x88U, /* FF_DL = 5000 (big-endian) */
+        0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U  /* first data bytes */
+    };
+    uds_can_frame_t ff = make_fd_frame(0x7DFU, ff_payload, 12U);
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_ERR_TP_OVERFLOW,
+                  "FD FF with FF_DL > ISOTP_RX_BUF_LEN must send OVFLW and fail");
+    /* FC OVFLW must have been transmitted */
+    zassert_true(g_mock_tx_count >= 1U, "FC OVFLW frame must be sent");
+    zassert_equal((g_mock_tx_frames[0].data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_FC,
+                  "Transmitted frame must be FC type");
+    zassert_equal((g_mock_tx_frames[0].data[0] & 0x0FU), (uint8_t)ISOTP_FC_STATUS_OVERFLOW,
+                  "FC status must be OVERFLOW");
+}
+#endif /* ISOTP_ENABLE_CAN_FD — test_ff_overflow */
+
+/* =========================================================================
+ * Test suite: CAN FD SF and FF (ISO 15765-2 §9.8)
+ * ========================================================================= */
+
+#if ISOTP_ENABLE_CAN_FD
+
+ZTEST_SUITE(test_isotp_canfd, NULL, NULL, NULL, NULL, NULL);
+
+/**
+ * TC-ISTP-FD-001: CAN FD SF receive — 10-byte payload.
+ * FD SF encoding: byte 0 = 0x00, byte 1 = SF_DL (10), data at [2..11].
+ */
+ZTEST(test_isotp_canfd, test_fd_sf_rx_10_bytes)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t payload[12] = {
+        0x00U, 0x0AU,                                       /* FD SF PCI: SF_DL = 10 */
+        0x01U, 0x02U, 0x03U, 0x04U, 0x05U,
+        0x06U, 0x07U, 0x08U, 0x09U, 0x0AU                  /* 10 data bytes */
+    };
+    uds_can_frame_t f = make_fd_frame(0x7DFU, payload, 12U);
+
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_OK, "FD SF RX must succeed");
+    zassert_true(g_rx_cb_called, "Callback must fire");
+    zassert_equal(g_rx_cb_len, 10U, "Length must be 10");
+    zassert_equal(g_rx_cb_data[0], 0x01U, "data[0] mismatch");
+    zassert_equal(g_rx_cb_data[9], 0x0AU, "data[9] mismatch");
+}
+
+/**
+ * TC-ISTP-FD-002: CAN FD SF receive — maximum 62-byte payload.
+ */
+ZTEST(test_isotp_canfd, test_fd_sf_rx_62_bytes)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t payload[64];
+    memset(payload, 0, sizeof(payload));
+    payload[0] = 0x00U;  /* FD SF escape */
+    payload[1] = 0x3EU;  /* SF_DL = 62 */
+    memset(&payload[2], 0xAAU, 62U);
+
+    uds_can_frame_t f = make_fd_frame(0x7DFU, payload, 64U);
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_OK, "FD SF 62-byte RX must succeed");
+    zassert_true(g_rx_cb_called, "Callback must fire");
+    zassert_equal(g_rx_cb_len, 62U, "Length must be 62");
+    zassert_equal(g_rx_cb_data[0],  0xAAU, "data[0] mismatch");
+    zassert_equal(g_rx_cb_data[61], 0xAAU, "data[61] mismatch");
+}
+
+/**
+ * TC-ISTP-FD-003: CAN FD SF receive — SF_DL = 0 on FD frame → FRAME_INVALID.
+ * byte 0 = 0x00, byte 1 = 0x00 → SF_DL zero is invalid.
+ */
+ZTEST(test_isotp_canfd, test_fd_sf_rx_zero_dl)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t payload[12] = { 0x00U, 0x00U };
+    uds_can_frame_t f = make_fd_frame(0x7DFU, payload, 12U);
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_ERR_TP_FRAME_INVALID,
+                  "FD SF with SF_DL=0 must be rejected");
+    zassert_false(g_rx_cb_called, "Callback must not fire");
+}
+
+/**
+ * TC-ISTP-FD-004: CAN FD SF transmit — 10-byte payload.
+ * Verifies FD SF encoding: byte 0 = 0x00, byte 1 = 10.
+ */
+ZTEST(test_isotp_canfd, test_fd_sf_tx_10_bytes)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t data[10];
+    memset(data, 0xBBU, sizeof(data));
+
+    uds_status_t rc = isotp_transmit(&ctx, data, 10U);
+    zassert_equal(rc, UDS_STATUS_OK, "FD SF TX must succeed");
+    zassert_equal(g_mock_tx_count, 1U, "Exactly one CAN frame must be sent");
+    zassert_true(g_mock_tx_frames[0].is_fd, "Transmitted frame must be CAN FD");
+    zassert_equal(g_mock_tx_frames[0].data[0], 0x00U, "FD SF byte 0 must be 0x00");
+    zassert_equal(g_mock_tx_frames[0].data[1], 10U,   "FD SF byte 1 must be SF_DL=10");
+    zassert_equal(g_mock_tx_frames[0].data[2], 0xBBU, "First data byte mismatch");
+
+    isotp_state_t state;
+    isotp_get_state(&ctx, &state);
+    zassert_equal(state, ISOTP_STATE_IDLE, "State must return to IDLE after FD SF TX");
+}
+
+/**
+ * TC-ISTP-FD-005: CAN FD FF escape sequence receive — FF_DL = 5000 bytes
+ *                  within ISOTP_RX_BUF_LEN → not possible without expanding
+ *                  the buffer; test that FF_DL = 100 (fits) works.
+ *
+ * Sends an FD FF with escape sequence: bytes 0-1 = 0x10 0x00,
+ * bytes 2-5 = 0x00000064 (100 decimal), then 10 first data bytes.
+ */
+ZTEST(test_isotp_canfd, test_fd_ff_escape_rx_fits)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t ff_payload[16] = {
+        0x10U, 0x00U,               /* FD FF escape */
+        0x00U, 0x00U, 0x00U, 0x64U, /* FF_DL = 100 */
+        0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U, 0x08U, 0x09U, 0x0AU
+    };
+    uds_can_frame_t ff = make_fd_frame(0x7DFU, ff_payload, 16U);
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_OK, "FD FF escape RX must be accepted");
+    zassert_false(g_rx_cb_called, "Callback must NOT fire after FF alone");
+
+    isotp_state_t state;
+    isotp_get_state(&ctx, &state);
+    zassert_equal(state, ISOTP_STATE_RX_WAIT_CF, "Must be in RX_WAIT_CF");
+    /* FC CTS must have been sent */
+    zassert_true(g_mock_tx_count >= 1U, "FC CTS must be transmitted");
+    zassert_equal((g_mock_tx_frames[0].data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_FC,
+                  "Transmitted frame must be FC type");
+    zassert_equal((g_mock_tx_frames[0].data[0] & 0x0FU),
+                  (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND,
+                  "FC status must be CTS");
+}
+
+/**
+ * TC-ISTP-FD-006: CAN FD FF escape — FF_DL > ISOTP_RX_BUF_LEN → FC OVFLW.
+ * Duplicate of test_ff_overflow but via the FD-specific suite for clarity.
+ */
+ZTEST(test_isotp_canfd, test_fd_ff_escape_rx_overflow)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t ff_payload[] = {
+        0x10U, 0x00U,
+        0x00U, 0x00U, 0x13U, 0x88U,  /* FF_DL = 5000 > 4095 */
+        0x01U, 0x02U
+    };
+    uds_can_frame_t ff = make_fd_frame(0x7DFU, ff_payload, 8U);
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_ERR_TP_OVERFLOW, "Must overflow when FF_DL > buf");
+}
+
+/**
+ * TC-ISTP-FD-007: CAN FD FF escape on Classic CAN frame → FRAME_INVALID.
+ * FF_DL == 0 on a non-FD frame must be rejected.
+ */
+ZTEST(test_isotp_canfd, test_fd_ff_escape_classic_can_rejected)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
     zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
 
-    /* FF with total_len encoded as > 4095: use 0x1F, 0xFF = 4095+1 = impossible
-     * but > 4095 encoded as 0x10 hi, 0x00 is 4096 — use max+1 */
-    /* ISO-TP 12-bit length: max = 0xFFF = 4095. Set 0x1F 0xFF = 8191 */
-    uint8_t ff_payload[] = { 0x1FU, 0xFFU, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U };
-    uds_can_frame_t ff = make_can_frame(0x7DFU, ff_payload, 8U);
-    uds_status_t rc = isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL);
-    zassert_equal(UDS_STATUS_ERR_TP_OVERFLOW, rc,
-                  "FF with len > UDS_MAX_PAYLOAD_LEN must be rejected");
+    /* Classic CAN frame with byte 0 = 0x10, byte 1 = 0x00 → escape not valid */
+    uint8_t payload[] = { 0x10U, 0x00U, 0x00U, 0x00U, 0x00U, 0x64U, 0x01U, 0x02U };
+    uds_can_frame_t f = make_can_frame(0x7DFU, payload, 8U);
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_ERR_TP_FRAME_INVALID,
+                  "FF_DL=0 on Classic CAN must be FRAME_INVALID");
 }
+
+/**
+ * TC-ISTP-FD-008: CAN FD FF escape TX — length > UDS_MAX_PAYLOAD_LEN (4095).
+ * Verifies escape encoding: byte 0 = 0x10, byte 1 = 0x00, bytes 2-5 = length.
+ */
+ZTEST(test_isotp_canfd, test_fd_ff_escape_tx)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd(&ctx), UDS_STATUS_OK, "init failed");
+
+    static uint8_t s_large_data[5000];
+    memset(s_large_data, 0xCCU, sizeof(s_large_data));
+
+    uds_status_t rc = isotp_transmit(&ctx, s_large_data, 5000U);
+    zassert_equal(rc, UDS_STATUS_OK, "FD FF escape TX must succeed");
+    zassert_true(g_mock_tx_count >= 1U, "FF must be transmitted");
+
+    /* Verify escape encoding */
+    zassert_true(g_mock_tx_frames[0].is_fd, "FF must be a CAN FD frame");
+    zassert_equal(g_mock_tx_frames[0].data[0], 0x10U, "FF byte 0 must be 0x10");
+    zassert_equal(g_mock_tx_frames[0].data[1], 0x00U, "FF byte 1 must be 0x00");
+    /* 5000 = 0x00001388 */
+    zassert_equal(g_mock_tx_frames[0].data[2], 0x00U, "FF_DL byte 2 mismatch");
+    zassert_equal(g_mock_tx_frames[0].data[3], 0x00U, "FF_DL byte 3 mismatch");
+    zassert_equal(g_mock_tx_frames[0].data[4], 0x13U, "FF_DL byte 4 mismatch");
+    zassert_equal(g_mock_tx_frames[0].data[5], 0x88U, "FF_DL byte 5 mismatch");
+
+    isotp_state_t state;
+    isotp_get_state(&ctx, &state);
+    zassert_equal(state, ISOTP_STATE_TX_WAIT_FC,
+                  "State must be TX_WAIT_FC after FD FF escape TX");
+}
+#endif /* ISOTP_ENABLE_CAN_FD — test_isotp_canfd suite */
 
 /* =========================================================================
  * Test suite: isotp_transmit
@@ -488,7 +752,8 @@ ZTEST(test_isotp_transmit, test_zero_length)
 }
 
 /**
- * TC-ISTP-TX-004: Length > UDS_MAX_PAYLOAD_LEN → UDS_STATUS_ERR_BUFFER_OVERFLOW.
+ * TC-ISTP-TX-004: Classic CAN, length > UDS_MAX_PAYLOAD_LEN →
+ *                 UDS_STATUS_ERR_BUFFER_OVERFLOW.
  */
 ZTEST(test_isotp_transmit, test_overflow_length)
 {
@@ -497,8 +762,8 @@ ZTEST(test_isotp_transmit, test_overflow_length)
     memset(&ctx, 0, sizeof(ctx));
     zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
     uint8_t data[8] = { 0 };
-    uds_status_t rc = isotp_transmit(&ctx, data, (uint16_t)(UDS_MAX_PAYLOAD_LEN + 1U));
-    zassert_equal(rc, UDS_STATUS_ERR_BUFFER_OVERFLOW, "Overflow length must fail");
+    uds_status_t rc = isotp_transmit(&ctx, data, (uint32_t)(UDS_MAX_PAYLOAD_LEN + 1U));
+    zassert_equal(rc, UDS_STATUS_ERR_BUFFER_OVERFLOW, "Classic CAN overflow must fail");
 }
 
 /**
@@ -740,7 +1005,17 @@ extern void test_isotp_rx_single__test_sf_seven_bytes(void);
 extern void test_isotp_rx_multi__test_first_frame_triggers_fc(void);
 extern void test_isotp_rx_multi__test_ff_cf_complete(void);
 extern void test_isotp_rx_multi__test_cf_without_ff(void);
+#if ISOTP_ENABLE_CAN_FD
 extern void test_isotp_rx_multi__test_ff_overflow(void);
+extern void test_isotp_canfd__test_fd_sf_rx_10_bytes(void);
+extern void test_isotp_canfd__test_fd_sf_rx_62_bytes(void);
+extern void test_isotp_canfd__test_fd_sf_rx_zero_dl(void);
+extern void test_isotp_canfd__test_fd_sf_tx_10_bytes(void);
+extern void test_isotp_canfd__test_fd_ff_escape_rx_fits(void);
+extern void test_isotp_canfd__test_fd_ff_escape_rx_overflow(void);
+extern void test_isotp_canfd__test_fd_ff_escape_classic_can_rejected(void);
+extern void test_isotp_canfd__test_fd_ff_escape_tx(void);
+#endif /* ISOTP_ENABLE_CAN_FD */
 extern void test_isotp_transmit__test_null_ctx(void);
 extern void test_isotp_transmit__test_null_data(void);
 extern void test_isotp_transmit__test_zero_length(void);
@@ -771,7 +1046,17 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_rx_multi__test_first_frame_triggers_fc);
     RUN_TEST(test_isotp_rx_multi__test_ff_cf_complete);
     RUN_TEST(test_isotp_rx_multi__test_cf_without_ff);
+#if ISOTP_ENABLE_CAN_FD
     RUN_TEST(test_isotp_rx_multi__test_ff_overflow);
+    RUN_TEST(test_isotp_canfd__test_fd_sf_rx_10_bytes);
+    RUN_TEST(test_isotp_canfd__test_fd_sf_rx_62_bytes);
+    RUN_TEST(test_isotp_canfd__test_fd_sf_rx_zero_dl);
+    RUN_TEST(test_isotp_canfd__test_fd_sf_tx_10_bytes);
+    RUN_TEST(test_isotp_canfd__test_fd_ff_escape_rx_fits);
+    RUN_TEST(test_isotp_canfd__test_fd_ff_escape_rx_overflow);
+    RUN_TEST(test_isotp_canfd__test_fd_ff_escape_classic_can_rejected);
+    RUN_TEST(test_isotp_canfd__test_fd_ff_escape_tx);
+#endif /* ISOTP_ENABLE_CAN_FD */
     RUN_TEST(test_isotp_transmit__test_null_ctx);
     RUN_TEST(test_isotp_transmit__test_null_data);
     RUN_TEST(test_isotp_transmit__test_zero_length);

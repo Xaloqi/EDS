@@ -14,8 +14,10 @@
  *   [P2-TP-04] FC reception and segmented TX state machine — fully implemented.
  *   [P2-TP-05] As/Bs/Cr timeout enforcement in isotp_tick_1ms.
  *   [P2-TP-06] STmin inter-frame delay for TX consecutive frames.
- *   [P2-TP-07] CAN FD escape sequence for PDU length > 4095 bytes noted
- *              as out of scope (UDS_MAX_PAYLOAD_LEN is 4095).
+ *   [P2-TP-07] CAN FD SF and FF encoding added (ISO 15765-2 §9.8):
+ *              SF RX/TX: byte 0 = 0x00, byte 1 = SF_DL (1-62) when frame->is_fd.
+ *              FF RX/TX: escape sequence (bytes 0-1 = 0x10 0x00, bytes 2-5 = 32-bit
+ *              FF_DL) when use_fd and length > UDS_MAX_PAYLOAD_LEN.
  *
  * MULTI-FRAME TX SEQUENCE:
  *   isotp_transmit()            — sends FF, transitions to TX_WAIT_FC
@@ -99,6 +101,9 @@ uds_status_t isotp_init(isotp_ctx_t *ctx, const isotp_cfg_t *cfg)
     ctx->tx_can_id        = cfg->tx_can_id;
     ctx->local_block_size = cfg->block_size;
     ctx->local_stmin_ms   = cfg->stmin_ms;
+#if ISOTP_ENABLE_CAN_FD
+    ctx->use_fd           = cfg->use_fd;
+#endif
     ctx->can              = cfg->can;
     ctx->rx_state         = ISOTP_STATE_IDLE;
     ctx->tx_state         = ISOTP_STATE_IDLE;
@@ -133,9 +138,36 @@ uds_status_t isotp_process_rx_frame(
 
         /* ----------------------------------------------------------------
          * [P2-TP-01] Single Frame (SF) reception
+         * [P2-TP-07] CAN FD SF: byte 0 = 0x00, byte 1 = SF_DL (ISO 15765-2 §9.8.1)
          * ---------------------------------------------------------------- */
         case (uint8_t)ISOTP_FRAME_TYPE_SF: {
-            uint8_t sf_dl = (uint8_t)(frame->data[0] & (uint8_t)0x0FU);
+            uint8_t sf_dl;
+
+#if ISOTP_ENABLE_CAN_FD
+            /* CAN FD Single Frame: signalled by frame->is_fd and byte 0 == 0x00. */
+            if (frame->is_fd && (frame->data[0] == (uint8_t)0x00U)) {
+                sf_dl = frame->data[1];
+
+                if (sf_dl == (uint8_t)0U) {
+                    return UDS_STATUS_ERR_TP_FRAME_INVALID;
+                }
+                if (sf_dl > (uint8_t)ISOTP_FD_SF_MAX_PAYLOAD_LEN) {
+                    return UDS_STATUS_ERR_TP_OVERFLOW;
+                }
+                /* Need PCI (2 bytes) + sf_dl data bytes. */
+                if (frame->dlc < (uint8_t)((uint8_t)2U + sf_dl)) {
+                    return UDS_STATUS_ERR_TP_FRAME_INVALID;
+                }
+
+                ctx->rx_state = ISOTP_STATE_IDLE;
+                (void)memcpy(ctx->rx_buf, &frame->data[2], (size_t)sf_dl);
+                rx_cb(ctx->rx_buf, (uint32_t)sf_dl, rx_cb_arg);
+                return UDS_STATUS_OK;
+            }
+#endif /* ISOTP_ENABLE_CAN_FD */
+
+            /* Classic CAN Single Frame. */
+            sf_dl = (uint8_t)(frame->data[0] & (uint8_t)0x0FU);
 
             if (sf_dl == (uint8_t)0U) {
                 return UDS_STATUS_ERR_TP_FRAME_INVALID;
@@ -149,14 +181,10 @@ uds_status_t isotp_process_rx_frame(
              * [MISRA 14.3] Guard against rx_buf overflow using the named
              * protocol constant rather than sizeof().
              *
-             * sizeof(ctx->rx_buf) == UDS_MAX_PAYLOAD_LEN (4095) which, when
-             * cast to uint8_t, wraps to 0xFF — making "sf_dl > 0xFF" always
-             * false for a uint8_t operand.  The correct check uses the
-             * compile-time constant directly so the comparison is type-clean
-             * and the intent is explicit: a CAN SF carries at most 7 data
-             * bytes, and rx_buf is 4095 bytes, so any valid SF always fits.
-             * We verify against ISOTP_SF_MAX_PAYLOAD_LEN (7U) to catch a
-             * malformed PCI byte that overstates the data length.
+             * sizeof(ctx->rx_buf) == ISOTP_RX_BUF_LEN which, when cast to
+             * uint8_t for a >255-byte buffer, would wrap — the named constant
+             * keeps the comparison type-clean.  A Classic CAN SF carries at
+             * most 7 data bytes, so any valid SF always fits.
              */
             if (sf_dl > (uint8_t)ISOTP_SF_MAX_PAYLOAD_LEN) {
                 return UDS_STATUS_ERR_TP_OVERFLOW;
@@ -166,34 +194,59 @@ uds_status_t isotp_process_rx_frame(
             ctx->rx_state = ISOTP_STATE_IDLE;
 
             (void)memcpy(ctx->rx_buf, &frame->data[1], (size_t)sf_dl);
-            rx_cb(ctx->rx_buf, (uint16_t)sf_dl, rx_cb_arg);
+            rx_cb(ctx->rx_buf, (uint32_t)sf_dl, rx_cb_arg);
             return UDS_STATUS_OK;
         }
 
         /* ----------------------------------------------------------------
          * [P2-TP-02] First Frame (FF) reception
+         * [P2-TP-07] CAN FD FF escape sequence for FF_DL > 4095 bytes
+         *            (ISO 15765-2 §9.8.2): bytes 0-1 = 0x10 0x00,
+         *            bytes 2-5 = 32-bit big-endian FF_DL.
          * ---------------------------------------------------------------- */
         case (uint8_t)ISOTP_FRAME_TYPE_FF: {
-            uint16_t ff_dl;
+            uint32_t ff_dl;
             uint8_t  ff_data_bytes;
+            uint8_t  ff_data_offset;
 
-            /* FF_DL is 12 bits: (byte0 & 0x0F) << 8 | byte1. */
-            ff_dl = (uint16_t)(((uint16_t)(frame->data[0] & (uint8_t)0x0FU) << (uint16_t)8U)
-                               | (uint16_t)frame->data[1]);
+            /* FF_DL: 12 bits from (byte0 & 0x0F) << 8 | byte1. */
+            ff_dl = (uint32_t)(((uint32_t)(frame->data[0] & (uint8_t)0x0FU) << 8U)
+                               | (uint32_t)frame->data[1]);
 
-            if (ff_dl == (uint16_t)0U) {
+            if (ff_dl == (uint32_t)0U) {
+#if ISOTP_ENABLE_CAN_FD
+                /*
+                 * ISO 15765-2 §9.8.2: FF_DL == 0 signals the CAN FD escape
+                 * sequence.  Classic CAN never uses this encoding — reject it.
+                 */
+                if (!frame->is_fd) {
+                    return UDS_STATUS_ERR_TP_FRAME_INVALID;
+                }
+                /* Escape header requires at least 6 bytes: 2 PCI + 4 length. */
+                if (frame->dlc < (uint8_t)6U) {
+                    return UDS_STATUS_ERR_TP_FRAME_INVALID;
+                }
+                /* Extract 32-bit FF_DL from bytes 2-5 (big-endian). */
+                ff_dl = ((uint32_t)frame->data[2] << 24U)
+                      | ((uint32_t)frame->data[3] << 16U)
+                      | ((uint32_t)frame->data[4] <<  8U)
+                      |  (uint32_t)frame->data[5];
+
+                if (ff_dl == (uint32_t)0U) {
+                    return UDS_STATUS_ERR_TP_FRAME_INVALID;
+                }
+                ff_data_offset = (uint8_t)6U;
+#else
+                /* FF_DL == 0 is reserved on Classic CAN — always reject. */
                 return UDS_STATUS_ERR_TP_FRAME_INVALID;
+#endif /* ISOTP_ENABLE_CAN_FD */
+            } else {
+                /* Standard 12-bit FF_DL (values 1-4095). */
+                ff_data_offset = (uint8_t)2U;
             }
 
-            /*
-             * ISO 15765-2 §9.8.2: FF_DL == 0 uses escape sequence (CAN FD only).
-             * For standard CAN, FF_DL must be 8..4095 (0x008..0xFFF).
-             * FF_DL > UDS_MAX_PAYLOAD_LEN is not reachable with 12-bit encoding
-             * (max = 0xFFF = 4095 = UDS_MAX_PAYLOAD_LEN), but we check for
-             * any value that would overflow our static RX buffer.
-             */
-            if (ff_dl >= (uint16_t)UDS_MAX_PAYLOAD_LEN) {
-                /* Send FC OVFLW and abort. */
+            /* Reject if assembled PDU exceeds the static RX buffer. */
+            if (ff_dl > (uint32_t)ISOTP_RX_BUF_LEN) {
                 (void)isotp_send_fc(ctx,
                                     (uint8_t)ISOTP_FC_STATUS_OVERFLOW,
                                     (uint8_t)0U,
@@ -201,20 +254,20 @@ uds_status_t isotp_process_rx_frame(
                 return UDS_STATUS_ERR_TP_OVERFLOW;
             }
 
-            /* Need at least FF PCI (2 bytes) + some data. */
-            if (frame->dlc < (uint8_t)3U) {
+            /* Need at least the PCI header + some data. */
+            if (frame->dlc <= ff_data_offset) {
                 return UDS_STATUS_ERR_TP_FRAME_INVALID;
             }
 
-            ff_data_bytes = (uint8_t)(frame->dlc - (uint8_t)2U);
-            if ((uint16_t)ff_data_bytes > ff_dl) {
+            ff_data_bytes = (uint8_t)(frame->dlc - ff_data_offset);
+            if ((uint32_t)ff_data_bytes > ff_dl) {
                 ff_data_bytes = (uint8_t)ff_dl;
             }
 
-            (void)memcpy(ctx->rx_buf, &frame->data[2], (size_t)ff_data_bytes);
+            (void)memcpy(ctx->rx_buf, &frame->data[ff_data_offset], (size_t)ff_data_bytes);
 
             ctx->rx_expected_len = ff_dl;
-            ctx->rx_received_len = (uint16_t)ff_data_bytes;
+            ctx->rx_received_len = (uint32_t)ff_data_bytes;
             ctx->rx_expected_sn  = (uint8_t)1U;
             ctx->rx_cr_timer_ms  = (uint32_t)ISOTP_TIMEOUT_CR_MS;
             ctx->rx_state        = ISOTP_STATE_RX_WAIT_CF;
@@ -233,9 +286,9 @@ uds_status_t isotp_process_rx_frame(
          * ---------------------------------------------------------------- */
         case (uint8_t)ISOTP_FRAME_TYPE_CF: {
             uint8_t  sn;
-            uint16_t remaining;
+            uint32_t remaining;
             uint8_t  cf_data;
-            uint16_t copy_len;
+            uint32_t copy_len;
 
             if (ctx->rx_state != ISOTP_STATE_RX_WAIT_CF) {
                 return UDS_STATUS_ERR_TP_UNEXPECTED_PDU;
@@ -256,9 +309,9 @@ uds_status_t isotp_process_rx_frame(
 
             remaining = ctx->rx_expected_len - ctx->rx_received_len;
             cf_data   = (uint8_t)(frame->dlc - (uint8_t)1U);
-            copy_len  = ((uint16_t)cf_data < remaining) ? (uint16_t)cf_data : remaining;
+            copy_len  = ((uint32_t)cf_data < remaining) ? (uint32_t)cf_data : remaining;
 
-            if ((ctx->rx_received_len + copy_len) > (uint16_t)sizeof(ctx->rx_buf)) {
+            if ((ctx->rx_received_len + copy_len) > (uint32_t)sizeof(ctx->rx_buf)) {
                 ctx->rx_state = ISOTP_STATE_ERROR;
                 return UDS_STATUS_ERR_TP_OVERFLOW;
             }
@@ -266,7 +319,7 @@ uds_status_t isotp_process_rx_frame(
             (void)memcpy(&ctx->rx_buf[ctx->rx_received_len],
                          &frame->data[1], (size_t)copy_len);
 
-            ctx->rx_received_len = (uint16_t)(ctx->rx_received_len + copy_len);
+            ctx->rx_received_len = ctx->rx_received_len + copy_len;
             ctx->rx_expected_sn  = (uint8_t)(ctx->rx_expected_sn + (uint8_t)1U);
 
             /* Reset Cr timer on each received CF. */
@@ -345,7 +398,7 @@ uds_status_t isotp_process_rx_frame(
 uds_status_t isotp_transmit(
     isotp_ctx_t    *ctx,
     const uint8_t  *data,
-    uint16_t        length)
+    uint32_t        length)
 {
     if ((ctx == NULL) || (data == NULL)) {
         return UDS_STATUS_ERR_NULL_PTR;
@@ -355,11 +408,16 @@ uds_status_t isotp_transmit(
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
-    if (length == (uint16_t)0U) {
+    if (length == (uint32_t)0U) {
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
-    if (length > (uint16_t)UDS_MAX_PAYLOAD_LEN) {
+#if ISOTP_ENABLE_CAN_FD
+    /* CAN FD allows payloads > 4095; Classic CAN is capped at UDS_MAX_PAYLOAD_LEN. */
+    if (!ctx->use_fd && (length > (uint32_t)UDS_MAX_PAYLOAD_LEN)) {
+#else
+    if (length > (uint32_t)UDS_MAX_PAYLOAD_LEN) {
+#endif
         return UDS_STATUS_ERR_BUFFER_OVERFLOW;
     }
 
@@ -369,19 +427,19 @@ uds_status_t isotp_transmit(
 
     ctx->tx_data        = data;
     ctx->tx_total_len   = length;
-    ctx->tx_sent_len    = (uint16_t)0U;
+    ctx->tx_sent_len    = (uint32_t)0U;
     ctx->tx_sn          = (uint8_t)0U;
     ctx->tx_blocks_sent = (uint8_t)0U;
 
-    if (length <= (uint16_t)7U) {
-        /* ---- Single Frame path ---- */
+    if (length <= (uint32_t)7U) {
+        /* ---- Classic CAN Single Frame (payload 1-7 bytes) ---- */
         uds_can_frame_t sf;
         uds_status_t    tx_rc;
 
         (void)memset(&sf, 0, sizeof(sf));
         sf.id      = ctx->tx_can_id;
-        sf.dlc     = (uint8_t)(length + (uint16_t)1U);
-        sf.data[0] = (uint8_t)length;   /* PCI: SF, SF_DL in lower nibble */
+        sf.dlc     = (uint8_t)(length + (uint32_t)1U);
+        sf.data[0] = (uint8_t)length;   /* PCI: SF type (0x0), SF_DL in lower nibble */
         (void)memcpy(&sf.data[1], data, (size_t)length);
 
         tx_rc = can_transport_transmit(ctx->can, &sf);
@@ -394,8 +452,71 @@ uds_status_t isotp_transmit(
         return UDS_STATUS_OK;
     }
 
+#if ISOTP_ENABLE_CAN_FD
+    if (ctx->use_fd && (length <= (uint32_t)ISOTP_FD_SF_MAX_PAYLOAD_LEN)) {
+        /* ---- [P2-TP-07] CAN FD Single Frame (payload 8-62 bytes) ----
+         * ISO 15765-2 §9.8.1: byte 0 = 0x00, byte 1 = SF_DL, data at [2..].
+         */
+        uds_can_frame_t sf;
+        uds_status_t    tx_rc;
+
+        (void)memset(&sf, 0, sizeof(sf));
+        sf.id      = ctx->tx_can_id;
+        sf.dlc     = (uint8_t)(length + (uint32_t)2U);
+        sf.is_fd   = true;
+        sf.data[0] = (uint8_t)0x00U;            /* FD SF escape byte */
+        sf.data[1] = (uint8_t)length;            /* SF_DL */
+        (void)memcpy(&sf.data[2], data, (size_t)length);
+
+        tx_rc = can_transport_transmit(ctx->can, &sf);
+        if (tx_rc != UDS_STATUS_OK) {
+            return UDS_STATUS_ERR_TP_TX_FAILED;
+        }
+
+        ctx->tx_sent_len = length;
+        return UDS_STATUS_OK;
+    }
+#endif /* ISOTP_ENABLE_CAN_FD */
+
     /* ---- Multi-Frame: send First Frame ---- */
+#if ISOTP_ENABLE_CAN_FD
+    if (ctx->use_fd && (length > (uint32_t)UDS_MAX_PAYLOAD_LEN)) {
+        /* ---- [P2-TP-07] CAN FD FF escape sequence (payload > 4095 bytes) ----
+         * ISO 15765-2 §9.8.2: bytes 0-1 = 0x10 0x00, bytes 2-5 = 32-bit FF_DL.
+         * First data bytes start at offset 6; up to 58 bytes fit in a 64-byte frame.
+         */
+        uds_can_frame_t ff;
+        uds_status_t    tx_rc;
+        uint8_t         first_data;
+
+        first_data = (length > (uint32_t)58U) ? (uint8_t)58U : (uint8_t)length;
+
+        (void)memset(&ff, 0, sizeof(ff));
+        ff.id      = ctx->tx_can_id;
+        ff.dlc     = (uint8_t)(6U + (uint32_t)first_data);
+        ff.is_fd   = true;
+        ff.data[0] = (uint8_t)((uint8_t)ISOTP_FRAME_TYPE_FF << (uint8_t)4U); /* 0x10 */
+        ff.data[1] = (uint8_t)0x00U;                                          /* escape */
+        ff.data[2] = (uint8_t)((length >> 24U) & (uint8_t)0xFFU);
+        ff.data[3] = (uint8_t)((length >> 16U) & (uint8_t)0xFFU);
+        ff.data[4] = (uint8_t)((length >>  8U) & (uint8_t)0xFFU);
+        ff.data[5] = (uint8_t)(length           & (uint8_t)0xFFU);
+        (void)memcpy(&ff.data[6], data, (size_t)first_data);
+
+        tx_rc = can_transport_transmit(ctx->can, &ff);
+        if (tx_rc != UDS_STATUS_OK) {
+            return UDS_STATUS_ERR_TP_TX_FAILED;
+        }
+
+        ctx->tx_sent_len    = (uint32_t)first_data;
+        ctx->tx_sn          = (uint8_t)1U;
+        ctx->tx_bs_timer_ms = (uint32_t)ISOTP_TIMEOUT_BS_MS;
+        ctx->tx_as_timer_ms = (uint32_t)ISOTP_TIMEOUT_AS_MS;
+        ctx->tx_state       = ISOTP_STATE_TX_WAIT_FC;
+    } else
+#endif /* ISOTP_ENABLE_CAN_FD */
     {
+        /* ---- Classic CAN FF (12-bit FF_DL, payload 8-4095 bytes) ---- */
         uds_can_frame_t ff;
         uds_status_t    tx_rc;
 
@@ -403,7 +524,7 @@ uds_status_t isotp_transmit(
         ff.id      = ctx->tx_can_id;
         ff.dlc     = (uint8_t)8U;
         ff.data[0] = (uint8_t)((uint8_t)((uint8_t)ISOTP_FRAME_TYPE_FF << (uint8_t)4U)
-                               | (uint8_t)((length >> (uint8_t)8U) & (uint8_t)0x0FU));
+                               | (uint8_t)((length >> 8U) & (uint8_t)0x0FU));
         ff.data[1] = (uint8_t)(length & (uint8_t)0xFFU);
         (void)memcpy(&ff.data[2], data, (size_t)6U);
 
@@ -412,7 +533,7 @@ uds_status_t isotp_transmit(
             return UDS_STATUS_ERR_TP_TX_FAILED;
         }
 
-        ctx->tx_sent_len    = (uint16_t)6U;
+        ctx->tx_sent_len    = (uint32_t)6U;
         ctx->tx_sn          = (uint8_t)1U;
 
         /* [P2-TP-05] Arm Bs timer — must receive FC within ISOTP_TIMEOUT_BS_MS. */
@@ -504,13 +625,13 @@ uds_status_t isotp_reset(isotp_ctx_t *ctx)
 
     ctx->rx_state          = ISOTP_STATE_IDLE;
     ctx->tx_state          = ISOTP_STATE_IDLE;
-    ctx->rx_expected_len   = (uint16_t)0U;
-    ctx->rx_received_len   = (uint16_t)0U;
+    ctx->rx_expected_len   = (uint32_t)0U;
+    ctx->rx_received_len   = (uint32_t)0U;
     ctx->rx_expected_sn    = (uint8_t)0U;
     ctx->rx_cr_timer_ms    = 0U;
     ctx->tx_data           = NULL;
-    ctx->tx_total_len      = (uint16_t)0U;
-    ctx->tx_sent_len       = (uint16_t)0U;
+    ctx->tx_total_len      = (uint32_t)0U;
+    ctx->tx_sent_len       = (uint32_t)0U;
     ctx->tx_sn             = (uint8_t)0U;
     ctx->tx_block_size     = (uint8_t)0U;
     ctx->tx_stmin_ms       = (uint8_t)0U;
@@ -600,7 +721,7 @@ static uint8_t isotp_decode_stmin_ms(uint8_t stmin_raw)
 static void isotp_tx_pump(isotp_ctx_t *ctx)
 {
     uds_can_frame_t  cf;
-    uint16_t         remaining;
+    uint32_t         remaining;
     uint8_t          cf_data_len;
     uds_status_t     tx_rc;
 
@@ -614,7 +735,7 @@ static void isotp_tx_pump(isotp_ctx_t *ctx)
     }
 
     remaining = ctx->tx_total_len - ctx->tx_sent_len;
-    if (remaining == (uint16_t)0U) {
+    if (remaining == (uint32_t)0U) {
         /* All bytes sent — TX complete. */
         ctx->tx_state       = ISOTP_STATE_IDLE;
         ctx->tx_data        = NULL;
@@ -622,7 +743,7 @@ static void isotp_tx_pump(isotp_ctx_t *ctx)
         return;
     }
 
-    cf_data_len = (remaining > (uint16_t)7U) ? (uint8_t)7U : (uint8_t)remaining;
+    cf_data_len = (remaining > (uint32_t)7U) ? (uint8_t)7U : (uint8_t)remaining;
 
     (void)memset(&cf, 0, sizeof(cf));
     cf.id      = ctx->tx_can_id;
@@ -637,7 +758,7 @@ static void isotp_tx_pump(isotp_ctx_t *ctx)
         return;
     }
 
-    ctx->tx_sent_len    = (uint16_t)(ctx->tx_sent_len + (uint16_t)cf_data_len);
+    ctx->tx_sent_len    = ctx->tx_sent_len + (uint32_t)cf_data_len;
     ctx->tx_sn          = (uint8_t)(ctx->tx_sn + (uint8_t)1U);
     ctx->tx_blocks_sent = (uint8_t)(ctx->tx_blocks_sent + (uint8_t)1U);
 
