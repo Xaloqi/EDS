@@ -513,10 +513,12 @@ uds_status_t isotp_transmit(
         ctx->tx_bs_timer_ms = (uint32_t)ISOTP_TIMEOUT_BS_MS;
         ctx->tx_as_timer_ms = (uint32_t)ISOTP_TIMEOUT_AS_MS;
         ctx->tx_state       = ISOTP_STATE_TX_WAIT_FC;
-    } else
+        return UDS_STATUS_OK;
+    }
 #endif /* ISOTP_ENABLE_CAN_FD */
+
+    /* ---- Classic CAN FF (12-bit FF_DL, payload 8-4095 bytes) ---- */
     {
-        /* ---- Classic CAN FF (12-bit FF_DL, payload 8-4095 bytes) ---- */
         uds_can_frame_t ff;
         uds_status_t    tx_rc;
 
