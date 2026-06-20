@@ -449,6 +449,78 @@ ZTEST(test_uds_session_is_default, test_programming_session_false)
 }
 
 /* =========================================================================
+ * Test suite: uds_session_set_strict_programming
+ * ========================================================================= */
+
+ZTEST_SUITE(test_uds_session_strict, NULL, NULL, NULL, NULL, NULL);
+
+/**
+ * TC-SESS-STRICT-001: NULL ctx → UDS_STATUS_ERR_NULL_PTR.
+ */
+ZTEST(test_uds_session_strict, test_null_ctx)
+{
+    uds_status_t rc = uds_session_set_strict_programming(NULL, true);
+    zassert_equal(rc, UDS_STATUS_ERR_NULL_PTR, "NULL ctx must return NULL_PTR");
+}
+
+/**
+ * TC-SESS-STRICT-002: strict=true blocks DEFAULT → PROGRAMMING directly.
+ */
+ZTEST(test_uds_session_strict, test_blocks_default_to_programming)
+{
+    uds_session_ctx_t ctx;
+    zassert_equal(default_init(&ctx), UDS_STATUS_OK, "init failed");
+    zassert_equal(uds_session_set_strict_programming(&ctx, true),
+                  UDS_STATUS_OK, "set_strict failed");
+
+    uds_status_t rc = uds_session_transition(&ctx, UDS_SESSION_PROGRAMMING);
+    zassert_equal(rc, UDS_STATUS_ERR_SESSION_TRANSITION,
+                  "strict mode must block DEFAULT→PROGRAMMING");
+
+    uds_session_type_t active;
+    uds_session_get_active(&ctx, &active);
+    zassert_equal(active, UDS_SESSION_DEFAULT, "Session must remain DEFAULT after rejection");
+}
+
+/**
+ * TC-SESS-STRICT-003: strict=true allows DEFAULT → EXTENDED → PROGRAMMING.
+ */
+ZTEST(test_uds_session_strict, test_allows_via_extended)
+{
+    uds_session_ctx_t ctx;
+    zassert_equal(default_init(&ctx), UDS_STATUS_OK, "init failed");
+    zassert_equal(uds_session_set_strict_programming(&ctx, true),
+                  UDS_STATUS_OK, "set_strict failed");
+
+    zassert_equal(uds_session_transition(&ctx, UDS_SESSION_EXTENDED),
+                  UDS_STATUS_OK, "DEFAULT→EXTENDED must succeed in strict mode");
+    zassert_equal(uds_session_transition(&ctx, UDS_SESSION_PROGRAMMING),
+                  UDS_STATUS_OK, "EXTENDED→PROGRAMMING must succeed in strict mode");
+
+    uds_session_type_t active;
+    uds_session_get_active(&ctx, &active);
+    zassert_equal(active, UDS_SESSION_PROGRAMMING, "Must end in PROGRAMMING");
+}
+
+/**
+ * TC-SESS-STRICT-004: strict=true does not affect other transitions.
+ */
+ZTEST(test_uds_session_strict, test_other_transitions_unaffected)
+{
+    uds_session_ctx_t ctx;
+    zassert_equal(default_init(&ctx), UDS_STATUS_OK, "init failed");
+    zassert_equal(uds_session_set_strict_programming(&ctx, true),
+                  UDS_STATUS_OK, "set_strict failed");
+
+    zassert_equal(uds_session_transition(&ctx, UDS_SESSION_EXTENDED),
+                  UDS_STATUS_OK, "DEFAULT→EXTENDED must work in strict mode");
+    zassert_equal(uds_session_transition(&ctx, UDS_SESSION_DEFAULT),
+                  UDS_STATUS_OK, "EXTENDED→DEFAULT must work in strict mode");
+    zassert_equal(uds_session_transition(&ctx, UDS_SESSION_SAFETY_SYSTEM),
+                  UDS_STATUS_OK, "DEFAULT→SAFETY_SYSTEM must work in strict mode");
+}
+
+/* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
 
@@ -477,6 +549,10 @@ extern void test_uds_session_is_default__test_null_returns_true(void);
 extern void test_uds_session_is_default__test_default_session_true(void);
 extern void test_uds_session_is_default__test_extended_session_false(void);
 extern void test_uds_session_is_default__test_programming_session_false(void);
+extern void test_uds_session_strict__test_null_ctx(void);
+extern void test_uds_session_strict__test_blocks_default_to_programming(void);
+extern void test_uds_session_strict__test_allows_via_extended(void);
+extern void test_uds_session_strict__test_other_transitions_unaffected(void);
 
 void run_all_tests(void)
 {
@@ -505,4 +581,8 @@ void run_all_tests(void)
     RUN_TEST(test_uds_session_is_default__test_default_session_true);
     RUN_TEST(test_uds_session_is_default__test_extended_session_false);
     RUN_TEST(test_uds_session_is_default__test_programming_session_false);
+    RUN_TEST(test_uds_session_strict__test_null_ctx);
+    RUN_TEST(test_uds_session_strict__test_blocks_default_to_programming);
+    RUN_TEST(test_uds_session_strict__test_allows_via_extended);
+    RUN_TEST(test_uds_session_strict__test_other_transitions_unaffected);
 }

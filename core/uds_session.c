@@ -113,6 +113,14 @@ uds_status_t uds_session_transition(
         return rc;
     }
 
+    /* OEM strict gate: when enabled, DEFAULT → PROGRAMMING requires an
+     * intermediate EXTENDED session (BMW/VAG toolchain convention). */
+    if (ctx->strict_programming &&
+        (ctx->active_session == UDS_SESSION_DEFAULT) &&
+        (new_session == UDS_SESSION_PROGRAMMING)) {
+        return UDS_STATUS_ERR_SESSION_TRANSITION;
+    }
+
     old_session         = ctx->active_session;
     ctx->active_session = new_session;
     ctx->session_change_count++;
@@ -227,6 +235,22 @@ bool uds_session_is_default(const uds_session_ctx_t *ctx)
     }
 
     return (ctx->active_session == UDS_SESSION_DEFAULT);
+}
+
+uds_status_t uds_session_set_strict_programming(
+    uds_session_ctx_t *ctx,
+    bool               strict)
+{
+    if (ctx == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    if (!ctx->initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    ctx->strict_programming = strict;
+    return UDS_STATUS_OK;
 }
 
 /* --------------------------------------------------------------------------
