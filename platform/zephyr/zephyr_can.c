@@ -58,6 +58,7 @@
 #include "zephyr_port.h"   /* Platform types: zephyr_port_cfg_t, timestamps, etc. */
 #include "can_transport.h"
 #include "uds_types.h"
+#include "isotp.h"         /* ISOTP_ENABLE_CAN_FD compile-time gate. */
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/can.h>
@@ -151,14 +152,32 @@ static uds_status_t zephyr_can_transmit(
         return UDS_STATUS_ERR_CAN_BUS_OFF;
     }
 
+#if ISOTP_ENABLE_CAN_FD
+    if (frame->is_fd) {
+        if (frame->dlc > (uint8_t)64U) {
+            return UDS_STATUS_ERR_INVALID_PARAM;
+        }
+    } else {
+        if (frame->dlc > (uint8_t)CAN_MAX_DLC) {
+            return UDS_STATUS_ERR_INVALID_PARAM;
+        }
+    }
+#else
     if (frame->dlc > (uint8_t)CAN_MAX_DLC) {
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
+#endif
 
     (void)memset(&zf, 0, sizeof(zf));
-    zf.id    = frame->id;
+    zf.id = frame->id;
+#if ISOTP_ENABLE_CAN_FD
+    /* CAN FD: set FDF flag; encode DLC as CAN FD DLC value (0–15). */
+    zf.flags = frame->is_fd ? (uint8_t)CAN_FRAME_FDF : (uint8_t)0U;
+    zf.dlc   = frame->is_fd ? can_bytes_to_dlc(frame->dlc) : frame->dlc;
+#else
+    zf.flags = (uint8_t)0U;  /* can_frame_flags_t removed in Zephyr 3.x */
     zf.dlc   = frame->dlc;
-    zf.flags = (uint8_t)0U;  /* can_frame_flags_t removed in Zephyr 3.x; flags is uint8_t */
+#endif
     (void)memcpy(zf.data, frame->data, (size_t)frame->dlc);
 
     /* Timeout = 25 ms = ISO 15765-2 N_As. */
@@ -209,8 +228,15 @@ static uds_status_t zephyr_can_receive(
     }
 
     (void)memset(out_frame, 0, sizeof(*out_frame));
-    out_frame->id  = zf.id;
+    out_frame->id = zf.id;
+#if ISOTP_ENABLE_CAN_FD
+    /* Propagate FD flag; convert CAN FD DLC (0–15) to actual byte count. */
+    out_frame->is_fd = ((zf.flags & (uint8_t)CAN_FRAME_FDF) != (uint8_t)0U);
+    out_frame->dlc   = out_frame->is_fd ? can_dlc_to_bytes(zf.dlc)
+                                        : (uint8_t)MIN(zf.dlc, (uint8_t)CAN_MAX_DLC);
+#else
     out_frame->dlc = (uint8_t)MIN(zf.dlc, (uint8_t)CAN_MAX_DLC);
+#endif
     (void)memcpy(out_frame->data, zf.data, (size_t)out_frame->dlc);
 
     *out_ready = true;
@@ -296,12 +322,20 @@ uds_status_t zephyr_can_platform_init(
         return UDS_STATUS_ERR_CAN_NOT_READY;
     }
 
-    /* Set to normal (non-loopback) operating mode. */
+    /* Set operating mode. CAN FD mode requires CONFIG_CAN_FD_MODE=y in Kconfig. */
+#if ISOTP_ENABLE_CAN_FD
+    rc = can_set_mode(can_dev, CAN_MODE_FD);
+    if (rc != 0) {
+        LOG_ERR("CAN: can_set_mode(FD) failed: %d — ensure CONFIG_CAN_FD_MODE=y.", rc);
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+#else
     rc = can_set_mode(can_dev, CAN_MODE_NORMAL);
     if (rc != 0) {
         LOG_ERR("CAN: can_set_mode(NORMAL) failed: %d", rc);
         return UDS_STATUS_ERR_PLATFORM;
     }
+#endif
 
     /* Start the CAN controller. */
     rc = can_start(can_dev);
