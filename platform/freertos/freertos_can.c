@@ -50,6 +50,7 @@
 #include "platform_api.h"
 #include "can_transport.h"
 #include "uds_types.h"
+#include "isotp.h"         /* ISOTP_ENABLE_CAN_FD compile-time gate. */
 
 #include "FreeRTOS.h"
 #include "queue.h"
@@ -121,21 +122,24 @@ static uds_status_t freertos_can_transmit(
     }
     taskEXIT_CRITICAL();
 
+#if ISOTP_ENABLE_CAN_FD
+    if (frame->dlc > (uint8_t)64U) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
+#else
     if (frame->dlc > (uint8_t)8U) {
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
+#endif
 
-    /*
-     * Convert uds_can_frame_t → eds_can_frame_t.
-     *
-     * uds_can_frame_t has an is_fd field (CAN FD flag) and a larger
-     * data buffer (64 bytes). eds_can_frame_t is classic CAN only (8 bytes).
-     * DLC is already validated <= 8 above, so the copy is safe.
-     */
+    /* Convert uds_can_frame_t → eds_can_frame_t for the customer send callback. */
     (void)memset(&ef, 0, sizeof(ef));
     ef.id          = frame->id;
     ef.dlc         = frame->dlc;
     ef.is_extended = frame->is_extended_id;
+#if ISOTP_ENABLE_CAN_FD
+    ef.is_fd       = frame->is_fd;
+#endif
     (void)memcpy(ef.data, frame->data, (size_t)frame->dlc);
 
     return s_can_send_fn(&ef);
@@ -179,7 +183,11 @@ static uds_status_t freertos_can_receive(
     out_frame->id              = ef.id;
     out_frame->dlc             = ef.dlc;
     out_frame->is_extended_id  = ef.is_extended;
-    out_frame->is_fd           = false;   /* FreeRTOS shim: classic CAN only */
+#if ISOTP_ENABLE_CAN_FD
+    out_frame->is_fd = ef.is_fd;
+#else
+    out_frame->is_fd = false;
+#endif
     (void)memcpy(out_frame->data, ef.data, (size_t)ef.dlc);
 
     *out_ready = true;

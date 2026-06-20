@@ -58,11 +58,25 @@ extern "C" {
  * Zephyr transport converts between this and struct can_frame internally.
  * ========================================================================== */
 
+/**
+ * Maximum payload bytes in eds_can_frame_t.
+ * 8 for Classic CAN builds; 64 when ISOTP_ENABLE_CAN_FD=1.
+ * Must agree with UDS_CAN_FRAME_MAX_LEN in uds_types.h (both = 64 for FD).
+ */
+#if ISOTP_ENABLE_CAN_FD
+#define EDS_CAN_FRAME_MAX_DLEN  (64U)
+#else
+#define EDS_CAN_FRAME_MAX_DLEN  (8U)
+#endif
+
 typedef struct {
-    uint32_t id;           /**< CAN frame ID (11-bit or 29-bit). */
-    uint8_t  data[8];      /**< CAN data bytes (classic CAN, max 8). */
-    uint8_t  dlc;          /**< Data length code (0–8). */
-    bool     is_extended;  /**< True if 29-bit extended ID. */
+    uint32_t id;                            /**< CAN frame ID (11-bit or 29-bit). */
+    uint8_t  data[EDS_CAN_FRAME_MAX_DLEN]; /**< Frame payload bytes. */
+    uint8_t  dlc;                           /**< Byte count (0–8 Classic; 0–64 FD). */
+    bool     is_extended;                   /**< True if 29-bit extended ID. */
+#if ISOTP_ENABLE_CAN_FD
+    bool     is_fd;                         /**< True if CAN FD frame. */
+#endif
 } eds_can_frame_t;
 
 /* ============================================================================
