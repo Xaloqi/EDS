@@ -2,7 +2,7 @@
 # Xaloqi Embedded Diagnostics Suite
 
 [![CI](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml/badge.svg)](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v1.7.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.7.0)
+[![Version](https://img.shields.io/badge/version-v1.7.2-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.7.2)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Zephyr](https://img.shields.io/badge/Zephyr-v3.7%2B-brightgreen)](https://zephyrproject.org)
 
@@ -120,7 +120,7 @@ manifest:
   projects:
     - name: EDS
       remote: xaloqi
-      revision: v1.7.0
+      revision: v1.7.2
       path: modules/eds
 ```
 
@@ -144,7 +144,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.7.0 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.7.2 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 ```
