@@ -33,8 +33,8 @@
 #        projects:
 #          - name: EDS
 #            remote: xaloqi
-#            revision: v1.6.0
-#            path: modules/eds
+#            revision: delivery-v1.7.2
+#            path: modules/diag/xaloqi-eds
 #
 #      Verified against: Zephyr v3.7.0, west v1.5.0
 #
@@ -45,7 +45,7 @@
 # Homepage:    https://github.com/Xaloqi/EDS
 # =============================================================================
 
-name: embedded-diagnostics-suite
+name: xaloqi-eds
 
 # ---------------------------------------------------------------------------
 # Build integration
