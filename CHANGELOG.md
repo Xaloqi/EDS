@@ -6,6 +6,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.7.2] — CAN FD platform HAL + strict session gate
+
+### Added — CAN FD HAL for Zephyr and FreeRTOS
+
+Completes the CAN FD story started in v1.7.1. The ISO-TP transport layer
+already handled FD frames correctly; this release wires the platform HALs
+so FD frames flow through on real hardware.
+
+All changes are guarded by `ISOTP_ENABLE_CAN_FD` — Classic CAN builds
+(the default) are byte-for-byte identical: `eds_can_frame_t` stays 8 bytes,
+no FD code is compiled in.
+
+| File | Change |
+|------|--------|
+| `platform/platform_api.h` | `EDS_CAN_FRAME_MAX_DLEN` (8 Classic / 64 FD); `eds_can_frame_t.data[]` uses it; `is_fd` field added under `#if ISOTP_ENABLE_CAN_FD` |
+| `platform/zephyr/zephyr_can.c` | TX: sets `CAN_FRAME_FDF` + `can_bytes_to_dlc()`; RX: propagates `CAN_FRAME_FDF → is_fd` + `can_dlc_to_bytes()`; init: `CAN_MODE_FD` when FD enabled |
+| `platform/freertos/freertos_can.c` | TX: raises DLC limit to 64; passes `is_fd` to customer send callback; RX: propagates `is_fd` instead of hardcoding `false` |
+
+**Zephyr integration:** add `CONFIG_CAN_FD_MODE=y` to Kconfig and compile with `-DISOTP_ENABLE_CAN_FD=1`.
+
+Reported in: https://github.com/Xaloqi/EDS/issues/16
+
+### Added — Strict programming session gate
+
+OEM diagnostic toolchains (BMW, VAG) require the tester to enter **Extended
+Diagnostic Session before requesting Programming Session** — a direct
+Default → Programming jump is rejected. This policy is now configurable
+at runtime without touching codegen or YAML.
+
+ISO 14229-1 §7.4.2.3 does not normatively prohibit Default→Programming,
+so the **default remains permissive** — zero behaviour change for existing
+integrations.
+
+New API in `core/uds_session.h`:
+
+```c
+uds_status_t uds_session_set_strict_programming(
+    uds_session_ctx_t *ctx,
+    bool               strict);
+```
+
+Call after `uds_session_init()` / `uds_generated_init()`:
+
+```c
+uds_session_set_strict_programming(&session_ctx, true);
+/* Now: Default → Programming → UDS_STATUS_ERR_SESSION_TRANSITION  */
+/* But: Default → Extended → Programming → UDS_STATUS_OK           */
+```
+
+New field `bool strict_programming` in `uds_session_ctx_t` (zero-initialised
+by `uds_session_init()` → default permissive, no struct-size regression for
+callers that zero-init).
+
+4 new unit tests in `ZTEST_SUITE(test_uds_session_strict)`.
+
+Reported in: https://github.com/Xaloqi/EDS/issues/22, https://github.com/Xaloqi/EDS/issues/23
+
+### Fixed — cosmetic: confusing `} else\n#endif\n{` pattern in `isotp_transmit`
+
+Replaced with an early `return UDS_STATUS_OK` in the FD branch. No logic
+change; 37/37 unit tests unchanged. Reporter mistook the construct for a
+missing brace.
+
+Reported in: https://github.com/Xaloqi/EDS/issues/18
+
+---
 ## [1.7.1] — CAN FD ISO-TP support (ISO 15765-2 §9.8)
 
 ### Added — CAN FD extensions to ISO-TP layer
