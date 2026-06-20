@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.7.3] — OTA bootloader example for nucleo_h743zi
+
+### Added — safeboot_ecu: complete UDS DFU + MCUboot pipeline on Zephyr
+
+Closes [#24](https://github.com/Xaloqi/EDS/issues/24). The `safeboot_ecu`
+example now ships as a complete, runnable OTA update reference for the
+STM32H743ZI (Nucleo-H743ZI2).
+
+The protocol side (service handlers 0x34/0x36/0x37, `zephyr_flash_ops.c`,
+transfer context, generated `uds_init.c` with `zephyr_flash_ops_init()`) was
+already complete since v1.7.0. This release completes the application layer
+so the example compiles and runs end-to-end.
+
+| File | Change |
+|---|---|
+| `src/main.c` | MCUboot image confirmation via `boot_is_img_confirmed()` / `boot_write_img_confirmed()` on first post-swap boot; non-fatal if it fails (MCUboot rollback is the correct safety net) |
+| `boards/nucleo_h743zi/nucleo_h743zi.conf` | `CONFIG_BOOTLOADER_MCUBOOT=y` + `CONFIG_MCUBOOT_IMG_MANAGER=y` (required for MCUboot image manager API) |
+| `generated/did_handlers.c` | All 5 DID backing stores filled: VIN `XALQ1EDS00SFBT001`, ECU serial `SFB00001`, app SW ident `v1.0.0`, active session `0x01`, supplier `XALOQI    ` |
+| `generated/routine_handlers.c` | `0xFF00 CheckProgrammingPreconditions` (PASS + result cache); `0xFF01 VerifyBootloaderIntegrity` (reads `image_0`, checks MCUboot magic `0x96f3b83d`, returns 2-byte status + sub-code) |
+| `README.md` | Full guide: hardware wiring (FDCAN1 PD0/PD1 + TJA1051), flash layout, build/sign/flash, TestLab campaign YAML, manual UDS byte sequence, post-DFU DID check, ASIL-B properties |
+
+Reported in: https://github.com/Xaloqi/EDS/issues/24
+
+---
 ## [1.7.2] — CAN FD platform HAL + strict session gate
 
 ### Added — CAN FD HAL for Zephyr and FreeRTOS

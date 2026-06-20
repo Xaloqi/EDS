@@ -33,7 +33,7 @@
 #        projects:
 #          - name: EDS
 #            remote: xaloqi
-#            revision: delivery-v1.7.2
+#            revision: delivery-v1.7.3
 #            path: modules/diag/xaloqi-eds
 #
 #      Verified against: Zephyr v3.7.0, west v1.5.0
