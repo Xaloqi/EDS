@@ -72,6 +72,9 @@ typedef struct uds_session_ctx {
     uint32_t                      s3_timeout_cfg_ms;     /**< Configured S3server timeout (ms). */
     uint32_t                      session_change_count;  /**< Number of session transitions. */
     uds_session_change_notify_fn  on_session_change;     /**< [P2-SESS-02] change notification callback. */
+    bool                          strict_programming;    /**< When true, DEFAULT→PROGRAMMING is blocked;
+                                                          *   EXTENDED session is required as an
+                                                          *   intermediate step (common OEM policy). */
 } uds_session_ctx_t;
 
 /* --------------------------------------------------------------------------
@@ -149,6 +152,28 @@ uds_status_t uds_session_tick_1ms(uds_session_ctx_t *ctx);
  * @brief Check if the active session is the default session.
  */
 bool uds_session_is_default(const uds_session_ctx_t *ctx);
+
+/**
+ * @brief Enable or disable strict programming session gate.
+ *
+ * When enabled, a direct DEFAULT → PROGRAMMING transition is rejected
+ * with UDS_STATUS_ERR_SESSION_TRANSITION. The tester must first enter
+ * EXTENDED session, then request PROGRAMMING. This matches the session
+ * transition policy used by BMW, VAG, and other OEM diagnostic toolchains.
+ *
+ * Default: false (ISO 14229-1 §7.4.2.3 permissive mode — direct transition
+ * is not normatively prohibited).
+ *
+ * @param[in] ctx     Initialized session context.
+ * @param[in] strict  True to require EXTENDED as intermediate step.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NULL_PTR if ctx is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
+ */
+uds_status_t uds_session_set_strict_programming(
+    uds_session_ctx_t *ctx,
+    bool               strict);
 
 #ifdef __cplusplus
 }
