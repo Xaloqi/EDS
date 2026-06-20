@@ -1,9 +1,9 @@
 /*
  * =============================================================================
  * Xaloqi EDS
- * FILE: examples/basic_ecu/src/main.c
+ * FILE: examples/safeboot_ecu/src/main.c
  *
- * PURPOSE: BasicECU application entry point — Phase 6A (Zephyr Integration).
+ * PURPOSE: SafeBootECU application entry point — OTA DFU + MCUboot integration.
  *
  *          Phase 6A additions over Phase 2B:
  *            - Dedicated k_thread for the diagnostics poll loop
@@ -80,8 +80,9 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/can.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/dfu/mcuboot.h>
 
-LOG_MODULE_REGISTER(basic_ecu, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(safeboot_ecu, LOG_LEVEL_INF);
 
 /* =============================================================================
  * Configuration
@@ -543,6 +544,35 @@ int main(void)
     LOG_INF("  P2max  = %u ms", (unsigned)GEN_P2_SERVER_MAX_MS);
     LOG_INF("  P2*max = %u ms", (unsigned)GEN_P2_STAR_SERVER_MAX_MS);
     LOG_INF("  S3     = %u ms", (unsigned)GEN_S3_SERVER_TIMEOUT_MS);
+
+    /* ── MCUboot image confirmation ──────────────────────────────────────── */
+    /*
+     * On the first boot after an OTA swap, boot_is_img_confirmed() returns
+     * false.  Calling boot_write_img_confirmed() marks the new image permanent
+     * so MCUboot will not roll back to the previous slot on the next reset.
+     *
+     * Non-fatal by design: if confirmation fails the device continues to run
+     * but will roll back on the next power cycle — correct safety behaviour
+     * for a defective image that cannot write its own confirmation.
+     *
+     * Requires CONFIG_MCUBOOT_IMG_MANAGER=y and CONFIG_BOOTLOADER_MCUBOOT=y
+     * in boards/nucleo_h743zi/nucleo_h743zi.conf.
+     */
+    {
+        int boot_rc;
+
+        if (!boot_is_img_confirmed()) {
+            boot_rc = boot_write_img_confirmed();
+            if (boot_rc == 0) {
+                LOG_INF("[OTA] New image confirmed — rollback guard cleared.");
+            } else {
+                LOG_ERR("[OTA] boot_write_img_confirmed() err %d — "
+                        "MCUboot will roll back on next reset.", boot_rc);
+            }
+        } else {
+            LOG_DBG("[OTA] Image already confirmed.");
+        }
+    }
 
     /* ── Start diagnostics thread ────────────────────────────────────────── */
     /*
