@@ -4,7 +4,7 @@
 # Community tier CI pipeline — 7 jobs covering the public GPL runtime stack.
 #
 # Jobs:
-#   1. unit-tests        — 36 host-side C unit tests (Unity framework)
+#   1. unit-tests        — 37 host-side C unit tests (Unity framework)
 #   2. integration-tests — pytest suite against basic_ecu generated output (simulator mode)
 #   3. static-analysis   — GCC -fanalyzer + MISRA C:2012 cppcheck (zero open violations)
 #   4. zephyr-native     — west build -b native_sim (basic_ecu, Zephyr v3.7)
