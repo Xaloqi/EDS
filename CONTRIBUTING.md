@@ -208,8 +208,8 @@ and explicit human code review.
 
 ### Maintainer responsibility
 
-Raul Latorre (Xaloqi) retains full engineering and legal responsibility for all
-committed code in this repository, regardless of the method by which it was generated.
+Xaloqi retains full engineering and legal responsibility for all committed code
+in this repository, regardless of the method by which it was generated.
 The use of AI tooling does not transfer, reduce, or qualify that responsibility.
 AI-generated code that is merged into EDS is EDS code — it is subject to the same
 MISRA conformance requirements, safety review process, and ISO 26262 obligations as

@@ -2,7 +2,8 @@ XALOQI EDS COMMERCIAL LICENSE
 Xaloqi Embedded Diagnostic Suite
 Version 1.0 — March 2026
 
-Copyright (c) 2026 Raul Latorre Fortes, trading as Xaloqi, Frankfurt am Main, Germany
+Copyright (c) 2026 Xaloqi
+© 2026 Xaloqi · c/o flexdienst – #20703 · Kurt-Schumacher-Straße 76 · 67663 Kaiserslautern · Germany
 
 All rights reserved.
 
@@ -242,7 +243,7 @@ Goods (CISG).
 
 Any dispute arising out of or in connection with this license that
 cannot be resolved amicably shall be subject to the exclusive
-jurisdiction of the courts of Frankfurt am Main, Germany.
+jurisdiction of the courts of Kaiserslautern, Germany.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

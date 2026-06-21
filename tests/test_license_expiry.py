@@ -10,7 +10,7 @@ Three scenarios:
   3. Expired     — 20 days after expiry (grace period over)
 
 Run:
-    cd /home/raul/xaloqi/EDS
+    cd /path/to/EDS
     python3 tests/test_license_expiry.py
 
 Exit 0 if all three scenarios produce the expected LicenseStatus.
