@@ -33,6 +33,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - `ISOTP_TX_PADDING` and `ISOTP_TX_PADDING_BYTE` added to root `Kconfig`.
 
+- **`sbom.json`** — CycloneDX 1.4 Software Bill of Materials at repo root.
+  Lists all runtime and test dependencies (Zephyr 3.7.0, FreeRTOS Kernel,
+  LwIP 2.2.0, Unity test framework) with SPDX license identifiers and PURLs.
+
+- **DoIP feature matrix** — `docs/ARCHITECTURE.md` §6.2 now contains a
+  precise 18-row ISO 13400-2:2019 feature matrix with payload type codes,
+  implemented/not-implemented status, and standard clause references.
+
+- **AI-assisted development policy** — `CONTRIBUTING.md` now documents how
+  Claude Code tooling is used, human review gates, CI requirements, and the
+  8 safety-critical files requiring explicit sign-off. Maintainer
+  responsibility statement added. DCO sign-off added to PR checklist.
+
 Reported by chenyurong22 in [#29](https://github.com/Xaloqi/EDS/issues/29).
 
 ---
