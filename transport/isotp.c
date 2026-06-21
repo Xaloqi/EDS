@@ -56,6 +56,22 @@ static uds_status_t isotp_send_fc(
     uint8_t      block_size,
     uint8_t      stmin);
 
+#if ISOTP_TX_PADDING
+#if ISOTP_ENABLE_CAN_FD
+/**
+ * Round min_bytes up to the next valid CAN FD DLC value.
+ * Valid FD DLCs above 8: 12, 16, 20, 24, 32, 48, 64.
+ */
+static uint8_t isotp_fd_round_dlc(uint8_t min_bytes);
+#endif /* ISOTP_ENABLE_CAN_FD */
+
+/**
+ * REQ-TP-PAD-001: Fill frame bytes [used..total) with ISOTP_TX_PADDING_BYTE.
+ * Called immediately before can_transport_transmit() at every TX site.
+ */
+static void isotp_pad_frame(uint8_t *data, uint8_t used, uint8_t total);
+#endif /* ISOTP_TX_PADDING */
+
 /**
  * [P2-TP-06] Decode the STmin field from an FC frame into milliseconds.
  *
@@ -442,6 +458,11 @@ uds_status_t isotp_transmit(
         sf.data[0] = (uint8_t)length;   /* PCI: SF type (0x0), SF_DL in lower nibble */
         (void)memcpy(&sf.data[1], data, (size_t)length);
 
+#if ISOTP_TX_PADDING
+        sf.dlc = (uint8_t)8U;
+        isotp_pad_frame(sf.data, (uint8_t)(length + (uint32_t)1U), (uint8_t)8U);
+#endif
+
         tx_rc = can_transport_transmit(ctx->can, &sf);
         if (tx_rc != UDS_STATUS_OK) {
             return UDS_STATUS_ERR_TP_TX_FAILED;
@@ -467,6 +488,14 @@ uds_status_t isotp_transmit(
         sf.data[0] = (uint8_t)0x00U;            /* FD SF escape byte */
         sf.data[1] = (uint8_t)length;            /* SF_DL */
         (void)memcpy(&sf.data[2], data, (size_t)length);
+
+#if ISOTP_TX_PADDING
+        {
+            uint8_t pdlc = isotp_fd_round_dlc((uint8_t)(length + (uint32_t)2U));
+            sf.dlc = pdlc;
+            isotp_pad_frame(sf.data, (uint8_t)(length + (uint32_t)2U), pdlc);
+        }
+#endif
 
         tx_rc = can_transport_transmit(ctx->can, &sf);
         if (tx_rc != UDS_STATUS_OK) {
@@ -503,6 +532,15 @@ uds_status_t isotp_transmit(
         ff.data[5] = (uint8_t)(length           & (uint8_t)0xFFU);
         (void)memcpy(&ff.data[6], data, (size_t)first_data);
 
+#if ISOTP_TX_PADDING
+        {
+            uint8_t used = (uint8_t)(6U + (uint32_t)first_data);
+            uint8_t pdlc = isotp_fd_round_dlc(used);
+            ff.dlc = pdlc;
+            isotp_pad_frame(ff.data, used, pdlc);
+        }
+#endif
+
         tx_rc = can_transport_transmit(ctx->can, &ff);
         if (tx_rc != UDS_STATUS_OK) {
             return UDS_STATUS_ERR_TP_TX_FAILED;
@@ -529,6 +567,7 @@ uds_status_t isotp_transmit(
                                | (uint8_t)((length >> 8U) & (uint8_t)0x0FU));
         ff.data[1] = (uint8_t)(length & (uint8_t)0xFFU);
         (void)memcpy(&ff.data[2], data, (size_t)6U);
+        /* Classic CAN FF fills all 8 bytes (2 PCI + 6 data) — padding not required. */
 
         tx_rc = can_transport_transmit(ctx->can, &ff);
         if (tx_rc != UDS_STATUS_OK) {
@@ -696,8 +735,42 @@ static uds_status_t isotp_send_fc(
     fc_frame.data[1] = block_size;
     fc_frame.data[2] = stmin;
 
+#if ISOTP_TX_PADDING
+    fc_frame.dlc = (uint8_t)8U;
+    isotp_pad_frame(fc_frame.data, (uint8_t)3U, (uint8_t)8U);
+#endif
+
     return can_transport_transmit(ctx->can, &fc_frame);
 }
+
+#if ISOTP_TX_PADDING
+#if ISOTP_ENABLE_CAN_FD
+static uint8_t isotp_fd_round_dlc(uint8_t min_bytes)
+{
+    static const uint8_t fd_dlcs[] = { 12U, 16U, 20U, 24U, 32U, 48U, 64U };
+    uint8_t i;
+
+    if (min_bytes <= (uint8_t)8U) {
+        return (uint8_t)8U;
+    }
+    for (i = 0U; i < (uint8_t)(sizeof(fd_dlcs) / sizeof(fd_dlcs[0U])); i++) {
+        if (min_bytes <= fd_dlcs[i]) {
+            return fd_dlcs[i];
+        }
+    }
+    return (uint8_t)64U;
+}
+#endif /* ISOTP_ENABLE_CAN_FD */
+
+static void isotp_pad_frame(uint8_t *data, uint8_t used, uint8_t total)
+{
+    uint8_t i;
+
+    for (i = used; i < total; i++) {
+        data[i] = (uint8_t)ISOTP_TX_PADDING_BYTE;
+    }
+}
+#endif /* ISOTP_TX_PADDING */
 
 /* [P2-TP-06] ISO 15765-2 Table 14 STmin decode. */
 static uint8_t isotp_decode_stmin_ms(uint8_t stmin_raw)
@@ -753,6 +826,11 @@ static void isotp_tx_pump(isotp_ctx_t *ctx)
     cf.data[0] = (uint8_t)((uint8_t)((uint8_t)ISOTP_FRAME_TYPE_CF << (uint8_t)4U)
                            | (ctx->tx_sn & (uint8_t)0x0FU));
     (void)memcpy(&cf.data[1], &ctx->tx_data[ctx->tx_sent_len], (size_t)cf_data_len);
+
+#if ISOTP_TX_PADDING
+    cf.dlc = (uint8_t)8U;
+    isotp_pad_frame(cf.data, (uint8_t)(cf_data_len + (uint8_t)1U), (uint8_t)8U);
+#endif
 
     tx_rc = can_transport_transmit(ctx->can, &cf);
     if (tx_rc != UDS_STATUS_OK) {

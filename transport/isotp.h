@@ -82,6 +82,36 @@ extern "C" {
 #define ISOTP_ENABLE_CAN_FD 0
 #endif
 
+/**
+ * Compile-time TX frame padding opt-in (ISO 15765-2 Annex B).
+ * Set to 1 (e.g. -DISOTP_TX_PADDING=1) to pad all transmitted SF, FF
+ * (CAN FD escape), CF, and FC frames with ISOTP_TX_PADDING_BYTE.
+ * Classic CAN frames are padded to DLC 8; CAN FD frames are padded to
+ * the next valid FD DLC (12, 16, 20, 24, 32, 48, or 64).
+ * Default 0 — no padding, DLC reflects only the bytes actually used.
+ *
+ * Enable when interoperating with OEM diagnostic testers or bus analysers
+ * that expect fixed-length frames (e.g. Vector CANalyzer, EOL testers).
+ * Receivers MUST ignore padding bytes per ISO 15765-2 §8.
+ *
+ * Zephyr:          Add CONFIG_ISOTP_TX_PADDING=y to prj.conf.
+ * FreeRTOS / bare-metal:  #define ISOTP_TX_PADDING 1 before including isotp.h,
+ *                          or pass -DISOTP_TX_PADDING=1 to the compiler.
+ */
+#ifndef ISOTP_TX_PADDING
+#define ISOTP_TX_PADDING 0
+#endif
+
+/**
+ * Pad byte value used when ISOTP_TX_PADDING=1.
+ * ISO 15765-2 Annex B recommends 0xCC as the conventional padding value.
+ * Override with -DISOTP_TX_PADDING_BYTE=0xAA if your OEM tester requires
+ * a different byte.
+ */
+#ifndef ISOTP_TX_PADDING_BYTE
+#define ISOTP_TX_PADDING_BYTE 0xCCU
+#endif
+
 #if ISOTP_ENABLE_CAN_FD
 /**
  * Maximum payload bytes in a CAN FD Single Frame.

@@ -989,6 +989,219 @@ ZTEST(test_isotp_get_state, test_null_state_ptr)
 }
 
 /* =========================================================================
+ * Test suite: TX frame padding (ISOTP_TX_PADDING)
+ * Tests only compiled and wired when ISOTP_TX_PADDING=1.
+ * REQ-TP-PAD-001: unused frame bytes filled with ISOTP_TX_PADDING_BYTE.
+ * ========================================================================= */
+
+#if ISOTP_TX_PADDING
+
+ZTEST_SUITE(test_isotp_padding, NULL, NULL, NULL, NULL, NULL);
+
+/**
+ * TC-ISTP-PAD-001: Classic CAN SF — DLC must be 8, tail bytes must be 0xCC.
+ * Payload 3 bytes: PCI=1 byte + data=3 bytes = 4 used; bytes [4..7] padded.
+ */
+ZTEST(test_isotp_padding, test_classic_sf_padded)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t payload[3] = { 0x62U, 0xF1U, 0x90U };
+    uds_status_t rc = isotp_transmit(&ctx, payload, (uint32_t)3U);
+    zassert_equal(rc, UDS_STATUS_OK, "SF TX must succeed");
+    zassert_true(g_mock_tx_count >= 1U, "one frame must be sent");
+
+    const uds_can_frame_t *f = &g_mock_tx_frames[0];
+    zassert_equal(f->dlc, (uint8_t)8U, "padded Classic CAN SF DLC must be 8");
+    zassert_equal(f->data[0] & 0x0FU, (uint8_t)3U, "SF_DL must still be 3");
+    /* Bytes [4..7] must be the padding byte. */
+    zassert_equal(f->data[4], (uint8_t)ISOTP_TX_PADDING_BYTE, "pad byte [4]");
+    zassert_equal(f->data[5], (uint8_t)ISOTP_TX_PADDING_BYTE, "pad byte [5]");
+    zassert_equal(f->data[6], (uint8_t)ISOTP_TX_PADDING_BYTE, "pad byte [6]");
+    zassert_equal(f->data[7], (uint8_t)ISOTP_TX_PADDING_BYTE, "pad byte [7]");
+}
+
+/**
+ * TC-ISTP-PAD-002: Classic CAN SF — maximum 7-byte payload, no tail to pad.
+ * All 8 bytes occupied (PCI=1 + data=7). DLC=8, no padding byte visible.
+ */
+ZTEST(test_isotp_padding, test_classic_sf_max_payload_no_tail)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t payload[7] = { 0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U };
+    uds_status_t rc = isotp_transmit(&ctx, payload, (uint32_t)7U);
+    zassert_equal(rc, UDS_STATUS_OK, "7-byte SF TX must succeed");
+
+    const uds_can_frame_t *f = &g_mock_tx_frames[0];
+    zassert_equal(f->dlc, (uint8_t)8U, "DLC must be 8");
+    zassert_equal(f->data[0] & 0x0FU, (uint8_t)7U, "SF_DL must be 7");
+    /* Payload bytes must be intact. */
+    zassert_equal(f->data[1], 0x01U, "data[1]");
+    zassert_equal(f->data[7], 0x07U, "data[7]");
+}
+
+/**
+ * TC-ISTP-PAD-003: FC frame — DLC must be 8, bytes [3..7] must be 0xCC.
+ * FC is emitted by the receiver when it gets a FF. Send an FF to trigger it.
+ */
+ZTEST(test_isotp_padding, test_fc_padded)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    /* Build a valid Classic CAN FF (20-byte payload). */
+    uds_can_frame_t ff;
+    memset(&ff, 0, sizeof(ff));
+    ff.id      = ctx.rx_can_id;
+    ff.dlc     = (uint8_t)8U;
+    ff.data[0] = (uint8_t)0x10U | (uint8_t)((20U >> 8U) & 0x0FU); /* FF, FF_DL=20 */
+    ff.data[1] = (uint8_t)(20U & 0xFFU);
+    ff.data[2] = 0xAAU; ff.data[3] = 0xBBU; ff.data[4] = 0xCCU;
+    ff.data[5] = 0xDDU; ff.data[6] = 0xEEU; ff.data[7] = 0xFFU;
+
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_OK, "FF processing must succeed");
+    zassert_true(g_mock_tx_count >= 1U, "FC must be sent");
+
+    /* The FC frame is the last transmitted frame. */
+    const uds_can_frame_t *fc = &g_mock_tx_frames[g_mock_tx_count - 1U];
+    zassert_equal(fc->dlc, (uint8_t)8U, "padded FC DLC must be 8");
+    zassert_equal((fc->data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_FC, "FC type nibble");
+    zassert_equal(fc->data[3], (uint8_t)ISOTP_TX_PADDING_BYTE, "pad byte [3]");
+    zassert_equal(fc->data[4], (uint8_t)ISOTP_TX_PADDING_BYTE, "pad byte [4]");
+    zassert_equal(fc->data[7], (uint8_t)ISOTP_TX_PADDING_BYTE, "pad byte [7]");
+}
+
+/**
+ * TC-ISTP-PAD-004: Classic CAN CF — DLC must be 8, tail must be 0xCC.
+ * Drive a full multi-frame TX: send FF, respond with FC CTS, tick until CF.
+ */
+ZTEST(test_isotp_padding, test_classic_cf_padded)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    /* Initiate a 10-byte TX — requires one FF + one CF. */
+    uint8_t payload[10];
+    uint8_t i;
+    for (i = 0U; i < (uint8_t)10U; i++) { payload[i] = i; }
+
+    zassert_equal(isotp_transmit(&ctx, payload, (uint32_t)10U),
+                  UDS_STATUS_OK, "multi-frame TX initiation must succeed");
+
+    /* Feed FC CTS back to release the CF pump. */
+    uds_can_frame_t fc;
+    memset(&fc, 0, sizeof(fc));
+    fc.id      = ctx.rx_can_id;
+    fc.dlc     = (uint8_t)3U;
+    fc.data[0] = (uint8_t)((uint8_t)ISOTP_FRAME_TYPE_FC << 4U)
+                 | (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND;
+    fc.data[1] = (uint8_t)0U;  /* BS = 0 */
+    fc.data[2] = (uint8_t)0U;  /* STmin = 0 */
+
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &fc, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_OK, "FC CTS processing must succeed");
+
+    /* Tick once to trigger isotp_tx_pump() → CF sent. */
+    mock_can_reset();
+    rc = isotp_tick_1ms(&ctx);
+    zassert_equal(rc, UDS_STATUS_OK, "tick must succeed");
+    zassert_true(g_mock_tx_count >= 1U, "CF must be sent on tick");
+
+    const uds_can_frame_t *cf = &g_mock_tx_frames[0];
+    zassert_equal(cf->dlc, (uint8_t)8U, "padded CF DLC must be 8");
+    zassert_equal((cf->data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_CF, "CF type nibble");
+    /* CF carries bytes [6..9] of the payload (4 bytes) + PCI = 5 used; [5..7] padded. */
+    zassert_equal(cf->data[5], (uint8_t)ISOTP_TX_PADDING_BYTE, "CF pad byte [5]");
+    zassert_equal(cf->data[6], (uint8_t)ISOTP_TX_PADDING_BYTE, "CF pad byte [6]");
+    zassert_equal(cf->data[7], (uint8_t)ISOTP_TX_PADDING_BYTE, "CF pad byte [7]");
+}
+
+#if ISOTP_ENABLE_CAN_FD
+/**
+ * TC-ISTP-PAD-005: CAN FD SF — 10-byte payload → DLC must be 12, tail 0xCC.
+ * FD SF uses 2 PCI bytes + 10 data = 12 used bytes. Next FD DLC ≥ 12 is 12.
+ * No padding needed, but DLC must be rounded to 12.
+ */
+ZTEST(test_isotp_padding, test_fd_sf_padded_no_tail)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    isotp_cfg_t cfg = {
+        .rx_can_id = 0x7E8U,
+        .tx_can_id = 0x7DFU,
+        .block_size = 0U,
+        .stmin_ms   = 0U,
+        .use_fd     = true,
+        .can        = &g_mock_can,
+    };
+    zassert_equal(isotp_init(&ctx, &cfg), UDS_STATUS_OK, "FD init failed");
+
+    uint8_t payload[10];
+    uint8_t i;
+    for (i = 0U; i < (uint8_t)10U; i++) { payload[i] = i; }
+
+    uds_status_t rc = isotp_transmit(&ctx, payload, (uint32_t)10U);
+    zassert_equal(rc, UDS_STATUS_OK, "FD SF TX must succeed");
+    zassert_true(g_mock_tx_count >= 1U, "one frame must be sent");
+
+    const uds_can_frame_t *f = &g_mock_tx_frames[0];
+    zassert_true(f->is_fd, "frame must be marked FD");
+    /* 2 PCI + 10 data = 12 used; next FD DLC ≥ 12 is 12. */
+    zassert_equal(f->dlc, (uint8_t)12U, "FD SF DLC must be 12 after padding");
+    zassert_equal(f->data[0], (uint8_t)0x00U, "FD SF escape byte 0");
+    zassert_equal(f->data[1], (uint8_t)10U,   "FD SF_DL must be 10");
+}
+
+/**
+ * TC-ISTP-PAD-006: CAN FD SF — 9-byte payload → DLC rounded to 12, 1 pad byte.
+ * 2 PCI + 9 data = 11 used; next FD DLC ≥ 11 is 12. data[11] = 0xCC.
+ */
+ZTEST(test_isotp_padding, test_fd_sf_padded_one_tail_byte)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    isotp_cfg_t cfg = {
+        .rx_can_id  = 0x7E8U,
+        .tx_can_id  = 0x7DFU,
+        .block_size = 0U,
+        .stmin_ms   = 0U,
+        .use_fd     = true,
+        .can        = &g_mock_can,
+    };
+    zassert_equal(isotp_init(&ctx, &cfg), UDS_STATUS_OK, "FD init failed");
+
+    uint8_t payload[9];
+    uint8_t i;
+    for (i = 0U; i < (uint8_t)9U; i++) { payload[i] = (uint8_t)(i + 1U); }
+
+    uds_status_t rc = isotp_transmit(&ctx, payload, (uint32_t)9U);
+    zassert_equal(rc, UDS_STATUS_OK, "FD SF TX must succeed");
+
+    const uds_can_frame_t *f = &g_mock_tx_frames[0];
+    zassert_equal(f->dlc, (uint8_t)12U, "FD SF DLC must be 12 (9+2=11, round up)");
+    zassert_equal(f->data[11], (uint8_t)ISOTP_TX_PADDING_BYTE, "pad byte at [11]");
+}
+#endif /* ISOTP_ENABLE_CAN_FD */
+
+#endif /* ISOTP_TX_PADDING */
+
+/* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
 
@@ -1030,6 +1243,16 @@ extern void test_isotp_reset__test_null_ctx(void);
 extern void test_isotp_reset__test_reset_from_error(void);
 extern void test_isotp_get_state__test_null_ctx(void);
 extern void test_isotp_get_state__test_null_state_ptr(void);
+#if ISOTP_TX_PADDING
+extern void test_isotp_padding__test_classic_sf_padded(void);
+extern void test_isotp_padding__test_classic_sf_max_payload_no_tail(void);
+extern void test_isotp_padding__test_fc_padded(void);
+extern void test_isotp_padding__test_classic_cf_padded(void);
+#if ISOTP_ENABLE_CAN_FD
+extern void test_isotp_padding__test_fd_sf_padded_no_tail(void);
+extern void test_isotp_padding__test_fd_sf_padded_one_tail_byte(void);
+#endif /* ISOTP_ENABLE_CAN_FD */
+#endif /* ISOTP_TX_PADDING */
 
 void run_all_tests(void)
 {
@@ -1071,4 +1294,14 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_reset__test_reset_from_error);
     RUN_TEST(test_isotp_get_state__test_null_ctx);
     RUN_TEST(test_isotp_get_state__test_null_state_ptr);
+#if ISOTP_TX_PADDING
+    RUN_TEST(test_isotp_padding__test_classic_sf_padded);
+    RUN_TEST(test_isotp_padding__test_classic_sf_max_payload_no_tail);
+    RUN_TEST(test_isotp_padding__test_fc_padded);
+    RUN_TEST(test_isotp_padding__test_classic_cf_padded);
+#if ISOTP_ENABLE_CAN_FD
+    RUN_TEST(test_isotp_padding__test_fd_sf_padded_no_tail);
+    RUN_TEST(test_isotp_padding__test_fd_sf_padded_one_tail_byte);
+#endif /* ISOTP_ENABLE_CAN_FD */
+#endif /* ISOTP_TX_PADDING */
 }

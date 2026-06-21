@@ -281,6 +281,11 @@ All four timing parameters are implemented: N_As, N_Bs, N_Cs, N_Cr. The state ma
 iterative (no recursion). The Zephyr CAN driver binding in `platform/zephyr/zephyr_can.c` abstracts
 the platform-specific CAN API.
 
+**TX padding (`ISOTP_TX_PADDING`, default off):** When enabled, unused bytes in all transmitted
+SF, FF (CAN FD escape), CF, and FC frames are padded with `ISOTP_TX_PADDING_BYTE` (default `0xCC`)
+and DLC is extended to 8 (Classic CAN) or the next valid CAN FD DLC. Required for OEM testers that
+expect fixed-length frames. See [docs/ISOTP_PADDING.md](ISOTP_PADDING.md).
+
 ### 6.2 DoIP (ISO 13400-2) — `transport/doip/`
 
 Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protocol over TCP.

@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.7.4] — ISO-TP TX frame padding (closes #29)
+
+### Added
+
+- **`ISOTP_TX_PADDING` — configurable TX frame padding** (ISO 15765-2 Annex B).
+  Opt-in compile-time flag (default off — zero behaviour change for existing
+  integrations). When enabled, unused bytes in all transmitted frames are
+  filled with `ISOTP_TX_PADDING_BYTE` (default `0xCC`) and DLC is extended:
+
+  | Frame | Padding off | Padding on |
+  |---|---|---|
+  | Classic CAN SF | DLC = length+1 | DLC = 8, tail = 0xCC |
+  | CAN FD SF | DLC = length+2 | DLC = next valid FD DLC |
+  | Classic CAN FF | DLC = 8 (unchanged) | DLC = 8 (already full) |
+  | CAN FD FF escape | DLC = 6+data | DLC = next valid FD DLC |
+  | Classic CAN CF | DLC = bytes+1 | DLC = 8, tail = 0xCC |
+  | FC | DLC = 3 | DLC = 8, bytes [3..7] = 0xCC |
+
+  Enable in Zephyr: `CONFIG_ISOTP_TX_PADDING=y`.
+  Enable in FreeRTOS / bare-metal: `-DISOTP_TX_PADDING=1`.
+  See [docs/ISOTP_PADDING.md](docs/ISOTP_PADDING.md) for full reference.
+
+- **6 new unit tests** in `test_isotp_padding` suite, all passing with
+  `ISOTP_TX_PADDING=1` and `ISOTP_ENABLE_CAN_FD=1`.
+
+- `ISOTP_TX_PADDING` and `ISOTP_TX_PADDING_BYTE` added to root `Kconfig`.
+
+Reported by chenyurong22 in [#29](https://github.com/Xaloqi/EDS/issues/29).
+
+---
 ## [1.7.3] — OTA bootloader example for nucleo_h743zi
 
 ### Added — safeboot_ecu: complete UDS DFU + MCUboot pipeline on Zephyr

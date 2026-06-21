@@ -23,6 +23,28 @@ menu "Xaloqi EDS"
 # ISO-TP timing parameters (ISO 15765-2 §6.7)
 # ---------------------------------------------------------------------------
 
+config ISOTP_TX_PADDING
+	bool "Enable ISO-TP transmit frame padding"
+	default n
+	help
+	  Pad unused bytes in transmitted SF, FF (CAN FD escape), CF, and FC frames
+	  to the maximum frame length: 8 bytes for Classic CAN, next valid CAN FD DLC
+	  (12/16/20/24/32/48/64) for CAN FD. Unused bytes are filled with
+	  CONFIG_ISOTP_TX_PADDING_BYTE (default 0xCC).
+	  Required for interoperability with OEM diagnostic testers that expect
+	  fixed-length frames. ISO 15765-2 Annex B permits but does not mandate this.
+	  Receivers MUST ignore padding bytes per the standard.
+	  Default n — DLC reflects only the bytes actually used.
+
+config ISOTP_TX_PADDING_BYTE
+	hex "ISO-TP TX padding byte value"
+	default 0xCC
+	depends on ISOTP_TX_PADDING
+	help
+	  Byte value used to fill unused frame bytes when ISOTP_TX_PADDING is enabled.
+	  ISO 15765-2 Annex B recommends 0xCC. Override only if your OEM tester
+	  requires a different padding byte.
+
 config ISOTP_TIMEOUT_CR_MS
 	int "ISO-TP N_Cr timeout (ms)"
 	default 150

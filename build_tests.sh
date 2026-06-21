@@ -93,6 +93,9 @@ CFLAGS=(
     # Enable CAN FD ISO-TP paths so the test_isotp_canfd suite runs.
     # Production integrators set this flag themselves when FD is needed.
     "-DISOTP_ENABLE_CAN_FD=1"
+    # Enable TX padding so the test_isotp_padding suite runs.
+    # Default is off; this flag proves the padding code path compiles and passes.
+    "-DISOTP_TX_PADDING=1"
     # Zephyr shim: replaces <zephyr/kernel.h> includes with no-ops
     "-DZTEST_HOST_SHIM=1"
     # Suppress the uds_msg_buf_t stack-size _Static_assert on the host build.
