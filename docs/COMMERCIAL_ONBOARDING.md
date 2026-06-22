@@ -214,14 +214,14 @@ name: `XALOQI_LICENSE_KEY`, value: the full JWT string).
 | `testgen.py` (pytest + CANoe CAPL generation) | ✓ | ✓ | ✓ |
 | Jinja2 templates (`--safety-wrappers`, ASIL-B output) | — | ✓ | ✓ |
 | License key + offline activation | — | ✓ | ✓ |
-| All 11 ECU examples with pre-committed generated output | ✓ | ✓ | ✓ |
+| All 12 ECU examples with pre-committed generated output | ✓ | ✓ | ✓ |
 | GUI YAML configurator + live ECU dashboard | — | — | ✓ |
 | VS Code extension (inline validation, Run Codegen) | — | — | ✓ |
 | Priority email support | — | — | ✓ |
 | xaloqi-tester (TestLab, real hardware testing) | — | add-on | add-on |
 
 > Community tier is the public GPL repo. It ships with pre-committed generated output for
-> all 11 ECU examples so you can build and run firmware without a license — but you cannot
+> all 12 ECU examples so you can build and run firmware without a license — but you cannot
 > regenerate the ASIL-B safety wrappers from your own YAML without a Developer or
 > Professional key.
 

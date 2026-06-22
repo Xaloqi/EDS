@@ -461,7 +461,7 @@ safeboot:
   max_block_length: 256
 ```
 
-Codegen then generates `zephyr_flash_ops_init()` automatically into `uds_init.c`. Add `platform/zephyr/zephyr_flash_ops.c` to your CMakeLists sources. No other application code changes required.
+Codegen then generates the platform flash ops init automatically into `uds_init.c` (`zephyr_flash_ops_init()` for `platform: zephyr`, `freertos_flash_ops_init()` for `platform: freertos`). Add the matching source file to your CMakeLists. No other application code changes required.
 
 See the `examples/safeboot_ecu/` example and [`docs/INTEGRATION_GUIDE.md` — SafeBoot section](#safeboot) for the full DFU sequence, Python flash script, and MCUboot setup requirements.
 
@@ -741,11 +741,18 @@ A minimal `FreeRTOSConfig.h` for QEMU Cortex-M4 is provided at `examples/basic_e
 
 ---
 
-## 5. SafeBoot — MCUboot DFU over UDS {#safeboot}
+## 5. SafeBoot — OTA DFU over UDS {#safeboot}
 
-SafeBoot integrates the MCUboot secondary slot with UDS download services
+SafeBoot integrates platform flash storage with UDS download services
 (0x34 RequestDownload / 0x36 TransferData / 0x37 RequestTransferExit) via
 a single YAML flag. Codegen handles the wiring automatically.
+
+Two platform paths are available:
+
+| `safeboot.platform` | Flash driver | MCUboot | Reference example |
+|---|---|---|---|
+| `zephyr` (default) | `zephyr_flash_ops.c` — MCUboot `image_1` secondary slot | Required | `examples/safeboot_ecu/` |
+| `freertos` | `freertos_flash_ops.c` — STM32H743 Bank 2 dual-bank write | Not required | `examples/safeboot_freertos_ecu/` |
 
 ### 5.1 Enable SafeBoot
 
@@ -754,7 +761,7 @@ Add to your `diagnostics_config.yaml`:
 ```yaml
 safeboot:
   enabled: true
-  platform: zephyr          # zephyr and freertos supported in v1.4.0
+  platform: zephyr          # "zephyr" (MCUboot, default) or "freertos" (STM32H743 dual-bank, v1.8.0)
   max_block_length: 256     # bytes per TransferData block (CAN classical: 256)
 ```
 
@@ -767,26 +774,37 @@ python3 tools/codegen.py \
   --safety-wrappers --asil-level B --no-manifest
 ```
 
-Add `platform/zephyr/zephyr_flash_ops.c` to your `CMakeLists.txt` sources.
+Add the appropriate platform flash ops source to your `CMakeLists.txt`:
+- Zephyr: `platform/zephyr/zephyr_flash_ops.c`
+- FreeRTOS: `platform/freertos/freertos_flash_ops.c`
+
 That is the complete integration — no application code changes.
 
 ### 5.2 What codegen generates
 
-With `safeboot.enabled: true`, `generated/uds_init.c` includes:
+With `safeboot.enabled: true`, `generated/uds_init.c` includes the platform
+flash ops init at Step 5.7:
 
+**Zephyr (`platform: zephyr`):**
 ```c
-#include "zephyr_flash_ops.h"   /* generated — only when safeboot enabled */
+#include "zephyr_flash_ops.h"
 
 /* Inside uds_generated_init(): */
-status = zephyr_flash_ops_init();
-if (status != UDS_STATUS_OK) {
-    return status;
-}
+status = zephyr_flash_ops_init();   /* registers MCUboot image_1 slot */
+if (status != UDS_STATUS_OK) { return status; }
 ```
 
-`zephyr_flash_ops_init()` registers the MCUboot secondary-slot flash
-operations (`image_1` partition). The three download services then accept
-requests. No other changes to `main.c` or any other file.
+**FreeRTOS (`platform: freertos`):**
+```c
+#include "freertos_flash_ops.h"
+
+/* Inside uds_generated_init(): */
+status = freertos_flash_ops_init(); /* registers STM32H743 Bank 2 (0x08100000) */
+if (status != UDS_STATUS_OK) { return status; }
+```
+
+The three download services (0x34/0x36/0x37) then accept requests. No other
+changes to `main.c` or any other file.
 
 ### 5.3 DFU sequence
 
@@ -811,18 +829,24 @@ After the reset, MCUboot detects a valid image in `image_1`, copies it to
 |---|---|
 | Programming session required | ACL table enforces session 0x02 for 0x34 |
 | Security Level 1 required | ACL table enforces unlock before 0x34 |
-| Address range validated | `zephyr_flash_ops.c` bounds-checks against `image_1` partition |
+| Address range validated | Zephyr: `zephyr_flash_ops.c` bounds-checks against `image_1`. FreeRTOS: `freertos_flash_ops.c` bounds-checks against Bank 2 (0x08100000–0x081DFFFF) |
 | CRC-32 verified | `service_0x37` reads back written bytes and checks CRC before accepting |
-| Primary slot never written | `image_0` is read-only; MCUboot performs the swap |
+| Primary slot never written | Zephyr: `image_0` is read-only; MCUboot performs the swap. FreeRTOS: Bank 1 is never written; customer bootloader performs bank switch |
 
-### 5.5 Board requirements
+### 5.5 Platform requirements
 
+**Zephyr (`platform: zephyr`):**
 - `CONFIG_FLASH_MAP=y`, `CONFIG_FLASH=y` in board conf
 - `image_1` partition defined in board DTS (flash map)
 - MCUboot installed in the primary slot before application firmware
+- See `examples/safeboot_ecu/boards/nucleo_h743zi/` for a complete working board overlay
 
-See `examples/safeboot_ecu/boards/nucleo_h743zi/` for a complete working
-board overlay and conf for the STM32 Nucleo-H743ZI2.
+**FreeRTOS (`platform: freertos`, v1.8.0+):**
+- STM32H743ZI (or compatible dual-bank STM32H7) with HAL enabled (`-DSTM32H743xx`)
+- Bank 2 (0x08100000, 896 KB) used as OTA staging area — no partition table required
+- Customer bootloader responsible for bank swap at reset; EDS only writes and verifies Bank 2
+- CI/QEMU: RAM stub activates automatically when `STM32H743xx` is not defined — no STM32 HAL needed
+- See `examples/safeboot_freertos_ecu/` for a complete working example
 
 ### 5.6 Python flash script
 
@@ -1022,7 +1046,7 @@ Do not set `EDS_DOIP_ONLY_BUILD=1` in this configuration.
 |---|---|---|---|---|
 | Linux host simulation | Zephyr `native_sim` | `ZEPHYR_TOOLCHAIN_VARIANT=host` | `CONFIG_CAN_LOOPBACK` (virtual) | Full: unit tests + firmware integration tests + simulator tests |
 | ST Nucleo H743ZI | Zephyr `nucleo_h743zi` | ARM Cortex-M7 cross-compile | `st,stm32h7-fdcan` | Compile-only (no hardware in CI) |
-| QEMU `mps2-an386` (Cortex-M4) | FreeRTOS | `arm-none-eabi-gcc` cross-compile | Stub loopback | Build + binary size check (`freertos-qemu` CI job) |
+| QEMU `mps2-an386` (Cortex-M4) | FreeRTOS | `arm-none-eabi-gcc` cross-compile | Stub loopback | Build + binary size check (`freertos-qemu` CI job, `freertos-safeboot` CI job) |
 
 ### 6.2 Validated by Example (not in CI)
 
