@@ -954,7 +954,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            gcc-arm-none-eabi binutils-arm-none-eabi ninja-build cmake
+            gcc-arm-none-eabi libnewlib-arm-none-eabi ninja-build cmake
 
       - name: Clone FreeRTOS-Kernel
         run: |
