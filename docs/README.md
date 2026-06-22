@@ -247,6 +247,7 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 | `sensor_ecu` | 7 | 4 | 2 | native\_sim, any Zephyr sensor board |
 | `sensor_ecu_freertos` | 7 | 4 | 2 | QEMU Cortex-M4, any FreeRTOS MCU |
 | `safeboot_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 (MCUboot required) |
+| `safeboot_freertos_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (FreeRTOS, no MCUboot) |
 | `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim, any Zephyr CAN board |
 | `bms_ecu` | 24 | 10 | 5 | native\_sim |
 | `motor_controller_ecu` | 27 | 8 | 6 | native\_sim |

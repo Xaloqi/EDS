@@ -392,12 +392,14 @@ push / PR
    │
    ├── freertos-qemu       FreeRTOS build — QEMU ARM Cortex-M4 (basic_ecu_freertos)
    │
+   ├── freertos-safeboot   FreeRTOS OTA DFU compile — QEMU Cortex-M4 (safeboot_freertos_ecu, RAM stub flash)
+   │
    └── doip-integration    basic_ecu_doip native_sim build
                            + 24 DoIP unit tests (smoke check via build_tests.sh)
                            + 10 pytest end-to-end tests (skipped when TestLab absent)
 ```
 
-All 7 jobs must pass before a PR can be merged.
+All 8 jobs must pass before a PR can be merged.
 
 ### FreeRTOS CI job (`freertos-qemu`)
 
@@ -418,6 +420,13 @@ the default path.
 Added in v1.4.0. Builds `examples/sensor_ecu_freertos` with `-DEDS_PLATFORM=freertos`
 targeting QEMU ARM Cortex-M4. Verifies codegen output, asserts the generated DID count
 matches the YAML, builds the ELF, and checks binary size.
+
+### FreeRTOS Safeboot CI job (`freertos-safeboot`)
+
+Added in v1.8.0. Compile-only build of `examples/safeboot_freertos_ecu/` targeting
+QEMU Cortex-M4 with the RAM stub flash backend (`freertos_flash_ops.c` — no STM32
+HAL required). Verifies all 49 translation units compile and `eds_safeboot_freertos.elf`
+is produced. Real hardware (STM32H743ZI) path is covered by customer integration.
 
 ### DoIP integration CI job (`doip-integration`)
 

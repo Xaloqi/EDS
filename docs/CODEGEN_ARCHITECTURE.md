@@ -211,7 +211,7 @@ routines:
 | `dtcs` | list | `_build_dtc_list(cfg)` | |
 | `routines` | list | `_build_routine_list(cfg)` | |
 | `safeboot_enabled` | bool | `safeboot.enabled` (default `False`) | |
-| `safeboot_platform` | str | `safeboot.platform` (default `"zephyr"`) | |
+| `safeboot_platform` | str | `safeboot.platform` (default `"zephyr"`) | Valid values: `"zephyr"` → `zephyr_flash_ops_init()`; `"freertos"` → `freertos_flash_ops_init()` |
 | `safeboot_max_block` | int | `safeboot.max_block_length` (default `256`) | |
 | `transport` | str | `ecu.transport` (default `"can"`) | v1.6.0 — `"can"`, `"doip"`, or `"both"` |
 | `is_doip` | bool | `transport in ("doip", "both")` | v1.6.0 — available to templates |
@@ -296,7 +296,7 @@ Initialisation sequence:
 7. `did_handlers_register_all()` — link handler stubs into DID table
 8. Per-DTC `dtc_database_register()` loop
 9. Per-routine `routine_database_register()` loop
-10. **Step 5.7 — SafeBoot (conditional):** `zephyr_flash_ops_init()` generated only when `safeboot.enabled: true`
+10. **Step 5.7 — SafeBoot (conditional):** generated only when `safeboot.enabled: true`. Calls `zephyr_flash_ops_init()` when `safeboot.platform: zephyr` (default) or `freertos_flash_ops_init()` when `safeboot.platform: freertos`
 11. `uds_session_init()` — session FSM
 12. `uds_security_init()` — AES-128-CMAC + TRNG production callbacks
 13. **Step 7.1 — Production key + TRNG gate** (SEC-KEY-GATE-01 / SEC-TRNG-GATE-01)

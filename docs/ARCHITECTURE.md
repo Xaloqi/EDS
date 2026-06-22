@@ -547,7 +547,8 @@ autocomplete and schema-driven validation in addition to the in-process validato
 | `basic_ecu_doip` | Same as basic\_ecu served over DoIP on Zephyr | 5 | 2 | 3 | native\_sim (loopback), any Zephyr Ethernet board |
 | `basic_ecu_doip_freertos` | Same as basic\_ecu served over DoIP on FreeRTOS + LwIP | 5 | 2 | 3 | Any FreeRTOS + LwIP Ethernet MCU |
 | `sensor_ecu` | Zone controller with Zephyr sensor API — temperature + voltage → DTCs | 7 | 4 | 2 | native\_sim, any Zephyr sensor board |
-| `safeboot_ecu` | MCUboot DFU over UDS (`safeboot.enabled: true` in YAML) | 5 | 3 | 2 | Nucleo-H743ZI2 (MCUboot required) |
+| `safeboot_ecu` | MCUboot DFU over UDS (`safeboot.enabled: true`, `platform: zephyr`) | 5 | 3 | 2 | Nucleo-H743ZI2 (MCUboot required) |
+| `safeboot_freertos_ecu` | FreeRTOS OTA DFU over UDS — STM32H743 dual-bank, no MCUboot (`platform: freertos`) | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (CI RAM stub) |
 | `robot_joint_controller_ecu` | Robot joint controller — position, velocity, torque, soft limits | 10 | 5 | 3 | native\_sim, any Zephyr CAN board |
 | `bms_ecu` | Battery Management System — cell voltages, temperatures, SoC, SoH | 24 | 10 | 5 | native\_sim |
 | `motor_controller_ecu` | Motor controller — speed, torque, temperatures, calibration | 27 | 8 | 6 | native\_sim |
@@ -578,7 +579,8 @@ The first five examples ship with committed generated output (DID handlers, safe
 | `sensor-example` | SensorECU codegen + generated file check (7 DIDs, 4 DTCs) |
 | `robotics-example` | Robot Joint Controller codegen + generated file check |
 | `safeboot-example` | SafeBootECU: verifies `zephyr_flash_ops_init()` generated when enabled; regression check that `basic_ecu` does not generate it |
-| `freertos-qemu` | FreeRTOS ARM cross-compile for QEMU Cortex-M4 |
+| `freertos-qemu` | FreeRTOS ARM cross-compile for QEMU Cortex-M4 (`basic_ecu_freertos`) |
+| `freertos-safeboot` | FreeRTOS OTA DFU compile — QEMU Cortex-M4, RAM stub flash (`safeboot_freertos_ecu`) |
 | `doip-integration` | basic\_ecu\_doip native_sim build · 24 DoIP unit tests · pytest end-to-end (skipped when xaloqi-tester absent) |
 
 Global env: `XALOQI_LICENSE_SKIP=1` (codegen bypasses license check in CI — `_license.py` and templates are not present in the public repo).
@@ -590,7 +592,7 @@ Global env: `XALOQI_LICENSE_SKIP=1` (codegen bypasses license check in CI — `_
 | Board | Use | Status |
 |---|---|---|
 | `native_sim` (Zephyr) | CI, development, simulation | ✅ All CI jobs pass |
-| QEMU `mps2-an386` (FreeRTOS) | FreeRTOS CI build, Cortex-M4 validation | ✅ `freertos-qemu` CI job green |
+| QEMU `mps2-an386` (FreeRTOS) | FreeRTOS CI build, Cortex-M4 validation | ✅ `freertos-qemu` + `freertos-safeboot` CI jobs green |
 | STM32 Nucleo-H743ZI2 | Hardware validation, customer demo | ✅ Overlay written; HiL validation planned |
 | FRDM-K64F | Fifth ECU example (planned) | 🔲 Planned |
 

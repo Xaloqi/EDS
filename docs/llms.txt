@@ -22,7 +22,7 @@ EDS implements:
 - YAML-driven codegen: diagnostics_config.yaml → 14 generated C/H files + test suite + optional OpenSOVD 1.0 CDA JSON (--sovd)
 - Auto-generated pytest test suites (per-DID, per-routine, service protocol, firmware harness)
 - Auto-generated CANoe CAPL test scripts
-- 11 reference ECU examples: basic_ecu, basic_ecu_doip, basic_ecu_freertos, basic_ecu_doip_freertos, bms_ecu, motor_controller_ecu, ardep_ecu, sensor_ecu, sensor_ecu_freertos, safeboot_ecu, robot_joint_controller_ecu
+- 12 reference ECU examples: basic_ecu, basic_ecu_doip, basic_ecu_freertos, basic_ecu_doip_freertos, bms_ecu, motor_controller_ecu, ardep_ecu, sensor_ecu, sensor_ecu_freertos, safeboot_ecu, safeboot_freertos_ecu, robot_joint_controller_ecu
 - MCP server: exposes generate_did_config, run_codegen, validate_asil_b, explain_uds_error
 - React/TypeScript live dashboard GUI
 - VS Code extension (YAML validation, hover docs, one-click codegen)
