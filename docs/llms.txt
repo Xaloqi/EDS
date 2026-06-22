@@ -26,7 +26,7 @@ EDS implements:
 - MCP server: exposes generate_did_config, run_codegen, validate_asil_b, explain_uds_error
 - React/TypeScript live dashboard GUI
 - VS Code extension (YAML validation, hover docs, one-click codegen)
-- 8-job CI pipeline: unit tests (37 modules) · integration · static analysis · Zephyr builds · FreeRTOS QEMU ARM · DoIP integration (native_sim + DoipBus) · SOVD CDA generation
+- 8-job CI pipeline: unit tests (37 modules) · integration · static analysis · Zephyr builds · FreeRTOS QEMU ARM (basic + OTA safeboot) · DoIP integration (native_sim + DoipBus) · harness tests (68) · SOVD CDA generation
 
 ## Licensing
 

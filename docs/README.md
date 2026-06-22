@@ -95,7 +95,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 | **CANoe CAPL** | YAML → `.can` scripts for CANoe import · per-DID, per-DTC, core services |
 | **VS Code extension** | Inline YAML validation · hover docs · one-click codegen |
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
-| **ECU examples** | basic, BMS, motor controller, ARDEP, sensor, safeboot, robot joint controller — 5–35 DIDs each, Zephyr and FreeRTOS |
+| **ECU examples** | 12 examples: basic, basic_doip, basic_freertos, basic_doip_freertos, sensor, sensor_freertos, safeboot (Zephyr/MCUboot), safeboot_freertos (STM32H743), BMS, motor controller, ARDEP, robot joint — 5–35 DIDs each |
 | **CI pipeline** | 18-job GitHub Actions · codegen · unit tests · harness tests · Zephyr builds · FreeRTOS ARM builds · MISRA analysis · MCP server tests |
 
 **Safety properties verified by CI on every commit:**
@@ -160,7 +160,7 @@ For the full FreeRTOS integration guide (callbacks, NVM, reset, production porti
 ### Run the test suite
 
 ```bash
-# 35 Unity unit tests (host-native, no Zephyr SDK needed)
+# 37 Unity unit tests (host-native, no Zephyr SDK needed)
 bash build_tests.sh
 
 # 68 harness integration tests
@@ -232,7 +232,7 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command |
 | `examples/` | basic\_ecu · basic\_ecu\_freertos · basic\_ecu\_doip · basic\_ecu\_doip\_freertos · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard |
-| `tests/` | 36 Unity unit tests, harness, Python integration tests |
+| `tests/` | 37 Unity unit tests, harness, Python integration tests |
 
 ---
 

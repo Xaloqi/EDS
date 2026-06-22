@@ -35,7 +35,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 
 | SID | Service Name | Status | Sub-functions / Notes |
 |-----|---|---|---|
-| 0x10 | DiagnosticSessionControl | **Implemented** | Sub-fn 0x01 Default, 0x02 Programming, 0x03 Extended, 0x04 SafetySystem. suppressPosRspMsgIndicationBit (bit 7) honoured. P2/P2\* timing encoded per ISO §7.2 (P2\* field = ms/10). |
+| 0x10 | DiagnosticSessionControl | **Implemented** | Sub-fn 0x01 Default, 0x02 Programming, 0x03 Extended, 0x04 SafetySystem. suppressPosRspMsgIndicationBit (bit 7) honoured. P2/P2\* timing encoded per ISO §7.2 (P2\* field = ms/10). Optional strict gate (v1.7.2): `uds_session_set_strict_programming(ctx, true)` rejects Default→Programming directly (OEM toolchain compliance). |
 | 0x11 | ECUReset | **Implemented** | Sub-fn 0x01 hardReset, 0x02 keyOffOnReset, 0x03 softReset. All three map to `sys_reboot()` on Zephyr. suppressPosRspMsgIndicationBit honoured. |
 | 0x14 | ClearDiagnosticInformation | **Implemented** | groupOfDTC 0xFFFFFF (all groups) and any 3-byte DTC group code. NVM-backed status cleared via `dtc_mirror_clear_all()`. |
 | 0x19 | ReadDTCInformation | **Implemented** | Sub-fn 0x01 reportNumberOfDTCByStatusMask, 0x02 reportDTCByStatusMask, 0x03 reportDTCSnapshotIdentification (returns empty identifier list — no freeze-frame data stored), 0x04 reportDTCSnapshotRecordByDTCNumber (returns empty record — no snapshot data stored), 0x06 reportDTCExtDataRecordByDTCNumber (returns empty record), 0x0A reportSupportedDTCs. All 8 DTC status bits supported (availability mask 0xFF). ISO 14229-1 DTC format (format ID 0x01). |
@@ -73,7 +73,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | Physical addressing | **Partial** | The Zephyr CAN RX filter in `zephyr_can.c` installs one filter for 0x7DF. Adding a second filter for a physical address (e.g. 0x7E0) requires one additional `can_add_rx_filter_msgq()` call — see `platform/zephyr/zephyr_can.c` line 271 for the comment. |
 | Extended addressing (29-bit) | **Out of scope** | `is_extended_id` field exists in `uds_can_frame_t` but 29-bit addressing is not tested and not officially supported. |
 | Mixed addressing | **Out of scope** | — |
-| CAN FD (ISO 15765-2 §9.8) | **Out of scope** | `is_fd` field exists in `uds_can_frame_t`. The transport layer does not use FD frames or the FD escape sequence for PDU length > 4095 bytes. |
+| CAN FD (ISO 15765-2 §9.8) | **Implemented** (v1.7.1+) | Enable with `ISOTP_ENABLE_CAN_FD=1` (`CONFIG_CAN_FD_MODE=y` on Zephyr). Adds SF escape sequence (up to 62-byte SF), FF escape sequence (32-bit FF_DL for PDU > 4095 bytes). Set `isotp_cfg_t.use_fd = true` to activate. Platform HAL wired in `zephyr_can.c` and `freertos_can.c` since v1.7.2. |
 | Max PDU length | **4095 bytes** | Defined by `UDS_MAX_PAYLOAD_LEN` in `core/uds_types.h`. Reducible at compile time to save RAM (see §2). |
 
 ---
@@ -98,9 +98,15 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 
 - **Functional addressing only by default**: 0x7DF RX filter installed. Physical addressing requires one additional `can_add_rx_filter_msgq()` call — not a code change, only a configuration extension.
 - **Single-ECU only**: no gateway routing. Multi-ECU addressing (ISO 15765-3 normal fixed addressing to 0x7Ex/0x18DAxxxx) is not implemented.
-- **CAN FD not tested**: CAN FD hardware compilation succeeds (STM32H7/G4 FDCAN driver) but the ISO-TP layer does not use FD frames. Classical CAN (max 8 bytes/frame) is the tested transport.
+- **CAN FD available but opt-in**: `ISOTP_ENABLE_CAN_FD=1` enables CAN FD ISO-TP (SF escape up to 62 bytes, FF escape for PDU > 4095 bytes). Disabled by default — classic CAN remains the tested default transport. See §1.2 above for details.
 - **DoIP available** (ISO 13400-2): see Section 5 (DoIP Integration) below. CAN and DoIP
   use the same UDS core — `ecu.transport: doip` in YAML selects the DoIP path.
+- **Strict programming session gate (optional, v1.7.2)**: some OEM toolchains (BMW, VAG) require Extended session before Programming. Enable after init:
+  ```c
+  uds_session_set_strict_programming(&session_ctx, true);
+  /* Default→Programming now returns NRC 0x25; Default→Extended→Programming OK */
+  ```
+  Default is permissive (ISO 14229-1 §7.4.2.3 does not normatively require Extended first).
 - **Security levels fixed at 2**: AES-CMAC keys for levels 1 and 2. More levels require changing `ALGO_MAX_LEVELS`.
 - **SID 0x19 — ReadDTCInformation: partial sub-function coverage.** The following sub-functions are implemented: `0x01` (reportNumberOfDTCByStatusMask), `0x02` (reportDTCByStatusMask), `0x04` (reportDTCSnapshotRecordByDTCNumber), `0x06` (reportDTCExtDataRecordByDTCNumber), `0x0A` (reportSupportedDTCs). The following sub-functions are **not implemented** and return NRC `0x12` (subFunctionNotSupported): `0x0B` (reportDTCWithPermanentStatus) and `0x19` (reportDTCExtDataRecordByRecordNumber). These are required by some OEM tool profiles (notably CANdelaStudio extended sessions). If your tester sends `0x19 0x0B` or `0x19 0x19`, the ECU will respond with NRC `0x12` — this is the correct ISO 14229-1 behaviour for unsupported sub-functions and will not cause a protocol error. Implementation of these sub-functions is planned for a future release.
 

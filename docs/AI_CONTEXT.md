@@ -468,6 +468,42 @@ uds_status_t calibration_data_write(const uint8_t *data, uint16_t length)
 
 ---
 
+## CAN FD ISO-TP Support (v1.7.1+)
+
+Enable CAN FD frame handling with `ISOTP_ENABLE_CAN_FD=1`:
+
+```c
+isotp_cfg_t cfg = {
+    .use_fd     = true,   /* enable CAN FD frame paths */
+    .rx_id      = 0x7DFU,
+    .tx_id      = 0x7E8U,
+};
+```
+
+Zephyr: `CONFIG_CAN_FD_MODE=y` + `-DISOTP_ENABLE_CAN_FD=1`.
+FreeRTOS / bare-metal: `-DISOTP_ENABLE_CAN_FD=1`.
+
+When enabled: SF escape sequence carries up to 62-byte payloads; FF escape sequence
+encodes 32-bit FF_DL for PDU > 4095 bytes. Default is 0 (classic CAN, unchanged).
+
+---
+
+## Strict Programming Session Gate (v1.7.2+)
+
+Some OEM toolchains (BMW, VAG) require Extended session before Programming session.
+Enable after `uds_generated_init()`:
+
+```c
+uds_session_set_strict_programming(&session_ctx, true);
+/* Default → Programming: NRC 0x25 (request sequence error) */
+/* Default → Extended → Programming: OK */
+```
+
+Default is permissive (ISO 14229-1 §7.4.2.3 does not normatively require Extended first).
+Zero behaviour change for existing integrations.
+
+---
+
 ## DTC Reporting from Application Code
 
 ```c

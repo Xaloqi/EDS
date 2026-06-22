@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
-**Version:** v1.6.0  
-**Status:** 37/37 unit test modules passing. 68/68 harness tests passing. 7/7 CI jobs green. FreeRTOS, SafeBoot, DoIP, and sensor examples all covered.
+**Version:** v1.8.0  
+**Status:** 37/37 unit test modules passing. 68/68 harness tests passing. 8/8 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
 
 ---
 
@@ -10,7 +10,7 @@
 EDS uses a four-layer testing strategy: unit tests, harness tests, integration tests, and system
 tests. All four layers run automatically in CI on every push and pull request.
 
-**Current test counts (v1.6.0):**
+**Current test counts (v1.8.0):**
 
 | Layer | Count | Framework | Status |
 |---|---|---|---|
@@ -25,6 +25,7 @@ tests. All four layers run automatically in CI on every push and pull request.
 | FreeRTOS build | QEMU ARM Cortex-M4 | CMake + QEMU | ✅ basic_ecu_freertos CI green |
 | SensorECU FreeRTOS build | QEMU ARM Cortex-M4 | CMake + QEMU | ✅ sensor_ecu_freertos CI green |
 | DoIP FreeRTOS build | QEMU ARM Cortex-M4 | CMake + QEMU | ✅ basic_ecu_doip_freertos CI green |
+| SafeBoot FreeRTOS build | QEMU ARM Cortex-M4 (RAM stub flash) | CMake + QEMU | ✅ safeboot_freertos_ecu CI green (`freertos-safeboot` job) |
 
 ---
 
