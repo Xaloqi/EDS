@@ -1,16 +1,17 @@
 # =============================================================================
 # Xaloqi EDS — .github/workflows/ci.yml
 #
-# Community tier CI pipeline — 7 jobs covering the public GPL runtime stack.
+# Community tier CI pipeline — 8 jobs covering the public GPL runtime stack.
 #
 # Jobs:
-#   1. unit-tests        — 37 host-side C unit tests (Unity framework)
-#   2. integration-tests — pytest suite against basic_ecu generated output (simulator mode)
-#   3. static-analysis   — GCC -fanalyzer + MISRA C:2012 cppcheck (zero open violations)
-#   4. zephyr-native     — west build -b native_sim (basic_ecu, Zephyr v3.7)
-#   5. zephyr-stm32      — west build -b nucleo_h743zi (cross-compile, basic_ecu)
-#   6. freertos-qemu     — FreeRTOS ARM cross-compile + run (basic_ecu_freertos, QEMU M4)
-#   7. harness-tests     — build_harness.sh: MISRA-clean C build + 68 integration tests
+#   1. unit-tests           — 37 host-side C unit tests (Unity framework)
+#   2. integration-tests    — pytest suite against basic_ecu generated output (simulator mode)
+#   3. static-analysis      — GCC -fanalyzer + MISRA C:2012 cppcheck (zero open violations)
+#   4. zephyr-native        — west build -b native_sim (basic_ecu, Zephyr v3.7)
+#   5. zephyr-stm32         — west build -b nucleo_h743zi (cross-compile, basic_ecu)
+#   6. freertos-qemu        — FreeRTOS ARM cross-compile (basic_ecu_freertos, QEMU M4)
+#   7. freertos-safeboot    — FreeRTOS OTA DFU compile (safeboot_freertos_ecu, QEMU M4, RAM stub)
+#   8. harness-tests        — build_harness.sh: MISRA-clean C build + 68 integration tests
 #
 # Additional CI jobs (codegen examples, GUI, MCP server) run in the
 # private EDS-toolchain repo against the full Developer/Professional toolchain.
@@ -930,6 +931,87 @@ jobs:
         with:
           name: freertos-basic-ecu-elf
           path: build_freertos/eds_freertos.elf
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job: freertos-safeboot
+  #
+  # Compile-only build of examples/safeboot_freertos_ecu/ targeting
+  # QEMU Cortex-M4 (RAM stub flash — no STM32H7 HAL required).
+  # Validates that the FreeRTOS OTA DFU example builds clean against
+  # the full EDS stack including freertos_flash_ops.c.
+  #
+  # The RAM stub in freertos_flash_ops.c activates automatically when
+  # STM32H7xx is not defined — no flag needed in CI.
+  # ──────────────────────────────────────────────────────────────────────────
+  freertos-safeboot:
+    name: "FreeRTOS Safeboot Build — QEMU Cortex-M4 (RAM stub flash)"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM cross-compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi binutils-arm-none-eabi ninja-build cmake
+
+      - name: Clone FreeRTOS-Kernel
+        run: |
+          git clone --depth 1 \
+            https://github.com/FreeRTOS/FreeRTOS-Kernel.git \
+            /opt/freertos-kernel
+
+      - name: Verify pre-committed generated files (safeboot_freertos_ecu)
+        run: |
+          for f in examples/safeboot_freertos_ecu/generated/uds_init.c \
+                   examples/safeboot_freertos_ecu/generated/did_handlers.c \
+                   examples/safeboot_freertos_ecu/generated/routine_handlers.c \
+                   examples/safeboot_freertos_ecu/generated/safety_config.h \
+                   examples/safeboot_freertos_ecu/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
+
+      - name: Verify platform flash ops files
+        run: |
+          test -f platform/freertos/freertos_flash_ops.h \
+            && echo "OK: freertos_flash_ops.h" \
+            || (echo "MISSING: freertos_flash_ops.h" && exit 1)
+          test -f platform/freertos/freertos_flash_ops.c \
+            && echo "OK: freertos_flash_ops.c" \
+            || (echo "MISSING: freertos_flash_ops.c" && exit 1)
+
+      - name: CMake configure — FreeRTOS Safeboot QEMU
+        run: |
+          cmake -B build_safeboot_freertos \
+            -DEDS_PLATFORM=freertos \
+            -DFREERTOS_DIR=/opt/freertos-kernel \
+            -DBOARD=qemu_cortex_m4 \
+            -DFREERTOS_CONFIG_DIR="${GITHUB_WORKSPACE}/examples/safeboot_freertos_ecu/boards/qemu_cortex_m4" \
+            -GNinja \
+            examples/safeboot_freertos_ecu
+
+      - name: Build FreeRTOS Safeboot example
+        run: ninja -C build_safeboot_freertos
+
+      - name: Verify ELF binary
+        run: |
+          test -f build_safeboot_freertos/eds_safeboot_freertos.elf \
+            && echo "PASS: eds_safeboot_freertos.elf produced" \
+            || (echo "FAIL: ELF not found" && exit 1)
+          arm-none-eabi-size build_safeboot_freertos/eds_safeboot_freertos.elf
+          text_size=$(arm-none-eabi-size build_safeboot_freertos/eds_safeboot_freertos.elf \
+            | tail -1 | awk '{print $1}')
+          [ "${text_size}" -gt 0 ] \
+            || (echo "FAIL: text segment empty" && exit 1)
+          echo "PASS: binary size check (text=${text_size} bytes)"
+
+      - name: Upload Safeboot FreeRTOS ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-safeboot-elf
+          path: build_safeboot_freertos/eds_safeboot_freertos.elf
+
   #
   # Builds the motor_controller_ecu example firmware for native_sim.
   # Validates that the 27-DID motor controller diagnostics_config.yaml

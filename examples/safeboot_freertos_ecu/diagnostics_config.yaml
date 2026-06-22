@@ -1,0 +1,152 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/safeboot_freertos_ecu/diagnostics_config.yaml
+#
+# PURPOSE: SafeBoot FreeRTOS ECU — UDS OTA DFU on STM32H743ZI + FreeRTOS.
+#
+#          FreeRTOS companion to examples/safeboot_ecu/ (Zephyr + MCUboot).
+#
+#          safeboot.platform: freertos causes codegen to generate a
+#          freertos_flash_ops_init() call in uds_init.c at Step 5.7,
+#          wiring the STM32H743ZI dual-bank HAL flash driver into the UDS
+#          download services (0x34/0x36/0x37) automatically.
+#
+#          The OTA update flow writes a new firmware image to Bank 2
+#          (0x08100000 – 0x081DFFFF) using standard UDS DFU services:
+#            0x34 RequestDownload → erases Bank 2, returns max block length
+#            0x36 TransferData    → writes 256-byte blocks to Bank 2
+#            0x37 RequestTransferExit → CRC-32 verified over written image
+#
+#          After RequestTransferExit, the host initiates ECUReset (0x11).
+#          The boot-time bank switch (A/B swap) is the responsibility of
+#          the customer's bootloader or the EDS Developer tier A/B feature.
+#
+# TARGET: STM32 Nucleo-H743ZI2 with FreeRTOS + LwIP (or CAN ISO-TP).
+#         Dual-bank flash: Bank 1 (running app) / Bank 2 (OTA staging).
+#         No MCUboot dependency.
+#
+# CONTRIBUTOR: Flash driver based on work by chenyurong22 (Siemens) — issue #28.
+#
+# VERSION: 1.0.0
+# SPDX-License-Identifier: Apache-2.0
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name:    "SafeBootFreeRTOSECU"
+  version:     "1.0.0"
+  description: >
+    STM32H743ZI FreeRTOS ECU demonstrating UDS OTA DFU without MCUboot.
+    Uses STM32H743 dual-bank flash: Bank 2 is the OTA staging area.
+    safeboot.platform: freertos wires freertos_flash_ops_init() automatically.
+
+timing:
+  p2_server_max_ms:       50     # Extended for flash erase (0x78 pending used)
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+# =============================================================================
+# SafeBoot configuration
+# =============================================================================
+
+safeboot:
+  enabled: true
+  platform: freertos                 # → generates freertos_flash_ops_init() at Step 5.7
+  max_block_length: 256              # bytes per TransferData block (CAN classical)
+
+# =============================================================================
+# DIDs
+# =============================================================================
+
+dids:
+
+  - id:   "0xF190"
+    name: "VehicleIdentificationNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+  - id:   "0xF18C"
+    name: "ECUSerialNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 8
+
+  - id:   "0xF181"
+    name: "ApplicationSoftwareIdentification"
+    description: >
+      Running firmware version string. Update after OTA to confirm new image.
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 8
+
+  - id:   "0xF186"
+    name: "ActiveDiagnosticSession"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+
+  - id:   "0xF18A"
+    name: "SystemSupplierIdentifier"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 10
+
+# =============================================================================
+# DTCs
+# =============================================================================
+
+dtcs:
+
+  - code:        "0xF00001"
+    description: "DFU transfer CRC mismatch — image rejected (REQ-FLASH-003)"
+    severity:    "immediate_display"
+
+  - code:        "0xF00002"
+    description: "DFU flash erase failure"
+    severity:    "immediate_display"
+
+  - code:        "0xF00003"
+    description: "DFU flash write failure"
+    severity:    "immediate_display"
+
+# =============================================================================
+# Routines
+# =============================================================================
+
+routines:
+
+  - id:   "0xFF00"
+    name: "CheckProgrammingPreconditions"
+    description: >
+      Verify preconditions before starting a DFU session.
+      Returns 0x01 (PASS) or 0x02 (FAIL) + failure reason byte.
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+  - id:   "0xFF01"
+    name: "VerifyOTASlotIntegrity"
+    description: >
+      Read the first 8 bytes of the OTA staging area (Bank 2, 0x08100000).
+      Returns PASS if a valid ARM Cortex-M7 image header is present
+      (stack pointer in SRAM range, Reset_Handler bit0 set for Thumb).
+      Returns FAIL if slot is erased (0xFFFFFFFF) or header is invalid.
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start", "results"]

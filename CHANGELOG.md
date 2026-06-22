@@ -6,6 +6,61 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.8.0] — FreeRTOS OTA DFU example (closes #28)
+
+### Added
+
+- **`examples/safeboot_freertos_ecu/`** — FreeRTOS UDS OTA DFU example on
+  STM32H743ZI. FreeRTOS companion to `examples/safeboot_ecu/` (Zephyr + MCUboot).
+  Demonstrates the complete 0x34 / 0x36×N / 0x37 / 0x11 firmware download pipeline
+  without MCUboot dependency:
+
+  | Layer | File |
+  |---|---|
+  | Flash HAL | `platform/freertos/freertos_flash_ops.c` |
+  | Flash interface | `platform/freertos/freertos_flash_ops.h` |
+  | FreeRTOS main | `examples/safeboot_freertos_ecu/src/main.c` |
+  | TestLab campaign | `examples/safeboot_freertos_ecu/campaigns/safeboot_freertos_dfu.yaml` |
+
+  Flash layout on STM32H743ZI (2 MB dual-bank):
+
+  | Region | Address | Size | Purpose |
+  |---|---|---|---|
+  | Bank 1 | 0x08000000 | 1 MB | Running application |
+  | Bank 2 — OTA | 0x08100000 | 896 KB | OTA staging area |
+  | Bank 2 — NVM | 0x081E0000 | 128 KB | UDS NVM (reserved) |
+
+- **`platform/freertos/freertos_flash_ops.h/.c`** — STM32H743ZI dual-bank flash
+  ops implementing `uds_flash_ops_t` (erase / write / verify).
+  - Real hardware: STM32H743 HAL (`HAL_FLASHEx_Erase` / `HAL_FLASH_Program`)
+    activated when `STM32H7xx` is defined.
+  - CI / QEMU: RAM stub activated automatically when `STM32H7xx` is not defined.
+    Compile succeeds, CRC verification works, writes are not persistent.
+  - Flash driver design based on dual-bank driver contributed by chenyurong22
+    (Siemens) in [#28](https://github.com/Xaloqi/EDS/issues/28). Thank you.
+
+- **New `diagnostics_config.yaml` key**: `safeboot.platform: freertos` causes
+  codegen to generate `freertos_flash_ops_init()` at Step 5.7 of `uds_init.c`
+  instead of `zephyr_flash_ops_init()`.
+
+- **New routine RID 0xFF01 — `VerifyOTASlotIntegrity`** (replaces Zephyr-specific
+  `VerifyBootloaderIntegrity` in the FreeRTOS example): reads the first 8 bytes of
+  Bank 2, validates that a valid ARM Cortex-M7 vector table is present (stack pointer
+  in SRAM range, Reset_Handler with Thumb bit set).
+
+- **CI job `freertos-safeboot`** — compile-only build of `safeboot_freertos_ecu/`
+  against QEMU Cortex-M4 with RAM stub flash. No STM32 HAL required in CI.
+
+### Note on bank swap
+
+This example writes a new image to Bank 2 and verifies CRC via 0x37.
+The boot-time bank switch (Bank 2 → Bank 1) is the customer's bootloader
+responsibility. The EDS **Developer tier** adds the A/B swap state machine
+with metadata sector, boot flag, and N-boot rollback counter.
+
+Reported by chenyurong22 (Siemens) in [#28](https://github.com/Xaloqi/EDS/issues/28).
+
+---
 ## [1.7.4] — ISO-TP TX frame padding (closes #29)
 
 ### Added

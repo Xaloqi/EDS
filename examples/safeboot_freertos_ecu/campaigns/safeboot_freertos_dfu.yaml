@@ -1,0 +1,71 @@
+# =============================================================================
+# Xaloqi TestLab campaign — safeboot_freertos_ecu OTA DFU
+#
+# PURPOSE: Runs the complete UDS OTA firmware download sequence against
+#          examples/safeboot_freertos_ecu/ running on STM32H743ZI.
+#
+# TRANSPORT: CAN ISO-TP @ 500 kbit/s (FDCAN1, PD0/PD1 on Nucleo-H743ZI2).
+#
+# SEQUENCE:
+#   1. DiagnosticSessionControl → programming session
+#   2. SecurityAccess → unlock level 1 (AES-128-CMAC)
+#   3. RoutineControl 0xFF00 → CheckProgrammingPreconditions
+#   4. RequestDownload → erase OTA staging area (Bank 2), get max block size
+#   5. TransferData × N → write 256-byte blocks
+#   6. RequestTransferExit → CRC-32 verified
+#   7. RoutineControl 0xFF01 → VerifyOTASlotIntegrity (optional post-write check)
+#   8. ECUReset → hard reset (customer bootloader performs bank swap)
+#
+# USAGE:
+#   testlab run campaigns/safeboot_freertos_dfu.yaml \
+#     --firmware path/to/app.bin
+#
+# PREREQUISITES:
+#   - testlab installed: pip install -e ".[dev]"
+#   - CAN interface available: can0 (socketcan) or PEAK PCAN adapter
+#   - Nucleo-H743ZI2 running safeboot_freertos_ecu firmware
+# =============================================================================
+
+target:
+  transport: can
+  interface: can0
+  bitrate: 500000
+  rx_id: 0x7DF
+  tx_id: 0x7E8
+
+campaigns:
+  - name: OTA_DFU_FREERTOS
+    description: "Full OTA DFU cycle for SafeBootFreeRTOSECU on STM32H743ZI"
+    steps:
+      - service: DiagnosticSessionControl
+        args: { session: programming }
+
+      - service: SecurityAccess
+        args: { level: 1 }
+
+      - service: RoutineControl
+        args: { type: start, rid: 0xFF00 }
+        description: "Check programming preconditions"
+
+      - service: RequestDownload
+        args:
+          address: 0x08100000        # Bank 2 base — OTA staging area
+          length: !filesize firmware  # resolved at runtime from --firmware arg
+          compression: none
+          encryption: none
+
+      - service: TransferData
+        args:
+          data: !file firmware        # resolved at runtime from --firmware arg
+          block_length: 256
+
+      - service: RequestTransferExit
+        description: "CRC-32 verified server-side (REQ-FLASH-003)"
+
+      - service: RoutineControl
+        args: { type: start, rid: 0xFF01 }
+        description: "Verify OTA slot integrity (optional — check image header)"
+
+      - service: ECUReset
+        args: { type: hardReset }
+        description: "Reset → customer bootloader performs Bank 2 → Bank 1 swap"
