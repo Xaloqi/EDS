@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **NXP FRDM-MCXN947 board support** (`boards/frdm_mcxn947/`).
+  Adds `frdm_mcxn947.overlay` and `frdm_mcxn947.conf` so `examples/basic_ecu`
+  builds and runs on the NXP MCX N947 (Cortex-M33, 150 MHz, FlexCAN0).
+  Zephyr board target: `frdm_mcxn947/mcxn947/cpu0`.
+  - FlexCAN0 (PIO1_10/PIO1_11) with `sample-point = <875>` (87.5%, CiA 601)
+  - `can0` alias wired to `&flexcan0`; pinctrl from base board DTSI
+  - NVS partition: last 256 KB of 2 MB internal flash (`diag_nvs`, 32 × 8 KB sectors)
+  - Flash partition table rewritten (896 KB image-0 + 896 KB image-1 + 256 KB NVS)
+  - Watchdog: WWDT0 (`nxp,lpc-wwdt`) already enabled in board DTS
+  - Console: J-Link onboard via LPUART4 (flexcomm4_lpuart4, 115200 baud)
+  - Stack protection: Cortex-M33 SPLIM via `BUILTIN_STACK_GUARD` (hardware, superior
+    to software canaries; board defconfig `HW_STACK_PROTECTION=y` auto-selects it)
+  - CI: new `zephyr-nxp` job compiles `basic_ecu` for this target on every PR
+
+
+
 - **SID 0x19/0x0B — `reportDTCFaultDetectionCounter`** (ISO 14229-1 §11.3.11).
   Returns a 4-byte record `[dtcHB, dtcMB, dtcLB, faultDetectionCounter]` for each
   DTC where `testFailed == 0` and `fault_detection_counter < 0xFF`. No

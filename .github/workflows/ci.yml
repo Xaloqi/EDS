@@ -848,6 +848,119 @@ jobs:
             build/zephyr/zephyr.hex
             build/zephyr/zephyr.bin
 
+  # ── Job 5b: Zephyr build — frdm_mcxn947 ─────────────────────────────────────
+  #
+  # Cross-compiles basic_ecu for the NXP FRDM-MCXN947 (MCX N947, Cortex-M33).
+  # Uses the same Zephyr SDK ARM toolchain as zephyr-stm32 (arm-zephyr-eabi).
+  # Board target: frdm_mcxn947/mcxn947/cpu0
+  # ──────────────────────────────────────────────────────────────────────────
+  zephyr-nxp:
+
+    name: "Zephyr Build — frdm_mcxn947/mcxn947/cpu0 (cross-compile)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget xz-utils
+
+      - name: Install west
+        run: pip install west
+
+      - name: Install Zephyr SDK (ARM toolchain via setup.sh)
+        run: |
+          SDK_VER="${ZEPHYR_SDK_VERSION}"
+          SDK_DIR="${HOME}/zephyr-sdk-${SDK_VER}"
+          BASE_URL="https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VER}"
+
+          echo "=== Downloading minimal bundle ==="
+          wget -q --show-progress \
+            "${BASE_URL}/zephyr-sdk-${SDK_VER}_linux-x86_64_minimal.tar.xz" \
+            -O /tmp/zephyr-sdk-minimal.tar.xz
+
+          echo "=== Extracting minimal bundle ==="
+          mkdir -p "${SDK_DIR}"
+          tar -xf /tmp/zephyr-sdk-minimal.tar.xz --strip-components=1 -C "${SDK_DIR}"
+
+          if [ ! -f "${SDK_DIR}/setup.sh" ]; then
+            echo "ERROR: setup.sh not found in ${SDK_DIR}"
+            ls -la "${SDK_DIR}"
+            exit 1
+          fi
+
+          echo "=== Installing ARM toolchain via setup.sh ==="
+          cd "${SDK_DIR}"
+          bash setup.sh -t arm-zephyr-eabi -c
+
+          echo "=== Verifying toolchain binary ==="
+          GCC="${SDK_DIR}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc"
+          if [ ! -x "${GCC}" ]; then
+            echo "ERROR: ${GCC} not found or not executable"
+            ls -la "${SDK_DIR}/"
+            ls -la "${SDK_DIR}/arm-zephyr-eabi/" 2>/dev/null || echo "  (absent)"
+            exit 1
+          fi
+          echo "PASS: ${GCC}"
+          echo "ZEPHYR_SDK_INSTALL_DIR=${SDK_DIR}" >> "${GITHUB_ENV}"
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: Install project Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Verify pre-committed generated files are present
+        working-directory: EDS
+        run: |
+          for f in examples/basic_ecu/generated/uds_init.c \
+                   examples/basic_ecu/generated/did_handlers.c \
+                   examples/basic_ecu/generated/safety_config.h \
+                   examples/basic_ecu/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
+
+      - name: West build — frdm_mcxn947/mcxn947/cpu0
+        run: |
+          west build \
+            --pristine \
+            -b frdm_mcxn947/mcxn947/cpu0 \
+            EDS/examples/basic_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay"
+
+      - name: Verify ELF + HEX output
+        run: |
+          test -f build/zephyr/zephyr.elf && echo "PASS: .elf" || exit 1
+          test -f build/zephyr/zephyr.hex && echo "PASS: .hex" || exit 1
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frdm_mcxn947-firmware
+          path: |
+            build/zephyr/zephyr.elf
+            build/zephyr/zephyr.hex
+            build/zephyr/zephyr.bin
+
   # ── Job 9: BMS Zephyr build — native_sim ───────────────────────────────────
   #
   # Builds the BMS example ECU firmware for the native_sim simulation target.

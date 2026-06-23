@@ -1053,6 +1053,7 @@ Do not set `EDS_DOIP_ONLY_BUILD=1` in this configuration.
 |---|---|---|---|---|
 | Linux host simulation | Zephyr `native_sim` | `ZEPHYR_TOOLCHAIN_VARIANT=host` | `CONFIG_CAN_LOOPBACK` (virtual) | Full: unit tests + firmware integration tests + simulator tests |
 | ST Nucleo H743ZI | Zephyr `nucleo_h743zi` | ARM Cortex-M7 cross-compile | `st,stm32h7-fdcan` | Compile-only (no hardware in CI) |
+| NXP FRDM-MCXN947 | Zephyr `frdm_mcxn947/mcxn947/cpu0` | ARM Cortex-M33 cross-compile | `nxp,flexcan` (FlexCAN0, PIO1_10/PIO1_11) | Compile-only (`zephyr-nxp` CI job) |
 | QEMU `mps2-an386` (Cortex-M4) | FreeRTOS | `arm-none-eabi-gcc` cross-compile | Stub loopback | Build + binary size check (`freertos-qemu` CI job, `freertos-safeboot` CI job) |
 
 ### 6.2 Validated by Example (not in CI)
@@ -1071,13 +1072,34 @@ These boards use CAN drivers that the EDS Zephyr CAN abstraction layer (`platfor
 | STM32H5 / STM32U5 / STM32G0 | `st,stm32h7-fdcan` | Same FDCAN driver as nucleo_h743zi. May need clock source Kconfig adjustment. |
 | STM32F series (bxCAN) | `st,stm32-bxcan` | Classic bxCAN, 11-bit only, 1 Mbps max. No FD. |
 | NXP S32K1xx / K3xx | `nxp,flexcan` | FlexCAN driver. Used by Eclipse OpenBSW reference platform. |
-| NXP IMXRT | `nxp,flexcan` | Same driver family. |
+| NXP IMXRT | `nxp,flexcan` | Same driver family as FRDM-MCXN947. |
 | Nordic nRF52840 / nRF5340 | `nordic,nrf-can` (via MCP2515 SPI) | nRF52840 has no onboard CAN; requires external transceiver. |
 | Renesas RA | `renesas,ra-canfd` | Renesas RA CANFD driver, Zephyr ≥ 3.6. |
 | Microchip SAM E51/E54 | `atmel,sam-can` | Bosch M_CAN, same register map as STM32 FDCAN. |
 | QEMU (virt) | `zephyr,can-loopback` | Same as native_sim. Useful for CI without native_posix build. |
 
-### 6.4 Porting to a New Board
+### 6.4 FRDM-MCXN947 Wiring Reference
+
+| FRDM-MCXN947 Pin | Signal       | CAN Transceiver (TJA1051) |
+|------------------|--------------|---------------------------|
+| J2-2 (PIO1_10)   | CAN0_TXD     | TXD                       |
+| J2-4 (PIO1_11)   | CAN0_RXD     | RXD                       |
+| J3-4 (3.3V)      | VCC          | VCC                       |
+| J3-14 (GND)      | GND          | GND                       |
+| —                | CANH / CANL  | → OBD-II / CAN bus        |
+
+Build command:
+```bash
+west build -b frdm_mcxn947/mcxn947/cpu0 examples/basic_ecu \
+  -- -DDIAG_SKIP_CODEGEN=ON \
+     -DEXTRA_CONF_FILE=boards/frdm_mcxn947/frdm_mcxn947.conf \
+     -DDTC_OVERLAY_FILE=boards/frdm_mcxn947/frdm_mcxn947.overlay
+west flash
+```
+
+J-Link onboard provides the debug serial (LPUART4, 115200 baud, 8N1). No separate USB-UART adapter needed. The `zephyr-nxp` CI job verifies this target compiles on every pull request.
+
+### 6.5 Porting to a New Board
 
 If your board is not in the list above, three things are required:
 

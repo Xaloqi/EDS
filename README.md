@@ -74,7 +74,15 @@ west build -b native_sim examples/basic_ecu \
 west build -t run
 
 # STM32 Nucleo-H743ZI2
-west build -b nucleo_h743zi2 examples/basic_ecu
+west build -b nucleo_h743zi examples/basic_ecu \
+  -- -DEXTRA_CONF_FILE=boards/nucleo_h743zi/nucleo_h743zi.conf \
+     -DDTC_OVERLAY_FILE=boards/nucleo_h743zi/nucleo_h743zi.overlay
+west flash
+
+# NXP FRDM-MCXN947
+west build -b frdm_mcxn947/mcxn947/cpu0 examples/basic_ecu \
+  -- -DEXTRA_CONF_FILE=boards/frdm_mcxn947/frdm_mcxn947.conf \
+     -DDTC_OVERLAY_FILE=boards/frdm_mcxn947/frdm_mcxn947.overlay
 west flash
 ```
 
@@ -277,7 +285,7 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 
 | Example | DIDs | DTCs | Routines | Boards |
 |---|---|---|---|---|
-| `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2 |
+| `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947 |
 | `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU |
 | `basic_ecu_doip` | 5 | 2 | 3 | native\_sim (loopback), any Zephyr Ethernet board |
 | `basic_ecu_doip_freertos` | 5 | 2 | 3 | Any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) |

@@ -1,0 +1,135 @@
+/*
+ * =============================================================================
+ * Xaloqi EDS
+ * boards/frdm_mcxn947/frdm_mcxn947.overlay
+ *
+ * Device Tree overlay for the NXP FRDM-MCXN947 board.
+ *
+ * PURPOSE: Configures the MCX N947's FlexCAN0 peripheral as the diagnostic
+ *          CAN channel. FlexCAN0 is wired to PIO1_10 (TX) / PIO1_11 (RX) on
+ *          the FRDM-MCXN947 board, where a CAN transceiver (e.g. TJA1051)
+ *          must be connected externally.
+ *
+ * HARDWARE SETUP:
+ *   FRDM-MCXN947 → CAN Transceiver (TJA1051 or equivalent)
+ *   PIO1_10 (CAN0_TXD)  → TJA1051 TXD
+ *   PIO1_11 (CAN0_RXD)  → TJA1051 RXD
+ *   3.3V                 → TJA1051 VCC
+ *   GND                  → TJA1051 GND
+ *   TJA1051 CANH/CANL  → OBD-II or automotive CAN bus
+ *
+ *   J-Link onboard connects to LPUART4 (flexcomm4_lpuart4) for logging.
+ *   No additional USB-UART adapter needed.
+ *
+ * CAN BUS PARAMETERS:
+ *   Bus speed: 500 kbit/s  (ISO 15765-4 §4.2 for 11-bit CAN IDs)
+ *   Sample point: 87.5%   (CiA 601 / CANopen automotive convention)
+ *
+ * PINMUX:
+ *   FlexCAN0 pinmux (PIO1_10/PIO1_11) is defined in the Zephyr base board
+ *   DTSI (frdm_mcxn947-pinctrl.dtsi) and referenced by frdm_mcxn947.dtsi.
+ *   No additional pinctrl definitions are needed in this overlay.
+ *
+ * WATCHDOG:
+ *   WWDT0 (Window Watchdog Timer) is enabled in the base board DTS and
+ *   aliased as watchdog0. CONFIG_DIAG_WDT_WINDOW_MS=100 applies.
+ *
+ * ENTROPY:
+ *   The MCX N947 does not expose a hardware TRNG DT node in this version
+ *   of the Zephyr SDK. ENTROPY_GENERATOR is therefore not enabled.
+ *   Stack protection is provided by the Cortex-M33 SPLIM hardware register
+ *   via CONFIG_BUILTIN_STACK_GUARD=y (selected by HW_STACK_PROTECTION in
+ *   the board defconfig). This is a superior hardware-enforced mechanism
+ *   compared to software canaries.
+ *
+ * SAFETY: This overlay is a starting point. OEM integration must:
+ *   [ ] Verify PIO1_10/PIO1_11 pinout against actual board schematic
+ *   [ ] Validate 500 kbit/s sample point against network analyser
+ *   [ ] Enable CAN termination resistor (120 Ω) on bus endpoints
+ *   [ ] Qualify FlexCAN0 against ISO 11898-1 electrical requirements
+ * =============================================================================
+ */
+
+/* ── CAN alias: can0 → flexcan0 ─────────────────────────────────────────────
+ *
+ * main.c uses DEVICE_DT_GET(DT_ALIAS(can0)) — this alias maps that to FlexCAN0.
+ * The base board DTS (frdm_mcxn947_mcxn947_cpu0.dts) sets zephyr,canbus =
+ * &flexcan0. Pinctrl and status are configured in frdm_mcxn947.dtsi.
+ * ─────────────────────────────────────────────────────────────────────────── */
+/ {
+	aliases {
+		can0 = &flexcan0;
+	};
+};
+
+/* ── FlexCAN0 timing ─────────────────────────────────────────────────────────
+ *
+ * Sample point = 87.5% — standard automotive ECU configuration (CiA 601).
+ * The MCX N947 FlexCAN0 clock is sourced from the system PLL; the Zephyr
+ * FlexCAN driver computes the bit-timing registers from sample-point at init.
+ *
+ * Pinctrl and status="okay" are already set in the board base DTS files:
+ *   frdm_mcxn947.dtsi        → pinctrl-0 = <&pinmux_flexcan0>
+ *   frdm_mcxn947_mcxn947_cpu0.dts → &flexcan0 { status = "okay"; }
+ * ─────────────────────────────────────────────────────────────────────────── */
+&flexcan0 {
+	sample-point = <875>;
+};
+
+/* ── NVS flash partition for platform/nvm_store.c ───────────────────────────
+ *
+ * Reserves the last 256 KB (32 × 8 KB sectors) of the MCX N947's 2 MB
+ * internal flash for Zephyr NVS (Non-Volatile Storage).
+ *
+ * MCX N947 flash layout (2 MB total, base 0x00000000):
+ *   erase-block-size = 8192 (8 KB sectors)
+ *   write-block-size = 128 bytes
+ *
+ * EDS layout (replaces the MCUboot-centric default partition table):
+ *
+ *   Offset     Size    Label        Purpose
+ *   ─────────  ──────  ───────────  ────────────────────────────────────────
+ *   0x000000   896 KB  image-0      Primary firmware slot — app flashed here.
+ *   0x0E0000   896 KB  image-1      Secondary / OTA staging slot.
+ *                                   platform/zephyr_flash_ops.c writes DFU
+ *                                   payloads here via FLASH_AREA_ID(image_1).
+ *   0x1C0000   256 KB  diag_nvs     Zephyr NVS (security counters, DTC mirror,
+ *                                   session stats). Needs ≥ 2 sectors (16 KB)
+ *                                   for wear levelling; 32 × 8 KB provided.
+ *
+ * All offsets are 8 KB-aligned (MCX N947 erase-block-size requirement).
+ *
+ * The base board DTSI (frdm_mcxn947.dtsi) defines a partitions node with a
+ * MCUboot boot_partition at offset 0, slot0_partition at 0x10000, and
+ * slot1_partition at 0x108000. These leave no room for diag_nvs. We delete
+ * the existing node and redefine from scratch.
+ *
+ * slot0_partition label is preserved (dual-labelled with eds_app_slot) so
+ * that the chosen node "zephyr,code-partition = &slot0_partition" in
+ * frdm_mcxn947_mcxn947_cpu0.dts continues to resolve correctly after the
+ * /delete-node/ removes the base definition.
+ * ─────────────────────────────────────────────────────────────────────────── */
+&flash {
+	/delete-node/ partitions;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot0_partition: eds_app_slot: partition@0 {
+			label = "image-0";
+			reg = <0x00000000 0x000E0000>;
+		};
+
+		eds_ota_slot: partition@e0000 {
+			label = "image-1";
+			reg = <0x000E0000 0x000E0000>;
+		};
+
+		eds_nvs_slot: partition@1c0000 {
+			label = "diag_nvs";
+			reg = <0x001C0000 0x00040000>;
+		};
+	};
+};
