@@ -151,9 +151,9 @@ uds_status_t uds_service_0x14_handler(
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
 
-    /* ── Clear all DTC status bytes ─────────────────────────────────────── */
+    /* ── Clear non-permanent DTC status bytes ───────────────────────────── */
 
-    status = dtc_database_clear_all();
+    status = dtc_database_clear_non_permanent();
     if (status != UDS_STATUS_OK) {
         return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
