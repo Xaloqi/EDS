@@ -5,7 +5,7 @@
  *
  * ECU       : SafeBootFreeRTOSECU
  * Version   : 1.0.0
- * Generated : 2026-06-23T18:48:14Z
+ * Generated : 2026-06-23T19:02:27Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -72,7 +72,7 @@
 #include "generated_config.h"
 #include "safety_config.h"
 /* SafeBoot: MCUboot DFU — included because safeboot.enabled: true */
-#include "zephyr_flash_ops.h"
+#include "freertos_flash_ops.h"
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -322,7 +322,7 @@ uds_status_t uds_generated_init(
     /* ── Step 5.7: Flash operations (SafeBoot — MCUboot DFU) ──────────────
      *
      * SafeBoot is ENABLED in diagnostics_config.yaml (safeboot.enabled: true).
-     * zephyr_flash_ops_init() is called here to register the MCUboot
+     * freertos_flash_ops_init() is called here to register the MCUboot
      * secondary-slot flash ops table before the UDS server starts.
      *
      * This enables UDS services 0x34 (RequestDownload), 0x36 (TransferData),
@@ -339,7 +339,7 @@ uds_status_t uds_generated_init(
      * Max block length: 256 bytes per TransferData block.
      * Reduce for slower CAN buses; increase for CAN FD or Ethernet/DoIP.
      */
-    status = zephyr_flash_ops_init();
+    status = freertos_flash_ops_init();
     if (status != UDS_STATUS_OK) {
         /* Flash ops init failed — DFU services will be locked out.
          * Check that CONFIG_FLASH_MAP=y and the MCUboot secondary slot

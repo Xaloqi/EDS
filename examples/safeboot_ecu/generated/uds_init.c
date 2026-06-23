@@ -5,7 +5,7 @@
  *
  * ECU       : SafeBootECU
  * Version   : 1.0.0
- * Generated : 2026-06-23T18:48:13Z
+ * Generated : 2026-06-23T19:02:27Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
