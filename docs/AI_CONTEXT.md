@@ -13,7 +13,7 @@ ISO 15765-2 (ISO-TP) diagnostics stack for embedded RTOS targets. It is YAML-dri
 describe your DIDs, DTCs, and routines in YAML, run the code generator, and receive
 ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 
-**Version:** v1.8.1
+**Version:** v1.8.2
 **Target RTOS:** Zephyr v3.7+ · FreeRTOS (any version with static allocation support)
 **Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 (hardware) · QEMU ARM Cortex-M4 (FreeRTOS CI)
 **Transport:** ISO-TP over CAN (default) · DoIP over Ethernet/TCP (v1.6.0+)
@@ -1004,5 +1004,5 @@ tool-level assertions. Requires `pyyaml` only.
 
 ---
 
-*EDS v1.8.1 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
+*EDS v1.8.2 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
 *Runtime: GPL v2 · Examples: Apache 2.0 · Tools + IDE + GUI: Commercial*

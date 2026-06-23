@@ -674,6 +674,16 @@ static void on_isotp_rx_complete(
             LOG_ERR("ISO-TP TX error 0x%02X", (unsigned)status);
         }
     }
+
+    /* [P2-0x11-01] Deferred reset: response is on the wire, now reset. */
+    if (srv->pending_reset_type != (uint8_t)0U) {
+        uint8_t reset_type = srv->pending_reset_type;
+        srv->pending_reset_type = (uint8_t)0U;
+        (void)zephyr_port_nvm_flush();
+        k_msleep(50);  /* Allow ISO-TP TX to reach the wire before reset (As timer). */
+        (void)zephyr_port_ecu_reset(reset_type);
+        /* Does not return. */
+    }
 }
 
 /* =============================================================================

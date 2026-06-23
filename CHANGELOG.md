@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.8.2] — Bug fix (closes #37)
+
+### Fixed
+- All 8 example `on_isotp_rx_complete()` callbacks now handle `pending_reset_type`
+  after dispatch: flush NVM, wait 50 ms for ISO-TP TX to reach the wire, then call
+  `zephyr_port_ecu_reset()` / `eds_platform_ecu_reset()`. Previously the ECU sent the
+  `0x11` positive response but never reset (closes #37).
+
+---
 ## [1.8.1] — Bug fixes (closes #34, #35)
 
 ### Fixed

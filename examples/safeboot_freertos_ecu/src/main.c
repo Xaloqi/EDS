@@ -152,6 +152,16 @@ static void on_isotp_rx_complete(
     if (s_resp_buf.length > (uint16_t)0U) {
         (void)isotp_transmit(tp, s_resp_buf.data, s_resp_buf.length);
     }
+
+    /* [P2-0x11-01] Deferred reset: response is on the wire, now reset. */
+    if (srv->pending_reset_type != (uint8_t)0U) {
+        uint8_t reset_type = srv->pending_reset_type;
+        srv->pending_reset_type = (uint8_t)0U;
+        (void)eds_platform_nvm_flush();
+        vTaskDelay(pdMS_TO_TICKS(50));  /* Allow ISO-TP TX to reach the wire before reset (As timer). */
+        (void)eds_platform_ecu_reset(reset_type);
+        /* Does not return. */
+    }
 }
 
 /* =============================================================================
