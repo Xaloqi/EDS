@@ -15,7 +15,7 @@ After purchase you will have received a download link containing a ZIP file.
 ### Developer license ZIP contents
 
 ```
-xaloqi-eds-developer-v1.8.0.zip
+xaloqi-eds-developer-v1.8.1.zip
 ├── tools/
 │   ├── _license.py          ← License validation module (required for codegen)
 │   └── templates/           ← Jinja2 templates for all generated C/H files
@@ -37,7 +37,7 @@ xaloqi-eds-developer-v1.8.0.zip
 Everything in Developer, plus:
 
 ```
-xaloqi-eds-professional-v1.8.0.zip
+xaloqi-eds-professional-v1.8.1.zip
 ├── tools/
 │   ├── _license.py
 │   └── templates/           ← Same Jinja2 templates

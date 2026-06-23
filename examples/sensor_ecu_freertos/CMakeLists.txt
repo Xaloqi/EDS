@@ -226,7 +226,6 @@ target_include_directories(eds_sensor_freertos PRIVATE
     ${DIAG_ROOT}/config
     ${DIAG_ROOT}/platform
     ${DIAG_ROOT}/platform/freertos
-    ${DIAG_ROOT}/platform/zephyr   # nvm_store.h, nvm_store_mock.h live here
     ${GENERATED_DIR}
     src
     # FreeRTOS

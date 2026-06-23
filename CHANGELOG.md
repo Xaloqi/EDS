@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.8.1] — Bug fixes (closes #34, #35)
+
+### Fixed
+
+- **`platform/nvm_store.h` — header relocated to platform-neutral directory**
+  (`platform/zephyr/nvm_store.h` → `platform/nvm_store.h`, closes [#34](https://github.com/Xaloqi/EDS/issues/34)).
+  `nvm_store.h` is a shared interface used by both the Zephyr and FreeRTOS
+  backends. Placing it inside `platform/zephyr/` caused build failures when
+  integrating `freertos_nvm.c` into a custom build system without the provided
+  `CMakeLists.txt`. The file already documented its intended location
+  (`FILE: platform/nvm_store.h`) — it is now there. Removes the `platform/zephyr`
+  workaround include from all three FreeRTOS example `CMakeLists.txt` files.
+
+- **`campaigns/safeboot_freertos_dfu.yaml` — OTA campaign expanded to full
+  ISO 14229 production sequence** (8 steps → 15 steps, closes [#35](https://github.com/Xaloqi/EDS/issues/35)).
+  Previous campaign omitted `CommunicationControl` (0x28) and `ControlDTCSetting`
+  (0x85) — both required by OEM production toolchains (BMW, VAG). Added:
+  - Step 4: `0x28 0x03` disableRxAndTx before download
+  - Step 5: `0x85 0x02` DTCSettingOff before download
+  - Steps 13–15 (post-reset): extended session → `0x85 0x01` DTCSettingOn → `0x28 0x00` enableRxAndTx
+  Both services have always been fully implemented in the EDS UDS stack.
+
+---
 ## [1.8.0] — FreeRTOS OTA DFU example (closes #28)
 
 ### Added

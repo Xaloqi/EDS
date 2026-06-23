@@ -6,15 +6,30 @@
 #
 # TRANSPORT: CAN ISO-TP @ 500 kbit/s (FDCAN1, PD0/PD1 on Nucleo-H743ZI2).
 #
-# SEQUENCE:
-#   1. DiagnosticSessionControl → programming session
-#   2. SecurityAccess → unlock level 1 (AES-128-CMAC)
-#   3. RoutineControl 0xFF00 → CheckProgrammingPreconditions
-#   4. RequestDownload → erase OTA staging area (Bank 2), get max block size
-#   5. TransferData × N → write 256-byte blocks
-#   6. RequestTransferExit → CRC-32 verified
-#   7. RoutineControl 0xFF01 → VerifyOTASlotIntegrity (optional post-write check)
-#   8. ECUReset → hard reset (customer bootloader performs bank swap)
+# SEQUENCE (ISO 14229-1 compliant, OEM production-grade):
+#
+#   Pre-programming
+#   ── 1.  DiagnosticSessionControl → programming session (0x10 0x02)
+#   ── 2.  SecurityAccess seed request              (0x27 0x01)
+#   ── 3.  SecurityAccess key send                  (0x27 0x02)
+#   ── 4.  CommunicationControl → disableRxAndTx   (0x28 0x03)
+#   ── 5.  ControlDTCSetting → DTCSettingOff        (0x85 0x02)
+#   ── 6.  RoutineControl 0xFF00 → CheckProgrammingPreconditions (0x31 0x01 0xFF 0x00)
+#
+#   Programming
+#   ── 7.  RequestDownload → erase Bank 2, negotiate block size  (0x34)
+#   ── 8.  TransferData × N → write firmware in 256-byte blocks  (0x36 × N)
+#   ── 9.  RequestTransferExit → server-side CRC-32 verify       (0x37)
+#
+#   Post-programming verification
+#   ── 10. RoutineControl 0xFF01 → VerifyOTASlotIntegrity        (0x31 0x01 0xFF 0x01)
+#   ── 11. ECUReset → hard reset; bootloader performs bank swap   (0x11 0x01)
+#
+#   Post-reset re-enable (tester re-connects after ECU boots)
+#   ── 12. delay 3000 ms — allow ECU to complete boot + bank swap
+#   ── 13. DiagnosticSessionControl → extended session            (0x10 0x03)
+#   ── 14. ControlDTCSetting → DTCSettingOn                       (0x85 0x01)
+#   ── 15. CommunicationControl → enableRxAndTx                   (0x28 0x00)
 #
 # USAGE:
 #   testlab run campaigns/safeboot_freertos_dfu.yaml \
@@ -37,16 +52,36 @@ campaigns:
   - name: OTA_DFU_FREERTOS
     description: "Full OTA DFU cycle for SafeBootFreeRTOSECU on STM32H743ZI"
     steps:
+
+      # ── Pre-programming ────────────────────────────────────────────────────
+
+      # 1. Enter programming session
       - service: DiagnosticSessionControl
         args: { session: programming }
 
+      # 2+3. Security unlock (AES-128-CMAC, level 1)
       - service: SecurityAccess
         args: { level: 1 }
 
+      # 4. Disable normal communication during flash — prevents bus noise
+      #    from interrupting the download and suppresses NM messages.
+      - service: CommunicationControl
+        args: { sub_fn: disableRxAndTx, comm_type: normalCommunication }
+
+      # 5. Disable DTC setting — prevents spurious DTCs from being stored
+      #    while the ECU is in programming mode (power supply fluctuations,
+      #    sensor timeouts, etc.).
+      - service: ControlDTCSetting
+        args: { sub_fn: DTCSettingOff }
+
+      # 6. Verify ECU is ready to accept firmware (voltage, temperature, etc.)
       - service: RoutineControl
         args: { type: start, rid: 0xFF00 }
-        description: "Check programming preconditions"
+        description: "Check programming preconditions (REQ-FLASH-001)"
 
+      # ── Programming ────────────────────────────────────────────────────────
+
+      # 7. Open download channel — ECU erases Bank 2, returns max block size
       - service: RequestDownload
         args:
           address: 0x08100000        # Bank 2 base — OTA staging area
@@ -54,18 +89,42 @@ campaigns:
           compression: none
           encryption: none
 
+      # 8. Stream firmware in blocks (default 256 bytes; ECU-reported max used)
       - service: TransferData
         args:
           data: !file firmware        # resolved at runtime from --firmware arg
           block_length: 256
 
+      # 9. Finalise transfer — ECU runs CRC-32 over all written sectors
       - service: RequestTransferExit
         description: "CRC-32 verified server-side (REQ-FLASH-003)"
 
+      # ── Post-programming verification ──────────────────────────────────────
+
+      # 10. Validate ARM Cortex-M7 vector table in Bank 2 (SP range + Thumb bit)
       - service: RoutineControl
         args: { type: start, rid: 0xFF01 }
-        description: "Verify OTA slot integrity (optional — check image header)"
+        description: "Verify OTA slot integrity (REQ-FLASH-004)"
 
+      # 11. Reset — bootloader reads OB, detects pending bank swap, boots Bank 2
       - service: ECUReset
         args: { type: hardReset }
-        description: "Reset → customer bootloader performs Bank 2 → Bank 1 swap"
+        description: "Hard reset → bootloader performs Bank 2 → Bank 1 swap"
+
+      # ── Post-reset re-enable ───────────────────────────────────────────────
+
+      # 12. Wait for ECU to complete boot sequence and bank swap
+      - service: Delay
+        args: { ms: 3000 }
+
+      # 13. Re-enter extended session to issue housekeeping services
+      - service: DiagnosticSessionControl
+        args: { session: extended }
+
+      # 14. Re-enable DTC recording
+      - service: ControlDTCSetting
+        args: { sub_fn: DTCSettingOn }
+
+      # 15. Re-enable normal communication
+      - service: CommunicationControl
+        args: { sub_fn: enableRxAndTx, comm_type: normalCommunication }
