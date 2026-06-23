@@ -3,9 +3,9 @@
  * Xaloqi EDS
  * FILE: GENERATED — generated/did_safety_wrappers.h
  *
- * ECU       : SafeBootECU
+ * ECU       : SafeBootFreeRTOSECU
  * Version   : 1.0.0
- * Generated : 2026-05-20T07:21:49Z
+ * Generated : 2026-06-23T19:16:15Z
  * ASIL Level: B
  *
  * PURPOSE: Declarations for per-DID safe accessor wrapper functions.

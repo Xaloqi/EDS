@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU
  * Version   : 0.1.0
- * Generated : 2026-05-19T17:30:37Z
+ * Generated : 2026-06-23T19:16:13Z
  * ASIL Level: B
  *
  * PURPOSE: Compile-time ASIL safety configuration constants.
@@ -40,7 +40,7 @@
 #ifndef SAFETY_CONFIG_H
 #define SAFETY_CONFIG_H
 
-#define UDS_STACK_VERSION "1.0.0"
+#define UDS_STACK_VERSION "1.7.0"
 
 /* =============================================================================
  * ASIL level identification

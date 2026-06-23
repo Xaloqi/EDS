@@ -5,7 +5,7 @@
  *
  * ECU       : SensorECU
  * Version   : 1.0.0
- * Generated : 2026-05-20T07:21:49Z
+ * Generated : 2026-06-23T19:16:14Z
  * ASIL Level: B
  *
  * PURPOSE: Declarations for per-DID safe accessor wrapper functions.

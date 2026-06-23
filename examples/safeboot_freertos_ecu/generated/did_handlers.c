@@ -3,9 +3,9 @@
  * Xaloqi EDS
  * FILE: GENERATED — did_handlers.c
  *
- * ECU       : SafeBootECU
+ * ECU       : SafeBootFreeRTOSECU
  * Version   : 1.0.0
- * Generated : 2026-05-20T07:21:49Z
+ * Generated : 2026-06-23T19:16:15Z
  *
  * PURPOSE: DID read/write handler stubs and static DID registration table.
  *          Each handler returns deterministic stub data (zeros) until the
@@ -51,30 +51,25 @@
  * allow test harnesses to inject mock values from outside this translation unit.
  * ============================================================================= */
 
-/** VIN — ISO 3779 format, 17 ASCII characters. Replace with OEM VIN from NVM. */
-static uint8_t s_mock_vehicleidentificationnumber[17U] = {
-    'X','A','L','Q','1','E','D','S','0','0','S','F','B','T','0','0','1'
-};
+/** Stub backing store for DID 0xF190 — VehicleIdentificationNumber (17 byte(s)). */
+/* TODO [APPLICATION]: Replace with real data source for 'VehicleIdentificationNumber'. */
+static uint8_t s_mock_vehicleidentificationnumber[17U] = { 0U };
 
-/** ECU serial number — 8-byte ASCII. Replace with unit serial from NVM/OTP. */
-static uint8_t s_mock_ecuserialnumber[8U] = {
-    'S','F','B','0','0','0','0','1'
-};
+/** Stub backing store for DID 0xF18C — ECUSerialNumber (8 byte(s)). */
+/* TODO [APPLICATION]: Replace with real data source for 'ECUSerialNumber'. */
+static uint8_t s_mock_ecuserialnumber[8U] = { 0U };
 
-/** Application software identification — 6-char version string + 2 reserved bytes.
- *  Update the version bytes after each OTA cycle to track the active image. */
-static uint8_t s_mock_applicationsoftwareidentification[8U] = {
-    'v','1','.','0','.','0', 0x00U, 0x00U
-};
+/** Stub backing store for DID 0xF181 — ApplicationSoftwareIdentification (8 byte(s)). */
+/* TODO [APPLICATION]: Replace with real data source for 'ApplicationSoftwareIdentification'. */
+static uint8_t s_mock_applicationsoftwareidentification[8U] = { 0U };
 
-/** Active diagnostic session — 0x01 = UDS_SESSION_DEFAULT.
- *  Update via a session-change callback if live session reporting is needed. */
-static uint8_t s_mock_activediagnosticsession[1U] = { 0x01U };
+/** Stub backing store for DID 0xF186 — ActiveDiagnosticSession (1 byte(s)). */
+/* TODO [APPLICATION]: Replace with real data source for 'ActiveDiagnosticSession'. */
+static uint8_t s_mock_activediagnosticsession[1U] = { 0U };
 
-/** System supplier identifier — 10-byte ASCII, space-padded. */
-static uint8_t s_mock_systemsupplieridentifier[10U] = {
-    'X','A','L','O','Q','I',' ',' ',' ',' '
-};
+/** Stub backing store for DID 0xF18A — SystemSupplierIdentifier (10 byte(s)). */
+/* TODO [APPLICATION]: Replace with real data source for 'SystemSupplierIdentifier'. */
+static uint8_t s_mock_systemsupplieridentifier[10U] = { 0U };
 
 
 /* =============================================================================

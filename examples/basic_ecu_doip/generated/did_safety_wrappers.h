@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP
  * Version   : 1.6.0
- * Generated : 2026-05-20T07:21:47Z
+ * Generated : 2026-06-23T19:16:13Z
  * ASIL Level: B
  *
  * PURPOSE: Declarations for per-DID safe accessor wrapper functions.
