@@ -49,6 +49,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **`dtc_database_register()`** initialises `fault_detection_counter = 0x00` and
   `is_permanent = false` for every new entry — no YAML or codegen change required.
 
+### Fixed
+
+- **`uds_comm_control_init()` never called in generated init sequence** — all
+  `0x28` (CommunicationControl) and `0x85` (ControlDTCSetting) requests returned
+  NRC 0x22 (conditionsNotCorrect) in every generated build since launch. Root cause:
+  `uds_comm_control.c` gates on `s_initialized`; `uds_comm_control_init()` was only
+  called in unit tests (`test_service_0x28.c`, `test_service_0x85.c`), masking the
+  gap. Fix: added Step 5.8 to `uds_init.c.j2` — `uds_comm_control_init()` with NULL
+  platform callbacks (state tracking works immediately; OEM integration comment
+  explains how to wire real CAN-filter and DTC-gate callbacks). All 8 examples
+  regenerated. Closes [#28](https://github.com/Xaloqi/EDS/issues/28).
+
+- **`safeboot.platform: freertos` had no effect — wrong flash ops header generated**
+  — `uds_init.c.j2` hardcoded `#include "zephyr_flash_ops.h"` and
+  `zephyr_flash_ops_init()` in the safeboot block, ignoring the `safeboot_platform`
+  context variable that `codegen.py` already passed correctly. Announced as working
+  in v1.8.0 (CHANGELOG §`safeboot.platform` key) but any FreeRTOS safeboot build
+  produced a compile error (`zephyr_flash_ops.h: No such file or directory`). Fix:
+  template now uses `{{ safeboot_platform }}_flash_ops.h` and
+  `{{ safeboot_platform }}_flash_ops_init()`. `safeboot_ecu` (Zephyr) and
+  `safeboot_freertos_ecu` (FreeRTOS) both regenerated correctly.
+
 ---
 ## [1.8.2] — Bug fix (closes #37)
 
