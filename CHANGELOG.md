@@ -6,6 +6,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [Unreleased] — SID 0x19 sub-functions 0x0B and 0x19
+
+### Added
+
+- **SID 0x19/0x0B — `reportDTCFaultDetectionCounter`** (ISO 14229-1 §11.3.11).
+  Returns a 4-byte record `[dtcHB, dtcMB, dtcLB, faultDetectionCounter]` for each
+  DTC where `testFailed == 0` and `fault_detection_counter < 0xFF`. No
+  `DTCStatusAvailabilityMask` byte in the response (per-spec format differs from
+  0x01/0x02/0x0A). Empty list response (2-byte header) is valid and returned when no
+  DTCs qualify.
+
+- **SID 0x19/0x19 — `reportDTCWithPermanentStatus`** (ISO 14229-1 §11.3.25).
+  Returns `[0x59, 0x19, availabilityMask, {dtcHB, dtcMB, dtcLB, statusByte}…]` for
+  each DTC marked permanent. Permanent DTCs are not cleared by SID 0x14 — only by
+  the application via `dtc_database_set_permanent(dtc_code, false)` after a
+  successful drive-cycle healing sequence.
+
+- **`dtc_entry_t` — two new fields** (`config/dtc_database.h`):
+  - `uint8_t fault_detection_counter` — debounce counter managed by the application
+    via `dtc_database_set_fault_counter(dtc_code, counter)`. Range 0x00–0xFE;
+    0xFF is reserved (confirmed, excluded from 0x0B response). Initialised to 0x00.
+  - `bool is_permanent` — managed via `dtc_database_set_permanent(dtc_code, bool)`.
+    When true, SID 0x14 preserves this DTC's status byte. Initialised to false.
+
+- **Three new `dtc_database` API functions** (`config/dtc_database.h`):
+  - `dtc_database_set_fault_counter(dtc_code, counter)` — set debounce counter.
+  - `dtc_database_set_permanent(dtc_code, permanent)` — mark/unmark permanent.
+  - `dtc_database_clear_non_permanent()` — clear status bytes for all non-permanent
+    DTCs (the production path for SID 0x14).
+
+- **11 new unit tests** (TC-0x19-026 through TC-036) covering both sub-functions,
+  the no-availability-mask format of 0x0B, the 0xFF counter exclusion rule, and the
+  0x14 ↔ permanent DTC interaction.
+
+### Changed
+
+- **SID 0x14 now calls `dtc_database_clear_non_permanent()`** instead of
+  `dtc_database_clear_all()`. Behaviour is identical when no DTCs are permanent.
+  `dtc_database_clear_all()` is retained unchanged (used by test resets).
+
+- **`dtc_database_register()`** initialises `fault_detection_counter = 0x00` and
+  `is_permanent = false` for every new entry — no YAML or codegen change required.
+
+---
 ## [1.8.2] — Bug fix (closes #37)
 
 ### Fixed

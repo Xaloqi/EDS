@@ -26,6 +26,7 @@
 #define DTC_DATABASE_H
 
 #include "uds_types.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,10 +55,12 @@ extern "C" {
  * status_byte is mutable — updated by dtc_database_set_status() at runtime.
  */
 typedef struct dtc_entry {
-    uint32_t    dtc_code;     /**< 3-byte DTC code (e.g. 0xC00100). */
-    uint8_t     status_byte;  /**< Current DTC status byte (ISO 14229-1 Table D.1). */
-    uint8_t     severity;     /**< Severity class (0x00 = not available). */
-    const char *description;  /**< Human-readable description (tooling/logging only). */
+    uint32_t    dtc_code;                 /**< 3-byte DTC code (e.g. 0xC00100). */
+    uint8_t     status_byte;              /**< Current DTC status byte (ISO 14229-1 Table D.1). */
+    uint8_t     severity;                 /**< Severity class (0x00 = not available). */
+    uint8_t     fault_detection_counter;  /**< Debounce counter 0x00–0xFE; 0xFF = confirmed (excluded from 0x0B). */
+    bool        is_permanent;             /**< true = SID 0x19/0x0B-eligible, NOT clearable by SID 0x14. */
+    const char *description;              /**< Human-readable description (tooling/logging only). */
 } dtc_entry_t;
 
 /* --------------------------------------------------------------------------
@@ -183,6 +186,51 @@ uds_status_t dtc_database_count_by_status(
     uint8_t   status_mask,
     uint16_t *out_count
 );
+
+/**
+ * @brief Set the fault detection counter for a registered DTC.
+ *
+ * Used by the application to track debouncing state (ISO 14229-1 §11.3.11).
+ * 0x00–0xFE: counter value. 0xFF is reserved (confirmed) — excluded from
+ * the 0x19/0x0B reportDTCFaultDetectionCounter response.
+ *
+ * @param[in] dtc_code  24-bit DTC code to update.
+ * @param[in] counter   New fault detection counter value.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if database not initialized.
+ * @return UDS_STATUS_ERR_DID_NOT_FOUND if dtc_code is not registered.
+ */
+uds_status_t dtc_database_set_fault_counter(uint32_t dtc_code, uint8_t counter);
+
+/**
+ * @brief Mark or unmark a DTC as permanent.
+ *
+ * Permanent DTCs are returned by SID 0x19 sub-function 0x19 and are NOT
+ * cleared by SID 0x14 ClearDiagnosticInformation. The application is
+ * responsible for clearing the permanent flag after a successful drive cycle
+ * without fault recurrence.
+ *
+ * @param[in] dtc_code   24-bit DTC code to update.
+ * @param[in] permanent  true = mark permanent; false = clear permanent.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if database not initialized.
+ * @return UDS_STATUS_ERR_DID_NOT_FOUND if dtc_code is not registered.
+ */
+uds_status_t dtc_database_set_permanent(uint32_t dtc_code, bool permanent);
+
+/**
+ * @brief Clear status bytes for all non-permanent DTCs.
+ *
+ * Called by SID 0x14 ClearDiagnosticInformation. DTCs marked is_permanent
+ * are skipped — their status bytes are preserved until the application
+ * calls dtc_database_set_permanent(dtc_code, false) after drive-cycle healing.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if database not initialized.
+ */
+uds_status_t dtc_database_clear_non_permanent(void);
 
 #ifdef UNIT_TEST
 /**

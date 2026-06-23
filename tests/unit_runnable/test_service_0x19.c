@@ -69,6 +69,9 @@
 #include "uds_types.h"
 #include "dtc_database.h"
 
+extern uds_status_t uds_service_0x14_handler(uds_server_ctx_t *ctx,
+                                              const uds_msg_buf_t *req,
+                                              uds_msg_buf_t *resp);
 extern void dtc_database_test_reset(void);
 
 /* =========================================================================
@@ -652,6 +655,289 @@ ZTEST(test_service_0x19, tc025_null_req)
         "NULL req must return ERR_NULL_PTR");
 }
 
+/* ---- Sub-function 0x0B — reportDTCFaultDetectionCounter --------------- */
+
+/**
+ * TC-0x19-026: All DTCs have testFailed=1 → nothing qualifies → 2-byte response.
+ */
+ZTEST(test_service_0x19, tc026_fdc_all_test_failed_empty)
+{
+    setup();
+    /* Default setup: DTC_A=0x09 (testFailed=1), DTC_B=0x04, DTC_C=0x08 */
+    /* DTC_B (0x04 PENDING) and DTC_C (0x08 CONFIRMED) have testFailed=0, so
+     * force all to testFailed=1 for this test. */
+    dtc_database_set_status(DTC_B, 0x01U);
+    dtc_database_set_status(DTC_C, 0x01U);
+
+    uds_msg_buf_t req;
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x19U;
+    req.data[1] = 0x0BU;
+    req.length  = 2U;
+
+    uds_msg_buf_t resp = {0};
+    uds_status_t rc = uds_service_0x19_handler(&g_srv, &req, &resp);
+
+    zassert_equal(rc, UDS_STATUS_OK, "must return OK even with empty result");
+    zassert_equal(resp.data[0], 0x59U, "response SID must be 0x59");
+    zassert_equal(resp.data[1], 0x0BU, "echo sub-function must be 0x0B");
+    zassert_equal(resp.length, 2U, "no qualifying DTCs → 2-byte header only");
+}
+
+/**
+ * TC-0x19-027: DTCs with testFailed=0 and counter < 0xFF → returned.
+ * DTC_B=0x04 (testFailed=0), counter=0x30 → 1 record.
+ */
+ZTEST(test_service_0x19, tc027_fdc_qualifying_dtc_returned)
+{
+    setup();
+    /* DTC_A has testFailed=1 (0x09), excluded.
+     * DTC_C has testFailed=0 (0x08), set counter=0x00 → included.
+     * DTC_B has testFailed=0 (0x04), set counter=0x30 → included. */
+    dtc_database_set_fault_counter(DTC_B, 0x30U);
+    dtc_database_set_fault_counter(DTC_C, 0x10U);
+
+    uds_msg_buf_t req;
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x19U;
+    req.data[1] = 0x0BU;
+    req.length  = 2U;
+
+    uds_msg_buf_t resp = {0};
+    uds_status_t rc = uds_service_0x19_handler(&g_srv, &req, &resp);
+
+    zassert_equal(rc, UDS_STATUS_OK, "must return OK");
+    /* 2-byte header + 2 records × 4 bytes = 10 */
+    zassert_equal(resp.length, 10U, "2 qualifying DTCs → 2-byte header + 2×4 = 10");
+}
+
+/**
+ * TC-0x19-028: Response header for 0x0B is [0x59, 0x0B] — NO availability mask.
+ * ISO 14229-1 §11.3.11 response differs from 0x01/0x02/0x0A.
+ */
+ZTEST(test_service_0x19, tc028_fdc_no_availability_mask_in_header)
+{
+    setup();
+
+    uds_msg_buf_t req;
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x19U;
+    req.data[1] = 0x0BU;
+    req.length  = 2U;
+
+    uds_msg_buf_t resp = {0};
+    uds_service_0x19_handler(&g_srv, &req, &resp);
+
+    zassert_equal(resp.data[0], 0x59U, "response SID must be 0x59");
+    zassert_equal(resp.data[1], 0x0BU, "echo sub-function must be 0x0B");
+    /* data[2] is first byte of first DTC record (or not present if empty list),
+     * NOT an availability mask. Verify header length is exactly 2. */
+    zassert_true(resp.length >= 2U, "response must be at least 2 bytes");
+}
+
+/**
+ * TC-0x19-029: DTC with counter == 0xFF is excluded (reserved = confirmed).
+ */
+ZTEST(test_service_0x19, tc029_fdc_counter_ff_excluded)
+{
+    setup();
+    /* DTC_B: testFailed=0, set counter to 0xFF → must be excluded */
+    dtc_database_set_fault_counter(DTC_B, 0xFFU);
+    /* DTC_C: testFailed=0, counter=0x00 (default) → included */
+
+    uds_msg_buf_t req;
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x19U;
+    req.data[1] = 0x0BU;
+    req.length  = 2U;
+
+    uds_msg_buf_t resp = {0};
+    uds_service_0x19_handler(&g_srv, &req, &resp);
+
+    /* Only DTC_C qualifies → 2-byte header + 1 record × 4 = 6 */
+    zassert_equal(resp.length, 6U,
+        "DTC with counter=0xFF must be excluded; only DTC_C → 6 bytes");
+}
+
+/**
+ * TC-0x19-030: Counter byte in 0x0B record matches value set via set_fault_counter.
+ */
+ZTEST(test_service_0x19, tc030_fdc_counter_value_in_record)
+{
+    setup();
+    /* Only DTC_B qualifies: testFailed=0 (0x04), set counter=0x7E */
+    dtc_database_set_status(DTC_C, 0x01U);  /* exclude DTC_C (testFailed=1) */
+    dtc_database_set_fault_counter(DTC_B, 0x7EU);
+
+    uds_msg_buf_t req;
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x19U;
+    req.data[1] = 0x0BU;
+    req.length  = 2U;
+
+    uds_msg_buf_t resp = {0};
+    uds_service_0x19_handler(&g_srv, &req, &resp);
+
+    /* Header=2 + 1 record(4) = 6 bytes; counter is data[5] */
+    zassert_equal(resp.length, 6U, "one qualifying DTC → 6 bytes");
+    /* Record: [dtcHB, dtcMB, dtcLB, counter] at offset 2 */
+    zassert_equal(resp.data[5], 0x7EU,
+        "fault detection counter byte must match value set via set_fault_counter");
+}
+
+/**
+ * TC-0x19-031: Sub-function 0x0B with request length 1 → ERR_INVALID_PARAM.
+ */
+ZTEST(test_service_0x19, tc031_fdc_short_request_rejected)
+{
+    setup();
+
+    uds_msg_buf_t req;
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x19U;
+    req.length  = 1U;
+
+    uds_msg_buf_t resp = {0};
+    uds_status_t rc = uds_service_0x19_handler(&g_srv, &req, &resp);
+
+    zassert_equal(rc, UDS_STATUS_ERR_INVALID_PARAM,
+        "request with no sub-function byte must be rejected");
+}
+
+/* ---- Sub-function 0x19 — reportDTCWithPermanentStatus ----------------- */
+
+/**
+ * TC-0x19-032: No permanent DTCs registered → 3-byte response only.
+ */
+ZTEST(test_service_0x19, tc032_permanent_empty_list)
+{
+    setup();
+    /* Default: no DTC is marked permanent */
+
+    uds_msg_buf_t req;
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x19U;
+    req.data[1] = 0x19U;
+    req.length  = 2U;
+
+    uds_msg_buf_t resp = {0};
+    uds_status_t rc = uds_service_0x19_handler(&g_srv, &req, &resp);
+
+    zassert_equal(rc, UDS_STATUS_OK, "must return OK");
+    zassert_equal(resp.length, 3U,
+        "no permanent DTCs → 3-byte header only");
+}
+
+/**
+ * TC-0x19-033: Permanent DTC is returned with correct status byte.
+ */
+ZTEST(test_service_0x19, tc033_permanent_dtc_returned)
+{
+    setup();
+    dtc_database_set_permanent(DTC_A, true);
+
+    uds_msg_buf_t req;
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x19U;
+    req.data[1] = 0x19U;
+    req.length  = 2U;
+
+    uds_msg_buf_t resp = {0};
+    uds_status_t rc = uds_service_0x19_handler(&g_srv, &req, &resp);
+
+    zassert_equal(rc, UDS_STATUS_OK, "must return OK");
+    /* 3-byte header + 1 record × 4 bytes = 7 */
+    zassert_equal(resp.length, 7U, "one permanent DTC → 3-byte header + 4-byte record");
+    /* Record starts at offset 3: [dtcHB, dtcMB, dtcLB, status] */
+    uint32_t code = ((uint32_t)resp.data[3] << 16U)
+                  | ((uint32_t)resp.data[4] <<  8U)
+                  |  (uint32_t)resp.data[5];
+    zassert_equal(code, DTC_A, "returned DTC code must match DTC_A");
+    zassert_equal(resp.data[6], 0x09U, "status byte must match DTC_A's 0x09");
+}
+
+/**
+ * TC-0x19-034: Response header for 0x19: [0x59, 0x19, 0xFF (availability mask)].
+ */
+ZTEST(test_service_0x19, tc034_permanent_response_header)
+{
+    setup();
+
+    uds_msg_buf_t req;
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x19U;
+    req.data[1] = 0x19U;
+    req.length  = 2U;
+
+    uds_msg_buf_t resp = {0};
+    uds_service_0x19_handler(&g_srv, &req, &resp);
+
+    zassert_equal(resp.data[0], 0x59U, "response SID must be 0x59");
+    zassert_equal(resp.data[1], 0x19U, "echo sub-function must be 0x19");
+    zassert_equal(resp.data[2], 0xFFU, "availability mask must be 0xFF");
+}
+
+/**
+ * TC-0x19-035: SID 0x14 does NOT clear permanent DTC status.
+ * After clear_dtc, permanent DTC_A must retain its status byte.
+ */
+ZTEST(test_service_0x19, tc035_svc014_preserves_permanent_dtc)
+{
+    setup();
+    dtc_database_set_permanent(DTC_A, true);
+
+    /* Simulate SID 0x14: [0x14, 0xFF, 0xFF, 0xFF] */
+    uds_msg_buf_t req14;
+    memset(&req14, 0, sizeof(req14));
+    req14.data[0] = 0x14U;
+    req14.data[1] = 0xFFU;
+    req14.data[2] = 0xFFU;
+    req14.data[3] = 0xFFU;
+    req14.length  = 4U;
+
+    uds_msg_buf_t resp14 = {0};
+    uds_status_t rc = uds_service_0x14_handler(&g_srv, &req14, &resp14);
+    zassert_equal(rc, UDS_STATUS_OK, "SID 0x14 must succeed");
+
+    /* DTC_A is permanent — status byte must be preserved */
+    dtc_entry_t *entry = dtc_database_find(DTC_A);
+    zassert_not_null(entry, "DTC_A must still be registered");
+    zassert_equal(entry->status_byte, 0x09U,
+        "permanent DTC_A status must not be cleared by SID 0x14");
+}
+
+/**
+ * TC-0x19-036: SID 0x14 DOES clear non-permanent DTCs.
+ * After clear, DTC_B (non-permanent, status 0x04) must be 0x00.
+ */
+ZTEST(test_service_0x19, tc036_svc014_clears_non_permanent_dtc)
+{
+    setup();
+    /* DTC_A marked permanent, DTC_B and DTC_C are non-permanent (default) */
+    dtc_database_set_permanent(DTC_A, true);
+
+    uds_msg_buf_t req14;
+    memset(&req14, 0, sizeof(req14));
+    req14.data[0] = 0x14U;
+    req14.data[1] = 0xFFU;
+    req14.data[2] = 0xFFU;
+    req14.data[3] = 0xFFU;
+    req14.length  = 4U;
+
+    uds_msg_buf_t resp14 = {0};
+    uds_status_t rc = uds_service_0x14_handler(&g_srv, &req14, &resp14);
+    zassert_equal(rc, UDS_STATUS_OK, "SID 0x14 must succeed");
+
+    dtc_entry_t *entry_b = dtc_database_find(DTC_B);
+    dtc_entry_t *entry_c = dtc_database_find(DTC_C);
+    zassert_not_null(entry_b, "DTC_B must still be registered");
+    zassert_not_null(entry_c, "DTC_C must still be registered");
+    zassert_equal(entry_b->status_byte, 0x00U,
+        "non-permanent DTC_B must be cleared by SID 0x14");
+    zassert_equal(entry_c->status_byte, 0x00U,
+        "non-permanent DTC_C must be cleared by SID 0x14");
+}
+
 /* =========================================================================
  * run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
@@ -681,6 +967,17 @@ extern void test_service_0x19__tc022_unsupported_subfunction(void);
 extern void test_service_0x19__tc023_suppress_bit_stripped(void);
 extern void test_service_0x19__tc024_length_one_rejected(void);
 extern void test_service_0x19__tc025_null_req(void);
+extern void test_service_0x19__tc026_fdc_all_test_failed_empty(void);
+extern void test_service_0x19__tc027_fdc_qualifying_dtc_returned(void);
+extern void test_service_0x19__tc028_fdc_no_availability_mask_in_header(void);
+extern void test_service_0x19__tc029_fdc_counter_ff_excluded(void);
+extern void test_service_0x19__tc030_fdc_counter_value_in_record(void);
+extern void test_service_0x19__tc031_fdc_short_request_rejected(void);
+extern void test_service_0x19__tc032_permanent_empty_list(void);
+extern void test_service_0x19__tc033_permanent_dtc_returned(void);
+extern void test_service_0x19__tc034_permanent_response_header(void);
+extern void test_service_0x19__tc035_svc014_preserves_permanent_dtc(void);
+extern void test_service_0x19__tc036_svc014_clears_non_permanent_dtc(void);
 
 void run_all_tests(void)
 {
@@ -709,4 +1006,15 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x19__tc023_suppress_bit_stripped);
     RUN_TEST(test_service_0x19__tc024_length_one_rejected);
     RUN_TEST(test_service_0x19__tc025_null_req);
+    RUN_TEST(test_service_0x19__tc026_fdc_all_test_failed_empty);
+    RUN_TEST(test_service_0x19__tc027_fdc_qualifying_dtc_returned);
+    RUN_TEST(test_service_0x19__tc028_fdc_no_availability_mask_in_header);
+    RUN_TEST(test_service_0x19__tc029_fdc_counter_ff_excluded);
+    RUN_TEST(test_service_0x19__tc030_fdc_counter_value_in_record);
+    RUN_TEST(test_service_0x19__tc031_fdc_short_request_rejected);
+    RUN_TEST(test_service_0x19__tc032_permanent_empty_list);
+    RUN_TEST(test_service_0x19__tc033_permanent_dtc_returned);
+    RUN_TEST(test_service_0x19__tc034_permanent_response_header);
+    RUN_TEST(test_service_0x19__tc035_svc014_preserves_permanent_dtc);
+    RUN_TEST(test_service_0x19__tc036_svc014_clears_non_permanent_dtc);
 }

@@ -80,6 +80,8 @@
 #define SVC_0x19_SUBFN_REPORT_DTC_SNAPSHOT_BY_DTC    (0x04U)
 #define SVC_0x19_SUBFN_REPORT_DTC_EXT_DATA_BY_DTC    (0x06U)
 #define SVC_0x19_SUBFN_REPORT_SUPPORTED_DTCS         (0x0AU)
+#define SVC_0x19_SUBFN_REPORT_FAULT_DETECTION_CTR    (0x0BU)
+#define SVC_0x19_SUBFN_REPORT_DTC_PERMANENT_STATUS   (0x19U)
 
 /** suppressPosRspMsgIndicationBit mask for sub-function byte. */
 #define SVC_0x19_SUPPRESS_BIT                         (0x80U)
@@ -104,6 +106,14 @@
 
 /** Bytes per DTC record in response: [dtcHB, dtcMB, dtcLB, statusByte]. */
 #define SVC_0x19_BYTES_PER_DTC                        (4U)
+
+/**
+ * @brief Fault detection counter value that indicates a confirmed DTC.
+ *
+ * ISO 14229-1 §11.3.11: counter value 0xFF is reserved for DTCs that are
+ * already confirmed. Such DTCs are excluded from the 0x0B response.
+ */
+#define SVC_0x19_FDC_CONFIRMED                        (0xFFU)
 
 /* --------------------------------------------------------------------------
  * Internal helpers
@@ -406,6 +416,128 @@ static uds_status_t handle_report_supported_dtcs(
     return UDS_STATUS_OK;
 }
 
+/**
+ * 0x0B — reportDTCFaultDetectionCounter
+ *
+ * Request : [0x19, 0x0B]
+ * Response: [0x59, 0x0B, {dtcHB, dtcMB, dtcLB, faultDetectionCounter}...]
+ *
+ * Returns a 4-byte record for each DTC where testFailed == 0 (not yet
+ * confirmed) and whose fault_detection_counter < 0xFF.
+ *
+ * NOTE: No DTCStatusAvailabilityMask byte in this response — ISO 14229-1
+ *       §11.3.11 response format differs from 0x01/0x02/0x0A.
+ */
+static uds_status_t handle_report_fault_detection_counter(
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp)
+{
+    uds_status_t  status;
+    uint16_t      total;
+    uint16_t      i;
+    uint32_t      dtc_code;
+    uint8_t       dtc_status;
+    dtc_entry_t  *entry;
+
+    status = uds_service_validate_length(req, (uint16_t)2U);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    resp->data[1] = (uint8_t)SVC_0x19_SUBFN_REPORT_FAULT_DETECTION_CTR;
+    resp->length  = (uint16_t)2U;
+
+    (void)dtc_database_get_count(&total);
+
+    for (i = (uint16_t)0U; i < total; i++) {
+        status = dtc_database_get_by_index(i, &dtc_code, &dtc_status);
+        if (status != UDS_STATUS_OK) {
+            break;
+        }
+
+        /* Include only DTCs not yet test-failed (pre-confirmed) */
+        if ((dtc_status & (uint8_t)DTC_STATUS_TEST_FAILED) != (uint8_t)0U) {
+            continue;
+        }
+
+        entry = dtc_database_find(dtc_code);
+        if (entry == NULL) {
+            continue;
+        }
+
+        /* 0xFF is reserved (confirmed) — exclude per ISO 14229-1 §11.3.11 */
+        if (entry->fault_detection_counter == (uint8_t)SVC_0x19_FDC_CONFIRMED) {
+            continue;
+        }
+
+        /* Reuse append_dtc_record: 4th byte is faultDetectionCounter, not status */
+        status = append_dtc_record(resp, dtc_code, entry->fault_detection_counter);
+        if (status != UDS_STATUS_OK) {
+            return status;
+        }
+    }
+
+    return UDS_STATUS_OK;
+}
+
+/**
+ * 0x19 — reportDTCWithPermanentStatus
+ *
+ * Request : [0x19, 0x19]
+ * Response: [0x59, 0x19, availabilityMask, {dtcHB, dtcMB, dtcLB, statusByte}...]
+ *
+ * Returns all DTCs marked permanent (is_permanent == true). These DTCs
+ * are not clearable by SID 0x14 — only by application-driven drive-cycle
+ * healing via dtc_database_set_permanent(dtc_code, false).
+ */
+static uds_status_t handle_report_dtc_permanent_status(
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp)
+{
+    uds_status_t  status;
+    uint16_t      total;
+    uint16_t      i;
+    uint32_t      dtc_code;
+    uint8_t       dtc_status;
+    dtc_entry_t  *entry;
+
+    status = uds_service_validate_length(req, (uint16_t)2U);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    resp->data[1] = (uint8_t)SVC_0x19_SUBFN_REPORT_DTC_PERMANENT_STATUS;
+    resp->data[2] = (uint8_t)SVC_0x19_STATUS_AVAILABILITY_MASK;
+    resp->length  = (uint16_t)3U;
+
+    (void)dtc_database_get_count(&total);
+
+    for (i = (uint16_t)0U; i < total; i++) {
+        status = dtc_database_get_by_index(i, &dtc_code, &dtc_status);
+        if (status != UDS_STATUS_OK) {
+            break;
+        }
+
+        entry = dtc_database_find(dtc_code);
+        if (entry == NULL) {
+            continue;
+        }
+
+        if (!entry->is_permanent) {
+            continue;
+        }
+
+        status = append_dtc_record(resp, dtc_code, dtc_status);
+        if (status != UDS_STATUS_OK) {
+            return status;
+        }
+    }
+
+    return UDS_STATUS_OK;
+}
+
 /* --------------------------------------------------------------------------
  * SID 0x19 dispatcher
  * -------------------------------------------------------------------------- */
@@ -458,6 +590,12 @@ uds_status_t uds_service_0x19_handler(
 
         case SVC_0x19_SUBFN_REPORT_SUPPORTED_DTCS:
             return handle_report_supported_dtcs(req, resp);
+
+        case SVC_0x19_SUBFN_REPORT_FAULT_DETECTION_CTR:
+            return handle_report_fault_detection_counter(req, resp);
+
+        case SVC_0x19_SUBFN_REPORT_DTC_PERMANENT_STATUS:
+            return handle_report_dtc_permanent_status(req, resp);
 
         default:
             return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;

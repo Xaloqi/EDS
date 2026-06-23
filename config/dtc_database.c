@@ -31,6 +31,7 @@
 
 #include <string.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 /* =============================================================================
  * Internal state
@@ -96,10 +97,12 @@ uds_status_t dtc_database_register(
         }
     }
 
-    s_dtc_table[s_dtc_count].dtc_code    = dtc_code;
-    s_dtc_table[s_dtc_count].status_byte = (uint8_t)0x00U;
-    s_dtc_table[s_dtc_count].severity    = severity;
-    s_dtc_table[s_dtc_count].description = description; /* pointer copy — string must be static */
+    s_dtc_table[s_dtc_count].dtc_code                = dtc_code;
+    s_dtc_table[s_dtc_count].status_byte             = (uint8_t)0x00U;
+    s_dtc_table[s_dtc_count].severity                = severity;
+    s_dtc_table[s_dtc_count].fault_detection_counter = (uint8_t)0x00U;
+    s_dtc_table[s_dtc_count].is_permanent            = false;
+    s_dtc_table[s_dtc_count].description             = description; /* pointer copy — string must be static */
     s_dtc_count++;
 
     return UDS_STATUS_OK;
@@ -205,6 +208,59 @@ uds_status_t dtc_database_get_by_index(
     return UDS_STATUS_OK;
 }
 
+uds_status_t dtc_database_set_fault_counter(uint32_t dtc_code, uint8_t counter)
+{
+    dtc_entry_t *entry;
+
+    if (!s_initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    entry = dtc_database_find(dtc_code);
+    if (entry == NULL) {
+        return UDS_STATUS_ERR_DID_NOT_FOUND;
+    }
+
+    entry->fault_detection_counter = counter;
+
+    return UDS_STATUS_OK;
+}
+
+uds_status_t dtc_database_set_permanent(uint32_t dtc_code, bool permanent)
+{
+    dtc_entry_t *entry;
+
+    if (!s_initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    entry = dtc_database_find(dtc_code);
+    if (entry == NULL) {
+        return UDS_STATUS_ERR_DID_NOT_FOUND;
+    }
+
+    entry->is_permanent = permanent;
+
+    return UDS_STATUS_OK;
+}
+
+uds_status_t dtc_database_clear_non_permanent(void)
+{
+    uint16_t i;
+
+    if (!s_initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    for (i = (uint16_t)0U; i < s_dtc_count; i++) {
+        if (!s_dtc_table[i].is_permanent) {
+            s_dtc_table[i].status_byte = (uint8_t)0x00U;
+        }
+    }
+
+    return UDS_STATUS_OK;
+}
+
 uds_status_t dtc_database_get_count(uint16_t *out_count)
 {
     if (out_count == NULL) {
@@ -232,10 +288,12 @@ void dtc_database_test_reset(void)
 {
     uint16_t i;
     for (i = 0U; i < (uint16_t)UDS_MAX_DTC_COUNT; i++) {
-        s_dtc_table[i].dtc_code    = 0U;
-        s_dtc_table[i].status_byte = 0U;
-        s_dtc_table[i].severity    = 0U;
-        s_dtc_table[i].description = NULL;
+        s_dtc_table[i].dtc_code                = 0U;
+        s_dtc_table[i].status_byte             = 0U;
+        s_dtc_table[i].severity                = 0U;
+        s_dtc_table[i].fault_detection_counter = 0U;
+        s_dtc_table[i].is_permanent            = false;
+        s_dtc_table[i].description             = NULL;
     }
     s_dtc_count   = (uint16_t)0U;
     s_initialized = false;
