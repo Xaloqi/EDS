@@ -235,7 +235,6 @@ target_include_directories(eds_safeboot_freertos PRIVATE
     ${DIAG_ROOT}/config
     ${DIAG_ROOT}/platform
     ${DIAG_ROOT}/platform/freertos
-    ${DIAG_ROOT}/platform/zephyr       # nvm_store.h lives here
     ${CMAKE_CURRENT_SOURCE_DIR}/generated
     ${FREERTOS_DIR}/include
     ${FREERTOS_PORT_DIR}

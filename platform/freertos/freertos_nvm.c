@@ -7,7 +7,7 @@
  *
  * PURPOSE: FreeRTOS NVM store implementation.
  *
- *          Implements the nvm_store_* API (declared in platform/zephyr/nvm_store.h)
+ *          Implements the nvm_store_* API (declared in platform/nvm_store.h)
  *          for FreeRTOS builds by routing calls to the customer-provided
  *          eds_nvm_ops_t callbacks registered via eds_platform_init().
  *
