@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
-## [Unreleased] — SID 0x19 sub-functions 0x0B and 0x19
+## [1.8.3] — 2026-06-24
 
 ### Added
 
