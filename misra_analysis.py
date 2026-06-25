@@ -308,6 +308,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x27.c",
             "core/uds_services/service_0x28.c",
             "core/uds_services/service_0x2E.c",
+            "core/uds_services/service_0x2F.c",
             "core/uds_services/service_0x3E.c",
             "core/uds_services/service_0x85.c",
             # Phase 7 DFU + RoutineControl service handlers (new)

@@ -286,7 +286,7 @@ uds_status_t uds_service_0x37_handler(
 /**
  * @brief Number of services registered in g_uds_service_table[].
  */
-#define UDS_SERVICE_TABLE_COUNT (15U)
+#define UDS_SERVICE_TABLE_COUNT (16U)
 
 /**
  * @brief Canonical UDS service registration table.

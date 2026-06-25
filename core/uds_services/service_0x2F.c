@@ -88,10 +88,7 @@
 /** Byte index of controlOptionRecord start in request (shortTermAdjustment only). */
 #define SVC_0x2F_CTRL_DATA_OFFSET  (4U)
 
-#define SVC_0x2F_CTRL_PARAM_RCE    (0x00U)  /**< returnControlToECU    */
-#define SVC_0x2F_CTRL_PARAM_RTD    (0x01U)  /**< resetToDefault        */
-#define SVC_0x2F_CTRL_PARAM_FCS    (0x02U)  /**< freezeCurrentState    */
-#define SVC_0x2F_CTRL_PARAM_STA    (0x03U)  /**< shortTermAdjustment   */
+#define SVC_0x2F_CTRL_PARAM_STA    (0x03U)  /**< shortTermAdjustment (0x03) — only value with a controlRecord payload. */
 #define SVC_0x2F_CTRL_PARAM_MAX    (0x03U)  /**< Maximum valid value.  */
 
 /** Fixed bytes in positive response: [0x6F, DID_Hi, DID_Lo, controlParam]. */
