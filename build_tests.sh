@@ -174,6 +174,7 @@ STACK_SRCS=(
     #   undefined reference to `uds_service_0x34_handler'
     # [FIX-DFU-SRCS] — root cause of "all tests BUILD_FAIL" regression.
     "${ROOT}/core/uds_services/service_0x34.c"   # RequestDownload
+    "${ROOT}/core/uds_services/service_0x35.c"   # RequestUpload
     "${ROOT}/core/uds_services/service_0x36.c"   # TransferData
     "${ROOT}/core/uds_services/service_0x37.c"   # RequestTransferExit
     "${ROOT}/core/uds_transfer_ctx.c"             # DFU transfer state machine
@@ -228,6 +229,7 @@ TESTS=(
     test_service_0x28
     test_service_0x31
     test_service_0x34
+    test_service_0x35
     test_service_0x36
     test_service_0x37
     test_service_0x3E

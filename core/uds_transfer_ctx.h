@@ -65,6 +65,22 @@ typedef enum uds_transfer_state {
 } uds_transfer_state_t;
 
 /* --------------------------------------------------------------------------
+ * Transfer direction enumeration
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Direction of the active transfer session.
+ *
+ * Set by service_0x34 (download) or service_0x35 (upload) when the transfer
+ * context is initialised.  Read by service_0x36 to select the correct data
+ * path (write to flash vs. read from flash).
+ */
+typedef enum uds_transfer_direction {
+    UDS_TRANSFER_DIR_DOWNLOAD = 0x00U, /**< 0x34 → 0x36 → 0x37: tester writes to ECU. */
+    UDS_TRANSFER_DIR_UPLOAD   = 0x01U  /**< 0x35 → 0x36 → 0x37: ECU reads to tester.  */
+} uds_transfer_direction_t;
+
+/* --------------------------------------------------------------------------
  * Transfer context
  * -------------------------------------------------------------------------- */
 
@@ -75,7 +91,8 @@ typedef enum uds_transfer_state {
  * Access via uds_transfer_ctx_get() only.
  */
 typedef struct uds_transfer_ctx {
-    uds_transfer_state_t state;             /**< Current state machine state.   */
+    uds_transfer_state_t     state;         /**< Current state machine state.   */
+    uds_transfer_direction_t direction;     /**< Transfer direction, set by 0x34 or 0x35. */
 
     uint32_t  target_address;               /**< Base address for this download. */
     uint32_t  total_size_bytes;             /**< Total image size from 0x34.     */

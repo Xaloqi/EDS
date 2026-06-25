@@ -87,13 +87,13 @@ ZTEST(test_phase5_access_table, tc001_get_default_not_null)
 /**
  * TC-ACL-002: Default table has UDS_ACCESS_TABLE_DEFAULT_COUNT entries.
  * We verify by counting lookups for each SID in the default table.
- * Count updated from 10 → 13 when DFU services 0x34/0x36/0x37 were added
- * to the default ACL table. [FIX-ACL-COUNT]
+ * Count updated from 10 → 13 when DFU services 0x34/0x36/0x37 were added,
+ * then 13 → 14 when 0x35 RequestUpload was added. [FIX-ACL-COUNT]
  */
 ZTEST(test_phase5_access_table, tc002_default_table_count)
 {
-    zassert_equal((uint8_t)UDS_ACCESS_TABLE_DEFAULT_COUNT, (uint8_t)13U,
-        "default table must have exactly 13 entries");
+    zassert_equal((uint8_t)UDS_ACCESS_TABLE_DEFAULT_COUNT, (uint8_t)14U,
+        "default table must have exactly 14 entries");
 }
 
 /**

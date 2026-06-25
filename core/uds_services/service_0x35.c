@@ -1,58 +1,59 @@
 /*
  * =============================================================================
  * Xaloqi EDS
- * FILE: core/uds_services/service_0x34.c
+ * FILE: core/uds_services/service_0x35.c
  *
- * PURPOSE: SID 0x34 — RequestDownload service handler.
+ * PURPOSE: SID 0x35 — RequestUpload service handler.
  *
- * ISO 14229-1 §14.2: RequestDownload initiates a data transfer from the
- * external test tool (tester) to the ECU.  It is the mandatory first step
- * in a firmware update (DFU) sequence:
+ * ISO 14229-1 §14.5: RequestUpload initiates a data transfer from the ECU
+ * to the external test tool (tester).  It is the symmetric counterpart to
+ * RequestDownload (0x34).  Primary use cases: calibration data readback,
+ * NVM log extraction, flash image verification readout.
  *
- *   1. Erase flash  — SID 0x31 routine 0xFF10 (EraseApplicationFlash)
- *   2. Open session — SID 0x34 RequestDownload         ← THIS FILE
- *   3. Send data    — SID 0x36 TransferData (repeated)
- *   4. Commit       — SID 0x37 RequestTransferExit
- *   5. Verify       — SID 0x31 routine 0xFF11 (VerifyApplicationImage)
- *
- * REQUEST FORMAT (ISO 14229-1 §14.2.2):
- *   [0x34, dataFormatIdentifier, addressAndLengthFormatIdentifier,
+ * REQUEST FORMAT (ISO 14229-1 §14.5.2 — identical field layout to 0x34):
+ *   [0x35, dataFormatIdentifier, addressAndLengthFormatIdentifier,
  *    memoryAddress[0..M], memorySize[0..N]]
  *
  *   dataFormatIdentifier (1 byte):
- *     Bits [7:4] = compressionMethod  (0x0 = uncompressed)
- *     Bits [3:0] = encryptingMethod   (0x0 = unencrypted)
- *     This implementation only accepts 0x00.
+ *     Only 0x00 accepted (uncompressed / unencrypted).
  *
  *   addressAndLengthFormatIdentifier (1 byte):
- *     Bits [7:4] = memorySizeLength  (number of bytes encoding memorySize)
- *     Bits [3:0] = memoryAddressLength (number of bytes encoding memoryAddress)
- *     Both fields must be 1–4.
+ *     Bits [7:4] = memorySizeLength   (1–4)
+ *     Bits [3:0] = memoryAddressLength (1–4)
  *
  *   memoryAddress[0..M]:  big-endian, M = memoryAddressLength bytes.
  *   memorySize[0..N]:     big-endian, N = memorySizeLength bytes.
  *
- * POSITIVE RESPONSE (ISO 14229-1 §14.2.3):
- *   [0x74, lengthFormatIdentifier, maxNumberOfBlockLength[0..K]]
+ * POSITIVE RESPONSE (ISO 14229-1 §14.5.3 — same structure as 0x74):
+ *   [0x75, lengthFormatIdentifier, maxNumberOfBlockLength_Hi, maxNumberOfBlockLength_Lo]
  *
  *   lengthFormatIdentifier:
- *     Bits [7:4] = number of bytes encoding maxNumberOfBlockLength (always 2)
- *     Bits [3:0] = reserved (0x0)
- *   maxNumberOfBlockLength: 16-bit value including the 1-byte block counter.
+ *     Bits [7:4] = 2  (number of bytes encoding maxNumberOfBlockLength)
+ *     Bits [3:0] = 0  (reserved)
+ *   maxNumberOfBlockLength: uint16_t, includes the 1-byte blockSequenceCounter.
+ *
+ * TRANSFER EXCHANGE:
+ *   Tester                           ECU
+ *     0x35 [addr, size]             →
+ *                                   ← 0x75 [LFI=0x20, maxBlock=0x0101]
+ *     0x36 [blockSeq=0x01]          →
+ *                                   ← 0x76 [blockSeq=0x01, data[0..255]]
+ *     0x37                          →
+ *                                   ← 0x77
  *
  * NRC BEHAVIOUR:
  *   NRC 0x13 (incorrectMessageLengthOrInvalidFormat) — request too short
- *   NRC 0x22 (conditionsNotCorrect)                  — no flash ops registered
- *   NRC 0x31 (requestOutOfRange)                     — address/size invalid
- *   NRC 0x70 (uploadDownloadNotAccepted)              — flash erase failed
- *   NRC 0x7F (serviceNotSupportedInActiveSession)     — wrong session
+ *   NRC 0x22 (conditionsNotCorrect)                  — read_cb not registered
+ *   NRC 0x31 (requestOutOfRange)                     — invalid address/size
+ *   NRC 0x7F (serviceNotSupportedInActiveSession)    — wrong session
  *
  * SESSION REQUIREMENT:
  *   Programming session (UDS_SESSION_PROGRAMMING) required.
- *   The default ACL table enforces this.
+ *   Security Level 1 unlock required.  ACL table enforces both.
+ *   Upload exposes raw ECU memory — equivalent access risk to download.
  *
  * SAFETY:
- *   REQ-DL-001: Block counter initialised to 0x01 on successful 0x34.
+ *   REQ-DL-001: Block counter initialised to 0x01 on successful 0x35.
  *   REQ-DL-002: bytes_remaining set to total_size_bytes from request.
  *   REQ-FLASH-002: address + size validated against flash memory map.
  *
@@ -60,6 +61,9 @@
  * SPDX-License-Identifier: GPL-2.0-only
  * =============================================================================
  */
+
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 Xaloqi
 
 #include "services.h"
 #include "service_transfer_common.h"
@@ -73,57 +77,52 @@
 #include <string.h>
 
 /* --------------------------------------------------------------------------
- * Constants
+ * Constants — mirror exactly from service_0x34.c with SVC_0x35_ prefix.
  * -------------------------------------------------------------------------- */
 
-/** Minimum request length: [SID, dataFmt, addrLenFmt] = 3 bytes.
- *  Actual minimum depends on addrLenFmt fields — validated dynamically. */
-#define SVC_0x34_MIN_REQ_LEN          (3U)
+/** Minimum request length: [SID, dataFmt, addrLenFmt] = 3 bytes. */
+#define SVC_0x35_MIN_REQ_LEN          (3U)
 
 /** Offset of dataFormatIdentifier in the request PDU. */
-#define SVC_0x34_DATA_FMT_OFFSET      (1U)
+#define SVC_0x35_DATA_FMT_OFFSET      (1U)
 
 /** Offset of addressAndLengthFormatIdentifier in the request PDU. */
-#define SVC_0x34_ALFID_OFFSET         (2U)
+#define SVC_0x35_ALFID_OFFSET         (2U)
 
 /** Offset of the first memoryAddress byte in the request PDU. */
-#define SVC_0x34_MEM_ADDR_OFFSET      (3U)
+#define SVC_0x35_MEM_ADDR_OFFSET      (3U)
 
 /** Only uncompressed / unencrypted data is accepted. */
-#define SVC_0x34_ACCEPTED_DATA_FMT    (0x00U)
+#define SVC_0x35_ACCEPTED_DATA_FMT    (0x00U)
 
 /** Mask for addressLength nibble (bits [3:0]). */
-#define SVC_0x34_ADDR_LEN_MASK        (0x0FU)
+#define SVC_0x35_ADDR_LEN_MASK        (0x0FU)
 
 /** Mask for sizeLength nibble (bits [7:4]) — shift right by 4 after masking. */
-#define SVC_0x34_SIZE_LEN_MASK        (0xF0U)
-#define SVC_0x34_SIZE_LEN_SHIFT       (4U)
+#define SVC_0x35_SIZE_LEN_MASK        (0xF0U)
+#define SVC_0x35_SIZE_LEN_SHIFT       (4U)
 
 /** Maximum allowed value for addressLength and sizeLength fields. */
-#define SVC_0x34_MAX_FIELD_BYTES      (4U)
+#define SVC_0x35_MAX_FIELD_BYTES      (4U)
 
 /** Minimum allowed value (0 means "not present" — rejected). */
-#define SVC_0x34_MIN_FIELD_BYTES      (1U)
+#define SVC_0x35_MIN_FIELD_BYTES      (1U)
 
-/** Number of bytes used to encode maxNumberOfBlockLength in the response
- *  (always 2 bytes: one uint16_t). Stored in bits [7:4] of
- *  lengthFormatIdentifier. */
-#define SVC_0x34_MXBL_BYTE_COUNT      (2U)
-
-/* s_parse_big_endian() and s_validate_memory_range() are shared with
- * service_0x35.c via service_transfer_common.h (static inline). */
+/** Number of bytes used to encode maxNumberOfBlockLength in the response. */
+#define SVC_0x35_MXBL_BYTE_COUNT      (2U)
 
 /* --------------------------------------------------------------------------
- * SID 0x34 handler
+ * SID 0x35 handler
  * -------------------------------------------------------------------------- */
 
 /**
- * @brief SID 0x34 — RequestDownload handler.
+ * @brief SID 0x35 — RequestUpload handler.
  *
- * Validates the request, erases the target flash region, initialises the
- * transfer state machine, and returns maxNumberOfBlockLength.
+ * Validates the request, checks that read_cb is registered, initialises the
+ * transfer state machine in upload direction, and returns maxNumberOfBlockLength.
+ * Does NOT call erase_cb — upload is read-only.
  */
-uds_status_t uds_service_0x34_handler(
+uds_status_t uds_service_0x35_handler(
     uds_server_ctx_t    *ctx,
     const uds_msg_buf_t *req,
     uds_msg_buf_t       *resp)
@@ -144,42 +143,47 @@ uds_status_t uds_service_0x34_handler(
     }
 
     /* Minimum length: [SID, dataFmt, addrLenFmt]. */
-    status = uds_service_validate_length(req, (uint16_t)SVC_0x34_MIN_REQ_LEN);
+    status = uds_service_validate_length(req, (uint16_t)SVC_0x35_MIN_REQ_LEN);
     if (status != UDS_STATUS_OK) {
         return status;
     }
 
-    /* REQ-FLASH-001: Flash ops must be registered. */
+    /* Flash ops must be registered. */
     ops = uds_flash_ops_get();
     if (ops == NULL) {
         /* NRC 0x22 — conditions not correct (flash ops not registered). */
         return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
 
+    /* read_cb must be registered — upload requires flash read capability. */
+    if (ops->read_cb == NULL) {
+        /* NRC 0x22 — conditions not correct (read_cb not populated). */
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+    }
+
     /* --- Parse dataFormatIdentifier --- */
-    data_fmt = req->data[SVC_0x34_DATA_FMT_OFFSET];
-    if (data_fmt != (uint8_t)SVC_0x34_ACCEPTED_DATA_FMT) {
+    data_fmt = req->data[SVC_0x35_DATA_FMT_OFFSET];
+    if (data_fmt != (uint8_t)SVC_0x35_ACCEPTED_DATA_FMT) {
         /* Compression or encryption requested — not supported. */
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
 
     /* --- Parse addressAndLengthFormatIdentifier --- */
-    alfid    = req->data[SVC_0x34_ALFID_OFFSET];
-    addr_len = (uint8_t)( alfid & (uint8_t)SVC_0x34_ADDR_LEN_MASK);
-    size_len = (uint8_t)((alfid & (uint8_t)SVC_0x34_SIZE_LEN_MASK) >>
-                          (uint8_t)SVC_0x34_SIZE_LEN_SHIFT);
+    alfid    = req->data[SVC_0x35_ALFID_OFFSET];
+    addr_len = (uint8_t)( alfid & (uint8_t)SVC_0x35_ADDR_LEN_MASK);
+    size_len = (uint8_t)((alfid & (uint8_t)SVC_0x35_SIZE_LEN_MASK) >>
+                          (uint8_t)SVC_0x35_SIZE_LEN_SHIFT);
 
     /* Both fields must be 1–4 bytes. */
-    if ((addr_len < (uint8_t)SVC_0x34_MIN_FIELD_BYTES) ||
-        (addr_len > (uint8_t)SVC_0x34_MAX_FIELD_BYTES) ||
-        (size_len < (uint8_t)SVC_0x34_MIN_FIELD_BYTES) ||
-        (size_len > (uint8_t)SVC_0x34_MAX_FIELD_BYTES)) {
+    if ((addr_len < (uint8_t)SVC_0x35_MIN_FIELD_BYTES) ||
+        (addr_len > (uint8_t)SVC_0x35_MAX_FIELD_BYTES) ||
+        (size_len < (uint8_t)SVC_0x35_MIN_FIELD_BYTES) ||
+        (size_len > (uint8_t)SVC_0x35_MAX_FIELD_BYTES)) {
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
-    /* Check the request is long enough to hold address + size fields.
-     * fields_end = SVC_0x34_MEM_ADDR_OFFSET + addr_len + size_len. */
-    fields_end = (uint16_t)((uint16_t)SVC_0x34_MEM_ADDR_OFFSET +
+    /* Check the request is long enough to hold address + size fields. */
+    fields_end = (uint16_t)((uint16_t)SVC_0x35_MEM_ADDR_OFFSET +
                              (uint16_t)addr_len +
                              (uint16_t)size_len);
 
@@ -189,7 +193,7 @@ uds_status_t uds_service_0x34_handler(
 
     /* --- Parse memoryAddress (big-endian, addr_len bytes) --- */
     status = uds_transfer_parse_be(
-        &req->data[SVC_0x34_MEM_ADDR_OFFSET],
+        &req->data[SVC_0x35_MEM_ADDR_OFFSET],
         addr_len,
         &mem_address);
     if (status != UDS_STATUS_OK) {
@@ -198,7 +202,7 @@ uds_status_t uds_service_0x34_handler(
 
     /* --- Parse memorySize (big-endian, size_len bytes) --- */
     status = uds_transfer_parse_be(
-        &req->data[(uint16_t)SVC_0x34_MEM_ADDR_OFFSET + (uint16_t)addr_len],
+        &req->data[(uint16_t)SVC_0x35_MEM_ADDR_OFFSET + (uint16_t)addr_len],
         size_len,
         &mem_size);
     if (status != UDS_STATUS_OK) {
@@ -211,19 +215,14 @@ uds_status_t uds_service_0x34_handler(
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
 
-    /* --- Erase the target flash region --- */
-    status = ops->erase_cb(mem_address, mem_size);
-    if (status != UDS_STATUS_OK) {
-        /* NRC 0x70 — uploadDownloadNotAccepted (erase failure). */
-        return UDS_STATUS_ERR_PLATFORM;
-    }
+    /* Upload does NOT erase flash — read-only access. */
 
-    /* --- Initialise transfer state machine --- */
+    /* --- Initialise transfer state machine (upload direction) --- */
     tctx = uds_transfer_ctx_get();
     uds_transfer_ctx_reset(tctx);   /* abort any in-progress transfer */
 
     tctx->state                   = UDS_TRANSFER_ACTIVE;
-    tctx->direction               = UDS_TRANSFER_DIR_DOWNLOAD;
+    tctx->direction               = UDS_TRANSFER_DIR_UPLOAD;
     tctx->target_address          = mem_address;
     tctx->total_size_bytes        = mem_size;
     tctx->bytes_remaining         = mem_size;
@@ -243,15 +242,14 @@ uds_status_t uds_service_0x34_handler(
     }
 
     /* --- Build positive response --- */
-    /* [0x74, lengthFormatIdentifier, maxNumberOfBlockLength_Hi, maxNumberOfBlockLength_Lo] */
-    status = uds_service_write_pos_sid((uint8_t)UDS_SID_REQUEST_DOWNLOAD, resp);
+    /* [0x75, lengthFormatIdentifier, maxNumberOfBlockLength_Hi, maxNumberOfBlockLength_Lo] */
+    status = uds_service_write_pos_sid((uint8_t)UDS_SID_REQUEST_UPLOAD, resp);
     if (status != UDS_STATUS_OK) {
         return status;
     }
 
-    /* lengthFormatIdentifier: bits [7:4] = number of maxBlockLen bytes = 2,
-     * bits [3:0] = 0 (reserved). */
-    resp->data[1U] = (uint8_t)((uint8_t)SVC_0x34_MXBL_BYTE_COUNT << (uint8_t)4U);
+    /* lengthFormatIdentifier: bits [7:4] = 2 (2 bytes for maxBlockLen), [3:0] = 0. */
+    resp->data[1U] = (uint8_t)((uint8_t)SVC_0x35_MXBL_BYTE_COUNT << (uint8_t)4U);
 
     /* maxNumberOfBlockLength includes the 1-byte block counter field. */
     {

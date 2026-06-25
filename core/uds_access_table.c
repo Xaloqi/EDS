@@ -180,6 +180,19 @@ static const uds_access_entry_t k_default_table[UDS_ACCESS_TABLE_DEFAULT_COUNT] 
         .require_unlocked   = true,
     },
 
+    /* [10b] 0x35 RequestUpload — Programming session + Level 1 security.
+     *
+     *  Upload exposes raw ECU memory content. Treating it as equivalent to
+     *  RequestDownload: requires programming session and security unlock to
+     *  prevent unauthorised memory readout.
+     */
+    {
+        .service_id         = UDS_SID_REQUEST_UPLOAD,
+        .session_mask       = UDS_ACL_SESSION_PROGRAMMING,
+        .required_sec_level = (uint8_t)1U,
+        .require_unlocked   = true,
+    },
+
     /* [11] 0x36 TransferData — Programming session + Level 1 security.
      *
      *  Same access constraints as RequestDownload.  An active transfer

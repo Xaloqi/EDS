@@ -114,7 +114,8 @@ void uds_transfer_ctx_reset(uds_transfer_ctx_t *ctx)
         return;
     }
     (void)memset(ctx, 0, sizeof(uds_transfer_ctx_t));
-    ctx->state = UDS_TRANSFER_IDLE;
+    ctx->state     = UDS_TRANSFER_IDLE;
+    ctx->direction = UDS_TRANSFER_DIR_DOWNLOAD; /* safe default — set by 0x34 or 0x35 */
     /* CRC accumulator initialised to 0xFFFFFFFF on each new transfer,
      * not at reset — see service_0x34.c. */
 }
