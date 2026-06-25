@@ -142,6 +142,9 @@ endif()
 # Executable
 # ---------------------------------------------------------------------------
 
+# UDS service source list — set EDS_SERVICE_SRCS.
+include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
+
 add_executable(eds_sensor_freertos
     # Application
     src/main.c
@@ -165,8 +168,6 @@ add_executable(eds_sensor_freertos
     ${DIAG_ROOT}/core/uds_transfer_ctx.c
 
     # UDS service handlers (all 16 SIDs + dispatch table).
-    # Source list is centrally managed — add new SIDs in cmake/eds_service_sources.cmake.
-    include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
     ${EDS_SERVICE_SRCS}
 
     # Transport

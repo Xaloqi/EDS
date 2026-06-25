@@ -56,6 +56,9 @@ target_include_directories(app PRIVATE
     ${DIAG_GENERATED_DIR}
 )
 
+# UDS service source list — set EDS_SERVICE_SRCS.
+include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
+
 target_sources(app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.c
 
@@ -73,8 +76,6 @@ target_sources(app PRIVATE
     ${DIAG_ROOT}/core/uds_transfer_ctx.c
 
     # UDS service handlers (all 16 SIDs + dispatch table).
-    # Source list is centrally managed — add new SIDs in cmake/eds_service_sources.cmake.
-    include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
     ${EDS_SERVICE_SRCS}
 
     # ISO-TP + CAN

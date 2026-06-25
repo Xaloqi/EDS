@@ -88,6 +88,9 @@ target_include_directories(app PRIVATE
 # ---------------------------------------------------------------------------
 # Source files
 # ---------------------------------------------------------------------------
+# UDS service source list — set EDS_SERVICE_SRCS.
+include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
+
 target_sources(app PRIVATE
 
     # ── Application entry point ──────────────────────────────────────────
@@ -106,8 +109,6 @@ target_sources(app PRIVATE
     ${DIAG_ROOT}/core/uds_aes_cmac.c
 
     # UDS service handlers (all 16 SIDs + dispatch table).
-    # Source list is centrally managed — add new SIDs in cmake/eds_service_sources.cmake.
-    include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
     ${EDS_SERVICE_SRCS}
     ${DIAG_ROOT}/core/uds_transfer_ctx.c
     ${DIAG_ROOT}/platform/uds_flash_ops.c
