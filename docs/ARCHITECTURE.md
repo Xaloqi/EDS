@@ -121,6 +121,8 @@ embedded-diagnostics-suite/
 │       ├── service_0x2e.c      # WriteDataByIdentifier
 │       ├── service_0x31.c      # RoutineControl
 │       ├── service_0x34.c      # RequestDownload
+│       ├── service_0x35.c      # RequestUpload
+│       ├── service_transfer_common.h  # Shared parse/validate helpers (0x34+0x35)
 │       ├── service_0x36.c      # TransferData
 │       ├── service_0x37.c      # RequestTransferExit
 │       ├── service_0x3e.c      # TesterPresent
@@ -241,6 +243,7 @@ looks up the SID in the dispatch table, and calls the corresponding service hand
 | 0x2E | WriteDataByIdentifier |
 | 0x31 | RoutineControl |
 | 0x34 | RequestDownload |
+| 0x35 | RequestUpload |
 | 0x36 | TransferData |
 | 0x37 | RequestTransferExit |
 | 0x3E | TesterPresent |

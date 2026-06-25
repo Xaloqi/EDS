@@ -10,6 +10,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **SID 0x35 RequestUpload** — ECU-to-tester data readback over the existing 0x36/0x37 transfer state machine. Symmetric counterpart to 0x34 RequestDownload. Supports calibration data readback, NVM log extraction, and flash image verification readout. Requires Programming session + Level 1 security unlock. `read_cb = NULL` is backward-compatible and returns NRC 0x22. Closes #46.
+
 - `extras/wireshark/eds.lua`: Wireshark Lua dissector — UDS service decode (all 14 SIDs), full NRC table, ISO-TP PCI frame types, DoIP payload types (0x0005–0x0008, 0x8001–0x8003) — closes #44
 
 ---

@@ -204,6 +204,25 @@ uds_status_t uds_service_0x34_handler(
 );
 
 /**
+ * @brief Handler for SID 0x35 — RequestUpload.
+ *
+ * Opens an upload transfer session for ECU-to-tester data readback.
+ * Validates dataFormatIdentifier, parses addressAndLengthFormatIdentifier,
+ * validates the target memory range, checks that read_cb is registered, and
+ * initialises the transfer state machine in upload direction.
+ * Does NOT call erase_cb — upload is read-only.
+ *
+ * SESSION:  Programming session required.
+ * SECURITY: Level 1 unlock required (enforced by ACL table).
+ *           Upload exposes raw ECU memory — same access risk as download.
+ */
+uds_status_t uds_service_0x35_handler(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp
+);
+
+/**
  * @brief Handler for SID 0x36 — TransferData.
  *
  * Receives firmware image blocks from the tester.  Validates the block
@@ -249,7 +268,7 @@ uds_status_t uds_service_0x37_handler(
 /**
  * @brief Number of services registered in g_uds_service_table[].
  */
-#define UDS_SERVICE_TABLE_COUNT (14U)
+#define UDS_SERVICE_TABLE_COUNT (15U)
 
 /**
  * @brief Canonical UDS service registration table.

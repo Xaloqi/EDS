@@ -285,6 +285,7 @@ target_sources(app PRIVATE
     #   undefined reference to `uds_flash_ops_register'
     ${DIAG_ROOT}/core/uds_aes_cmac.c                    # AES-128-CMAC primitive (security + DFU)
     ${DIAG_ROOT}/core/uds_services/service_0x34.c       # RequestDownload
+    ${DIAG_ROOT}/core/uds_services/service_0x35.c       # RequestUpload
     ${DIAG_ROOT}/core/uds_services/service_0x36.c       # TransferData
     ${DIAG_ROOT}/core/uds_services/service_0x37.c       # RequestTransferExit
     ${DIAG_ROOT}/core/uds_transfer_ctx.c                # DFU transfer state machine + CRC-32

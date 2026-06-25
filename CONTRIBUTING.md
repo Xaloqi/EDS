@@ -69,7 +69,7 @@ Bug reports, documentation improvements, and issue comments never require a CLA.
 - Changes that remove or weaken any step of the 5-step ASIL-B safety wrapper chain
 - Dynamic memory allocation (`malloc`, `free`) anywhere in the stack
 - Recursion in any safety-critical module
-- Changes that break the `native_sim` CI build or cause any of the 37 unit tests to fail
+- Changes that break the `native_sim` CI build or cause any of the 38 unit tests to fail
 - Hand-written changes to files under `generated/` — these are codegen output;
   fix the template in `tools/templates/` instead
 - External runtime dependencies not already present in the stack
@@ -126,7 +126,7 @@ python3 tools/codegen.py \
   --out generated/ \
   --safety-wrappers --asil-level B --test-gen
 
-# All 37 unit tests must pass
+# All 38 unit tests must pass
 bash build_tests.sh
 
 # All 68 harness tests must pass
@@ -148,7 +148,7 @@ any CI job is red.
 - [ ] SPDX header on every new file
 - [ ] Unit test added or updated for the changed module
 - [ ] `generated/` files regenerated and committed if YAML or templates changed
-- [ ] All 37 unit tests pass locally (`bash build_tests.sh`)
+- [ ] All 38 unit tests pass locally (`bash build_tests.sh`)
 - [ ] PR title follows format: `[fix|feat|docs|test|chore]: short description`
 
 ---

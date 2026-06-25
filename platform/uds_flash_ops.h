@@ -128,10 +128,29 @@ typedef uds_status_t (*uds_flash_verify_cb_fn)(uint32_t address,
                                                 uint32_t expected_crc);
 
 /**
+ * @brief Callback: read a block of data from flash (required for 0x35 RequestUpload).
+ *
+ * Called by service_0x36 (TransferData) in upload direction to read each block
+ * from flash and return it to the tester.
+ *
+ * @param[in]  address   Source address in flash.
+ * @param[out] data      Buffer to receive the read data.
+ * @param[in]  length    Number of bytes to read.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_PLATFORM on driver failure.
+ */
+typedef uds_status_t (*uds_flash_read_cb_fn)(uint32_t  address,
+                                              uint8_t  *data,
+                                              uint32_t  length);
+
+/**
  * @brief Flash operations table — registered at stack init.
  *
- * All three callbacks must be non-NULL when the table is registered.
- * The memory map pointer must reference at least one valid region.
+ * erase_cb, write_cb, and verify_cb must be non-NULL when the table is
+ * registered for download (0x34) support.  read_cb may be NULL for
+ * download-only configurations — service_0x35 checks at request time and
+ * returns NRC 0x22 if read_cb is NULL.
  *
  * REQ-FLASH-001: Register before any 0x34 request is accepted.
  */
@@ -139,6 +158,8 @@ typedef struct uds_flash_ops {
     uds_flash_erase_cb_fn   erase_cb;        /**< Erase callback.  */
     uds_flash_write_cb_fn   write_cb;        /**< Write callback.  */
     uds_flash_verify_cb_fn  verify_cb;       /**< Verify callback. */
+    uds_flash_read_cb_fn    read_cb;         /**< Read callback — required for 0x35 RequestUpload.
+                                               *  May be NULL for download-only configurations. */
 
     const uds_flash_region_t *memory_map;    /**< Array of permitted regions. */
     uint8_t                   region_count;  /**< Number of entries in memory_map[]. */
@@ -174,7 +195,8 @@ typedef struct uds_flash_ops {
  *
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_INVALID_PARAM if ops->erase_cb, write_cb, or
- *         verify_cb is NULL (when ops itself is non-NULL).
+ *         verify_cb is NULL (when ops itself is non-NULL).  read_cb may
+ *         be NULL — download-only configurations do not populate it.
  */
 uds_status_t uds_flash_ops_register(const uds_flash_ops_t *ops);
 

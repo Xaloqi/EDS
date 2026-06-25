@@ -273,6 +273,25 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
         .suppress_pos_response_supported = false,
     },
     {
+        /* SID 0x35 — RequestUpload
+         *
+         * Opens an upload session for ECU-to-tester data readback.
+         * Validates target memory range, checks read_cb is registered, and
+         * initialises the transfer state machine in upload direction.
+         * Does NOT erase flash — upload is read-only.
+         *
+         * SESSION:  Programming session required.
+         * SECURITY: Level 1 security unlock required.
+         *
+         * SAFETY: Upload exposes raw ECU memory content. Same access gates
+         *         as RequestDownload.  suppressPosRspMsgIndicationBit not
+         *         applicable — no sub-function byte.
+         */
+        .service_id                      = UDS_SID_REQUEST_UPLOAD,
+        .handler                         = uds_service_0x35_handler,
+        .suppress_pos_response_supported = false,
+    },
+    {
         /* SID 0x36 — TransferData
          *
          * Carries firmware image blocks from the tester to ECU flash.

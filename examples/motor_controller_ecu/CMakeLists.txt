@@ -176,6 +176,7 @@ target_sources(app PRIVATE
     # service_registration.c references all three in g_uds_service_table[];
     # omitting these causes link failure: undefined reference to uds_service_0x34_handler.
     ${DIAG_ROOT}/core/uds_services/service_0x34.c   # RequestDownload
+    ${DIAG_ROOT}/core/uds_services/service_0x35.c   # RequestUpload
     ${DIAG_ROOT}/core/uds_services/service_0x36.c   # TransferData
     ${DIAG_ROOT}/core/uds_services/service_0x37.c   # RequestTransferExit
     ${DIAG_ROOT}/core/uds_transfer_ctx.c             # DFU transfer state machine

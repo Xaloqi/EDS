@@ -221,6 +221,7 @@ typedef enum uds_nrc {
 #define UDS_SID_COMMUNICATION_CONTROL         (0x28U)
 #define UDS_SID_ROUTINE_CONTROL               (0x31U)
 #define UDS_SID_REQUEST_DOWNLOAD              (0x34U)
+#define UDS_SID_REQUEST_UPLOAD                (0x35U)
 #define UDS_SID_TRANSFER_DATA                 (0x36U)
 #define UDS_SID_REQUEST_TRANSFER_EXIT         (0x37U)
 #define UDS_SID_TESTER_PRESENT                (0x3EU)

@@ -8,7 +8,7 @@
  * MODULE UNDER TEST: core/uds_services/service_0x36.c
  *                    SID 0x36 — TransferData
  *
- * Coverage:
+ * Coverage (download direction):
  *   TC-0x36-001  NULL ctx                            → ERR_NULL_PTR
  *   TC-0x36-002  Request too short (< 3 bytes)       → ERR_INVALID_PARAM
  *   TC-0x36-003  No active transfer (IDLE state)     → ERR_SERVICE_NOT_SUPPORTED_IN_SESSION (NRC 0x24)
@@ -26,6 +26,12 @@
  *   TC-0x36-015  No flash ops after 0x34 → ERR_CONDITIONS_NOT_MET
  *   TC-0x36-016  Payload capped at bytes_remaining (oversized last block)
  *   TC-0x36-017  Second block accepted with correct incremented counter
+ *
+ * Coverage (upload direction — SID 0x35 active):
+ *   TC-0x36-UL-001  Upload: [0x36, 0x01] → response [0x76, 0x01, data[0..N]]
+ *   TC-0x36-UL-002  Upload: read_cb failure → ERR_PLATFORM (NRC 0x72)
+ *   TC-0x36-UL-003  Upload: bytes_remaining decremented after each block
+ *   TC-0x36-UL-004  Upload: block counter wraps 0xFF → 0x01 (REQ-DL-001 applies to upload)
  *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h for host compilation)
  * =============================================================================
@@ -62,6 +68,9 @@ static uint32_t s_write_call_count = 0U;
 static uint32_t s_last_write_addr  = 0U;
 static uint32_t s_last_write_len   = 0U;
 
+static bool     s_read_fail        = false;
+static uint32_t s_read_call_count  = 0U;
+
 /* ==========================================================================
  * Mock flash callbacks
  * ========================================================================== */
@@ -94,6 +103,22 @@ static uds_status_t mock_verify(uint32_t address,
     return UDS_STATUS_OK;
 }
 
+static uds_status_t mock_read(uint32_t address,
+                               uint8_t *data,
+                               uint32_t length)
+{
+    uint32_t i;
+    (void)address;
+    s_read_call_count++;
+    if (s_read_fail) {
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+    for (i = (uint32_t)0U; i < length; i++) {
+        data[i] = (uint8_t)(i & (uint32_t)0xFFU);
+    }
+    return UDS_STATUS_OK;
+}
+
 static const uds_flash_region_t k_mock_region[1U] = {
     {
         .base_address = MOCK_FLASH_BASE,
@@ -106,6 +131,7 @@ static const uds_flash_ops_t k_mock_ops = {
     .erase_cb         = mock_erase,
     .write_cb         = mock_write,
     .verify_cb        = mock_verify,
+    .read_cb          = mock_read,
     .memory_map       = k_mock_region,
     .region_count     = (uint8_t)1U,
     .max_block_length = (uint16_t)MOCK_BLOCK_LEN,
@@ -169,6 +195,8 @@ void setUp(void)
     s_write_call_count = 0U;
     s_last_write_addr  = 0U;
     s_last_write_len   = 0U;
+    s_read_fail        = false;
+    s_read_call_count  = 0U;
 
     (void)uds_safety_init();
 
@@ -413,6 +441,104 @@ ZTEST(svc_0x36, test_second_block_accepted)
 }
 
 /* ==========================================================================
+ * Upload direction helpers and tests
+ * ========================================================================== */
+
+/** Prime transfer context as if a successful 0x35 RequestUpload was processed. */
+static void prime_active_upload(uint32_t total_size)
+{
+    uds_transfer_ctx_t *tctx = uds_transfer_ctx_get();
+    uds_transfer_ctx_reset(tctx);
+
+    tctx->state                   = UDS_TRANSFER_ACTIVE;
+    tctx->direction               = UDS_TRANSFER_DIR_UPLOAD;
+    tctx->target_address          = MOCK_FLASH_BASE;
+    tctx->total_size_bytes        = total_size;
+    tctx->bytes_remaining         = total_size;
+    tctx->next_write_address      = MOCK_FLASH_BASE;
+    tctx->next_expected_block_seq = (uint8_t)0x01U;
+    tctx->crc_accumulator         = (uint32_t)0xFFFFFFFFUL;
+    tctx->write_buf_fill          = (uint16_t)0U;
+    tctx->write_buf_capacity      = (uint16_t)MOCK_BLOCK_LEN;
+}
+
+/* TC-0x36-UL-001  Upload: [0x36, 0x01] → response [0x76, 0x01, data[0..N]] */
+ZTEST(svc_0x36, test_upload_block_accepted)
+{
+    prime_active_upload(0x100U);
+
+    /* Upload request: only SID + blockSeqCounter, no payload from tester. */
+    s_req.data[0] = 0x36U;
+    s_req.data[1] = 0x01U;
+    s_req.length  = 2U;
+
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
+
+    /* Response: [0x76, 0x01, read data...] */
+    zassert_equal(0x76U, s_resp.data[0], "RSID must be 0x76");
+    zassert_equal(0x01U, s_resp.data[1], "echo block seq 0x01");
+    /* Response length = 2 header + MOCK_BLOCK_LEN data bytes. */
+    zassert_equal((uint16_t)(2U + (uint16_t)MOCK_BLOCK_LEN),
+                  s_resp.length, "upload response length");
+    zassert_equal((uint32_t)1U, s_read_call_count, "read_cb must be called once");
+}
+
+/* TC-0x36-UL-002  Upload: read_cb failure → ERR_PLATFORM (NRC 0x72) */
+ZTEST(svc_0x36, test_upload_read_cb_failure)
+{
+    prime_active_upload(0x100U);
+    s_read_fail = true;
+
+    s_req.data[0] = 0x36U;
+    s_req.data[1] = 0x01U;
+    s_req.length  = 2U;
+
+    zassert_equal(UDS_STATUS_ERR_PLATFORM,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
+    /* Transfer must be reset to IDLE on read failure. */
+    zassert_equal(UDS_TRANSFER_IDLE,
+                  uds_transfer_ctx_get()->state,
+                  "transfer must be IDLE after read failure");
+}
+
+/* TC-0x36-UL-003  Upload: bytes_remaining decremented after each block */
+ZTEST(svc_0x36, test_upload_bytes_remaining_decremented)
+{
+    prime_active_upload(0x200U);
+
+    s_req.data[0] = 0x36U;
+    s_req.data[1] = 0x01U;
+    s_req.length  = 2U;
+
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
+
+    /* One block of MOCK_BLOCK_LEN bytes read; bytes_remaining reduced accordingly. */
+    zassert_equal((uint32_t)(0x200U - (uint32_t)MOCK_BLOCK_LEN),
+                  uds_transfer_ctx_get()->bytes_remaining,
+                  "bytes_remaining must decrease by MOCK_BLOCK_LEN after upload block");
+}
+
+/* TC-0x36-UL-004  Upload: block counter wraps 0xFF → 0x01 (REQ-DL-001 applies) */
+ZTEST(svc_0x36, test_upload_block_counter_wrap)
+{
+    prime_active_upload(0x2000U);
+    uds_transfer_ctx_get()->next_expected_block_seq = (uint8_t)0xFFU;
+
+    s_req.data[0] = 0x36U;
+    s_req.data[1] = 0xFFU;
+    s_req.length  = 2U;
+
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
+
+    zassert_equal(0x01U,
+                  uds_transfer_ctx_get()->next_expected_block_seq,
+                  "REQ-DL-001: upload counter must wrap 0xFF → 0x01");
+}
+
+/* ==========================================================================
  * run_all_tests
  * ========================================================================== */
 
@@ -435,4 +561,8 @@ void run_all_tests(void)
     RUN_TEST(svc_0x36__test_flash_ops_null_after_active_transfer);
     RUN_TEST(svc_0x36__test_payload_capped_at_bytes_remaining);
     RUN_TEST(svc_0x36__test_second_block_accepted);
+    RUN_TEST(svc_0x36__test_upload_block_accepted);
+    RUN_TEST(svc_0x36__test_upload_read_cb_failure);
+    RUN_TEST(svc_0x36__test_upload_bytes_remaining_decremented);
+    RUN_TEST(svc_0x36__test_upload_block_counter_wrap);
 }

@@ -721,7 +721,8 @@ safeboot:
 
 After codegen, `uds_init.c` automatically includes and calls the platform flash ops init
 (`zephyr_flash_ops_init()` for Zephyr, `freertos_flash_ops_init()` for FreeRTOS).
-Services 0x34/0x36/0x37 become functional in the programming session with security level 1.
+Services 0x34/0x35/0x36/0x37 become functional in the programming session with security level 1.
+0x35 RequestUpload additionally requires `read_cb` to be registered in `uds_flash_ops_t`; if NULL, returns NRC 0x22.
 
 ---
 
@@ -783,7 +784,8 @@ UDS tester to unlock level 2: send `27 03` → receive seed → compute AES-128-
 | WriteDataByIdentifier | 0x2E | ✅ | Full ASIL-B wrapper chain |
 | RoutineControl | 0x31 | ✅ | Start / Stop / RequestResult |
 | RequestDownload | 0x34 | ✅ | Programming session + security level 1 required |
-| TransferData | 0x36 | ✅ | Block transfer; CRC-32 verified at exit |
+| RequestUpload | 0x35 | ✅ | ECU-to-tester readback; read_cb required; same session/security gates as 0x34 |
+| TransferData | 0x36 | ✅ | Block transfer (download or upload); CRC-32 verified at exit |
 | RequestTransferExit | 0x37 | ✅ | Verifies CRC, accepts MCUboot image |
 | TesterPresent | 0x3E | ✅ | Keep-alive; responseRequired sub-fn only |
 | ControlDTCSetting | 0x85 | ✅ | DTCSettingOn / DTCSettingOff |
@@ -844,7 +846,7 @@ pytest test_robustness_A_codegen.py \
 | Phase | Tests | What it covers |
 |---|---|---|
 | A | 22 | Generated file presence, C safety markers, GCC syntax |
-| B | 42 | Session transitions, TesterPresent, ECUReset, all 14 service NRCs |
+| B | 42 | Session transitions, TesterPresent, ECUReset, all 15 service NRCs |
 | C | 21 | CMAC SecurityAccess unlock/lockout/replay |
 | D | 30 | Customer workflow (fresh YAML → codegen → pytest), all 11 ECU examples |
 | E | 35 | DID read/write integrity, DTC lifecycle, session isolation |

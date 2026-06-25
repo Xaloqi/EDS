@@ -73,8 +73,11 @@
  * Constants
  * -------------------------------------------------------------------------- */
 
-/** Minimum request: [SID, blockSeqCounter, ≥1 data byte] = 3 bytes. */
+/** Minimum request: [SID, blockSeqCounter, ≥1 data byte] = 3 bytes (download direction). */
 #define SVC_0x36_MIN_REQ_LEN          (3U)
+
+/** Minimum upload request: [SID, blockSeqCounter] = 2 bytes (no payload from tester). */
+#define SVC_0x36_UL_MIN_REQ_LEN       (2U)
 
 /** Offset of blockSequenceCounter in the request PDU. */
 #define SVC_0x36_BLOCK_SEQ_OFFSET     (1U)
@@ -90,6 +93,15 @@
 
 /** Value to which the counter wraps after reaching MAX (REQ-DL-001). */
 #define SVC_0x36_WRAP_BLOCK_SEQ       (0x01U)
+
+/* --------------------------------------------------------------------------
+ * Forward declaration
+ * -------------------------------------------------------------------------- */
+
+static uds_status_t s_handle_upload_block(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp);
 
 /* --------------------------------------------------------------------------
  * Static helpers
@@ -155,28 +167,43 @@ uds_status_t uds_service_0x36_handler(
     uint16_t               src_offset;
     uint16_t               space_in_buf;
     uint16_t               chunk;
+    uint16_t               min_len;
 
     if (ctx == NULL) {
         return UDS_STATUS_ERR_NULL_PTR;
     }
 
-    /* Minimum length: [SID, blockSeq, ≥1 payload byte]. */
-    status = uds_service_validate_length(req, (uint16_t)SVC_0x36_MIN_REQ_LEN);
+    tctx = uds_transfer_ctx_get();
+
+    /* Upload requests carry no payload from the tester — minimum is 2 bytes.
+     * Download requests require at least 1 payload byte — minimum is 3 bytes. */
+    if ((tctx->state == UDS_TRANSFER_ACTIVE) &&
+        (tctx->direction == UDS_TRANSFER_DIR_UPLOAD)) {
+        min_len = (uint16_t)SVC_0x36_UL_MIN_REQ_LEN;
+    } else {
+        min_len = (uint16_t)SVC_0x36_MIN_REQ_LEN;
+    }
+
+    status = uds_service_validate_length(req, min_len);
     if (status != UDS_STATUS_OK) {
         return status;
     }
 
     /* REQ-DL-SEQ: A transfer must be active. */
-    tctx = uds_transfer_ctx_get();
     if (tctx->state != UDS_TRANSFER_ACTIVE) {
-        /* NRC 0x24 requestSequenceError — no active download session. */
+        /* NRC 0x24 requestSequenceError — no active transfer session. */
         return UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION;
     }
 
     ops = uds_flash_ops_get();
     if (ops == NULL) {
-        /* Flash ops de-registered after 0x34 was accepted — should not happen. */
+        /* Flash ops de-registered after 0x34/0x35 was accepted — should not happen. */
         return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+    }
+
+    /* Dispatch to upload path if an upload session is active. */
+    if (tctx->direction == UDS_TRANSFER_DIR_UPLOAD) {
+        return s_handle_upload_block(ctx, req, resp);
     }
 
     /* --- Validate block sequence counter --- */
@@ -253,6 +280,93 @@ uds_status_t uds_service_0x36_handler(
 
     resp->data[1U] = block_seq;
     resp->length   = (uint16_t)2U;
+
+    return UDS_STATUS_OK;
+}
+
+/* --------------------------------------------------------------------------
+ * Upload block handler (SID 0x35 direction)
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Handle one TransferData block in upload direction.
+ *
+ * The tester sends [0x36, blockSeqCounter] with no payload data; the ECU
+ * reads the next chunk from flash via read_cb and returns it in the response.
+ *
+ * write_buf is reused as the read buffer — the field name is misleading in
+ * the upload direction but renaming it would break 0x34/0x36 tests.
+ *
+ * @param[in]  ctx   Server context (validated by caller).
+ * @param[in]  req   Upload request buffer.
+ * @param[out] resp  Response buffer to populate.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_TP_UNEXPECTED_PDU on block sequence counter error.
+ * @return UDS_STATUS_ERR_PLATFORM on read_cb failure.
+ */
+static uds_status_t s_handle_upload_block(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp)
+{
+    uds_status_t           status;
+    uint8_t                block_seq;
+    uint32_t               bytes_to_read;
+    const uds_flash_ops_t *ops;
+    uds_transfer_ctx_t    *tctx;
+
+    (void)ctx; /* validated by caller — not needed in upload path */
+
+    tctx = uds_transfer_ctx_get();
+    ops  = uds_flash_ops_get();
+
+    /* --- Validate block sequence counter (same logic as download) --- */
+    block_seq = req->data[SVC_0x36_BLOCK_SEQ_OFFSET];
+
+    if (block_seq == (uint8_t)SVC_0x36_INVALID_BLOCK_SEQ) {
+        return UDS_STATUS_ERR_TP_UNEXPECTED_PDU; /* mapped → NRC 0x73 */
+    }
+
+    if (block_seq != tctx->next_expected_block_seq) {
+        return UDS_STATUS_ERR_TP_UNEXPECTED_PDU; /* mapped → NRC 0x73 */
+    }
+
+    /* --- Determine how many bytes to read this block --- */
+    bytes_to_read = (uint32_t)tctx->write_buf_capacity;
+    if (bytes_to_read > tctx->bytes_remaining) {
+        bytes_to_read = tctx->bytes_remaining;
+    }
+
+    /* --- Read from flash into write_buf (doubles as read buffer for upload) --- */
+    status = ops->read_cb(tctx->next_write_address,
+                          tctx->write_buf,
+                          bytes_to_read);
+    if (status != UDS_STATUS_OK) {
+        uds_transfer_ctx_reset(tctx); /* abort on failure */
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+
+    /* Advance read address and decrement remaining. */
+    tctx->next_write_address += bytes_to_read;
+    tctx->bytes_remaining    -= bytes_to_read;
+
+    /* --- Advance block counter with wrap (REQ-DL-001 applies to upload too) --- */
+    if (tctx->next_expected_block_seq == (uint8_t)SVC_0x36_MAX_BLOCK_SEQ) {
+        tctx->next_expected_block_seq = (uint8_t)SVC_0x36_WRAP_BLOCK_SEQ;
+    } else {
+        tctx->next_expected_block_seq++;
+    }
+
+    /* --- Build positive response: [0x76, blockSeqCounter, data...] --- */
+    status = uds_service_write_pos_sid((uint8_t)UDS_SID_TRANSFER_DATA, resp);
+    if (status != UDS_STATUS_OK) {
+        return status;
+    }
+
+    resp->data[1U] = block_seq;
+    (void)memcpy(&resp->data[2U], tctx->write_buf, (size_t)bytes_to_read);
+    resp->length = (uint16_t)(2U + (uint16_t)bytes_to_read);
 
     return UDS_STATUS_OK;
 }
