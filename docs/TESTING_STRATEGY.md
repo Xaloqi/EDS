@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.8.2  
-**Status:** 37/37 unit test modules passing. 68/68 harness tests passing. 8/8 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
+**Status:** 39/39 unit test modules passing. 68/68 harness tests passing. 8/8 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
 
 ---
 
@@ -14,7 +14,7 @@ tests. All four layers run automatically in CI on every push and pull request.
 
 | Layer | Count | Framework | Status |
 |---|---|---|---|
-| Unit tests | 37 modules | Unity (C) | ✅ All passing |
+| Unit tests | 39 modules | Unity (C) | ✅ All passing |
 | Harness tests | 68 tests | Shell + GCC | ✅ All passing |
 | Integration tests | Per-DID/DTC suite | pytest (Python) | ✅ All passing |
 | System tests | native_sim E2E | Zephyr + pytest | ✅ All passing |
@@ -67,7 +67,7 @@ Integration Tests (Python ISO-TP/UDS simulation)
 Harness Tests (68 — GCC build + run on host)
               │
               ▼
-Unit Tests (37 modules — Unity on host)
+Unit Tests (39 modules — Unity on host)
 ```
 
 Each layer depends on the layer below it passing. CI runs all layers in sequence.
@@ -94,7 +94,7 @@ tests/unit_runnable/
 ```
 
 > **Note:** `tests/unit/` also exists and is referenced by `tests/CMakeLists.txt` for the Zephyr
-> native `ztest` build path. The canonical source for the 37-module CI run is `tests/unit_runnable/`,
+> native `ztest` build path. The canonical source for the 39-module CI run is `tests/unit_runnable/`,
 > executed by `scripts/build_tests.sh`. Consolidation of these two directories is tracked as a
 > future clean-up task.
 
@@ -102,10 +102,10 @@ tests/unit_runnable/
 
 ```bash
 bash scripts/build_tests.sh
-# Expected: 37 tests, 0 failures
+# Expected: 39 tests, 0 failures
 ```
 
-### Coverage — 37 unit test modules
+### Coverage — 39 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -172,7 +172,7 @@ via the ZTEST shim (same build path as all other unit test modules).
 
 ```bash
 bash scripts/build_tests.sh
-# test_doip_server is included in the standard 37-module run
+# test_doip_server is included in the standard 39-module run
 ```
 
 **Test coverage — 24 ZTEST cases:**
@@ -380,7 +380,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          37 Unity modules via build_tests.sh
+   ├── unit-tests          39 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── integration-tests   Generated pytest suite, simulator mode
@@ -407,7 +407,7 @@ All 8 jobs must pass before a PR can be merged.
 
 Added in v1.3.0. Builds `examples/basic_ecu_freertos` with `-DEDS_PLATFORM=freertos`
 targeting QEMU ARM Cortex-M4. Downloads FreeRTOS-Kernel from GitHub, runs codegen,
-builds the ELF, and verifies it exists. The same 37 unit tests run against the FreeRTOS
+builds the ELF, and verifies it exists. The same 39 unit tests run against the FreeRTOS
 platform HAL (they mock the platform layer and are platform-independent).
 
 ### SafeBoot CI job (within `unit-tests`)

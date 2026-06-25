@@ -54,7 +54,7 @@ EDS/
 │   └── vscode-extension/   # VS Code extension (YAML validation, hover docs, Run Codegen)
 ├── gui/                    # React/TypeScript live dashboard + WebSocket ECU bridge
 ├── tests/
-│   ├── unit_runnable/      # 35 Unity C unit test modules
+│   ├── unit_runnable/      # 39 Unity C unit test modules
 │   ├── integration/        # Python ISO-TP/UDS flow tests
 │   └── harness/            # 68 build harness tests
 ├── scripts/
