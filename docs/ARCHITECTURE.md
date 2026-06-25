@@ -343,7 +343,23 @@ ecu:
 
 ---
 
-## 7. Diagnostics Databases (`config/`)
+## 7. Tooling
+
+### Wireshark Dissector (`extras/wireshark/eds.lua`)
+
+A single-file Wireshark Lua dissector decodes all three EDS protocol layers — UDS (ISO 14229-1),
+ISO-TP (ISO 15765-2), and DoIP (ISO 13400-2) — inline in packet captures taken from vcan
+interfaces, real CAN buses, or Ethernet DoIP sessions. Engineers evaluating EDS on hardware can
+open a `.pcap` file and read UDS service names, NRC descriptions, ISO-TP PCI frame types, and
+DoIP payload type names directly in the Wireshark decode tree without post-processing hex dumps.
+Installation takes three steps (copy, reload, optionally Decode As for CAN); see
+`extras/wireshark/README.md`. DoIP registration is automatic on TCP and UDP port 13400. ISO-TP
+on CAN requires a manual **Analyze → Decode As → eds_isotp** step because CAN arbitration IDs
+are application-defined and cannot be auto-detected.
+
+---
+
+## 8. Diagnostics Databases (`config/`)
 
 ### DID Database
 
@@ -365,7 +381,7 @@ DTC status into the in-RAM DTC database at boot. Both are called by the generate
 
 ---
 
-## 8. ASIL-B Safety Validation Layer
+## 9. ASIL-B Safety Validation Layer
 
 Every DID read or write passes through a generated 5-step chain before the handler is called.
 The chain is produced by `tools/codegen.py` and cannot be bypassed by runtime configuration.
@@ -391,7 +407,7 @@ Supporting safety mechanisms:
 
 ---
 
-## 9. Code Generation System (`tools/`)
+## 10. Code Generation System (`tools/`)
 
 Diagnostics configuration is defined in `diagnostics_config.yaml`. Running `codegen.py`
 produces all C/H files in `generated/`. Generated files must not be hand-edited.
@@ -444,7 +460,7 @@ python3 tools/testgen.py --capl --capl-only --config diagnostics_config.yaml --o
 
 ---
 
-## 10. GUI Configurator (`gui/`)
+## 11. GUI Configurator (`gui/`)
 
 A React + TypeScript application with two modes: a **YAML configurator** for building
 diagnostics configurations, and a **live dashboard** for monitoring a running ECU.
@@ -485,7 +501,7 @@ streams each output line as a `codegen_log` WebSocket event. On completion it se
 
 ---
 
-## 10.5. VS Code Extension (`ide/vscode-extension/`)
+## 11.5. VS Code Extension (`ide/vscode-extension/`)
 
 A TypeScript VS Code extension (publisher: `eds-diagnostics`, activates on `onLanguage:yaml`)
 that integrates EDS into the developer's editor.
@@ -538,7 +554,7 @@ autocomplete and schema-driven validation in addition to the in-process validato
 
 ---
 
-## 11. ECU Examples (`examples/`)
+## 12. ECU Examples (`examples/`)
 
 | Example | Description | DIDs | DTCs | Routines | Primary target |
 |---|---|---|---|---|---|
@@ -558,7 +574,7 @@ The first five examples ship with committed generated output (DID handlers, safe
 
 ---
 
-## 12. CI Pipeline (`.github/workflows/ci.yml`)
+## 13. CI Pipeline (`.github/workflows/ci.yml`)
 
 16 jobs run on every push and pull request:
 
@@ -587,7 +603,7 @@ Global env: `XALOQI_LICENSE_SKIP=1` (codegen bypasses license check in CI — `_
 
 ---
 
-## 13. Target Hardware
+## 14. Target Hardware
 
 | Board | Use | Status |
 |---|---|---|
@@ -598,7 +614,7 @@ Global env: `XALOQI_LICENSE_SKIP=1` (codegen bypasses license check in CI — `_
 
 ---
 
-## 14. Extensibility
+## 15. Extensibility
 
 The architecture supports future extensions without structural changes:
 
@@ -614,7 +630,7 @@ The architecture supports future extensions without structural changes:
 
 ---
 
-## 15. Design Constraints Summary
+## 16. Design Constraints Summary
 
 | Constraint | Enforcement |
 |---|---|

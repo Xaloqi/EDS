@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [Unreleased]
+
+### Added
+
+- `extras/wireshark/eds.lua`: Wireshark Lua dissector — UDS service decode (all 14 SIDs), full NRC table, ISO-TP PCI frame types, DoIP payload types (0x0005–0x0008, 0x8001–0x8003) — closes #44
+
+---
 ## [1.8.3] — 2026-06-24
 
 ### Added

@@ -541,7 +541,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            gcc python3 python3-pip cppcheck
+            gcc python3 python3-pip cppcheck lua5.4
 
       # [P1-4] Hard-fail immediately if cppcheck did not install correctly.
       #
@@ -610,6 +610,9 @@ jobs:
               sys.exit(1)
           print(f"PASS: zero open MISRA violations — all findings justified")
           EOF
+
+      - name: Lua syntax check (Wireshark dissector)
+        run: luac -p extras/wireshark/eds.lua
 
       - name: Upload MISRA and static analysis reports
         if: always()
