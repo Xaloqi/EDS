@@ -140,6 +140,9 @@ set(FREERTOS_SRCS
     "${FREERTOS_DIR}/portable/MemMang/heap_4.c"
 )
 
+# UDS service source list — set EDS_SERVICE_SRCS.
+include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
+
 # ---------------------------------------------------------------------------
 # Executable
 # ---------------------------------------------------------------------------
@@ -160,8 +163,6 @@ add_executable(eds_safeboot_freertos
     ${DIAG_ROOT}/core/uds_security_nvm.c
     ${DIAG_ROOT}/core/uds_aes_cmac.c
     # UDS service handlers (all 16 SIDs + dispatch table).
-    # Source list is centrally managed — add new SIDs in cmake/eds_service_sources.cmake.
-    include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
     ${EDS_SERVICE_SRCS}
     ${DIAG_ROOT}/core/uds_transfer_ctx.c
 
