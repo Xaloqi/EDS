@@ -43,6 +43,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | 0x27 | SecurityAccess | **Implemented** | Odd sub-function = requestSeed, even = sendKey. Levels 1 and 2 active (0x01/0x02 and 0x03/0x04 sub-functions). AES-128-CMAC key derivation (RFC 4493). 8-byte seed with embedded sequence counter (replay protection). Lockout after configurable failed attempts. Key injection via `uds_security_algo_set_level_key()`. |
 | 0x28 | CommunicationControl | **Implemented** | Sub-fn 0x00 enableRxAndTx, 0x01 enableRxAndDisableTx, 0x02 disableRxAndEnableTx, 0x03 disableRxAndTx. communicationType byte: 0x01 normalCommunication, 0x02 nmCommunication, 0x03 both. State is reset to enabled on return to Default Session. suppressPosRspMsgIndicationBit (bit 7) honoured (v1.7.0). |
 | 0x2E | WriteDataByIdentifier | **Implemented** | ASIL-B 5-step safety wrapper enforced per DID. Data length validated against DID definition. |
+| 0x2F | InputOutputControlByIdentifier | **Implemented** | Non-default session + Level 1 security required. Four `inputOutputControlParameter` values: `returnControlToECU` (0x00), `resetToDefault` (0x01), `freezeCurrentState` (0x02), `shortTermAdjustment` (0x03). DID must set `DID_ACCESS_IO_CONTROL` flag and provide `io_control_cb`. `io_control_cb == NULL` returns NRC 0x31. |
 | 0x31 | RoutineControl | **Implemented** | Sub-fn 0x01 startRoutine, 0x02 stopRoutine (optional per routine descriptor), 0x03 requestRoutineResults (optional). Session and security level enforced per-routine via `routine_entry_t.min_session` and `.security_level`. Routine option record forwarded to callback. Status record (0–64 bytes) appended to positive response. suppressPosRspMsgIndicationBit (bit 7) honoured (v1.7.0). |
 | 0x34 | RequestDownload | **Implemented** | Programming session + Level 1 security required (enforced by ACL table). Validates `dataFormatIdentifier` (0x00 only — no compression/encryption), parses `addressAndLengthFormatIdentifier` (1–4 byte address and size fields), validates target address range against the registered flash memory map (`uds_flash_ops_t`), erases flash, and initialises the block-transfer state machine. Returns `maxNumberOfBlockLength`. **Requires** `uds_flash_ops_register()` before the first 0x34 request (see Step 5 integration note). |
 | 0x36 | TransferData | **Implemented** | Programming session required. Validates block sequence counter (starts at 0x01, wraps 0xFF → 0x01 per REQ-DL-001 — counter 0x00 always rejected with NRC 0x73). Accumulates payload bytes in a write buffer, flushes full chunks to flash via `flash_write_cb`, and maintains a running CRC-32 accumulator. |
@@ -55,7 +56,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | 0x86 | ResponseOnEvent | **Out of scope** | — |
 | 0x87 | LinkControl | **Out of scope** | — |
 
-**Services not listed** (e.g. 0x23 ReadMemoryByAddress, 0x24 ReadScalingDataByIdentifier, 0x29 Authentication, 0x2A ReadDataByPeriodicIdentifier, 0x2C DynamicallyDefineDataIdentifier, 0x2F InputOutputControlByIdentifier) are all out of scope and return NRC 0x11.
+**Services not listed** (e.g. 0x23 ReadMemoryByAddress, 0x24 ReadScalingDataByIdentifier, 0x29 Authentication, 0x2A ReadDataByPeriodicIdentifier, 0x2C DynamicallyDefineDataIdentifier) are all out of scope and return NRC 0x11.
 
 ---
 

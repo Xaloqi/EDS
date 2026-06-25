@@ -85,7 +85,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 
 | Capability | Detail |
 |---|---|
-| **UDS stack** | 14 services: 0x10 0x11 0x14 0x19 0x22 0x27 0x28 0x2E 0x31 0x34 0x36 0x37 0x3E 0x85 · SID 0x19 sub-functions: 0x01 0x02 0x04 0x06 0x0A (0x0B and 0x19 return NRC 0x12 — planned) |
+| **UDS stack** | 16 services: 0x10 0x11 0x14 0x19 0x22 0x27 0x28 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 0x3E 0x85 · SID 0x19 sub-functions: 0x01 0x02 0x03 0x04 0x06 0x0A 0x0B 0x19 |
 | **ISO-TP transport** | SF / FF / CF / FC · N_As / N_Bs / N_Cr timing · STmin sub-ms range |
 | **ASIL-B safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
 | **Security** | AES-128-CMAC seed/key · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
@@ -198,7 +198,7 @@ diagnostics_config.yaml
                  │
 ┌────────────────▼────────────────────────┐
 │  UDS Server Core  (core/)               │
-│  14 service handlers · session FSM      │
+│  16 service handlers · session FSM      │
 │  security manager · ASIL-B dispatcher   │
 └────────────────┬────────────────────────┘
                  │

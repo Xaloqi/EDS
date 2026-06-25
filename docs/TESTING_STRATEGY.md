@@ -478,7 +478,7 @@ across unit, harness, and integration layers:
 - Buffer overflow attempts (request length > static buffer size)
 - Invalid session transitions (programming → default without reset)
 - Security bypass attempts (send key without prior seed request)
-- DID access in wrong session (all 15 services × 3 sessions)
+- DID access in wrong session (all 16 services × 3 sessions)
 - Rapid repeated SecurityAccess failures (verify lockout delay enforced)
 - DoIP DiagnosticMessage before Routing Activation (→ NACK 0x02)
 
