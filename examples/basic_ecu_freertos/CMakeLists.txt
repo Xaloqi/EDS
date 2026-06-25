@@ -176,6 +176,7 @@ add_executable(eds_freertos
     ${DIAG_ROOT}/core/uds_services/service_0x27.c
     ${DIAG_ROOT}/core/uds_services/service_0x28.c
     ${DIAG_ROOT}/core/uds_services/service_0x2E.c
+    ${DIAG_ROOT}/core/uds_services/service_0x2F.c
     ${DIAG_ROOT}/core/uds_services/service_0x31.c
     ${DIAG_ROOT}/core/uds_services/service_0x34.c
     ${DIAG_ROOT}/core/uds_services/service_0x35.c
