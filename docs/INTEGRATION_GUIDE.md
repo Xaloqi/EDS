@@ -46,7 +46,8 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | 0x31 | RoutineControl | **Implemented** | Sub-fn 0x01 startRoutine, 0x02 stopRoutine (optional per routine descriptor), 0x03 requestRoutineResults (optional). Session and security level enforced per-routine via `routine_entry_t.min_session` and `.security_level`. Routine option record forwarded to callback. Status record (0–64 bytes) appended to positive response. suppressPosRspMsgIndicationBit (bit 7) honoured (v1.7.0). |
 | 0x34 | RequestDownload | **Implemented** | Programming session + Level 1 security required (enforced by ACL table). Validates `dataFormatIdentifier` (0x00 only — no compression/encryption), parses `addressAndLengthFormatIdentifier` (1–4 byte address and size fields), validates target address range against the registered flash memory map (`uds_flash_ops_t`), erases flash, and initialises the block-transfer state machine. Returns `maxNumberOfBlockLength`. **Requires** `uds_flash_ops_register()` before the first 0x34 request (see Step 5 integration note). |
 | 0x36 | TransferData | **Implemented** | Programming session required. Validates block sequence counter (starts at 0x01, wraps 0xFF → 0x01 per REQ-DL-001 — counter 0x00 always rejected with NRC 0x73). Accumulates payload bytes in a write buffer, flushes full chunks to flash via `flash_write_cb`, and maintains a running CRC-32 accumulator. |
-| 0x37 | RequestTransferExit | **Implemented** | Programming session required. Flushes any remaining write-buffer bytes, optionally validates an optional 4-byte CRC-32 `transferRequestParameterRecord` (NRC 0x72 on mismatch), invokes `flash_verify_cb`, and resets the transfer state machine to IDLE. Enforces `bytes_remaining == 0` before accepting exit (NRC 0x31 if incomplete). |
+| 0x35 | RequestUpload | **Implemented** | Programming session + Level 1 security required (same gates as 0x34). ECU-to-tester data readback. Validates address range, requires `read_cb` registered in `uds_flash_ops_t` (NRC 0x22 if NULL — backward-compatible). Initialises the transfer state machine in upload direction. No flash erase. Block data returned in 0x36 responses. |
+| 0x36 | TransferData | **Implemented** | Programming session required. Direction-aware: in download mode accumulates payload into flash via `flash_write_cb`; in upload mode reads memory via `read_cb` and returns data in the response. Validates block sequence counter (starts at 0x01, wraps 0xFF → 0x01 per REQ-DL-001). Maintains a running CRC-32 accumulator (download only). |
 | 0x38 | RequestFileTransfer | **Out of scope** | — |
 | 0x3D | WriteMemoryByAddress | **Out of scope** | — |
 | 0x3E | TesterPresent | **Implemented** | Sub-fn 0x00 only (bits 6:0 must be 0x00). suppressPosRspMsgIndicationBit (bit 7) honoured. Resets S3Server session timeout. |
@@ -298,6 +299,7 @@ target_sources(app PRIVATE
     ${EDS_ROOT}/core/uds_services/service_0x2E.c
     ${EDS_ROOT}/core/uds_services/service_0x31.c
     ${EDS_ROOT}/core/uds_services/service_0x34.c
+    ${EDS_ROOT}/core/uds_services/service_0x35.c
     ${EDS_ROOT}/core/uds_services/service_0x36.c
     ${EDS_ROOT}/core/uds_services/service_0x37.c
     ${EDS_ROOT}/core/uds_services/service_0x3E.c

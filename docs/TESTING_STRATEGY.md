@@ -130,7 +130,8 @@ bash scripts/build_tests.sh
 | `test_service_0x2e.c` | Valid DID write, write without security → NRC 0x33, wrong length → NRC 0x13 |
 | `test_service_0x31.c` | Routine start, stop, request result, unknown routine ID |
 | `test_service_0x34.c` | Download request in programming session, rejected in default |
-| `test_service_0x36.c` | Valid block transfer, wrong block sequence counter → NRC 0x73 |
+| `test_service_0x35.c` | Upload request: valid readback, read_cb=NULL → NRC 0x22, address range, direction set |
+| `test_service_0x36.c` | Valid block transfer (download + upload), wrong block sequence counter → NRC 0x73 |
 | `test_service_0x37.c` | Transfer exit, exit without prior download |
 | `test_service_0x3d.c` | File transfer request, unsupported mode |
 | `test_service_0x3e.c` | Tester present with/without response, suppress positive response bit |
@@ -477,7 +478,7 @@ across unit, harness, and integration layers:
 - Buffer overflow attempts (request length > static buffer size)
 - Invalid session transitions (programming → default without reset)
 - Security bypass attempts (send key without prior seed request)
-- DID access in wrong session (all 14 services × 3 sessions)
+- DID access in wrong session (all 15 services × 3 sessions)
 - Rapid repeated SecurityAccess failures (verify lockout delay enforced)
 - DoIP DiagnosticMessage before Routing Activation (→ NACK 0x02)
 
