@@ -153,6 +153,87 @@ any CI job is red.
 
 ---
 
+## Adding a new UDS service handler
+
+Use this checklist when implementing a new SID. Every item is required — gaps
+here have caused real CI failures and customer-visible linker errors.
+
+### Stack (EDS repo)
+
+- [ ] `core/uds_types.h` — add `UDS_SID_*` constant
+- [ ] `core/uds_services/services.h` — declare handler, bump `UDS_SERVICE_TABLE_COUNT`
+- [ ] `core/uds_services/service_registration.c` — add table entry
+- [ ] `core/uds_access_table.c` — add ACL entry
+- [ ] `core/uds_access_table.h` — bump `UDS_ACCESS_TABLE_DEFAULT_COUNT`
+- [ ] `core/uds_services/service_0xNN.c` — implement handler
+- [ ] `cmake/eds_service_sources.cmake` — add one line (**this propagates to all 20 examples automatically**)
+- [ ] `tests/unit_runnable/test_service_0xNN.c` — unit tests (aim for 14+ cases)
+- [ ] `tests/CMakeLists.txt` — `add_diag_test(test_service_0xNN)`
+- [ ] `build_tests.sh` — add to `STACK_SRCS` and `TESTS` arrays, bump count in comment
+- [ ] `ci.yml` — bump unit test count in job comment/display name
+- [ ] `misra_analysis.py` — add `core/uds_services/service_0xNN.c` to **DEV-MULT-01**
+  `files` list (Rule 15.5 — early-return guard pattern used by all handlers)
+
+### Docs
+
+- [ ] `CHANGELOG.md` — entry under `[Unreleased]`
+- [ ] `README.md` — service count and SID list (two places)
+- [ ] `CONTRIBUTING.md` — unit test count (three places)
+- [ ] `docs/llms.txt` — service count (two places), remove from "not implemented" list
+- [ ] `docs/INTEGRATION_GUIDE.md` — add row to service table, remove from "out of scope"
+- [ ] `docs/TESTING_STRATEGY.md` — service count
+- [ ] `docs/README.md` — service count (two places)
+- [ ] `docs/AI_CONTEXT.md` — service count
+
+### EDS-toolchain repo
+
+- [ ] `CLAUDE.md` — service count (one place)
+
+> The per-example `CMakeLists.txt` files no longer need individual updates — adding
+> one line to `cmake/eds_service_sources.cmake` covers all 20 build targets.
+> The EDS-toolchain examples inherit the list when they include
+> `${DIAG_ROOT}/cmake/eds_service_sources.cmake` at build time.
+
+---
+
+### Lessons learned from adding 0x2F (2026-06)
+
+These caught CI failures on a real PR. Record them here so the next engineer
+doesn't repeat the same debugging session.
+
+**Counter conflict resolution during rebase**
+
+When two branches both increment the same numeric constant from the same base
+value (common when two SIDs land close together), naively keeping either side
+is wrong. If main went A → B and your branch went A → C, the merged value is
+A + (B−A) + (C−A). In practice: count the actual table entries in the merged
+file and set the constant to match. Affected constants:
+
+- `UDS_SERVICE_TABLE_COUNT` in `core/uds_services/services.h`
+- `UDS_ACCESS_TABLE_DEFAULT_COUNT` in `core/uds_access_table.h`
+
+GCC catches a wrong `UDS_SERVICE_TABLE_COUNT` as
+`warning: excess elements in array initializer` on `service_registration.c`.
+`misra_analysis.py` classifies this as **Rule N/A** (the warning has no `-W`
+flag suffix). If you see "Rule N/A" in the MISRA report pointing at
+`service_registration.c`, check the array size constant first.
+
+**misra_analysis.py DEV-MULT-01 requires manual enumeration**
+
+The Rule 15.5 deviation (`DEV-MULT-01`) applies only to files explicitly listed
+in its `files` array in `misra_analysis.py`. Every new service handler `.c` file
+must be added to that list or CI reports 15+ open violations. The entry goes
+between the neighbouring service files (alphabetical / numerical order).
+
+**MISRA Rule 2.5 — define only macros you reference**
+
+Constants defined in the `.c` file for documentation (e.g., named control
+parameter values) that are never referenced in the code itself trigger Rule 2.5
+violations. Either use them explicitly in `switch`/`if` branches, or remove
+them and rely on the file-level comment to document the protocol values.
+
+---
+
 ## AI-assisted development
 
 Xaloqi EDS uses AI-assisted development tooling (Claude Code / Anthropic Claude) to

@@ -241,54 +241,22 @@ target_sources(app PRIVATE
     # by a compiled translation unit in this build:
     #
     #   uds_security_algo.c  — seed/key derivation, called by service_0x27.c
+    #   uds_aes_cmac.c       — AES-128-CMAC primitive, called by uds_security_algo.c
     #   uds_access_table.c   — ACL lookup/enforce, called by uds_server.c
     #   uds_comm_control.c   — comm-control state, called by service_0x28.c / 0x85.c
     #   uds_session_stats.c  — session counters, called by zephyr_port.c
     #   uds_security_nvm.c   — persistent security counters (NVM-backed)
     ${DIAG_ROOT}/core/uds_security_algo.c
+    ${DIAG_ROOT}/core/uds_aes_cmac.c
     ${DIAG_ROOT}/core/uds_access_table.c
     ${DIAG_ROOT}/core/uds_comm_control.c
     ${DIAG_ROOT}/core/uds_session_stats.c
     ${DIAG_ROOT}/core/uds_security_nvm.c
 
-    # ── UDS service handlers + dispatch table ─────────────────────────────
-    ${DIAG_ROOT}/core/uds_services/service_registration.c
-    ${DIAG_ROOT}/core/uds_services/service_0x10.c
-    ${DIAG_ROOT}/core/uds_services/service_0x11.c
-    ${DIAG_ROOT}/core/uds_services/service_0x22.c
-    ${DIAG_ROOT}/core/uds_services/service_0x27.c
-    ${DIAG_ROOT}/core/uds_services/service_0x2E.c
-    ${DIAG_ROOT}/core/uds_services/service_0x2F.c
-    ${DIAG_ROOT}/core/uds_services/service_0x3E.c
-
-    # ── UDS service handlers: additional services ─────────────────────────
-    # FIX (B1): service_registration.c registers handlers for 0x14, 0x19,
-    # 0x28, and 0x85 by name. Their .c files were absent from target_sources,
-    # causing: "undefined reference to uds_service_0xNN_handler" at link time.
-    ${DIAG_ROOT}/core/uds_services/service_0x14.c
-    ${DIAG_ROOT}/core/uds_services/service_0x19.c
-    ${DIAG_ROOT}/core/uds_services/service_0x28.c
-    ${DIAG_ROOT}/core/uds_services/service_0x31.c
-    ${DIAG_ROOT}/core/uds_services/service_0x85.c
-
-    # ── DFU service handlers (RequestDownload / TransferData / TransferExit) ──
-    # FIX (P9-H1): service_registration.c unconditionally registers handlers
-    # for SIDs 0x34, 0x36, and 0x37 in g_uds_service_table[]. Omitting their
-    # .c files causes a linker failure on every build of this example:
-    #   undefined reference to `uds_service_0x34_handler'
-    #   undefined reference to `uds_service_0x36_handler'
-    #   undefined reference to `uds_service_0x37_handler'
-    # uds_transfer_ctx.c provides the transfer state machine used by all three.
-    # uds_aes_cmac.c provides the AES-128-CMAC primitive called by
-    # uds_security_algo.c (already in this list via uds_security.c dependency).
-    # uds_flash_ops.c provides the flash-ops singleton registered during
-    # uds_generated_init() for DFU readiness; omitting it produces:
-    #   undefined reference to `uds_flash_ops_register'
-    ${DIAG_ROOT}/core/uds_aes_cmac.c                    # AES-128-CMAC primitive (security + DFU)
-    ${DIAG_ROOT}/core/uds_services/service_0x34.c       # RequestDownload
-    ${DIAG_ROOT}/core/uds_services/service_0x35.c       # RequestUpload
-    ${DIAG_ROOT}/core/uds_services/service_0x36.c       # TransferData
-    ${DIAG_ROOT}/core/uds_services/service_0x37.c       # RequestTransferExit
+    # UDS service handlers (all 16 SIDs + dispatch table).
+    # Source list is centrally managed — add new SIDs in cmake/eds_service_sources.cmake.
+    include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
+    ${EDS_SERVICE_SRCS}
     ${DIAG_ROOT}/core/uds_transfer_ctx.c                # DFU transfer state machine + CRC-32
     ${DIAG_ROOT}/platform/uds_flash_ops.c               # Flash ops registration singleton
 

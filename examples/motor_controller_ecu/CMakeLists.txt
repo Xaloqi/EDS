@@ -159,27 +159,10 @@ target_sources(app PRIVATE
     ${DIAG_ROOT}/core/uds_session_stats.c
     ${DIAG_ROOT}/core/uds_security_nvm.c
 
-    # UDS services (all 11 SIDs including 0x31 RoutineControl)
-    ${DIAG_ROOT}/core/uds_services/service_registration.c
-    ${DIAG_ROOT}/core/uds_services/service_0x10.c
-    ${DIAG_ROOT}/core/uds_services/service_0x11.c
-    ${DIAG_ROOT}/core/uds_services/service_0x14.c
-    ${DIAG_ROOT}/core/uds_services/service_0x19.c
-    ${DIAG_ROOT}/core/uds_services/service_0x22.c
-    ${DIAG_ROOT}/core/uds_services/service_0x27.c
-    ${DIAG_ROOT}/core/uds_services/service_0x28.c
-    ${DIAG_ROOT}/core/uds_services/service_0x31.c
-    ${DIAG_ROOT}/core/uds_services/service_0x2E.c
-    ${DIAG_ROOT}/core/uds_services/service_0x2F.c
-    ${DIAG_ROOT}/core/uds_services/service_0x3E.c
-    ${DIAG_ROOT}/core/uds_services/service_0x85.c
-    # DFU services — added with Phase 7 firmware download support.
-    # service_registration.c references all three in g_uds_service_table[];
-    # omitting these causes link failure: undefined reference to uds_service_0x34_handler.
-    ${DIAG_ROOT}/core/uds_services/service_0x34.c   # RequestDownload
-    ${DIAG_ROOT}/core/uds_services/service_0x35.c   # RequestUpload
-    ${DIAG_ROOT}/core/uds_services/service_0x36.c   # TransferData
-    ${DIAG_ROOT}/core/uds_services/service_0x37.c   # RequestTransferExit
+    # UDS service handlers (all 16 SIDs + dispatch table).
+    # Source list is centrally managed — add new SIDs in cmake/eds_service_sources.cmake.
+    include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
+    ${EDS_SERVICE_SRCS}
     ${DIAG_ROOT}/core/uds_transfer_ctx.c             # DFU transfer state machine
     ${DIAG_ROOT}/platform/uds_flash_ops.c            # Flash ops singleton
 
