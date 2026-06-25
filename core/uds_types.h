@@ -219,6 +219,7 @@ typedef enum uds_nrc {
 #define UDS_SID_WRITE_DATA_BY_ID              (0x2EU)
 #define UDS_SID_SECURITY_ACCESS               (0x27U)
 #define UDS_SID_COMMUNICATION_CONTROL         (0x28U)
+#define UDS_SID_INPUT_OUTPUT_CONTROL          (0x2FU)
 #define UDS_SID_ROUTINE_CONTROL               (0x31U)
 #define UDS_SID_REQUEST_DOWNLOAD              (0x34U)
 #define UDS_SID_REQUEST_UPLOAD                (0x35U)

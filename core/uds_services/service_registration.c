@@ -161,8 +161,31 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
          *         Security level check mandatory before callback invocation.
          *         All writes route through did_safe_write_*() ASIL-B wrappers.
          */
-        .service_id                    = UDS_SID_WRITE_DATA_BY_ID,
-        .handler                       = uds_service_0x2E_handler,
+        .service_id                      = UDS_SID_WRITE_DATA_BY_ID,
+        .handler                         = uds_service_0x2E_handler,
+        .suppress_pos_response_supported = false,
+    },
+    {
+        /* SID 0x2F — InputOutputControlByIdentifier
+         *
+         * Controls ECU actuators and I/O during EOL, bench test, and field
+         * diagnostics. inputOutputControlParameter selects returnControlToECU
+         * (0x00), resetToDefault (0x01), freezeCurrentState (0x02), or
+         * shortTermAdjustment (0x03).  The DID's io_control_cb is invoked
+         * after session, security, and access-flag validation.
+         *
+         * SESSION:  Extended or Programming session (NON_DEFAULT).
+         * SECURITY: Level 1 security unlock required.
+         *
+         * SAFETY: IO control modifies physical actuator state. Incorrect
+         *         implementation may leave outputs in an unsafe state.
+         *         returnControlToECU (0x00) must always restore ECU
+         *         autonomous operation regardless of prior commands.
+         *         suppressPosRspMsgIndicationBit not applicable — no
+         *         sub-function byte.
+         */
+        .service_id                      = UDS_SID_INPUT_OUTPUT_CONTROL,
+        .handler                         = uds_service_0x2F_handler,
         .suppress_pos_response_supported = false,
     },
     {

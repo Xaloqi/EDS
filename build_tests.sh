@@ -165,6 +165,7 @@ STACK_SRCS=(
     "${ROOT}/core/uds_services/service_0x27.c"
     "${ROOT}/core/uds_services/service_0x28.c"
     "${ROOT}/core/uds_services/service_0x2E.c"
+    "${ROOT}/core/uds_services/service_0x2F.c"   # InputOutputControlByIdentifier
     "${ROOT}/core/uds_services/service_0x31.c"
     "${ROOT}/core/uds_services/service_0x3E.c"
     "${ROOT}/core/uds_services/service_0x85.c"
@@ -227,6 +228,7 @@ TESTS=(
     test_service_0x22
     test_service_0x27
     test_service_0x28
+    test_service_0x2F
     test_service_0x31
     test_service_0x34
     test_service_0x35

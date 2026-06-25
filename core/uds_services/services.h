@@ -107,6 +107,24 @@ uds_status_t uds_service_0x2E_handler(
 );
 
 /**
+ * @brief Handler for SID 0x2F — InputOutputControlByIdentifier.
+ *
+ * Controls ECU actuators and I/O for EOL production test, bench
+ * verification, and field diagnostics. inputOutputControlParameter
+ * selects returnControlToECU (0x00), resetToDefault (0x01),
+ * freezeCurrentState (0x02), or shortTermAdjustment (0x03).
+ *
+ * SAFETY: IO control modifies physical actuator state. returnControlToECU
+ *         (0x00) must always restore ECU autonomous operation regardless of
+ *         prior commands. Security-level check mandatory before callback.
+ */
+uds_status_t uds_service_0x2F_handler(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp
+);
+
+/**
  * @brief Handler for SID 0x14 — ClearDiagnosticInformation.
  *
  * Clears all DTC status bytes for the requested group-of-DTC and persists

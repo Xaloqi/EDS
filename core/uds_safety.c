@@ -469,8 +469,12 @@ uds_safety_result_t uds_safety_validate_did_access(
     if (access_type == UDS_SAFETY_ACCESS_READ) {
         required_access_flag    = (uint8_t)DID_ACCESS_READ;
         required_security_level = entry->read_access_level;
-    } else {
+    } else if (access_type == UDS_SAFETY_ACCESS_WRITE) {
         required_access_flag    = (uint8_t)DID_ACCESS_WRITE;
+        required_security_level = entry->write_access_level;
+    } else {
+        /* UDS_SAFETY_ACCESS_IO_CONTROL: same privilege level as write. */
+        required_access_flag    = (uint8_t)DID_ACCESS_IO_CONTROL;
         required_security_level = entry->write_access_level;
     }
 

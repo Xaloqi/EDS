@@ -145,10 +145,24 @@ static const uds_access_entry_t k_default_table[UDS_ACCESS_TABLE_DEFAULT_COUNT] 
 
     /* [7] 0x2E WriteDataByIdentifier — non-default sessions + Level 1 unlock */
     {
-        .service_id        = UDS_SID_WRITE_DATA_BY_ID,
-        .session_mask      = UDS_ACL_SESSION_NON_DEFAULT,
+        .service_id         = UDS_SID_WRITE_DATA_BY_ID,
+        .session_mask       = UDS_ACL_SESSION_NON_DEFAULT,
         .required_sec_level = UDS_SEC_LEVEL_1_SEED,   /* 0x01 */
-        .require_unlocked  = true,
+        .require_unlocked   = true,
+    },
+
+    /* [7b] 0x2F InputOutputControlByIdentifier — non-default sessions + Level 1 unlock.
+     *
+     *  IO control modifies physical ECU outputs. Access constraints match
+     *  WriteDataByIdentifier: tester must be in a non-default session and
+     *  have completed SecurityAccess Level 1 unlock. This prevents
+     *  actuator commands from anonymous/non-authenticated tools.
+     */
+    {
+        .service_id         = UDS_SID_INPUT_OUTPUT_CONTROL,
+        .session_mask       = UDS_ACL_SESSION_NON_DEFAULT,
+        .required_sec_level = UDS_SEC_LEVEL_1_SEED,
+        .require_unlocked   = true,
     },
 
     /* [8] 0x3E TesterPresent — all sessions, no security */

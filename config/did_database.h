@@ -53,6 +53,9 @@ extern "C" {
 /** DID supports WriteDataByIdentifier (SID 0x2E). */
 #define DID_ACCESS_WRITE  (0x02U)
 
+/** DID supports InputOutputControlByIdentifier (SID 0x2F). */
+#define DID_ACCESS_IO_CONTROL  (0x04U)
+
 /* --------------------------------------------------------------------------
  * DID read/write callback prototypes
  * -------------------------------------------------------------------------- */
@@ -91,6 +94,31 @@ typedef uds_status_t (*did_write_cb_fn)(
     uint16_t       len
 );
 
+/**
+ * @brief DID I/O control callback — applies control command and returns current state.
+ *
+ * SAFETY: Must complete within P2server_max. No blocking calls.
+ * For returnControlToECU/resetToDefault/freezeCurrentState, control_record is NULL
+ * and control_len is 0. For shortTermAdjustment, control_record contains the
+ * tester-supplied value (exactly data_length bytes).
+ *
+ * @param[in]  control_param   inputOutputControlParameter (0x00–0x03).
+ * @param[in]  control_record  Tester-supplied value (shortTermAdjustment only); NULL otherwise.
+ * @param[in]  control_len     Bytes in control_record; 0 if control_record is NULL.
+ * @param[out] status_record   Buffer to receive current actuator state after command.
+ * @param[out] status_len      Number of bytes written to status_record.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_CONDITIONS_NOT_MET if actuator cannot accept command.
+ */
+typedef uds_status_t (*did_io_control_cb_fn)(
+    uint8_t         control_param,
+    const uint8_t  *control_record,
+    uint16_t        control_len,
+    uint8_t        *status_record,
+    uint16_t       *status_len
+);
+
 /* --------------------------------------------------------------------------
  * DID descriptor record
  * -------------------------------------------------------------------------- */
@@ -112,9 +140,10 @@ typedef struct did_entry {
     uint8_t         read_access_level;  /**< Minimum security level for read (0 = no lock). */
     uint8_t         write_access_level; /**< Minimum security level for write. */
     uint16_t        data_length;        /**< Data payload length in bytes (1–DID_MAX_DATA_LEN). */
-    did_read_cb_fn  read_cb;            /**< Read callback; NULL if DID is write-only. */
-    did_write_cb_fn write_cb;           /**< Write callback; NULL if DID is read-only. */
-    const char     *description;        /**< Human-readable label (tooling/logging only). */
+    did_read_cb_fn       read_cb;         /**< Read callback; NULL if DID is write-only. */
+    did_write_cb_fn      write_cb;        /**< Write callback; NULL if DID is read-only. */
+    did_io_control_cb_fn io_control_cb;   /**< I/O control callback — NULL if DID not IO-controllable. */
+    const char          *description;     /**< Human-readable label (tooling/logging only). */
 } did_entry_t;
 
 /* --------------------------------------------------------------------------

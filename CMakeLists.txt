@@ -345,6 +345,7 @@ target_sources(app PRIVATE
     core/uds_services/service_0x27.c
     core/uds_services/service_0x28.c  # ADDED — CommunicationControl
     core/uds_services/service_0x2E.c
+    core/uds_services/service_0x2F.c  # ADDED — InputOutputControlByIdentifier
     core/uds_services/service_0x31.c  # ADDED — RoutineControl
     core/uds_services/service_0x34.c  # ADDED — RequestDownload (DFU)
     core/uds_services/service_0x36.c  # ADDED — TransferData (DFU)

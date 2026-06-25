@@ -122,8 +122,9 @@ typedef uds_status_t uds_safety_result_t;
  * and security level constraints from the DID descriptor.
  */
 typedef enum uds_safety_access_type {
-    UDS_SAFETY_ACCESS_READ  = 0U, /**< ReadDataByIdentifier (SID 0x22). */
-    UDS_SAFETY_ACCESS_WRITE = 1U  /**< WriteDataByIdentifier (SID 0x2E). */
+    UDS_SAFETY_ACCESS_READ       = 0U, /**< ReadDataByIdentifier (SID 0x22). */
+    UDS_SAFETY_ACCESS_WRITE      = 1U, /**< WriteDataByIdentifier (SID 0x2E). */
+    UDS_SAFETY_ACCESS_IO_CONTROL = 2U  /**< InputOutputControlByIdentifier (SID 0x2F). */
 } uds_safety_access_type_t;
 
 /* =============================================================================

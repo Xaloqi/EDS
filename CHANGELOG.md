@@ -14,6 +14,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - `extras/wireshark/eds.lua`: Wireshark Lua dissector — UDS service decode (all 14 SIDs), full NRC table, ISO-TP PCI frame types, DoIP payload types (0x0005–0x0008, 0x8001–0x8003) — closes #44
 
+- SID 0x2F InputOutputControlByIdentifier: actuator and I/O control for EOL and bench testing. `returnControlToECU` / `resetToDefault` / `freezeCurrentState` / `shortTermAdjustment` (CR-010) — closes #47
+
 ---
 ## [1.8.3] — 2026-06-24
 
