@@ -84,6 +84,7 @@ target_sources(app PRIVATE
     ${DIAG_ROOT}/core/uds_services/service_0x2E.c
     ${DIAG_ROOT}/core/uds_services/service_0x31.c
     ${DIAG_ROOT}/core/uds_services/service_0x34.c
+    ${DIAG_ROOT}/core/uds_services/service_0x35.c
     ${DIAG_ROOT}/core/uds_services/service_0x36.c
     ${DIAG_ROOT}/core/uds_services/service_0x37.c
     ${DIAG_ROOT}/core/uds_services/service_0x3E.c
