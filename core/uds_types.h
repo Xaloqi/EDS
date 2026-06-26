@@ -104,6 +104,7 @@ typedef enum uds_status {
     UDS_STATUS_ERR_ALREADY_INITIALIZED   = 0x06, /**< Module initialized more than once. */
     UDS_STATUS_ERR_TIMEOUT               = 0x07, /**< Operation timed out. */
     UDS_STATUS_ERR_BUSY                  = 0x08, /**< Resource temporarily unavailable. */
+    UDS_STATUS_ERR_NOT_FOUND             = 0x09, /**< Requested item not found (e.g. no periodic subscription due). */
 
     /* --- Session errors --- */
     UDS_STATUS_ERR_SESSION_INVALID       = 0x10, /**< Requested session type not supported. */
@@ -216,6 +217,7 @@ typedef enum uds_nrc {
 #define UDS_SID_CLEAR_DIAGNOSTIC_INFO         (0x14U)
 #define UDS_SID_READ_DTC_INFO                 (0x19U)
 #define UDS_SID_READ_DATA_BY_ID               (0x22U)
+#define UDS_SID_READ_DATA_BY_PERIODIC_ID      (0x2AU)
 #define UDS_SID_WRITE_DATA_BY_ID              (0x2EU)
 #define UDS_SID_SECURITY_ACCESS               (0x27U)
 #define UDS_SID_COMMUNICATION_CONTROL         (0x28U)

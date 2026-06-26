@@ -60,6 +60,8 @@
  * -------------------------------------------------------------------------- */
 #include "uds_types.h"
 #include "uds_server.h"
+#include "uds_periodic.h"
+#include "uds_session.h"
 #include "isotp.h"
 #include "can_transport.h"
 #include "zephyr_port.h"
@@ -356,6 +358,7 @@ static void on_tick(void *arg)
     (void)diag_mutex_lock(&s_session_lock);
     (void)diag_mutex_lock(&s_security_lock);
     (void)uds_server_tick_1ms(ctx->srv);
+    (void)uds_periodic_tick_1ms();
     (void)diag_mutex_unlock(&s_security_lock);
     (void)diag_mutex_unlock(&s_session_lock);
 }
@@ -443,8 +446,16 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
             /* No frame this iteration — idle. */
         }
 
-        /* ── [3] 1 ms tick processing (ISO-TP + UDS timers) ─────────────── */
+        /* ── [3] 1 ms tick processing (ISO-TP + UDS + periodic timers) ─── */
         on_tick(&tick_ctx);
+
+        {
+            static uds_msg_buf_t s_periodic_frame;
+            while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
+                (void)isotp_transmit(tp, s_periodic_frame.data,
+                                     (uint32_t)s_periodic_frame.length);
+            }
+        }
 
         /* ── [4] Watchdog feed ───────────────────────────────────────────── */
         (void)diag_wdt_feed(&s_wdt);
@@ -462,6 +473,15 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
         }
 
     } /* while (true) */
+}
+
+static void s_on_session_change(uds_session_type_t old_sess,
+                                uds_session_type_t new_sess)
+{
+    (void)old_sess;
+    if (new_sess == UDS_SESSION_DEFAULT) {
+        (void)uds_periodic_cancel_all();
+    }
 }
 
 /* =============================================================================
@@ -549,6 +569,10 @@ int main(void)
         LOG_ERR("Context accessors returned NULL after init.");
         return -1;
     }
+
+    (void)uds_periodic_init();
+    (void)uds_session_register_change_cb(srv->cfg.session_ctx,
+                                          s_on_session_change);
 
     LOG_INF("UDS stack ready.");
     LOG_INF("  P2max  = %u ms", (unsigned)GEN_P2_SERVER_MAX_MS);

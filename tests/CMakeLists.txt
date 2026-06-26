@@ -237,7 +237,9 @@ set(DIAG_SRCS_SERVICES_FULL
     "${DIAG_SERVICES}/service_0x22.c"
     "${DIAG_SERVICES}/service_0x27.c"
     "${DIAG_SERVICES}/service_0x28.c"
+    "${DIAG_SERVICES}/service_0x2A.c"  # ADDED — ReadDataByPeriodicIdentifier
     "${DIAG_SERVICES}/service_0x2E.c"
+    "${DIAG_CORE}/uds_periodic.c"      # ADDED — periodic scheduler
     "${DIAG_SERVICES}/service_0x31.c"
     "${DIAG_SERVICES}/service_0x34.c"
     "${DIAG_SERVICES}/service_0x36.c"
@@ -517,6 +519,26 @@ add_diag_test(test_service_0x27
 add_diag_test(test_service_0x3E
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x3E.c"
+        ${DIAG_SRCS_SERVICES_FULL}
+)
+
+# ---------------------------------------------------------------------------
+# 38. test_uds_periodic
+#     Module under test: core/uds_periodic.c (SID 0x2A scheduler)
+# ---------------------------------------------------------------------------
+add_diag_test(test_uds_periodic
+    SOURCES
+        "${TEST_UNIT_DIR}/test_uds_periodic.c"
+        ${DIAG_SRCS_SERVICES_FULL}
+)
+
+# ---------------------------------------------------------------------------
+# 39. test_service_0x2A
+#     Module under test: core/uds_services/service_0x2A.c
+# ---------------------------------------------------------------------------
+add_diag_test(test_service_0x2A
+    SOURCES
+        "${TEST_UNIT_DIR}/test_service_0x2A.c"
         ${DIAG_SRCS_SERVICES_FULL}
 )
 

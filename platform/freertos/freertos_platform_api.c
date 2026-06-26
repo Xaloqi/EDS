@@ -477,6 +477,7 @@ uint32_t eds_platform_uptime_ms(void)
  * only from the single UDS poll task — no concurrent access is possible.
  */
 #include "uds_server.h"
+#include "uds_periodic.h"
 #include "isotp.h"
 #include "uds_init.h"        /* uds_generated_get_server(), uds_generated_get_isotp() */
 #include "can_transport.h"
@@ -563,6 +564,15 @@ static void eds_uds_poll_task(void *arg)
 
         (void)isotp_tick_1ms(tp);
         (void)uds_server_tick_1ms(srv);
+        (void)uds_periodic_tick_1ms();
+
+        {
+            static uds_msg_buf_t s_periodic_frame;
+            while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
+                (void)isotp_transmit(tp, s_periodic_frame.data,
+                                     (uint32_t)s_periodic_frame.length);
+            }
+        }
     }
 }
 

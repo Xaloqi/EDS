@@ -71,6 +71,8 @@
 #include "uds_types.h"
 #include "uds_server.h"
 #include "uds_security_algo.h"
+#include "uds_periodic.h"
+#include "uds_session.h"
 #include "isotp.h"
 #include "can_transport.h"
 #include "zephyr_port.h"
@@ -714,6 +716,15 @@ extern void register_dtcs(void);
  * Diagnostics task (1 ms poll loop)
  * ============================================================================= */
 
+static void s_on_session_change(uds_session_type_t old_sess,
+                                uds_session_type_t new_sess)
+{
+    (void)old_sess;
+    if (new_sess == UDS_SESSION_DEFAULT) {
+        (void)uds_periodic_cancel_all();
+    }
+}
+
 static void diag_task_fn(void *p1, void *p2, void *p3)
 {
     (void)p1; (void)p2; (void)p3;
@@ -748,6 +759,15 @@ static void diag_task_fn(void *p1, void *p2, void *p3)
         return;
     }
 
+    {
+        uds_server_ctx_t *mc_srv = uds_generated_get_server();
+        if (mc_srv != NULL) {
+            (void)uds_periodic_init();
+            (void)uds_session_register_change_cb(mc_srv->cfg.session_ctx,
+                                                  s_on_session_change);
+        }
+    }
+
     LOG_INF("[MC] Motor controller diagnostics running");
     LOG_INF("[MC] RX=0x%03X TX=0x%03X", DIAG_RX_CAN_ID, DIAG_TX_CAN_ID);
 
@@ -768,6 +788,18 @@ static void diag_task_fn(void *p1, void *p2, void *p3)
 
             /* Drive all 1 ms tick functions */
             (void)uds_server_tick_1ms(NULL);
+            (void)uds_periodic_tick_1ms();
+        }
+
+        {
+            static uds_msg_buf_t s_periodic_frame;
+            isotp_ctx_t *mc_tp = uds_generated_get_isotp();
+            if (mc_tp != NULL) {
+                while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
+                    (void)isotp_transmit(mc_tp, s_periodic_frame.data,
+                                        (uint32_t)s_periodic_frame.length);
+                }
+            }
         }
 
         k_sleep(K_USEC(500));

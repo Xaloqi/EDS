@@ -43,6 +43,9 @@
 /* EDS stack */
 #include "platform_api.h"
 #include "uds_init.h"
+#include "uds_server.h"
+#include "uds_periodic.h"
+#include "uds_session.h"
 #include "generated_config.h"
 #include "uds_security_algo.h"
 
@@ -135,6 +138,15 @@ uds_status_t did_read_CoolantTemperature(
     return UDS_STATUS_OK;
 }
 
+static void s_on_session_change(uds_session_type_t old_sess,
+                                uds_session_type_t new_sess)
+{
+    (void)old_sess;
+    if (new_sess == UDS_SESSION_DEFAULT) {
+        (void)uds_periodic_cancel_all();
+    }
+}
+
 /* =============================================================================
  * main() — four-step integration
  * ============================================================================= */
@@ -181,6 +193,10 @@ int main(void)
     if (srv == NULL) {
         for (;;) { vTaskDelay(pdMS_TO_TICKS(1000U)); }
     }
+
+    (void)uds_periodic_init();
+    (void)uds_session_register_change_cb(srv->cfg.session_ctx,
+                                          s_on_session_change);
 
     /*
      * Step 3: Start DoIP server task.

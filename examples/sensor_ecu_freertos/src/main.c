@@ -47,6 +47,8 @@
 /* EDS platform + stack */
 #include "platform_api.h"
 #include "uds_server.h"
+#include "uds_periodic.h"
+#include "uds_session.h"
 #include "isotp.h"
 #include "can_transport.h"
 #include "freertos_can.h"
@@ -162,6 +164,24 @@ static void uds_poll_task(void *arg)
 
         (void)isotp_tick_1ms(tp);
         (void)uds_server_tick_1ms(srv);
+        (void)uds_periodic_tick_1ms();
+
+        {
+            static uds_msg_buf_t s_periodic_frame;
+            while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
+                (void)isotp_transmit(tp, s_periodic_frame.data,
+                                     (uint32_t)s_periodic_frame.length);
+            }
+        }
+    }
+}
+
+static void s_on_session_change(uds_session_type_t old_sess,
+                                uds_session_type_t new_sess)
+{
+    (void)old_sess;
+    if (new_sess == UDS_SESSION_DEFAULT) {
+        (void)uds_periodic_cancel_all();
     }
 }
 
@@ -206,6 +226,10 @@ int main(void)
 
     srv = uds_generated_get_server();
     if (srv == NULL) { for (;;) { } }
+
+    (void)uds_periodic_init();
+    (void)uds_session_register_change_cb(srv->cfg.session_ctx,
+                                          s_on_session_change);
 
     /* ── 4. UDS poll task ────────────────────────────────────────────────── */
     (void)xTaskCreateStatic(

@@ -173,7 +173,7 @@ typedef struct uds_access_entry {
 /**
  * @brief Number of entries in the built-in default access rights table.
  */
-#define UDS_ACCESS_TABLE_DEFAULT_COUNT  (15U)
+#define UDS_ACCESS_TABLE_DEFAULT_COUNT  (16U)
 
 /* --------------------------------------------------------------------------
  * Public API

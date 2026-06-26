@@ -10,6 +10,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **SID 0x2A — ReadDataByPeriodicIdentifier** (ISO 14229-1 §11.5).
+  The ECU now pushes DID data autonomously at tester-configured rates without
+  waiting for repeated requests. One-time subscription from the tester; the ECU
+  streams `[0x6A, periodicId, dataRecord...]` frames until session returns to
+  Default or the tester sends `transmissionMode = stopSending (0x04)`.
+
+  - **New module `core/uds_periodic.h/.c`** — stateless tick-driven scheduler.
+    Static subscription table `s_subs[UDS_PERIODIC_MAX_SUBSCRIPTIONS]` (default 8).
+    Three push rates: `SLOW` (1000 ms), `MEDIUM` (100 ms), `FAST` (10 ms).
+    `uds_periodic_tick_1ms()` advances all counters; `uds_periodic_pop_due()` returns
+    at most one ready frame per call. No malloc/free anywhere.
+
+  - **New `core/uds_services/service_0x2A.c`** — subscription handler.
+    Validates `transmissionMode` (NRC 0x12 for 0x00/0x05+), looks up each
+    `0xF2xx` DID via the 5-step safety chain, checks `DID_ACCESS_READ`, and
+    registers or removes subscriptions. Positive response: `[0x6A]` (1 byte).
+    `stopSending` is a no-op if the ID was not subscribed.
+
+  - **Integration** — all 12 examples and `platform/freertos/freertos_platform_api.c`
+    updated with `uds_periodic_tick_1ms()` + drain loop and session-change callback
+    that calls `uds_periodic_cancel_all()` on return to Default session.
+    DoIP-only examples (no ISO-TP transport) get `init` + session callback only.
+
+  - **26 new unit tests** (`tests/unit_runnable/test_uds_periodic.c`,
+    `tests/unit_runnable/test_service_0x2A.c`): scheduler lifecycle
+    (TC-PERIODIC-001–014) and handler branches (TC-0x2A-001–012).
+
+  - Closes [#48](https://github.com/Xaloqi/EDS/issues/48).
+
 - **SID 0x35 RequestUpload** — ECU-to-tester data readback over the existing 0x36/0x37 transfer state machine. Symmetric counterpart to 0x34 RequestDownload. Supports calibration data readback, NVM log extraction, and flash image verification readout. Requires Programming session + Level 1 security unlock. `read_cb = NULL` is backward-compatible and returns NRC 0x22. Closes #46.
 
 - `extras/wireshark/eds.lua`: Wireshark Lua dissector — UDS service decode (all 14 SIDs), full NRC table, ISO-TP PCI frame types, DoIP payload types (0x0005–0x0008, 0x8001–0x8003) — closes #44

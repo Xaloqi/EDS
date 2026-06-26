@@ -40,6 +40,8 @@
 #include "sensor_ecu.h"
 #include "uds_types.h"
 #include "uds_server.h"
+#include "uds_periodic.h"
+#include "uds_session.h"
 #include "isotp.h"
 #include "can_transport.h"
 #include "zephyr_port.h"
@@ -187,6 +189,7 @@ static void on_tick(void *arg)
     (void)diag_mutex_lock(&s_session_lock);
     (void)diag_mutex_lock(&s_security_lock);
     (void)uds_server_tick_1ms(ctx->srv);
+    (void)uds_periodic_tick_1ms();
     (void)diag_mutex_unlock(&s_security_lock);
     (void)diag_mutex_unlock(&s_session_lock);
 }
@@ -233,6 +236,15 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
         }
 
         on_tick(&tick_ctx);
+
+        {
+            static uds_msg_buf_t s_periodic_frame;
+            while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
+                (void)isotp_transmit(tp, s_periodic_frame.data,
+                                     (uint32_t)s_periodic_frame.length);
+            }
+        }
+
         (void)diag_wdt_feed(&s_wdt);
 
         (void)diag_timer_pending_ticks(&s_tick_timer, &overrun_count);
@@ -241,6 +253,15 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
                     (unsigned)(overrun_count - prev_overrun));
             prev_overrun = overrun_count;
         }
+    }
+}
+
+static void s_on_session_change(uds_session_type_t old_sess,
+                                uds_session_type_t new_sess)
+{
+    (void)old_sess;
+    if (new_sess == UDS_SESSION_DEFAULT) {
+        (void)uds_periodic_cancel_all();
     }
 }
 
@@ -309,6 +330,10 @@ int main(void)
         LOG_ERR("NULL context after init.");
         return -1;
     }
+
+    (void)uds_periodic_init();
+    (void)uds_session_register_change_cb(srv->cfg.session_ctx,
+                                          s_on_session_change);
 
     LOG_INF("UDS stack ready. Sensor DIDs: 0xD001 (temp), 0xD002 (voltage), 0xD003 (status)");
     LOG_INF("Active DTCs visible via UDS 0x19 subfunction 0x02.");
