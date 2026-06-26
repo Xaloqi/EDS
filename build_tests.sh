@@ -164,6 +164,8 @@ STACK_SRCS=(
     "${ROOT}/core/uds_services/service_0x22.c"
     "${ROOT}/core/uds_services/service_0x27.c"
     "${ROOT}/core/uds_services/service_0x28.c"
+    "${ROOT}/core/uds_services/service_0x2A.c"   # [0x2A] ReadDataByPeriodicIdentifier
+    "${ROOT}/core/uds_periodic.c"                 # [0x2A] periodic scheduler
     "${ROOT}/core/uds_services/service_0x2E.c"
     "${ROOT}/core/uds_services/service_0x2F.c"   # InputOutputControlByIdentifier
     "${ROOT}/core/uds_services/service_0x31.c"
@@ -228,6 +230,8 @@ TESTS=(
     test_service_0x22
     test_service_0x27
     test_service_0x28
+    test_uds_periodic
+    test_service_0x2A
     test_service_0x2F
     test_service_0x31
     test_service_0x34

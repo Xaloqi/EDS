@@ -341,9 +341,11 @@ target_sources(app PRIVATE
     core/uds_services/service_0x11.c
     core/uds_services/service_0x14.c  # ADDED — ClearDiagnosticInformation
     core/uds_services/service_0x19.c  # ADDED — ReadDTCInformation
+    core/uds_periodic.c                # ADDED — SID 0x2A periodic subscription scheduler
     core/uds_services/service_0x22.c
     core/uds_services/service_0x27.c
     core/uds_services/service_0x28.c  # ADDED — CommunicationControl
+    core/uds_services/service_0x2A.c  # ADDED — ReadDataByPeriodicIdentifier
     core/uds_services/service_0x2E.c
     core/uds_services/service_0x2F.c  # ADDED — InputOutputControlByIdentifier
     core/uds_services/service_0x31.c  # ADDED — RoutineControl

@@ -69,6 +69,19 @@ uds_status_t uds_service_0x22_handler(
 );
 
 /**
+ * @brief Handler for SID 0x2A — ReadDataByPeriodicIdentifier.
+ *
+ * Registers or removes periodic subscriptions for 0xF2xx DID push.
+ * Periodic frames are transmitted asynchronously by the main poll loop.
+ * SESSION: Non-default session required (Extended or Programming).
+ */
+uds_status_t uds_service_0x2A_handler(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp
+);
+
+/**
  * @brief Handler for SID 0x27 — SecurityAccess.
  *
  * Orchestrates seed/key exchange for security level unlocking.
@@ -286,7 +299,7 @@ uds_status_t uds_service_0x37_handler(
 /**
  * @brief Number of services registered in g_uds_service_table[].
  */
-#define UDS_SERVICE_TABLE_COUNT (16U)
+#define UDS_SERVICE_TABLE_COUNT (17U)
 
 /**
  * @brief Canonical UDS service registration table.

@@ -121,6 +121,25 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
         .suppress_pos_response_supported = false,
     },
     {
+        /* SID 0x2A — ReadDataByPeriodicIdentifier
+         *
+         * Registers subscriptions for periodic push of 0xF2xx DID data.
+         * Subscriptions persist until stopSending (0x04) is received, the
+         * session returns to Default, or the S3server timer expires.
+         *
+         * SESSION:  Non-default session required (Extended or Programming).
+         * SECURITY: No mandatory unlock — DID-level access controls apply.
+         *
+         * SAFETY: Push data rate is bounded by UDS_PERIODIC_FAST_MS.
+         *         ISO-TP must be idle before each push — the caller must
+         *         serialise periodic transmits with request-response frames.
+         *         suppressPosRspMsgIndicationBit not applicable — no sub-function.
+         */
+        .service_id                      = UDS_SID_READ_DATA_BY_PERIODIC_ID,
+        .handler                         = uds_service_0x2A_handler,
+        .suppress_pos_response_supported = false,
+    },
+    {
         /* SID 0x27 — SecurityAccess
          *
          * Implements seed/key challenge-response for security level escalation.

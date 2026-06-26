@@ -33,7 +33,7 @@ extern "C" {
 
 /** Maximum number of registered service handlers. */
 #ifndef UDS_SERVER_MAX_HANDLERS
-#define UDS_SERVER_MAX_HANDLERS (16U)
+#define UDS_SERVER_MAX_HANDLERS (17U)
 #endif
 
 /* --------------------------------------------------------------------------

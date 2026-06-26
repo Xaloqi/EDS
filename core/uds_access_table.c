@@ -127,6 +127,20 @@ static const uds_access_entry_t k_default_table[UDS_ACCESS_TABLE_DEFAULT_COUNT] 
         .require_unlocked  = false,
     },
 
+    /* [4a] 0x2A ReadDataByPeriodicIdentifier — non-default sessions, no unlock.
+     *
+     *  Access mirrors 0x22 but restricted to non-default sessions:
+     *  0x2A subscriptions make no sense in Default session because the
+     *  session would time out before most pushes fire. DID read_access_level
+     *  controls per-DID security at subscription time.
+     */
+    {
+        .service_id         = UDS_SID_READ_DATA_BY_PERIODIC_ID,
+        .session_mask       = UDS_ACL_SESSION_NON_DEFAULT,
+        .required_sec_level = (uint8_t)0U,
+        .require_unlocked   = false,
+    },
+
     /* [5] 0x27 SecurityAccess — non-default sessions only, no extra security */
     {
         .service_id        = UDS_SID_SECURITY_ACCESS,

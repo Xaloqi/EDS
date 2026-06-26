@@ -45,6 +45,9 @@
 #include "platform_api.h"
 #include "freertos_can.h"
 #include "uds_init.h"
+#include "uds_periodic.h"
+#include "uds_session.h"
+#include "uds_server.h"
 #include "generated_config.h"
 
 #include <stdint.h>
@@ -68,6 +71,15 @@ static uds_status_t loopback_can_send(const eds_can_frame_t *frame)
     }
     eds_platform_can_input(frame);
     return UDS_STATUS_OK;
+}
+
+static void s_on_session_change(uds_session_type_t old_sess,
+                                uds_session_type_t new_sess)
+{
+    (void)old_sess;
+    if (new_sess == UDS_SESSION_DEFAULT) {
+        (void)uds_periodic_cancel_all();
+    }
 }
 
 /* =============================================================================
@@ -95,6 +107,15 @@ int main(void)
         DIAG_TX_CAN_ID);
     if (status != UDS_STATUS_OK) {
         for (;;) { }
+    }
+
+    {
+        uds_server_ctx_t *srv = uds_generated_get_server();
+        if (srv != NULL) {
+            (void)uds_periodic_init();
+            (void)uds_session_register_change_cb(srv->cfg.session_ctx,
+                                                  s_on_session_change);
+        }
     }
 
     /* Step 3 — Create the UDS poll task (static allocation, no heap).

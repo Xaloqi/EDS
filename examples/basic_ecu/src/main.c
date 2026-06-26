@@ -38,6 +38,8 @@
 #include "uds_types.h"
 #include "uds_server.h"
 #include "uds_security_algo.h"
+#include "uds_periodic.h"
+#include "uds_session.h"
 #include "isotp.h"
 #include "can_transport.h"
 #include "zephyr_port.h"
@@ -165,6 +167,7 @@ static void on_tick(void *arg)
     if (ctx == NULL) { return; }
     (void)isotp_tick_1ms(ctx->tp);
     (void)uds_server_tick_1ms(ctx->srv);
+    (void)uds_periodic_tick_1ms();
 }
 
 /* =============================================================================
@@ -199,6 +202,15 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
         }
 
         on_tick(&tick_ctx);
+
+        {
+            static uds_msg_buf_t s_periodic_frame;
+            while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
+                (void)isotp_transmit(tp, s_periodic_frame.data,
+                                     (uint32_t)s_periodic_frame.length);
+            }
+        }
+
         (void)diag_wdt_feed(&s_wdt);
     }
 }
@@ -274,6 +286,19 @@ uds_status_t did_read_CoolantTemperature(
 }
 
 /* =============================================================================
+ * Session change callback — cancels periodic subscriptions on Default session
+ * ============================================================================= */
+
+static void s_on_session_change(uds_session_type_t old_sess,
+                                uds_session_type_t new_sess)
+{
+    (void)old_sess;
+    if (new_sess == UDS_SESSION_DEFAULT) {
+        (void)uds_periodic_cancel_all();
+    }
+}
+
+/* =============================================================================
  * main()
  * ============================================================================= */
 
@@ -325,6 +350,10 @@ int main(void)
     if ((srv == NULL) || (tp == NULL)) {
         LOG_ERR("Stack context NULL after init."); return -1;
     }
+
+    (void)uds_periodic_init();
+    (void)uds_session_register_change_cb(srv->cfg.session_ctx,
+                                          s_on_session_change);
 
     LOG_INF("UDS stack ready: %u DIDs  %u DTCs  RX=0x%03X TX=0x%03X",
             (unsigned)GEN_DID_COUNT, (unsigned)GEN_DTC_COUNT,

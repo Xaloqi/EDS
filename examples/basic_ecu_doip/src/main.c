@@ -53,6 +53,8 @@
 #include "uds_types.h"
 #include "uds_server.h"
 #include "uds_security_algo.h"
+#include "uds_periodic.h"
+#include "uds_session.h"
 
 /* --------------------------------------------------------------------------
  * DoIP platform headers
@@ -162,6 +164,15 @@ uds_status_t did_read_CoolantTemperature(
     return UDS_STATUS_OK;
 }
 
+static void s_on_session_change(uds_session_type_t old_sess,
+                                uds_session_type_t new_sess)
+{
+    (void)old_sess;
+    if (new_sess == UDS_SESSION_DEFAULT) {
+        (void)uds_periodic_cancel_all();
+    }
+}
+
 /* =============================================================================
  * main()
  * ============================================================================= */
@@ -203,6 +214,10 @@ int main(void)
         LOG_ERR("UDS server context NULL after init.");
         return -1;
     }
+
+    (void)uds_periodic_init();
+    (void)uds_session_register_change_cb(srv->cfg.session_ctx,
+                                          s_on_session_change);
 
     LOG_INF("UDS stack ready: %u DIDs  %u DTCs",
             (unsigned)GEN_DID_COUNT, (unsigned)GEN_DTC_COUNT);
