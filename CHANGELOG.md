@@ -16,6 +16,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - SID 0x2F InputOutputControlByIdentifier: actuator and I/O control for EOL and bench testing. `returnControlToECU` / `resetToDefault` / `freezeCurrentState` / `shortTermAdjustment` (CR-010) — closes #47
 
+### Changed
+
+- **`cmake/eds_service_sources.cmake`** (new file) — canonical list of all 17 UDS service handler source files. All 20 example `CMakeLists.txt` files (EDS + EDS-toolchain) now `include()` this list instead of enumerating service files individually. Adding a new SID requires one line here; no other `CMakeLists.txt` edits. See `CONTRIBUTING.md` — *Adding a new UDS service handler*.
+
 ---
 ## [1.8.3] — 2026-06-24
 
