@@ -1,15 +1,15 @@
 # Integration Guide
 
-## Xaloqi EDS — Zephyr RTOS, FreeRTOS, DoIP, and SOVD (v1.8.2)
+## Xaloqi EDS — Zephyr RTOS, FreeRTOS, DoIP, and SOVD (v1.9.0)
 
 | Field | Value |
 |---|---|
-| Stack version | 1.8.2 |
+| Stack version | 1.9.0 |
 | Zephyr version | v3.7.0 (pinned in `west.yml`) |
 | FreeRTOS version | FreeRTOS-Kernel (any recent release; tested with HEAD) |
 | ISO standard | ISO 14229-1:2020 (UDS), ISO 15765-2:2016 (ISO-TP), ISO 13400-2 (DoIP) |
 | Safety target | ASIL-B candidate |
-| Last updated | 2026-06-23 |
+| Last updated | 2026-06-26 |
 
 ---
 
