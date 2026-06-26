@@ -7,8 +7,8 @@
 #   target_sources(app PRIVATE ${EDS_SERVICE_SRCS})
 #
 # WHY THIS FILE EXISTS:
-#   service_registration.c references all 16 UDS service handler symbols by
-#   name. Every build target must link against all 16 .c files or the linker
+#   service_registration.c references all 17 UDS service handler symbols by
+#   name. Every build target must link against all 17 .c files or the linker
 #   fails with "undefined reference to uds_service_0xNN_handler".
 #
 #   Previously each example enumerated the list independently. That caused
@@ -37,6 +37,8 @@ set(EDS_SERVICE_SRCS
     ${_EDS_ROOT}/core/uds_services/service_0x22.c   # ReadDataByIdentifier
     ${_EDS_ROOT}/core/uds_services/service_0x27.c   # SecurityAccess
     ${_EDS_ROOT}/core/uds_services/service_0x28.c   # CommunicationControl
+    ${_EDS_ROOT}/core/uds_periodic.c                # Periodic scheduler (SID 0x2A)
+    ${_EDS_ROOT}/core/uds_services/service_0x2A.c   # ReadDataByPeriodicIdentifier
     ${_EDS_ROOT}/core/uds_services/service_0x2E.c   # WriteDataByIdentifier
     ${_EDS_ROOT}/core/uds_services/service_0x2F.c   # InputOutputControlByIdentifier
 

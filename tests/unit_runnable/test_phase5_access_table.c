@@ -89,12 +89,13 @@ ZTEST(test_phase5_access_table, tc001_get_default_not_null)
  * We verify by counting lookups for each SID in the default table.
  * Count updated from 10 → 13 when DFU services 0x34/0x36/0x37 were added,
  * then 13 → 14 when 0x35 RequestUpload was added,
- * then 14 → 15 when 0x2F InputOutputControlByIdentifier was added. [FIX-ACL-COUNT]
+ * then 14 → 15 when 0x2F InputOutputControlByIdentifier was added,
+ * then 15 → 16 when 0x2A ReadDataByPeriodicIdentifier was added. [FIX-ACL-COUNT]
  */
 ZTEST(test_phase5_access_table, tc002_default_table_count)
 {
-    zassert_equal((uint8_t)UDS_ACCESS_TABLE_DEFAULT_COUNT, (uint8_t)15U,
-        "default table must have exactly 15 entries");
+    zassert_equal((uint8_t)UDS_ACCESS_TABLE_DEFAULT_COUNT, (uint8_t)16U,
+        "default table must have exactly 16 entries");
 }
 
 /**

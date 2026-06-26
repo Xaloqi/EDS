@@ -261,12 +261,12 @@ static void register_generated_dids(void)
 {
     db_init_fresh();
     static const did_entry_t dids[] = {
-        { 0x0C00U, DID_ACCESS_READ, (uint8_t)UDS_SESSION_DEFAULT, 0, 0, 2,  stub_read_cb, NULL,           "Engine Speed" },
-        { 0x0500U, DID_ACCESS_READ, (uint8_t)UDS_SESSION_DEFAULT, 0, 0, 1,  stub_read_cb, NULL,           "Coolant Temp" },
-        { 0xF190U, DID_ACCESS_READ, (uint8_t)UDS_SESSION_DEFAULT, 0, 2, 17, stub_read_cb, NULL,           "VIN"          },
-        { 0xF18CU, DID_ACCESS_READ, (uint8_t)UDS_SESSION_DEFAULT, 0, 2, 4,  stub_read_cb, NULL,           "ECU Serial"   },
+        { 0x0C00U, DID_ACCESS_READ, (uint8_t)UDS_SESSION_DEFAULT, 0, 0, 2,  stub_read_cb, NULL,           NULL, "Engine Speed" },
+        { 0x0500U, DID_ACCESS_READ, (uint8_t)UDS_SESSION_DEFAULT, 0, 0, 1,  stub_read_cb, NULL,           NULL, "Coolant Temp" },
+        { 0xF190U, DID_ACCESS_READ, (uint8_t)UDS_SESSION_DEFAULT, 0, 2, 17, stub_read_cb, NULL,           NULL, "VIN"          },
+        { 0xF18CU, DID_ACCESS_READ, (uint8_t)UDS_SESSION_DEFAULT, 0, 2, 4,  stub_read_cb, NULL,           NULL, "ECU Serial"   },
         { 0xF187U, (uint8_t)(DID_ACCESS_READ|DID_ACCESS_WRITE),
-                               (uint8_t)UDS_SESSION_EXTENDED, 0, 2, 11, stub_read_cb, stub_write_cb,  "Spare Part"   },
+                               (uint8_t)UDS_SESSION_EXTENDED, 0, 2, 11, stub_read_cb, stub_write_cb, NULL, "Spare Part"   },
     };
     for (size_t i = 0; i < sizeof(dids)/sizeof(dids[0]); i++) {
         (void)did_database_register(&dids[i]);
