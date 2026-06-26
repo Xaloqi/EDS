@@ -37,6 +37,8 @@ Zephyr Kernel
 │           │         └─ isotp_transmit()
 │           ├─ isotp_tick_1ms()         — N_Cr / N_As / N_Bs timers
 │           ├─ uds_server_tick_1ms()    — S3server + lockout timers
+│           ├─ uds_periodic_tick_1ms()  — SID 0x2A periodic push timers
+│           ├─ uds_periodic_pop_due()   — drain periodic frames (loop until NOT_FOUND)
 │           └─ diag_wdt_feed()          — kick IWDG
 │
 ├── CAN ISR (priority 0, triggered by FDCAN1)
@@ -88,6 +90,9 @@ context. No additional locking is required.
 | ISO-TP N_As | `isotp_tick_1ms()` | per tick | TX acknowledgment timeout (25 ms) |
 | ISO-TP N_Bs | `isotp_tick_1ms()` | per tick | Flow Control reception timeout (75 ms) |
 | UDS S3server | `uds_server_tick_1ms()` | per tick | Session timeout (5000 ms) |
+| Periodic SLOW | `uds_periodic_tick_1ms()` | per tick | SID 0x2A push at 1000 ms |
+| Periodic MEDIUM | `uds_periodic_tick_1ms()` | per tick | SID 0x2A push at 100 ms |
+| Periodic FAST | `uds_periodic_tick_1ms()` | per tick | SID 0x2A push at 10 ms |
 | WDT window | IWDG hardware | 100 ms | Poll loop health check |
 
 **Critical constraint:** Each `diag_task` iteration must complete in < 1 ms.

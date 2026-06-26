@@ -42,6 +42,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | 0x22 | ReadDataByIdentifier | **Implemented** | Multi-DID requests (multiple DID pairs in one request) fully supported. ASIL-B 5-step safety wrapper enforced per DID. Max 64 DIDs configurable. |
 | 0x27 | SecurityAccess | **Implemented** | Odd sub-function = requestSeed, even = sendKey. Levels 1 and 2 active (0x01/0x02 and 0x03/0x04 sub-functions). AES-128-CMAC key derivation (RFC 4493). 8-byte seed with embedded sequence counter (replay protection). Lockout after configurable failed attempts. Key injection via `uds_security_algo_set_level_key()`. |
 | 0x28 | CommunicationControl | **Implemented** | Sub-fn 0x00 enableRxAndTx, 0x01 enableRxAndDisableTx, 0x02 disableRxAndEnableTx, 0x03 disableRxAndTx. communicationType byte: 0x01 normalCommunication, 0x02 nmCommunication, 0x03 both. State is reset to enabled on return to Default Session. suppressPosRspMsgIndicationBit (bit 7) honoured (v1.7.0). |
+| 0x2A | ReadDataByPeriodicIdentifier | **Implemented** | transmissionMode 0x01 SLOW (1000 ms), 0x02 MEDIUM (100 ms), 0x03 FAST (10 ms), 0x04 stopSending. One-time subscription; the ECU autonomously pushes `[0x6A, periodicId, dataRecord...]` without repeated tester requests. Subscriptions are bulk-cancelled on return to Default Session. Up to 8 simultaneous subscriptions (configurable via `UDS_PERIODIC_MAX_SUBSCRIPTIONS`). DID access validated at subscription time via the 5-step safety chain. Requires `uds_periodic_tick_1ms()` and `uds_periodic_pop_due()` drain loop in the application poll loop — see §3.4. |
 | 0x2E | WriteDataByIdentifier | **Implemented** | ASIL-B 5-step safety wrapper enforced per DID. Data length validated against DID definition. |
 | 0x2F | InputOutputControlByIdentifier | **Implemented** | Non-default session + Level 1 security required. Four `inputOutputControlParameter` values: `returnControlToECU` (0x00), `resetToDefault` (0x01), `freezeCurrentState` (0x02), `shortTermAdjustment` (0x03). DID must set `DID_ACCESS_IO_CONTROL` flag and provide `io_control_cb`. `io_control_cb == NULL` returns NRC 0x31. |
 | 0x31 | RoutineControl | **Implemented** | Sub-fn 0x01 startRoutine, 0x02 stopRoutine (optional per routine descriptor), 0x03 requestRoutineResults (optional). Session and security level enforced per-routine via `routine_entry_t.min_session` and `.security_level`. Routine option record forwarded to callback. Status record (0–64 bytes) appended to positive response. suppressPosRspMsgIndicationBit (bit 7) honoured (v1.7.0). |
@@ -56,7 +57,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | 0x86 | ResponseOnEvent | **Out of scope** | — |
 | 0x87 | LinkControl | **Out of scope** | — |
 
-**Services not listed** (e.g. 0x23 ReadMemoryByAddress, 0x24 ReadScalingDataByIdentifier, 0x29 Authentication, 0x2A ReadDataByPeriodicIdentifier, 0x2C DynamicallyDefineDataIdentifier) are all out of scope and return NRC 0x11.
+**Services not listed** (e.g. 0x23 ReadMemoryByAddress, 0x24 ReadScalingDataByIdentifier, 0x29 Authentication, 0x2C DynamicallyDefineDataIdentifier) are all out of scope and return NRC 0x11.
 
 ---
 
@@ -433,13 +434,26 @@ uds_generated_init(can, DIAG_RX_ID, DIAG_TX_ID);
 uds_server_ctx_t *srv = uds_generated_get_server();
 isotp_ctx_t      *tp  = uds_generated_get_isotp();
 
-/* 5. Run the 1 ms poll loop (in a dedicated thread — see threading_guide.md) */
+/* 5. Init periodic scheduler and register session-change callback */
+uds_periodic_init();
+uds_session_register_change_cb(srv->cfg.session_ctx, s_on_session_change);
+/* s_on_session_change calls uds_periodic_cancel_all() when new_sess == DEFAULT */
+
+/* 6. Run the 1 ms poll loop (in a dedicated thread — see threading_guide.md) */
 while (true) {
     uds_can_frame_t frame; bool ready;
     can_transport_receive(can, &frame, &ready);
     if (ready) isotp_process_rx_frame(tp, &frame, on_rx_complete, srv);
     isotp_tick_1ms(tp);
     uds_server_tick_1ms(srv);
+    uds_periodic_tick_1ms();                       /* advance periodic timers */
+
+    /* Drain all subscriptions that fired this tick (SID 0x2A periodic push) */
+    static uds_msg_buf_t s_periodic_frame;
+    while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
+        isotp_transmit(tp, s_periodic_frame.data, s_periodic_frame.length);
+    }
+
     k_sleep(K_MSEC(1));
 }
 ```
@@ -587,7 +601,7 @@ void app_init(void)
 The poll task:
 - Runs every 1 ms (`vTaskDelay(1)` — requires `configTICK_RATE_HZ=1000`)
 - Drains the CAN RX queue and feeds frames to the ISO-TP reassembler
-- Calls `isotp_tick_1ms()` and `uds_server_tick_1ms()` each iteration
+- Calls `isotp_tick_1ms()`, `uds_server_tick_1ms()`, and `uds_periodic_tick_1ms()` each iteration, then drains the `uds_periodic_pop_due()` queue for SID 0x2A periodic push
 - On ISO-TP RX completion, dispatches to `uds_server_process_request()` and transmits the response
 
 #### Step 5 — Start the FreeRTOS scheduler
@@ -1174,7 +1188,7 @@ Key design choices:
 - **Semantic session names** (`"default"`, `"extended"`, `"programming"`) — not C constants. SOVD clients can use these directly.
 - **`writeSecurityLevel: null`** for read-only DIDs — explicit rather than omitted.
 - **DoIP ECUs** include `ecuIdentification.logicalAddress`, `ecuIdentification.sourceAddress`, and `transportInfo.port`.
-- **`diagnosticServices`**: static list of all 14 implemented EDS services with SID and name.
+- **`diagnosticServices`**: static list of all 15 implemented EDS services with SID and name.
 - **Idempotent**: two runs with the same YAML produce identical content (only `generatedAt` differs).
 
 ### 7.3 DoIP CDA
