@@ -6,6 +6,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [1.10.0] — 2026-06-29
+
+### Added
+
+- **SID 0x23 — ReadMemoryByAddress** (ISO 14229-1:2020 §14.9).
+  Allows a tester to read directly from an ECU memory address without a DID
+  or a full 0x35/0x36/0x37 upload transfer sequence.  Primary use cases:
+  calibration constant inspection, configuration register readback, RAM variable
+  monitoring during bench testing.
+
+  - **`core/uds_services/service_0x23.c`** — handler: validates ALFID, parses
+    `memoryAddress` + `memorySize` fields (big-endian, 1–4 bytes each), rejects
+    requests that would overflow the response buffer, validates the address range
+    against the new `readable` memory map flag (REQ-FLASH-003), calls `read_cb`,
+    returns `[0x63, dataRecord...]`.  Session gate: Programming + Level 1 unlock
+    (ACL table entry [13]).
+
+  - **New `readable` flag in `uds_flash_region_t`** (`platform/uds_flash_ops.h`).
+    Calibration ROM and read-only configuration areas can now be exposed for 0x23
+    without being declared writable in the DFU map.  Existing designated-initialiser
+    tables that omit `readable` default to `false` (no change in DFU behaviour).
+
+  - **`uds_transfer_validate_readable_range()`** added to
+    `core/uds_services/service_transfer_common.h` (mirrors
+    `uds_transfer_validate_memory_range()` but checks `.readable`).
+
+- **SID 0x3D — WriteMemoryByAddress** (ISO 14229-1:2020 §14.10).
+  Allows a tester to write directly to an ECU memory address — calibration
+  constant patching, post-production ECU configuration — without a full DFU cycle.
+
+  - **`core/uds_services/service_0x3D.c`** — handler: same ALFID/address/size
+    parsing as 0x23, validates the full data payload is present in the request,
+    rejects if address+size is not in the writable memory map (REQ-FLASH-002),
+    calls `write_cb`, echoes `[0x7D, ALFID, memoryAddress, memorySize]`.
+    Session gate: Programming + Level 1 unlock (ACL table entry [14]).
+
+  - **ASIL-B safety note**: `uds_transfer_validate_memory_range()` is the sole
+    gate between the tester and arbitrary flash writes.  The check is mandatory
+    and not conditional on configuration.
+
+- **`uds_transfer_parse_alfid()`** extracted to `service_transfer_common.h`
+  (static inline).  `service_0x34.c` and `service_0x35.c` refactored to use it,
+  eliminating ~12 lines of duplicated mask/shift/validation logic.
+
+- **39 new unit tests** (`tests/unit_runnable/test_service_0x23_0x3D.c`):
+  20 for 0x23 (null ctx, all ALFID error paths, range validation, readable vs.
+  writable region discrimination, read_cb failure, response format) and 19 for 0x3D
+  (same coverage plus data-payload length validation, write_cb data verification,
+  writable vs. readable region discrimination, response echo correctness).
+
+- Platform `readable = true` added to `platform/zephyr/harness_flash_mock.c`
+  and `platform/freertos/freertos_flash_ops.c` existing flash region tables.
+
+- MISRA deviation log updated (DEV-MEM-01; DEV-MULT-01 and DEV-CONV-01 file
+  lists extended) — `EDS-Safety/MISRA_DEVIATION_LOG.md` revision 1.2.
+
+- Closes [#53](https://github.com/Xaloqi/EDS/issues/53).
+
+### Fixed
+
+- `CMakeLists.txt`: `core/uds_services/service_0x35.c` was missing from the
+  `DIAG_CORE_SOURCES` list (SID 0x35 was registered and working via the harness
+  build but not included in the primary CMake target).  Added alongside 0x23 and
+  0x3D.
+
+---
 ## [1.9.0] — 2026-06-26
 
 ### Added

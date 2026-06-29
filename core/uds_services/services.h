@@ -215,6 +215,41 @@ uds_status_t uds_service_0x85_handler(
 );
 
 /**
+ * @brief Handler for SID 0x23 — ReadMemoryByAddress.
+ *
+ * Reads from an arbitrary ECU memory address validated against the readable
+ * flash memory map.  No DFU transfer state machine — single-request read.
+ *
+ * SESSION:  Programming session required.
+ * SECURITY: Level 1 unlock required (enforced by ACL table).
+ *
+ * SAFETY: REQ-FLASH-003: readable memory map enforcement is the ASIL-B gate.
+ */
+uds_status_t uds_service_0x23_handler(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp
+);
+
+/**
+ * @brief Handler for SID 0x3D — WriteMemoryByAddress.
+ *
+ * Writes to an arbitrary ECU memory address validated against the writable
+ * flash memory map.  No DFU transfer state machine — single-request write.
+ *
+ * SESSION:  Programming session required.
+ * SECURITY: Level 1 unlock required (enforced by ACL table).
+ *
+ * SAFETY: REQ-FLASH-002: writable memory map enforcement is the ASIL-B gate.
+ *         Without it this service is a raw memory write backdoor.
+ */
+uds_status_t uds_service_0x3D_handler(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp
+);
+
+/**
  * @brief Handler for SID 0x34 — RequestDownload.
  *
  * Opens a firmware download transfer session.  Validates dataFormatIdentifier,
@@ -299,7 +334,7 @@ uds_status_t uds_service_0x37_handler(
 /**
  * @brief Number of services registered in g_uds_service_table[].
  */
-#define UDS_SERVICE_TABLE_COUNT (17U)
+#define UDS_SERVICE_TABLE_COUNT (19U)
 
 /**
  * @brief Canonical UDS service registration table.

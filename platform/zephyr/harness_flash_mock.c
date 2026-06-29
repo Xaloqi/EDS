@@ -68,6 +68,7 @@ static const uds_flash_region_t k_mock_regions[1U] = {
         .base_address = FLASH_MOCK_BASE_ADDR,
         .size_bytes   = (uint32_t)FLASH_MOCK_SIZE,
         .writable     = true,
+        .readable     = true,
     }
 };
 

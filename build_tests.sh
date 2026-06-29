@@ -176,10 +176,12 @@ STACK_SRCS=(
     # omitting these causes every test binary to fail at link with:
     #   undefined reference to `uds_service_0x34_handler'
     # [FIX-DFU-SRCS] — root cause of "all tests BUILD_FAIL" regression.
+    "${ROOT}/core/uds_services/service_0x23.c"   # ReadMemoryByAddress
     "${ROOT}/core/uds_services/service_0x34.c"   # RequestDownload
     "${ROOT}/core/uds_services/service_0x35.c"   # RequestUpload
     "${ROOT}/core/uds_services/service_0x36.c"   # TransferData
     "${ROOT}/core/uds_services/service_0x37.c"   # RequestTransferExit
+    "${ROOT}/core/uds_services/service_0x3D.c"   # WriteMemoryByAddress
     "${ROOT}/core/uds_transfer_ctx.c"             # DFU transfer state machine
     "${ROOT}/platform/uds_flash_ops.c"            # Flash ops singleton
     # Transport
@@ -234,6 +236,7 @@ TESTS=(
     test_service_0x2A
     test_service_0x2F
     test_service_0x31
+    test_service_0x23_0x3D
     test_service_0x34
     test_service_0x35
     test_service_0x36
