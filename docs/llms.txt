@@ -14,7 +14,7 @@ scripts ready to use immediately. Transport — CAN/ISO-TP or Ethernet/DoIP — 
 YAML choice. The same UDS core, safety chain, and codegen pipeline serve both transports.
 
 EDS implements:
-- ISO 14229 (UDS): 17 service handlers (0x10 0x11 0x14 0x19 0x22 0x27 0x28 0x2A 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 0x3E 0x85)
+- ISO 14229 (UDS): 19 service handlers (0x10 0x11 0x14 0x19 0x22 0x23 0x27 0x28 0x2A 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 0x3D 0x3E 0x85)
 - ISO 15765-2 (ISO-TP): SF/FF/CF/FC, N_As/N_Bs/N_Cr timers, STmin, Flow Control
 - ISO 13400-2 (DoIP): ECU server — Routing Activation, DiagnosticMessage dispatch, Positive/Negative Ack, Alive Check; Zephyr (zsock_*) and FreeRTOS+LwIP bindings (v1.6.0)
 - ASIL-B safety wrapper chain: 5-step mandatory validation on every DID access
