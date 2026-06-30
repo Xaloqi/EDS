@@ -26,7 +26,7 @@ EDS implements:
 - MCP server: exposes generate_did_config, run_codegen, validate_asil_b, explain_uds_error
 - React/TypeScript live dashboard GUI
 - VS Code extension (YAML validation, hover docs, one-click codegen)
-- 8-job CI pipeline: unit tests (37 modules) · integration · static analysis · Zephyr builds · FreeRTOS QEMU ARM (basic + OTA safeboot) · DoIP integration (native_sim + DoipBus) · harness tests (68) · SOVD CDA generation
+- 8-job CI pipeline: unit tests (42 modules) · integration · static analysis · Zephyr builds · FreeRTOS QEMU ARM (basic + OTA safeboot) · DoIP integration (native_sim + DoipBus) · harness tests (68) · SOVD CDA generation
 
 ## Licensing
 
@@ -153,19 +153,22 @@ Every DID access passes 5 mandatory steps (generated, cannot be bypassed at runt
 0x14 ClearDiagnosticInformation
 0x19 ReadDTCInformation        — sub-fns 0x01 0x02 0x04 0x06 0x0A
 0x22 ReadDataByIdentifier      — multi-DID requests supported
+0x23 ReadMemoryByAddress       — ALFID 1–4 bytes; region must be readable; Programming + SL1
 0x27 SecurityAccess            — AES-128-CMAC, levels 1+2, TRNG-backed, NVM lockout
 0x28 CommunicationControl
 0x2A ReadDataByPeriodicIdentifier — periodic push: SLOW/MEDIUM/FAST; drain loop required
 0x2E WriteDataByIdentifier     — ASIL-B safety chain enforced
+0x2F InputOutputControlByIdentifier
 0x31 RoutineControl            — Start / Stop / RequestResults
 0x34 RequestDownload           — programming session + SecurityAccess required
 0x35 RequestUpload             — ECU-to-tester data readback; read_cb required; programming session + SecurityAccess
 0x36 TransferData              — CRC-32 accumulator; direction-aware (download or upload)
 0x37 RequestTransferExit       — optional CRC-32 validation
+0x3D WriteMemoryByAddress      — ALFID 1–4 bytes; region must be writable; echoes ALFID + addr + size; Programming + SL1
 0x3E TesterPresent             — S3Server timeout reset
 0x85 ControlDTCSetting         — DTCSettingOn / DTCSettingOff
 
-Not implemented (return NRC 0x11): 0x23 0x24 0x29 0x2C 0x38 0x3D 0x86 0x87
+Not implemented (return NRC 0x11): 0x24 0x29 0x2C 0x38 0x86 0x87
 
 ## Build Commands
 
@@ -182,7 +185,7 @@ west build -b native_sim examples/basic_ecu_doip \
 cmake -B build -DEDS_PLATFORM=freertos -DFREERTOS_DIR=/opt/freertos-kernel \
   -GNinja examples/basic_ecu_freertos && ninja -C build
 
-# Run unit tests (37 modules, includes 24 DoIP tests):
+# Run unit tests (42 modules, includes 24 DoIP tests):
 bash build_tests.sh
 
 # Run harness tests (68 tests):
@@ -196,7 +199,7 @@ pytest tests/test_doip_integration.py -v --timeout=60
 
 ## Repository Structure
 
-core/               UDS server, session FSM, security, safety chain, 16 service handlers
+core/               UDS server, session FSM, security, safety chain, 19 service handlers
 transport/          ISO-TP state machine, CAN transport abstraction
   doip/             DoIP ECU server (ISO 13400-2) — Zephyr and FreeRTOS+LwIP bindings (v1.6.0)
 config/             DID database, DTC database, NVM DTC mirror
