@@ -64,7 +64,7 @@ LOG_MODULE_REGISTER(zephyr_flash_ops, LOG_LEVEL_INF);
 #define ZEPHYR_FLASH_SECONDARY_SLOT  FLASH_AREA_ID(image_1)
 
 /* --------------------------------------------------------------------------
- * Static memory map — single writable region (secondary slot)
+ * Static memory map — single readable + writable region (secondary slot)
  * -------------------------------------------------------------------------- */
 
 static uds_flash_region_t s_flash_region;   /* populated at init */
@@ -217,6 +217,7 @@ uds_status_t zephyr_flash_ops_init(void)
     s_flash_region.base_address = (uint32_t)fa->fa_off;
     s_flash_region.size_bytes   = (uint32_t)fa->fa_size;
     s_flash_region.writable     = true;
+    s_flash_region.readable     = true;
 
     flash_area_close(fa);
 
