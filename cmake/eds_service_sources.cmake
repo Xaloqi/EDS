@@ -7,8 +7,8 @@
 #   target_sources(app PRIVATE ${EDS_SERVICE_SRCS})
 #
 # WHY THIS FILE EXISTS:
-#   service_registration.c references all 17 UDS service handler symbols by
-#   name. Every build target must link against all 17 .c files or the linker
+#   service_registration.c references all 19 UDS service handler symbols by
+#   name. Every build target must link against all 19 .c files or the linker
 #   fails with "undefined reference to uds_service_0xNN_handler".
 #
 #   Previously each example enumerated the list independently. That caused
@@ -29,12 +29,13 @@ set(EDS_SERVICE_SRCS
     # Dispatch table — must always be first: provides g_uds_service_table[].
     ${_EDS_ROOT}/core/uds_services/service_registration.c
 
-    # Core diagnostic services (SIDs 0x10 – 0x2F)
+    # Core diagnostic services (SIDs 0x10 – 0x3D)
     ${_EDS_ROOT}/core/uds_services/service_0x10.c   # DiagnosticSessionControl
     ${_EDS_ROOT}/core/uds_services/service_0x11.c   # ECUReset
     ${_EDS_ROOT}/core/uds_services/service_0x14.c   # ClearDiagnosticInformation
     ${_EDS_ROOT}/core/uds_services/service_0x19.c   # ReadDTCInformation
     ${_EDS_ROOT}/core/uds_services/service_0x22.c   # ReadDataByIdentifier
+    ${_EDS_ROOT}/core/uds_services/service_0x23.c   # ReadMemoryByAddress
     ${_EDS_ROOT}/core/uds_services/service_0x27.c   # SecurityAccess
     ${_EDS_ROOT}/core/uds_services/service_0x28.c   # CommunicationControl
     ${_EDS_ROOT}/core/uds_periodic.c                # Periodic scheduler (SID 0x2A)
@@ -47,11 +48,12 @@ set(EDS_SERVICE_SRCS
     ${_EDS_ROOT}/core/uds_services/service_0x3E.c   # TesterPresent
     ${_EDS_ROOT}/core/uds_services/service_0x85.c   # ControlDTCSetting
 
-    # Firmware download (DFU) services — all four must be present together.
-    # service_registration.c registers all four unconditionally; omitting any
+    # Firmware download / memory services — all six must be present together.
+    # service_registration.c registers all six unconditionally; omitting any
     # one causes a linker failure: "undefined reference to uds_service_0xNN_handler".
     ${_EDS_ROOT}/core/uds_services/service_0x34.c   # RequestDownload
     ${_EDS_ROOT}/core/uds_services/service_0x35.c   # RequestUpload
     ${_EDS_ROOT}/core/uds_services/service_0x36.c   # TransferData
     ${_EDS_ROOT}/core/uds_services/service_0x37.c   # RequestTransferExit
+    ${_EDS_ROOT}/core/uds_services/service_0x3D.c   # WriteMemoryByAddress
 )
