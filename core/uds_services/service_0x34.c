@@ -92,26 +92,10 @@
 /** Only uncompressed / unencrypted data is accepted. */
 #define SVC_0x34_ACCEPTED_DATA_FMT    (0x00U)
 
-/** Mask for addressLength nibble (bits [3:0]). */
-#define SVC_0x34_ADDR_LEN_MASK        (0x0FU)
-
-/** Mask for sizeLength nibble (bits [7:4]) — shift right by 4 after masking. */
-#define SVC_0x34_SIZE_LEN_MASK        (0xF0U)
-#define SVC_0x34_SIZE_LEN_SHIFT       (4U)
-
-/** Maximum allowed value for addressLength and sizeLength fields. */
-#define SVC_0x34_MAX_FIELD_BYTES      (4U)
-
-/** Minimum allowed value (0 means "not present" — rejected). */
-#define SVC_0x34_MIN_FIELD_BYTES      (1U)
-
 /** Number of bytes used to encode maxNumberOfBlockLength in the response
  *  (always 2 bytes: one uint16_t). Stored in bits [7:4] of
  *  lengthFormatIdentifier. */
 #define SVC_0x34_MXBL_BYTE_COUNT      (2U)
-
-/* s_parse_big_endian() and s_validate_memory_range() are shared with
- * service_0x35.c via service_transfer_common.h (static inline). */
 
 /* --------------------------------------------------------------------------
  * SID 0x34 handler
@@ -164,16 +148,9 @@ uds_status_t uds_service_0x34_handler(
     }
 
     /* --- Parse addressAndLengthFormatIdentifier --- */
-    alfid    = req->data[SVC_0x34_ALFID_OFFSET];
-    addr_len = (uint8_t)( alfid & (uint8_t)SVC_0x34_ADDR_LEN_MASK);
-    size_len = (uint8_t)((alfid & (uint8_t)SVC_0x34_SIZE_LEN_MASK) >>
-                          (uint8_t)SVC_0x34_SIZE_LEN_SHIFT);
-
-    /* Both fields must be 1–4 bytes. */
-    if ((addr_len < (uint8_t)SVC_0x34_MIN_FIELD_BYTES) ||
-        (addr_len > (uint8_t)SVC_0x34_MAX_FIELD_BYTES) ||
-        (size_len < (uint8_t)SVC_0x34_MIN_FIELD_BYTES) ||
-        (size_len > (uint8_t)SVC_0x34_MAX_FIELD_BYTES)) {
+    alfid  = req->data[SVC_0x34_ALFID_OFFSET];
+    status = uds_transfer_parse_alfid(alfid, &addr_len, &size_len);
+    if (status != UDS_STATUS_OK) {
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 

@@ -290,6 +290,7 @@ static const uds_flash_region_t s_ota_region = {
     .base_address = FREERTOS_FLASH_OTA_BASE,
     .size_bytes   = FREERTOS_FLASH_OTA_SIZE,
     .writable     = true,
+    .readable     = true,
 };
 
 static uds_flash_ops_t s_freertos_flash_ops = {

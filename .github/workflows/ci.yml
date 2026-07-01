@@ -4,7 +4,7 @@
 # Community tier CI pipeline — 8 jobs covering the public GPL runtime stack.
 #
 # Jobs:
-#   1. unit-tests           — 39 host-side C unit tests (Unity framework)
+#   1. unit-tests           — 42 host-side C unit tests (Unity framework)
 #   2. integration-tests    — pytest suite against basic_ecu generated output (simulator mode)
 #   3. static-analysis      — GCC -fanalyzer + MISRA C:2012 cppcheck (zero open violations)
 #   4. zephyr-native        — west build -b native_sim (basic_ecu, Zephyr v3.7)
@@ -245,7 +245,7 @@ jobs:
 
   # ── Job 1: Host unit tests ─────────────────────────────────────────────────
   unit-tests:
-    name: "Unit Tests (39 modules)"
+    name: "Unit Tests (42 modules)"
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -274,8 +274,8 @@ jobs:
         run: |
           result=$(bash build_tests.sh 2>&1 | tail -3)
           echo "$result"
-          echo "$result" | grep -q "41 passed, 0 failed" || \
-            (echo "ERROR: Expected '41 passed, 0 failed'" && exit 1)
+          echo "$result" | grep -q "42 passed, 0 failed" || \
+            (echo "ERROR: Expected '42 passed, 0 failed'" && exit 1)
 
       - name: Verify pre-committed test files present
         run: |
@@ -1286,7 +1286,7 @@ jobs:
           assert len(cda["dataIdentifiers"]) == len(cfg.get("dids", [])),    "DID count mismatch"
           assert len(cda["dtcs"])            == len(cfg.get("dtcs", [])),    "DTC count mismatch"
           assert len(cda["routines"])        == len(cfg.get("routines", [])), "Routine count mismatch"
-          assert len(cda["diagnosticServices"]) == 14,                       "Expected 14 services"
+          assert len(cda["diagnosticServices"]) == 19,                       "Expected 19 services"
           print("PASS: basic_ecu CDA valid")
           EOF
 

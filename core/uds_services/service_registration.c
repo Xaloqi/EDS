@@ -295,6 +295,41 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
         .suppress_pos_response_supported = true,
     },
     {
+        /* SID 0x23 — ReadMemoryByAddress
+         *
+         * Reads from an arbitrary ECU memory address in a single request/response
+         * exchange.  Validated against the readable flash memory map.
+         *
+         * SESSION:  Programming session required.
+         * SECURITY: Level 1 unlock required.
+         *
+         * SAFETY: REQ-FLASH-003: readable memory map enforcement is the sole
+         *         ASIL-B gate.  suppressPosRspMsgIndicationBit not applicable —
+         *         no sub-function byte.
+         */
+        .service_id                      = UDS_SID_READ_MEMORY_BY_ADDRESS,
+        .handler                         = uds_service_0x23_handler,
+        .suppress_pos_response_supported = false,
+    },
+    {
+        /* SID 0x3D — WriteMemoryByAddress
+         *
+         * Writes to an arbitrary ECU memory address in a single request/response
+         * exchange.  Validated against the writable flash memory map.
+         *
+         * SESSION:  Programming session required.
+         * SECURITY: Level 1 unlock required.
+         *
+         * SAFETY: REQ-FLASH-002: writable memory map enforcement is the ASIL-B
+         *         gate.  Without it this service is a raw memory write backdoor.
+         *         Session and security gates enforced by ACL table before dispatch.
+         *         suppressPosRspMsgIndicationBit not applicable — no sub-function byte.
+         */
+        .service_id                      = UDS_SID_WRITE_MEMORY_BY_ADDRESS,
+        .handler                         = uds_service_0x3D_handler,
+        .suppress_pos_response_supported = false,
+    },
+    {
         /* SID 0x34 — RequestDownload
          *
          * Opens a firmware download session for DFU (Device Firmware Update).

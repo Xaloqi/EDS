@@ -71,7 +71,8 @@ extern "C" {
 typedef struct uds_flash_region {
     uint32_t base_address;   /**< Inclusive start of the permitted region. */
     uint32_t size_bytes;     /**< Length in bytes of the permitted region. */
-    bool     writable;       /**< True if write operations are allowed here. */
+    bool     writable;       /**< True if write operations are allowed here (0x34/0x3D). */
+    bool     readable;       /**< True if read operations are allowed here (0x23/0x35). */
 } uds_flash_region_t;
 
 /* --------------------------------------------------------------------------

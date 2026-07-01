@@ -333,10 +333,10 @@ class TestCDATransportAndDoIP:
         assert cda["transportInfo"]["protocol"] == "DoIP", (
             f"transport='both' must yield protocol=DoIP, got {cda['transportInfo']['protocol']!r}")
 
-    def test_diagnostic_services_count_is_14(self):
+    def test_diagnostic_services_count_is_19(self):
         cda, _ = _load_cda(_CAN_YAML)
-        assert len(cda["diagnosticServices"]) == 14, (
-            f"Expected 14 diagnosticServices, got {len(cda['diagnosticServices'])}")
+        assert len(cda["diagnosticServices"]) == 19, (
+            f"Expected 19 diagnosticServices, got {len(cda['diagnosticServices'])}")
 
     def test_diagnostic_services_have_sid_and_name(self):
         cda, _ = _load_cda(_CAN_YAML)

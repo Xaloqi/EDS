@@ -314,11 +314,13 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             # Phase 7 DFU + RoutineControl service handlers (new)
             "core/uds_services/service_0x2A.c",
             "core/uds_services/service_0x31.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c",
             "core/uds_services/service_0x35.c",
             "core/uds_services/service_transfer_common.h",
             "core/uds_services/service_0x36.c",
             "core/uds_services/service_0x37.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "core/uds_services/service_registration.c",
             "core/uds_periodic.c",
             # Core stack modules (original + new)
@@ -417,9 +419,11 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x28.c",
             "core/uds_services/service_0x2E.c",
             "core/uds_services/service_0x31.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c",
             "core/uds_services/service_0x36.c",
             "core/uds_services/service_0x37.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "core/uds_services/service_0x3E.c",
             "core/uds_services/service_0x85.c",
             "core/uds_services/service_registration.c",
@@ -520,9 +524,11 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x28.c",
             "core/uds_services/service_0x2E.c",
             "core/uds_services/service_0x31.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c",
             "core/uds_services/service_0x36.c",
             "core/uds_services/service_0x37.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "core/uds_services/service_0x3E.c",
             "core/uds_services/service_0x85.c",
             "core/uds_services/service_registration.c",
@@ -575,9 +581,11 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x27.c",
             "core/uds_services/service_0x2E.c",
             "core/uds_services/service_0x31.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c",
             "core/uds_services/service_0x36.c",
             "core/uds_services/service_0x37.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "transport/isotp.c",
             "transport/can_transport.c",
             "transport/zephyr_can.c",
@@ -667,11 +675,13 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x28.c",
             "core/uds_services/service_0x2E.c",
             "core/uds_services/service_0x31.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c",
             "core/uds_services/service_0x35.c",
             "core/uds_services/service_transfer_common.h",
             "core/uds_services/service_0x36.c",
             "core/uds_services/service_0x37.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "core/uds_services/service_0x2A.c",
             "core/uds_services/service_0x3E.c",
             "core/uds_services/service_0x85.c",
@@ -777,8 +787,10 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x14.c", "core/uds_services/service_0x19.c",
             "core/uds_services/service_0x22.c", "core/uds_services/service_0x27.c",
             "core/uds_services/service_0x28.c", "core/uds_services/service_0x2E.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x31.c", "core/uds_services/service_0x34.c",
             "core/uds_services/service_0x36.c", "core/uds_services/service_0x37.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "core/uds_services/service_0x3E.c", "core/uds_services/service_0x85.c",
             "core/uds_services/service_registration.c",
             "transport/isotp.c", "transport/can_transport.c",
@@ -812,7 +824,9 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x10.c", "core/uds_services/service_0x19.c",
             "core/uds_services/service_0x22.c", "core/uds_services/service_0x27.c",
             "core/uds_services/service_0x28.c", "core/uds_services/service_0x31.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c", "core/uds_services/service_0x36.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "core/uds_services/service_0x3E.c",
             "transport/isotp.c", "config/did_database.c", "config/dtc_database.c",
         ],
@@ -839,8 +853,10 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_safety.c", "core/uds_access_table.c", "core/uds_security_algo.c",
             "core/uds_aes_cmac.c", "core/uds_comm_control.c", "core/uds_transfer_ctx.c",
             "core/uds_services/service_0x19.c", "core/uds_services/service_0x27.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x31.c", "core/uds_services/service_0x34.c",
             "core/uds_services/service_0x36.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "transport/isotp.c", "transport/can_transport.c",
             "config/did_database.c", "config/dtc_database.c",
             "generated/did_handlers.c", "generated/did_safety_wrappers.c",
@@ -943,7 +959,9 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_safety.c", "core/uds_access_table.c", "core/uds_security_algo.c",
             "core/uds_aes_cmac.c", "core/uds_transfer_ctx.c",
             "core/uds_services/service_0x19.c", "core/uds_services/service_0x27.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c", "core/uds_services/service_0x35.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "core/uds_services/service_transfer_common.h",
             "core/uds_services/service_0x36.c",
             "transport/isotp.c", "config/dtc_database.c",
@@ -980,8 +998,10 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_server.c", "core/uds_safety.c", "core/uds_aes_cmac.c",
             "core/uds_transfer_ctx.c",
             "core/uds_services/service_0x19.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c",
             "core/uds_services/service_0x36.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "generated/did_handlers.c",
         ],
         "approved_by": "Lead Software Engineer",
@@ -1079,7 +1099,9 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_security.c", "core/uds_session.c",
         
             "core/uds_services/service_0x37.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
             "core/uds_services/service_0x36.c",
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c",
             "transport/doip/doip_server.c",
             "transport/doip/freertos_lwip.c",],
@@ -1122,6 +1144,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
         ),
         "files":       [
             "core/uds_services/service_0x37.c",
+            "core/uds_services/service_0x3D.c",   # WriteMemoryByAddress
+            "core/uds_services/service_0x23.c",   # ReadMemoryByAddress
             "core/uds_services/service_0x34.c",
             "core/uds_services/service_0x36.c",
             "core/uds_services/service_0x31.c",
