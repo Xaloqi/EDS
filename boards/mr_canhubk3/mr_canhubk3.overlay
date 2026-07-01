@@ -43,13 +43,25 @@
  *
  *   Offset      Size     Label        Purpose
  *   ──────────  ───────  ───────────  ──────────────────────────────────────
- *   0x000000    1792 KB  image-0      Primary firmware slot — app flashed here.
- *   0x1C0000    1792 KB  image-1      Secondary / OTA staging slot.
- *                                     platform/zephyr_flash_ops.c writes DFU
- *                                     payloads here via FLASH_AREA_ID(image_1).
- *   0x380000     464 KB  diag_nvs     Zephyr NVS (security counters, DTC mirror,
- *                                     session stats). 58 × 8 KiB sectors.
- *   Total: 4048 KiB (exactly fills the available flash window).
+ *   0x000000      0.25   ivt-header   S32K3 IVT / ABCB boot header (256 B).
+ *                  KiB               soc/nxp/s32/s32k3/Kconfig derives
+ *                                    CONFIG_IVT_HEADER_OFFSET/_SIZE from
+ *                                    this node's label. Must be preserved.
+ *                                    Remaining bytes of the first 8 KiB
+ *                                    sector (0x100–0x1FFF) are unused flash.
+ *   0x002000    1792 KiB image-0      Primary firmware slot — app flashed here.
+ *                                    zephyr,code-partition → application
+ *                                    code (rom_start) placed at 0x402000,
+ *                                    after the IVT region at 0x400000.
+ *   0x1C2000    1792 KiB image-1      Secondary / OTA staging slot.
+ *                                    platform/zephyr_flash_ops.c writes DFU
+ *                                    payloads here via FLASH_AREA_ID(image_1).
+ *   0x382000     472 KiB diag_nvs     Zephyr NVS (security counters, DTC mirror,
+ *                                    session stats). 59 × 8 KiB sectors.
+ *   ─────────────────────────────────────────────────────────────────────────
+ *   Totals: 0x2000 + 0x1C0000 + 0x1C0000 + 0x76000 = 0x3F8000 = 4048 KiB ✓
+ *   All EDS partition offsets: 8 KiB aligned (0x2000, 0x1C2000, 0x382000) ✓
+ *   NVS sectors: 0x76000 / 0x2000 = 59 × 8 KiB ✓
  *
  *   NOTE: S32K3 hardware boot requires an Application Boot Configuration Block
  *   (ABCB) at the start of flash (physical 0x00400000). For direct hardware
@@ -107,17 +119,24 @@
 /* ── Flash partition table ────────────────────────────────────────────────────
  *
  * Delete the existing partitions node from mr_canhubk3.dts (ivt-header +
- * code-partition) and replace with the EDS three-partition layout.
+ * code-partition) and replace with the EDS four-partition layout.
  *
- * slot0_partition is dual-labelled as eds_app_slot to avoid any label
- * collision with base board DTS entries. The slot0_partition label satisfies
- * the Zephyr chosen node zephyr,code-partition = &slot0_partition override
- * set above.
+ * CRITICAL: ivt_header must be re-declared here.
+ *   soc/nxp/s32/s32k3/Kconfig derives CONFIG_IVT_HEADER_OFFSET and
+ *   CONFIG_IVT_HEADER_SIZE from the DTS node with label 'ivt_header' via
+ *   dt_node_reg_addr_hex / dt_node_reg_size_hex. If the label is absent,
+ *   both values default to 0, making the IVT_HEADER linker region LENGTH=0.
+ *   The 256-byte .ivt_header section then overflows that zero-length region
+ *   and collides with rom_start at the same address — linker error:
+ *     "region IVT_HEADER overflowed by 256 bytes"
  *
- * All offsets and sizes are 8 KiB aligned (S32K344 erase-block-size = 8 KiB).
- *   1792 KiB = 224 × 8 KiB sectors
- *    464 KiB =  58 × 8 KiB sectors
- *   Total: 506 sectors × 8 KiB = 4048 KiB ✓
+ * slot0_partition starts at 0x2000 (the second 8 KiB sector) so that
+ * rom_start is placed at physical 0x402000, safely after the IVT_HEADER
+ * region at 0x400000 (size 0x100). The gap 0x100–0x1FFF within the first
+ * sector is unused flash (reads 0xFF) and does not affect the linker.
+ *
+ * slot0_partition is dual-labelled as eds_app_slot for flash-tool clarity.
+ * All EDS partition starts are 8 KiB aligned for safe NVS sector erasure.
  * ─────────────────────────────────────────────────────────────────────────── */
 &flash0 {
 	/delete-node/ partitions;
@@ -127,19 +146,27 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		slot0_partition: eds_app_slot: partition@0 {
+		/* S32K3 IVT / ABCB boot header — 256 bytes at flash base.
+		 * read-only: never erased by flash tools targeting EDS slots. */
+		ivt_header: partition@0 {
+			label = "ivt-header";
+			reg = <0x00000000 0x00000100>;
+			read-only;
+		};
+
+		slot0_partition: eds_app_slot: partition@2000 {
 			label = "image-0";
-			reg = <0x00000000 0x001C0000>;
+			reg = <0x00002000 0x001C0000>; /* 1792 KiB */
 		};
 
-		eds_ota_slot: partition@1c0000 {
+		eds_ota_slot: partition@1c2000 {
 			label = "image-1";
-			reg = <0x001C0000 0x001C0000>;
+			reg = <0x001C2000 0x001C0000>; /* 1792 KiB */
 		};
 
-		eds_nvs_slot: partition@380000 {
+		eds_nvs_slot: partition@382000 {
 			label = "diag_nvs";
-			reg = <0x00380000 0x00074000>;
+			reg = <0x00382000 0x00076000>; /* 472 KiB = 59 × 8 KiB sectors */
 		};
 	};
 };
