@@ -14,10 +14,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Adds `boards/mr_canhubk3/` with a Device Tree overlay and Kconfig fragment
   enabling EDS on the NXP S32K344 automotive SoC (and S32K312/S32K396 variants
   with minor clock adjustments). FlexCAN0 is configured at 500 kbit/s / 87.5%
-  sample point using the on-board TJA1443 transceiver (PTA6/PTA7). NVS partition
-  occupies the last 464 KB of the 4 MB flash window. A new `zephyr-nxp-s32k` CI
-  job verifies compilation on every pull request. See `docs/INTEGRATION_GUIDE.md`
-  §6.5 for the wiring reference and west build command. (Closes #58)
+  sample point using the on-board TJA1443 transceiver (PTA6/PTA7). Flash layout:
+  IVT header (256 B, offset 0x0) + image-0 1792 KB (0x2000) + image-1 1792 KB
+  (0x1C2000) + diag_nvs 472 KB / 59 × 8 KiB sectors (0x382000) = 4048 KB total.
+  Application code starts at 0x402000 (after the S32K3 IVT region at 0x400000).
+  A new `zephyr-nxp-s32k` CI job verifies compilation on every pull request.
+  See `docs/INTEGRATION_GUIDE.md` §6.5 for the wiring reference and build
+  command. (Closes #58)
 
 
 

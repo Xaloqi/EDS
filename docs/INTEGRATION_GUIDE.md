@@ -1139,6 +1139,17 @@ west flash
 
 The same overlay applies to S32K312 and S32K396 variants — only clock-source Kconfig values may need adjustment for non-default PLL configurations. The `zephyr-nxp-s32k` CI job verifies this target compiles on every pull request.
 
+**Flash partition layout** (4048 KiB available after 48 KiB Secure Boot Assist Firmware; erase block = 8 KiB):
+
+| Offset     | Size     | Label        | Purpose |
+|------------|----------|--------------|---------|
+| `0x000000` | 256 B    | `ivt-header` | S32K3 IVT / ABCB boot header. Drives `CONFIG_IVT_HEADER_OFFSET` and `CONFIG_IVT_HEADER_SIZE` in the S32K3 linker — **must not be removed from the partition table**. Application code (`rom_start`) begins at physical `0x402000`. |
+| `0x002000` | 1792 KiB | `image-0`    | Primary firmware slot (`zephyr,code-partition`). |
+| `0x1C2000` | 1792 KiB | `image-1`    | OTA staging slot; `platform/zephyr/zephyr_flash_ops.c` writes DFU payloads here via `FLASH_AREA_ID(image_1)`. |
+| `0x382000` | 472 KiB  | `diag_nvs`   | Zephyr NVS — security counters, DTC mirror, session stats. 59 × 8 KiB sectors. |
+
+Total: `0x3F8000` = 4048 KiB ✓. All EDS partition starts are 8 KiB aligned.
+
 **Hardware boot note:** S32K3 hardware requires an Application Boot Configuration Block (ABCB) prepended to the firmware binary before flashing. See NXP AN13033 for ABCB generation. The CI build validates compilation only; the ABCB step is part of the OEM integration process.
 
 ### 6.6 Porting to a New Board

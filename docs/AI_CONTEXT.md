@@ -15,7 +15,7 @@ ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 
 **Version:** v1.9.0
 **Target RTOS:** Zephyr v3.7+ · FreeRTOS (any version with static allocation support)
-**Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 · NXP FRDM-MCX-N947 (S32K344 / MCX N947) · NXP MR-CANHUBK3 (S32K344, Cortex-M7) · QEMU ARM Cortex-M4 (FreeRTOS CI)
+**Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 (Cortex-M7) · NXP FRDM-MCX-N947 (MCX N947, Cortex-M33) · NXP MR-CANHUBK3 (S32K344, Cortex-M7) · QEMU ARM Cortex-M4 (FreeRTOS CI)
 **Transport:** ISO-TP over CAN (default) · DoIP over Ethernet/TCP (v1.6.0+)
 **OpenSOVD CDA:** `--sovd` flag generates `sovd_cda.json` (v1.7.0+)
 
@@ -60,7 +60,7 @@ EDS/
 ├── scripts/
 │   ├── build_tests.sh
 │   └── build_harness.sh
-└── .github/workflows/ci.yml   # 8-job public CI pipeline (unit, integration, static, zephyr-stm32, zephyr-nxp-mcxn, zephyr-nxp-s32k, freertos, harness)
+└── .github/workflows/ci.yml   # 13-job public CI pipeline (unit-tests, integration-tests, static-analysis, zephyr-native, zephyr-stm32, zephyr-nxp, zephyr-nxp-s32k, freertos-qemu, freertos-safeboot, doip-integration, sovd-codegen, robustness-tests, harness-tests)
 ```
 
 **Golden rule:** Never hand-edit files in `generated/`. They are overwritten on every codegen run.

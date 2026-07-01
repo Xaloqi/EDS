@@ -26,7 +26,7 @@ EDS implements:
 - MCP server: exposes generate_did_config, run_codegen, validate_asil_b, explain_uds_error
 - React/TypeScript live dashboard GUI
 - VS Code extension (YAML validation, hover docs, one-click codegen)
-- 9-job CI pipeline: unit tests (42 modules) · integration · static analysis · Zephyr STM32 (nucleo_h743zi2) · Zephyr NXP MCX (frdm_mcxn947) · Zephyr NXP S32K (mr_canhubk3) · FreeRTOS QEMU ARM (basic + OTA safeboot) · DoIP integration (native_sim + DoipBus) · harness tests (68) · SOVD CDA generation
+- 13-job CI pipeline: unit tests (42 modules) · integration (simulator) · static analysis + MISRA · Zephyr native_sim · Zephyr STM32 (nucleo_h743zi2) · Zephyr NXP MCX (frdm_mcxn947) · Zephyr NXP S32K (mr_canhubk3) · FreeRTOS QEMU ARM · FreeRTOS safeboot QEMU · DoIP integration (native_sim + DoipBus) · SOVD CDA generation · robustness campaign (439 tests) · harness tests (68)
 
 ## Licensing
 
