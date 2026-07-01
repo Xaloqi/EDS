@@ -13,9 +13,9 @@ ISO 15765-2 (ISO-TP) diagnostics stack for embedded RTOS targets. It is YAML-dri
 describe your DIDs, DTCs, and routines in YAML, run the code generator, and receive
 ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 
-**Version:** v1.8.2
+**Version:** v1.9.0
 **Target RTOS:** Zephyr v3.7+ · FreeRTOS (any version with static allocation support)
-**Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 (hardware) · QEMU ARM Cortex-M4 (FreeRTOS CI)
+**Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 (Cortex-M7) · NXP FRDM-MCX-N947 (MCX N947, Cortex-M33) · NXP MR-CANHUBK3 (S32K344, Cortex-M7) · QEMU ARM Cortex-M4 (FreeRTOS CI)
 **Transport:** ISO-TP over CAN (default) · DoIP over Ethernet/TCP (v1.6.0+)
 **OpenSOVD CDA:** `--sovd` flag generates `sovd_cda.json` (v1.7.0+)
 
@@ -60,7 +60,7 @@ EDS/
 ├── scripts/
 │   ├── build_tests.sh
 │   └── build_harness.sh
-└── .github/workflows/ci.yml   # 7-job public CI pipeline (unit, integration, static, zephyr×2, freertos, harness)
+└── .github/workflows/ci.yml   # 13-job public CI pipeline (unit-tests, integration-tests, static-analysis, zephyr-native, zephyr-stm32, zephyr-nxp, zephyr-nxp-s32k, freertos-qemu, freertos-safeboot, doip-integration, sovd-codegen, robustness-tests, harness-tests)
 ```
 
 **Golden rule:** Never hand-edit files in `generated/`. They are overwritten on every codegen run.
