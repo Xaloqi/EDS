@@ -1,0 +1,145 @@
+/*
+ * =============================================================================
+ * Xaloqi EDS
+ * boards/mr_canhubk3/mr_canhubk3.overlay
+ *
+ * Device Tree overlay for the NXP MR-CANHUBK3 board (NXP S32K344, Cortex-M7).
+ *
+ * TARGET SOC : NXP S32K344 — Cortex-M7 @ 160 MHz, 4 MB program flash,
+ *              320 KB SRAM, up to 6× FlexCAN-FD instances.
+ * BOARD      : NXP MR-CANHUBK3 evaluation module.
+ *              The same FlexCAN0 peripheral and pinout applies to S32K312
+ *              and S32K396 variants with minor clock-tree Kconfig adjustments.
+ *
+ * PURPOSE: Configure FlexCAN0 as the EDS diagnostic CAN channel at 500 kbit/s
+ *          and define the NVS / OTA flash partition layout.
+ *
+ * HARDWARE SETUP:
+ *   MR-CANHUBK3 → NXP TJA1443 CAN transceiver (on-board, CAN0 connector)
+ *   PTA6 (CAN0_RX) → TJA1443 RXD  (defined in mr_canhubk3-pinctrl.dtsi)
+ *   PTA7 (CAN0_TX) → TJA1443 TXD  (defined in mr_canhubk3-pinctrl.dtsi)
+ *   The TJA1443 on the MR-CANHUBK3 is a GPIO-controlled CAN transceiver.
+ *   GPIO PC8 (enable) and PC5 (standby) are managed by the board DTSI.
+ *   CANH/CANL connect to the board's D-Sub9 CAN0 connector.
+ *
+ *   Debug UART: LPUART2 (on-board USB-to-serial, 115200 baud).
+ *   No USB-UART adapter needed.
+ *
+ * CAN BUS PARAMETERS:
+ *   Bus speed : 500 kbit/s  (ISO 15765-4 §4.2 for 11-bit CAN IDs)
+ *   Sample point: 87.5%    (CiA 601 / CANopen automotive convention)
+ *   Mode: Classic CAN 2.0B (CAN FD mode is available — see Notes)
+ *
+ * PINMUX:
+ *   FlexCAN0 pinmux (PTA6/PTA7) is defined in mr_canhubk3-pinctrl.dtsi
+ *   (upstream Zephyr). The board DTSI references these pinctrl groups on
+ *   &flexcan0. No additional pinctrl definitions are needed in this overlay.
+ *
+ * FLASH LAYOUT:
+ *   S32K344 program flash: 4048 KiB available to the application core.
+ *   (4096 KiB total minus 48 KiB reserved by Secure Boot Assist Firmware.)
+ *   Erase-block-size = 8 KiB. The C40FC controller maps flash to 0x00400000.
+ *   Partition offsets below are relative to the C40FC ranges base (0x0).
+ *
+ *   Offset      Size     Label        Purpose
+ *   ──────────  ───────  ───────────  ──────────────────────────────────────
+ *   0x000000    1792 KB  image-0      Primary firmware slot — app flashed here.
+ *   0x1C0000    1792 KB  image-1      Secondary / OTA staging slot.
+ *                                     platform/zephyr_flash_ops.c writes DFU
+ *                                     payloads here via FLASH_AREA_ID(image_1).
+ *   0x380000     464 KB  diag_nvs     Zephyr NVS (security counters, DTC mirror,
+ *                                     session stats). 58 × 8 KiB sectors.
+ *   Total: 4048 KiB (exactly fills the available flash window).
+ *
+ *   NOTE: S32K3 hardware boot requires an Application Boot Configuration Block
+ *   (ABCB) at the start of flash (physical 0x00400000). For direct hardware
+ *   flashing, prepend the ABCB binary to the EDS firmware image. Contact NXP
+ *   AN13033 for ABCB generation details. CI builds are compile-only and do not
+ *   require the ABCB.
+ *
+ * SAFETY: This overlay is a starting point. OEM integration must:
+ *   [ ] Verify PTA6/PTA7 pinout against actual S32K344 schematic variant
+ *   [ ] Validate 500 kbit/s sample point against network analyser
+ *   [ ] Enable CAN termination resistor (120 Ω) on bus endpoints
+ *   [ ] Qualify FlexCAN0 against ISO 11898-1 electrical requirements
+ *   [ ] Provision Application Boot Configuration Block for hardware deployment
+ *
+ * NOTES:
+ *   CAN FD: Set CONFIG_CAN_FD_MODE=y and update sample-point + data-sample-point
+ *   in this overlay when CAN FD payloads (>8 bytes) are required.
+ *   S32K312 / S32K396 variants: reuse this overlay with minor adjustments to
+ *   clock sources (NXP_S32_FLEXCANA_CLK) if the SoC clock tree differs.
+ * =============================================================================
+ */
+
+/* ── CAN alias: can0 → flexcan0 ──────────────────────────────────────────────
+ *
+ * main.c uses DEVICE_DT_GET(DT_ALIAS(can0)) — this alias maps that to FlexCAN0.
+ * mr_canhubk3_common.dtsi sets zephyr,canbus = &flexcan0 in the chosen node.
+ *
+ * WATCHDOG: Zephyr 3.7 mr_canhubk3 board DTS already defines
+ *   watchdog0 = &fs26_wdt (NXP FS26 SBC, SPI-connected external watchdog).
+ * Zephyr ≥ 4.x also exposes the internal swt0 (NXP S32 SWT).
+ * We do not override watchdog0 here — the base board alias is sufficient.
+ * ─────────────────────────────────────────────────────────────────────────── */
+/ {
+	aliases {
+		can0 = &flexcan0;
+	};
+
+	chosen {
+		zephyr,code-partition = &slot0_partition;
+	};
+};
+
+/* ── FlexCAN0 timing ──────────────────────────────────────────────────────────
+ *
+ * mr_canhubk3_common.dtsi enables flexcan0 with PTA6/PTA7 pinctrl and the
+ * on-board TJA1443 transceiver. We only add the sample-point property.
+ *
+ * Sample point = 87.5% — standard automotive ECU configuration (CiA 601).
+ * The FlexCAN driver computes bit-timing registers from sample-point at init.
+ * ─────────────────────────────────────────────────────────────────────────── */
+&flexcan0 {
+	sample-point = <875>;
+};
+
+/* ── Flash partition table ────────────────────────────────────────────────────
+ *
+ * Delete the existing partitions node from mr_canhubk3.dts (ivt-header +
+ * code-partition) and replace with the EDS three-partition layout.
+ *
+ * slot0_partition is dual-labelled as eds_app_slot to avoid any label
+ * collision with base board DTS entries. The slot0_partition label satisfies
+ * the Zephyr chosen node zephyr,code-partition = &slot0_partition override
+ * set above.
+ *
+ * All offsets and sizes are 8 KiB aligned (S32K344 erase-block-size = 8 KiB).
+ *   1792 KiB = 224 × 8 KiB sectors
+ *    464 KiB =  58 × 8 KiB sectors
+ *   Total: 506 sectors × 8 KiB = 4048 KiB ✓
+ * ─────────────────────────────────────────────────────────────────────────── */
+&flash0 {
+	/delete-node/ partitions;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot0_partition: eds_app_slot: partition@0 {
+			label = "image-0";
+			reg = <0x00000000 0x001C0000>;
+		};
+
+		eds_ota_slot: partition@1c0000 {
+			label = "image-1";
+			reg = <0x001C0000 0x001C0000>;
+		};
+
+		eds_nvs_slot: partition@380000 {
+			label = "diag_nvs";
+			reg = <0x00380000 0x00074000>;
+		};
+	};
+};

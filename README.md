@@ -84,6 +84,12 @@ west build -b frdm_mcxn947/mcxn947/cpu0 examples/basic_ecu \
   -- -DEXTRA_CONF_FILE=boards/frdm_mcxn947/frdm_mcxn947.conf \
      -DDTC_OVERLAY_FILE=boards/frdm_mcxn947/frdm_mcxn947.overlay
 west flash
+
+# NXP MR-CANHUBK3 (S32K344 — also covers S32K312, S32K396)
+west build -b mr_canhubk3 examples/basic_ecu \
+  -- -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf \
+     -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay
+west flash
 ```
 
 The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registration tables, a complete UDS init sequence, a pytest suite for every DID and DTC, and optionally CANoe CAPL scripts. Regenerate any time the YAML changes — output is deterministic and CI-verifiable.
