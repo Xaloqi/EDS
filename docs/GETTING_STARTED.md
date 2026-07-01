@@ -422,6 +422,17 @@ west build -b nucleo_h743zi2 examples/basic_ecu
 west flash
 ```
 
+### Flash real hardware (NXP MR-CANHUBK3 / S32K344)
+
+```bash
+west build -b mr_canhubk3 examples/basic_ecu \
+  -- -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf \
+     -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay
+west flash
+```
+
+Connect a USB-CAN adapter (PCAN, Kvaser) to the D-Sub9 CAN0 connector. The on-board TJA1443 transceiver is enabled automatically. See `docs/INTEGRATION_GUIDE.md §6.5` for wiring details.
+
 ---
 
 ## Troubleshooting
@@ -504,7 +515,8 @@ Run the integration tests in a second terminal to send traffic while it's runnin
 | `python3 tools/codegen.py --config CONFIG --out OUTPUT_DIR --safety-wrappers --asil-level B` | Generate C code from YAML |
 | `west build -b native_sim examples/basic_ecu -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay` | Build simulator firmware |
 | `west build -t run` | Run simulator |
-| `west build -b nucleo_h743zi2 examples/basic_ecu` | Cross-compile for Nucleo |
+| `west build -b nucleo_h743zi2 examples/basic_ecu` | Cross-compile for STM32 Nucleo-H743ZI2 |
+| `west build -b mr_canhubk3 examples/basic_ecu -- -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay` | Cross-compile for NXP MR-CANHUBK3 (S32K344) |
 | `west flash` | Flash to connected hardware |
 | `bash build_tests.sh` | Run 37 unit tests |
 | `pytest tests/integration/ -v` | Run Python integration tests |
