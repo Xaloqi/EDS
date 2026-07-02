@@ -17,7 +17,7 @@
  *   - flash_mock_verify() — computes CRC-32 over written data and compares.
  *   - flash_mock_reset()  — clears the buffer and state flags (for test setup).
  *
- * MEMORY MAP (single writable region):
+ * MEMORY MAP (single readable + writable region):
  *   Base address : 0x08020000  (typical MCUboot secondary slot for STM32H7)
  *   Size         : HARNESS_FLASH_MOCK_SIZE (4096 by default)
  *
@@ -60,7 +60,7 @@ static bool     s_erased   = false;
 static uint32_t s_write_cursor = (uint32_t)0U;   /* tracks last written end */
 
 /* --------------------------------------------------------------------------
- * Registered memory map (single writable region)
+ * Registered memory map (single readable + writable region)
  * -------------------------------------------------------------------------- */
 
 static const uds_flash_region_t k_mock_regions[1U] = {
@@ -68,6 +68,7 @@ static const uds_flash_region_t k_mock_regions[1U] = {
         .base_address = FLASH_MOCK_BASE_ADDR,
         .size_bytes   = (uint32_t)FLASH_MOCK_SIZE,
         .writable     = true,
+        .readable     = true,
     }
 };
 

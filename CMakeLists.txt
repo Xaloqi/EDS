@@ -349,9 +349,12 @@ target_sources(app PRIVATE
     core/uds_services/service_0x2E.c
     core/uds_services/service_0x2F.c  # ADDED — InputOutputControlByIdentifier
     core/uds_services/service_0x31.c  # ADDED — RoutineControl
+    core/uds_services/service_0x23.c  # ADDED — ReadMemoryByAddress
     core/uds_services/service_0x34.c  # ADDED — RequestDownload (DFU)
+    core/uds_services/service_0x35.c  # ADDED — RequestUpload (DFU)
     core/uds_services/service_0x36.c  # ADDED — TransferData (DFU)
     core/uds_services/service_0x37.c  # ADDED — RequestTransferExit (DFU)
+    core/uds_services/service_0x3D.c  # ADDED — WriteMemoryByAddress
     core/uds_services/service_0x3E.c
     core/uds_services/service_0x85.c  # ADDED — ControlDTCSetting
     core/uds_transfer_ctx.c           # ADDED — Transfer state machine + CRC-32

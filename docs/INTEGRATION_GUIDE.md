@@ -1071,6 +1071,7 @@ Do not set `EDS_DOIP_ONLY_BUILD=1` in this configuration.
 | Linux host simulation | Zephyr `native_sim` | `ZEPHYR_TOOLCHAIN_VARIANT=host` | `CONFIG_CAN_LOOPBACK` (virtual) | Full: unit tests + firmware integration tests + simulator tests |
 | ST Nucleo H743ZI | Zephyr `nucleo_h743zi` | ARM Cortex-M7 cross-compile | `st,stm32h7-fdcan` | Compile-only (no hardware in CI) |
 | NXP FRDM-MCXN947 | Zephyr `frdm_mcxn947/mcxn947/cpu0` | ARM Cortex-M33 cross-compile | `nxp,flexcan` (FlexCAN0, PIO1_10/PIO1_11) | Compile-only (`zephyr-nxp` CI job) |
+| NXP MR-CANHUBK3 (S32K344) | Zephyr `mr_canhubk3` | ARM Cortex-M7 cross-compile | `nxp,flexcan-fd` (FlexCAN0, PTA6/PTA7, on-board TJA1443) | Compile-only (`zephyr-nxp-s32k` CI job) |
 | QEMU `mps2-an386` (Cortex-M4) | FreeRTOS | `arm-none-eabi-gcc` cross-compile | Stub loopback | Build + binary size check (`freertos-qemu` CI job, `freertos-safeboot` CI job) |
 
 ### 6.2 Validated by Example (not in CI)
@@ -1088,7 +1089,7 @@ These boards use CAN drivers that the EDS Zephyr CAN abstraction layer (`platfor
 |---|---|---|
 | STM32H5 / STM32U5 / STM32G0 | `st,stm32h7-fdcan` | Same FDCAN driver as nucleo_h743zi. May need clock source Kconfig adjustment. |
 | STM32F series (bxCAN) | `st,stm32-bxcan` | Classic bxCAN, 11-bit only, 1 Mbps max. No FD. |
-| NXP S32K1xx / K3xx | `nxp,flexcan` | FlexCAN driver. Used by Eclipse OpenBSW reference platform. |
+| NXP S32K1xx | `nxp,flexcan` | FlexCAN driver. Used by Eclipse OpenBSW reference platform. S32K3xx family is now in the CI table above. |
 | NXP IMXRT | `nxp,flexcan` | Same driver family as FRDM-MCXN947. |
 | Nordic nRF52840 / nRF5340 | `nordic,nrf-can` (via MCP2515 SPI) | nRF52840 has no onboard CAN; requires external transceiver. |
 | Renesas RA | `renesas,ra-canfd` | Renesas RA CANFD driver, Zephyr ≥ 3.6. |
@@ -1116,7 +1117,42 @@ west flash
 
 J-Link onboard provides the debug serial (LPUART4, 115200 baud, 8N1). No separate USB-UART adapter needed. The `zephyr-nxp` CI job verifies this target compiles on every pull request.
 
-### 6.5 Porting to a New Board
+### 6.5 MR-CANHUBK3 / S32K344 Reference
+
+The NXP MR-CANHUBK3 evaluation module uses an S32K344 SoC (Cortex-M7 @ 160 MHz, 4 MB flash, 6× FlexCAN-FD). EDS targets FlexCAN0 with the on-board TJA1443 transceiver — no external components needed.
+
+| MR-CANHUBK3 Signal | Pin  | Notes |
+|--------------------|------|-------|
+| CAN0_RX (PTA6)     | J10  | On-board TJA1443 connected |
+| CAN0_TX (PTA7)     | J10  | On-board TJA1443 connected |
+| CAN0 D-Sub9        | J18  | CANH / CANL to bus |
+| Debug UART (LPUART2) | USB J28 | 115200 baud, 8N1 — on-board USB-to-serial |
+
+Build command:
+```bash
+west build -b mr_canhubk3 examples/basic_ecu \
+  -- -DDIAG_SKIP_CODEGEN=ON \
+     -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf \
+     -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay
+west flash
+```
+
+The same overlay applies to S32K312 and S32K396 variants — only clock-source Kconfig values may need adjustment for non-default PLL configurations. The `zephyr-nxp-s32k` CI job verifies this target compiles on every pull request.
+
+**Flash partition layout** (4048 KiB available after 48 KiB Secure Boot Assist Firmware; erase block = 8 KiB):
+
+| Offset     | Size     | Label        | Purpose |
+|------------|----------|--------------|---------|
+| `0x000000` | 256 B    | `ivt-header` | S32K3 IVT / ABCB boot header. Drives `CONFIG_IVT_HEADER_OFFSET` and `CONFIG_IVT_HEADER_SIZE` in the S32K3 linker — **must not be removed from the partition table**. Application code (`rom_start`) begins at physical `0x402000`. |
+| `0x002000` | 1792 KiB | `image-0`    | Primary firmware slot (`zephyr,code-partition`). |
+| `0x1C2000` | 1792 KiB | `image-1`    | OTA staging slot; `platform/zephyr/zephyr_flash_ops.c` writes DFU payloads here via `FLASH_AREA_ID(image_1)`. |
+| `0x382000` | 472 KiB  | `diag_nvs`   | Zephyr NVS — security counters, DTC mirror, session stats. 59 × 8 KiB sectors. |
+
+Total: `0x3F8000` = 4048 KiB ✓. All EDS partition starts are 8 KiB aligned.
+
+**Hardware boot note:** S32K3 hardware requires an Application Boot Configuration Block (ABCB) prepended to the firmware binary before flashing. See NXP AN13033 for ABCB generation. The CI build validates compilation only; the ABCB step is part of the OEM integration process.
+
+### 6.6 Porting to a New Board
 
 If your board is not in the list above, three things are required:
 

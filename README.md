@@ -84,6 +84,12 @@ west build -b frdm_mcxn947/mcxn947/cpu0 examples/basic_ecu \
   -- -DEXTRA_CONF_FILE=boards/frdm_mcxn947/frdm_mcxn947.conf \
      -DDTC_OVERLAY_FILE=boards/frdm_mcxn947/frdm_mcxn947.overlay
 west flash
+
+# NXP MR-CANHUBK3 (S32K344 — also covers S32K312, S32K396)
+west build -b mr_canhubk3 examples/basic_ecu \
+  -- -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf \
+     -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay
+west flash
 ```
 
 The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registration tables, a complete UDS init sequence, a pytest suite for every DID and DTC, and optionally CANoe CAPL scripts. Regenerate any time the YAML changes — output is deterministic and CI-verifiable.
@@ -94,7 +100,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 
 | Capability | Detail |
 |---|---|
-| **UDS stack** | 17 services: 0x10 0x11 0x14 0x19 0x22 0x27 0x28 **0x2A** 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 0x3E 0x85 · SID 0x2A: periodic push (SLOW/MEDIUM/FAST) · SID 0x19 sub-functions: 0x01 0x02 0x03 0x04 0x06 0x0A 0x0B 0x19 |
+| **UDS stack** | 19 services: 0x10 0x11 0x14 0x19 0x22 **0x23** 0x27 0x28 **0x2A** 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 **0x3D** 0x3E 0x85 · SID 0x23: direct memory read · SID 0x2A: periodic push (SLOW/MEDIUM/FAST) · SID 0x3D: direct memory write · SID 0x19 sub-functions: 0x01 0x02 0x03 0x04 0x06 0x0A 0x0B 0x19 |
 | **ISO-TP transport** | SF / FF / CF / FC · N_As / N_Bs / N_Cr timing · STmin sub-ms range |
 | **DoIP transport** | ISO 13400-2 server — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes |
 | **ASIL-B safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
@@ -103,7 +109,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 | **Code generation** | YAML → 17 Jinja2 templates · CLI · reproducible deterministic output |
 | **Test generation** | YAML → pytest suite per DID and DTC · simulator mode (no hardware) · firmware harness mode |
 | **CANoe CAPL** | YAML → `.can` scripts for CANoe import · per-DID, per-DTC, core services |
-| **SOVD CDA** | `--sovd` flag: YAML → OpenSOVD 1.0 `sovd_cda.json` — DIDs, DTCs, routines, transport, all 17 services · DoIP ECUs include `logicalAddress` and `port` · Eclipse SDV / OEM SOVD clients |
+| **SOVD CDA** | `--sovd` flag: YAML → OpenSOVD 1.0 `sovd_cda.json` — DIDs, DTCs, routines, transport, all 19 services · DoIP ECUs include `logicalAddress` and `port` · Eclipse SDV / OEM SOVD clients |
 | **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
 | **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |

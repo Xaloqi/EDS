@@ -245,6 +245,33 @@ static const uds_access_entry_t k_default_table[UDS_ACCESS_TABLE_DEFAULT_COUNT] 
         .required_sec_level = (uint8_t)1U,
         .require_unlocked   = true,
     },
+
+    /* [13] 0x23 ReadMemoryByAddress — Programming session + Level 1 security.
+     *
+     *  Direct memory read exposes raw ECU memory to the tester.  Requires the
+     *  same access tier as RequestUpload (0x35).  The readable memory map in
+     *  the flash ops table is the ASIL-B gate (REQ-FLASH-003); the ACL entry
+     *  ensures the session and security prerequisites are met before dispatch.
+     */
+    {
+        .service_id         = UDS_SID_READ_MEMORY_BY_ADDRESS,
+        .session_mask       = UDS_ACL_SESSION_PROGRAMMING,
+        .required_sec_level = (uint8_t)1U,
+        .require_unlocked   = true,
+    },
+
+    /* [14] 0x3D WriteMemoryByAddress — Programming session + Level 1 security.
+     *
+     *  Direct memory write.  Identical access tier to RequestDownload (0x34).
+     *  The writable memory map in the flash ops table is the ASIL-B gate
+     *  (REQ-FLASH-002).  Session and security gates applied before dispatch.
+     */
+    {
+        .service_id         = UDS_SID_WRITE_MEMORY_BY_ADDRESS,
+        .session_mask       = UDS_ACL_SESSION_PROGRAMMING,
+        .required_sec_level = (uint8_t)1U,
+        .require_unlocked   = true,
+    },
 };
 
 /* --------------------------------------------------------------------------
