@@ -11,7 +11,7 @@
  * Coverage:
  *   TC-0x37-001  NULL ctx                              → ERR_NULL_PTR
  *   TC-0x37-002  Request too short (0 bytes)           → ERR_INVALID_PARAM
- *   TC-0x37-003  No active transfer (IDLE state)       → ERR_SERVICE_NOT_SUPPORTED_IN_SESSION (NRC 0x24)
+ *   TC-0x37-003  No active transfer (IDLE state)       → ERR_SEC_SEED_UNAVAILABLE (NRC 0x24)
  *   TC-0x37-004  bytes_remaining != 0 (incomplete)     → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
  *   TC-0x37-005  Transfer context reset to IDLE after NRC 0x31 (REQ-DL-003)
  *   TC-0x37-006  Malformed CRC record length (2 bytes) → ERR_INVALID_PARAM (NRC 0x13)
@@ -236,7 +236,7 @@ ZTEST(svc_0x37, test_no_active_transfer)
 {
     /* Transfer context is IDLE from setUp. */
     build_req_no_crc();
-    zassert_equal(UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION,
+    zassert_equal(UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
                   uds_service_0x37_handler(&s_srv, &s_req, &s_resp), "");
 }
 

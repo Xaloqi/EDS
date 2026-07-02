@@ -5,7 +5,7 @@
 > repo. Community users cloning the public repo can ignore this file.
 
 **Product:** Xaloqi EDS (Xaloqi Embedded Diagnostic Suite)  
-**Version:** v1.7.0  
+**Version:** v1.9.0  
 **Support:** contact@xaloqi.com
 
 ---
@@ -50,7 +50,7 @@ cd EDS
 Verify you are on the correct version:
 
 ```bash
-git checkout v1.7.0
+git checkout v1.9.0
 ```
 
 ---
@@ -59,10 +59,10 @@ git checkout v1.7.0
 
 ```bash
 # From the EDS repo root:
-unzip -o /path/to/xaloqi-eds-developer-v1.7.0.zip
+unzip -o /path/to/xaloqi-eds-developer-v1.9.0.zip
 
 # Or for Professional:
-unzip -o /path/to/xaloqi-eds-professional-v1.7.0.zip
+unzip -o /path/to/xaloqi-eds-professional-v1.9.0.zip
 ```
 
 The `-o` flag overwrites existing files without prompting — required when updating an existing installation.
@@ -174,7 +174,7 @@ Expected output:
 
 ```
 ========================================================================
-  Xaloqi EDS — Code Generator v1.7.0
+  Xaloqi EDS — Code Generator v1.9.0
 ========================================================================
   Config   : examples/bms_ecu/diagnostics_config.yaml
   ...

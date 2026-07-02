@@ -103,7 +103,7 @@ uds_status_t uds_service_0x37_handler(
     tctx = uds_transfer_ctx_get();
     if (tctx->state != UDS_TRANSFER_ACTIVE) {
         /* NRC 0x24 requestSequenceError. */
-        return UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION;
+        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
     }
 
     ops = uds_flash_ops_get();
