@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [Unreleased]
+
+### Fixed
+
+- **SID 0x36 / 0x37 — wrong NRC on sequence error (BUG-01).**
+  `service_0x36.c` and `service_0x37.c` both returned
+  `UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION` when no transfer was active,
+  which `srv_status_to_nrc()` maps to NRC 0x7F
+  (serviceNotSupportedInActiveSession). ISO 14229-1 §14.4.2 requires NRC 0x24
+  (requestSequenceError) in this case. Fixed by returning
+  `UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE`, which maps to NRC 0x24 per the existing
+  table in `uds_server.c`. Unit tests TC-0x36-003 and TC-0x37-003 updated to
+  assert the correct status code.
+
+### Changed
+
+- **Version constants synced to v1.9.0** — four files were left at v1.7.0 after
+  the v1.9.0 release: `core/uds_types.h` (version macros + string),
+  `CMakeLists.txt` (`project(VERSION ...)`), `INSTALL.md` (header, git tag, and
+  zip filenames), `core/uds_safety.h` (header comment). All updated to v1.9.0.
+
+---
 ## [1.9.0] — 2026-06-26
 
 ### Added

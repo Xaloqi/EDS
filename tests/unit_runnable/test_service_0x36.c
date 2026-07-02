@@ -11,7 +11,7 @@
  * Coverage (download direction):
  *   TC-0x36-001  NULL ctx                            → ERR_NULL_PTR
  *   TC-0x36-002  Request too short (< 3 bytes)       → ERR_INVALID_PARAM
- *   TC-0x36-003  No active transfer (IDLE state)     → ERR_SERVICE_NOT_SUPPORTED_IN_SESSION (NRC 0x24)
+ *   TC-0x36-003  No active transfer (IDLE state)     → ERR_SEC_SEED_UNAVAILABLE (NRC 0x24)
  *   TC-0x36-004  Block sequence counter 0x00         → ERR_TP_UNEXPECTED_PDU (NRC 0x73)
  *   TC-0x36-005  Block counter mismatch (wrong value) → ERR_TP_UNEXPECTED_PDU (NRC 0x73)
  *   TC-0x36-006  First block (seq=0x01) accepted      → UDS_STATUS_OK
@@ -246,7 +246,7 @@ ZTEST(svc_0x36, test_no_active_transfer)
 {
     /* transfer context is IDLE from setUp. */
     build_req(0x01U, 0xBBU, 4U);
-    zassert_equal(UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION,
+    zassert_equal(UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
                   uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
 }
 

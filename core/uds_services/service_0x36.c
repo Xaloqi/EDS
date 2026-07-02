@@ -192,7 +192,7 @@ uds_status_t uds_service_0x36_handler(
     /* REQ-DL-SEQ: A transfer must be active. */
     if (tctx->state != UDS_TRANSFER_ACTIVE) {
         /* NRC 0x24 requestSequenceError — no active transfer session. */
-        return UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION;
+        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
     }
 
     ops = uds_flash_ops_get();
