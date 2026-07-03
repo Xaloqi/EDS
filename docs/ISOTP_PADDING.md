@@ -64,3 +64,15 @@ The feature is guarded entirely by `#if ISOTP_TX_PADDING`. When the flag is 0
 (the default), no padding code is compiled into the binary and all frame DLCs
 are set to the exact number of bytes used. Classic CAN FF is always 8 bytes
 regardless of this flag because the FF encoding fills all 8 bytes by definition.
+
+## Interop note: padding asymmetry with xaloqi-tester
+
+EDS pads with `0xCC` (when padding is enabled). The xaloqi-tester Python
+client (`xaloqi/tester/_isotp.py`) pads outgoing frames with `0x00`.
+
+Per ISO 15765-2 §8, receivers **must** treat padding bytes as undefined and
+ignore them, so this asymmetry is not a correctness issue. However, it is
+visible in bus capture tools (CANalyzer, Wireshark, CANoe) as a difference
+in the padding byte between tester-to-ECU and ECU-to-tester frames. If a
+third-party tester logs an alert for inconsistent padding, this is the cause —
+not a protocol violation.

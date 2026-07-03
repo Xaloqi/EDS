@@ -1052,7 +1052,24 @@ asyncio.run(main())
 Default `DoipBus` parameters match the EDS defaults:
 `source_address=0x0E00, target_address=0xE400, port=13400`.
 
-### 5b.5 "transport: both" — CAN and DoIP simultaneously
+### 5b.5 Security note: tester source-address filtering
+
+The current DoIP server (`transport/doip/doip_server.c`) stores the
+`source_address` from the Routing Activation Request but does **not** validate
+it against a configured allowlist. Any tester that reaches the ECU's TCP port
+can activate routing regardless of its claimed logical address.
+
+This is acceptable for development and lab environments where network access
+is already controlled. For production deployments, add source-address filtering
+at the network layer (firewall, VLAN isolation) or enable the optional
+allowlist when it is introduced in a future EDS release.
+
+**Planned fix:** `doip_server_state_t` will gain an optional
+`allowed_tester_addresses[]` array. If non-empty, a Routing Activation Request
+from an unlisted source address will be rejected with response code
+`DOIP_RA_RESP_DENIED` (0x00) before any UDS traffic is accepted.
+
+### 5b.6 "transport: both" — CAN and DoIP simultaneously
 
 For ECUs that must serve diagnostics on both CAN and Ethernet simultaneously
 (e.g. a zonal gateway), set `transport: both` in YAML and include all CAN and DoIP
