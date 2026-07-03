@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
+## [Unreleased]
+
+### Security
+
+- **[P4-SEC-01] SecurityAccess: wrong-level key now counts as a failed
+  attempt.** `uds_security_send_key()` previously returned
+  `REQUEST_OUT_OF_RANGE` immediately when the submitted key's security level
+  did not match the pending seed level, without incrementing
+  `failed_attempts` or clearing `seed_pending`. This allowed unbounded
+  probing of level/sub-function pairings without ever tripping the lockout
+  counter — an ASIL-B audit finding.
+
+  Fix: on level mismatch the seed is consumed (`seed_pending = false`),
+  `failed_attempts` is incremented, NVM persistence is called, and lockout
+  is engaged if `max_attempts` is reached. The return code remains
+  `REQUEST_OUT_OF_RANGE` so callers can distinguish a level mismatch from
+  a wrong-key submission. Two regression tests added (TC-SEC-KEY-007,
+  TC-SEC-KEY-008).
+
+---
+
 ## [1.10.0] — 2026-07-02
 
 ### Added

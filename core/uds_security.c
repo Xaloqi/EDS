@@ -255,6 +255,36 @@ uds_status_t uds_security_send_key(
 
     expected_seed_level = sec_key_level_to_seed_level(security_level);
     if (expected_seed_level != ctx->pending_level) {
+        /*
+         * [P4-SEC-01] Level mismatch must consume an attempt.
+         *
+         * An attacker can determine valid level/sub-function pairings by
+         * probing send_key with mismatched levels. Without consuming an
+         * attempt here, this probing never trips the lockout counter,
+         * undermining the ASIL-B security-access claim.
+         *
+         * Treatment: identical to an invalid key — seed consumed, counter
+         * incremented, lockout engaged if max_attempts reached — but NRC
+         * remains REQUEST_OUT_OF_RANGE so the caller can distinguish the
+         * error type from a wrong-key submission.
+         */
+        ctx->seed_pending = false;
+        ctx->failed_attempts++;
+
+        if (ctx->failed_attempts >= ctx->max_attempts) {
+            ctx->locked_out       = true;
+            ctx->lockout_timer_ms = ctx->lockout_duration_ms;
+            ctx->failed_attempts  = (uint8_t)0U;
+            if (ctx->nvm_save_cb != NULL) {
+                (void)ctx->nvm_save_cb((uint8_t)0U, ctx->lockout_timer_ms);
+            }
+            return UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED;
+        }
+
+        if (ctx->nvm_save_cb != NULL) {
+            (void)ctx->nvm_save_cb(ctx->failed_attempts, (uint32_t)0U);
+        }
+
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
 
