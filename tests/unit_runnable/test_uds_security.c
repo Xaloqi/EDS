@@ -455,6 +455,68 @@ ZTEST(test_uds_security_send_key, test_lockout_after_max_attempts)
                   "Request during lockout must return ATTEMPT_EXCEEDED");
 }
 
+/**
+ * TC-SEC-KEY-007: [P4-SEC-01] Key for wrong level → REQUEST_OUT_OF_RANGE,
+ *                 seed consumed, failed_attempts incremented.
+ *
+ * Seeds Level 1, then submits a Level 2 key.  Before the fix the early
+ * return left seed_pending = true and failed_attempts = 0, allowing
+ * unbounded level probing without triggering lockout.
+ */
+ZTEST(test_uds_security_send_key, test_wrong_level_key_consumed_as_failed_attempt)
+{
+    uds_security_ctx_t ctx;
+    zassert_equal(default_sec_init(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t seed[UDS_SECURITY_SEED_LEN]; uint8_t seed_len;
+    do_seed_request(&ctx, seed, &seed_len); /* seed pending at level 1 */
+
+    uint8_t key[UDS_SECURITY_KEY_LEN] = { 0x01U, 0x02U, 0x03U, 0x04U };
+    /* Submit Level-2 key while Level-1 seed is pending → mismatch */
+    uds_status_t rc = uds_security_send_key(&ctx, UDS_SEC_LEVEL_2_KEY,
+                                             key, (uint8_t)UDS_SECURITY_KEY_LEN);
+
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  "[P4-SEC-01] Level mismatch must return REQUEST_OUT_OF_RANGE");
+    zassert_false(ctx.seed_pending,
+                  "[P4-SEC-01] Seed must be consumed on level mismatch");
+    zassert_equal(ctx.failed_attempts, 1U,
+                  "[P4-SEC-01] Failed attempt must be counted on level mismatch");
+}
+
+/**
+ * TC-SEC-KEY-008: [P4-SEC-01] Three wrong-level submissions → lockout engaged.
+ *
+ * An attacker probing level/sub-function pairings must trip the lockout
+ * counter just like incorrect key values do.
+ */
+ZTEST(test_uds_security_send_key, test_wrong_level_triggers_lockout)
+{
+    uds_security_ctx_t ctx;
+    zassert_equal(default_sec_init(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t seed[UDS_SECURITY_SEED_LEN];
+    uint8_t seed_len = 0U;
+    uint8_t key[UDS_SECURITY_KEY_LEN] = { 0x01U, 0x02U, 0x03U, 0x04U };
+
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        uds_status_t sr = do_seed_request(&ctx, seed, &seed_len);
+        if (ctx.locked_out) {
+            break;
+        }
+        zassert_equal(sr, UDS_STATUS_OK, "Seed request must succeed");
+        uds_security_send_key(&ctx, UDS_SEC_LEVEL_2_KEY,
+                              key, (uint8_t)UDS_SECURITY_KEY_LEN);
+    }
+
+    zassert_true(ctx.locked_out,
+                 "[P4-SEC-01] Must be locked out after 3 wrong-level submissions");
+
+    uds_status_t rc = do_seed_request(&ctx, seed, &seed_len);
+    zassert_equal(rc, UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED,
+                  "Seed request after wrong-level lockout must return ATTEMPT_EXCEEDED");
+}
+
 /* =========================================================================
  * Test suite: uds_security_is_unlocked
  * ========================================================================= */
