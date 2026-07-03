@@ -170,6 +170,10 @@ here have caused real CI failures and customer-visible linker errors.
 - [ ] `tests/unit_runnable/test_service_0xNN.c` — unit tests (aim for 14+ cases)
 - [ ] `tests/CMakeLists.txt` — `add_diag_test(test_service_0xNN)`
 - [ ] `build_tests.sh` — add to `STACK_SRCS` and `TESTS` arrays, bump count in comment
+- [ ] `build_harness.sh` — add `$ROOT/core/uds_services/service_0xNN.c` to `STACK_SRCS`;
+  also add any new support module the handler depends on (e.g. `uds_periodic.c` for 0x2A,
+  `uds_io_control.c` for 0x2F if one exists). Omitting this causes undefined-reference linker
+  errors that only surface when running the 68 harness tests, not the unit tests.
 - [ ] `ci.yml` — bump unit test count in job comment/display name
 - [ ] `misra_analysis.py` — add `core/uds_services/service_0xNN.c` to **DEV-MULT-01**
   `files` list (Rule 15.5 — early-return guard pattern used by all handlers)
@@ -195,6 +199,24 @@ here have caused real CI failures and customer-visible linker errors.
 > `${DIAG_ROOT}/cmake/eds_service_sources.cmake` at build time.
 
 ---
+
+### Lessons learned from issue #33 (2026-07) — harness linker failure
+
+**`build_harness.sh` must be updated alongside `service_registration.c`**
+
+Five services (0x23, 0x2A, 0x2F, 0x35, 0x3D) were fully implemented and registered,
+but `build_harness.sh` was never updated. The unit tests (`build_tests.sh`) passed
+because they do not compile `service_registration.c` in a way that forces all
+registered handlers to be linked. The harness does — it links the entire stack — so
+it failed with `undefined reference` for all five handlers at once.
+
+Rule: whenever you add an entry to the `STACK_SRCS` section of `build_tests.sh`,
+ask "does `build_harness.sh` also need this file?" The answer is almost always yes
+for new service handlers and for new support modules they depend on.
+
+The fix was 6 lines in `build_harness.sh` (EDS PR #66):
+the 5 service `.c` files plus `uds_periodic.c`, which `service_0x2A.c` requires for
+`uds_periodic_subscribe` / `uds_periodic_unsubscribe`.
 
 ### Lessons learned from adding 0x2F (2026-06)
 
