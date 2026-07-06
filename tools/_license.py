@@ -1,1 +1,0 @@
-../../EDS-toolchain/tools/_license.py

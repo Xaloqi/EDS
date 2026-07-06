@@ -67,12 +67,23 @@ unzip -o /path/to/xaloqi-eds-professional-v1.10.0.zip
 
 The `-o` flag overwrites existing files without prompting — required when updating an existing installation.
 
+> **Upgrading a clone made before 2026-07-06?** Earlier repo revisions contained
+> `tools/templates`, `tools/testgen.py`, `tools/_license.py`, and `harness` as
+> symbolic links, which caused `unzip -o` to fail with
+> `checkdir error: cannot create tools/templates: File exists`. If you see that
+> error, remove the stale links once and re-extract:
+>
+> ```bash
+> rm -f tools/templates tools/testgen.py tools/_license.py harness
+> unzip -o /path/to/xaloqi-eds-developer-v1.10.0.zip
+> ```
+
 This extracts the toolchain files directly into the repo tree. No separate directory. After extraction you will have:
 
 ```
 EDS/
 ├── tools/
-│   ├── templates/      ← now populated (was stub)
+│   ├── templates/      ← new
 │   ├── testgen.py      ← new
 │   ├── mcp_server.py   ← new
 │   └── _license.py     ← new
