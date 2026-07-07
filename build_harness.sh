@@ -46,6 +46,26 @@ for arg in "$@"; do
 done
 
 # ---------------------------------------------------------------------------
+# Harness sources are a Professional-tier deliverable (issue #68).
+# A community clone of this repo does not contain harness/ — fail with a
+# clear explanation instead of a page of cc1 fatal errors.
+# ---------------------------------------------------------------------------
+if [[ ! -f "${ROOT}/harness/harness_main.c" ]]; then
+    echo "ERROR: harness/ sources not found."
+    echo ""
+    echo "The 68-test integration harness is part of the Xaloqi EDS"
+    echo "Professional tier and is not included in the public repository."
+    echo "It is delivered in the Professional ZIP — extract it into this"
+    echo "repo root first (see INSTALL.md Step 2), then re-run this script."
+    echo ""
+    echo "Tiers and pricing: see COMMERCIAL_NOTICE.md or https://xaloqi.com"
+    echo ""
+    echo "The public unit test suite needs no commercial files:"
+    echo "  bash build_tests.sh"
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Source files
 # ---------------------------------------------------------------------------
 HARNESS_SRCS=(
