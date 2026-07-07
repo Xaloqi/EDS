@@ -100,7 +100,7 @@ except ImportError:
     print("ERROR: Jinja2 is required.  pip install jinja2", file=sys.stderr)
     sys.exit(2)
 
-__version__ = "1.7.0"
+__version__ = "1.10.0"
 
 # =============================================================================
 # Constants
@@ -851,7 +851,7 @@ def build_sovd_cda(cfg):
 
     cda = {
         "sovdVersion": "1.0.0",
-        "generatedBy": "Xaloqi EDS codegen v1.7.0",
+        "generatedBy": f"Xaloqi EDS codegen v{__version__}",
         "generatedAt": _now_utc(),
         "ecuIdentification": {
             "name":    meta["ecu_name"],

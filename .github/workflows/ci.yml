@@ -410,6 +410,25 @@ jobs:
                 && echo "      If a deviation is required, document it per ISO 26262-8 §7 before changing." \
                 && exit 1)
 
+      # codegen's banner and the SOVD generatedBy stamp use __version__.
+      # It drifted to v1.7.0 while the product shipped v1.10.0 (INSTALL.md
+      # promises the current version in its expected output). Bind it to the
+      # top CHANGELOG entry so a release bump cannot miss it.
+      - name: Assert codegen __version__ matches top CHANGELOG version
+        run: |
+          python3 - <<'PYEOF'
+          import re, sys
+          changelog = re.search(r"^## \[(\d+\.\d+\.\d+)\]", open("CHANGELOG.md").read(), re.M)
+          codegen   = re.search(r"^__version__ = \"(\d+\.\d+\.\d+)\"", open("tools/codegen.py").read(), re.M)
+          assert changelog and codegen, "could not locate version strings"
+          cl, cg = changelog.group(1), codegen.group(1)
+          if cl != cg:
+              print(f"FAIL: tools/codegen.py __version__ is {cg} but CHANGELOG.md top entry is {cl}")
+              print("      Bump __version__ in tools/codegen.py as part of the release commit.")
+              sys.exit(1)
+          print(f"PASS: codegen __version__ {cg} matches CHANGELOG {cl}")
+          PYEOF
+
 
   # ── Job 5: Generated integration tests (simulator mode) ───────────────────
   #
