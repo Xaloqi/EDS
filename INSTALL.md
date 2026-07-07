@@ -30,7 +30,7 @@ It installs by extracting into the public EDS repo you already cloned.
 **Professional tier adds:**
 - Integration test harness (`harness/`) — 68 C tests against the full UDS stack
 - Safety documentation package (`safety_docs/`):
-  - Safety Manual EDS-SM-001 Rev 1.1 (PDF)
+  - Safety Manual EDS-SM-001 Rev 1.3 (PDF)
   - Hazard Analysis and Risk Assessment (EDS-HARA-001)
   - Tool Qualification Argument (EDS-TQA-001)
   - Requirements Traceability Matrix — 30 ASIL-B requirements, all COVERED
@@ -493,7 +493,7 @@ The `safety_docs/` directory contains the complete ISO 26262-aligned documentati
 
 | Document | File | Purpose |
 |---|---|---|
-| Safety Manual Rev 1.1 | `EDS_Safety_Manual_EDS-SM-001_Rev1.1.pdf` | Component safety manual — integration responsibilities, safety boundaries |
+| Safety Manual Rev 1.3 | `EDS_Safety_Manual_EDS-SM-001_Rev1.3.pdf` | Component safety manual — integration responsibilities, safety boundaries |
 | HARA | `EDS-HARA-001.md` | 6 hazard events, ASIL decomposition argument |
 | TQA | `EDS-TQA-001.md` | Tool qualification argument (TCL1 per ISO 26262-8 §11) |
 | RTM | `EDS_Requirements_Traceability_Matrix.csv` | 30 ASIL-B requirements, all COVERED |
