@@ -8,10 +8,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **`build_harness.sh` now explains itself on a community clone.** (#68, #70)
+  The harness sources are a Professional-tier deliverable; running the script
+  without them used to die with raw `cc1: fatal error: harness_main.c: No such
+  file or directory`. It now exits early with a clear message pointing at the
+  Professional ZIP, INSTALL.md Step 2, and `build_tests.sh` (which needs no
+  commercial files).
+- **codegen banner and SOVD `generatedBy` stamp said v1.7.0.** (#71)
+  `__version__` bumped to 1.10.0, the SOVD stamp now derives from it, and a
+  CI step asserts `__version__` matches the top entry of this file so the
+  next release bump cannot miss it.
+
+---
+
+## [1.10.0] — 2026-07-02 *(tag updated 2026-07-07 — see Fixed below)*
+
 ### Security
 
 - **[P4-SEC-01] SecurityAccess: wrong-level key now counts as a failed
-  attempt.** `uds_security_send_key()` previously returned
+  attempt.** (#64, #65) `uds_security_send_key()` previously returned
   `REQUEST_OUT_OF_RANGE` immediately when the submitted key's security level
   did not match the pending seed level, without incrementing
   `failed_attempts` or clearing `seed_pending`. This allowed unbounded
@@ -25,9 +42,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   a wrong-key submission. Two regression tests added (TC-SEC-KEY-007,
   TC-SEC-KEY-008).
 
----
+### Fixed
 
-## [1.10.0] — 2026-07-02
+- **Committed symlinks broke the commercial ZIP install.** (#67, #69)
+  `tools/templates`, `tools/testgen.py`, `tools/_license.py`, and `harness`
+  were committed as symlinks into a sibling `EDS-toolchain` checkout. In every
+  clone they dangled, and `unzip -o` per INSTALL.md Step 2 could not replace a
+  dangling directory symlink — Developer customers never received the codegen
+  templates, Professional customers never received the 68-test harness. The
+  paths are now untracked and gitignored; INSTALL.md gained a migration note
+  for clones made before 2026-07-06.
+- **`build_harness.sh` missed 5 service files and `uds_periodic` in
+  `STACK_SRCS`.** (#66) The harness now links the full v1.10.0 service set
+  (0x23/0x3D, 0x2A, 0x2F, 0x35).
+
+> **Tag note:** the `v1.10.0` tag was re-pointed on 2026-07-07 to include the
+> three fixes above. If you fetched the tag before that date, run
+> `git fetch --tags --force` and check out again.
 
 ### Added
 
