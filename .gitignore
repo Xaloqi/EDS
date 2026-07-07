@@ -83,6 +83,11 @@ tools/mcp_server.py
 tools/jobrunner.py
 tools/testlab.py
 tools/job_library/
+# Local agent context — references private infrastructure and local paths;
+# must never reach the public repo. The file exists locally on dev machines.
+CLAUDE.md
+.claude/
+
 # Delivered by the commercial ZIP (or dev-workflow symlinks to EDS-toolchain).
 # Never commit: as committed symlinks they dangle for every customer clone
 # and block the documented `unzip -o` install (see issue #67).
