@@ -22,6 +22,21 @@ EDS replaces that with a configuration-driven workflow. Define your ECU's diagno
 
 ---
 
+## Open-core: what's free, what's licensed
+
+EDS is dual-licensed. The runtime stack is GPL v2 and the whole thing builds and runs out of the box — the commercial license is for **generating your own configs** and **shipping proprietary firmware**.
+
+| Free — GPL v2 (runtime) / Apache-2.0 (examples) | Licensed — Developer / Professional |
+|---|---|
+| Full runtime stack: UDS server, ISO-TP, DoIP, security access, ASIL-B safety chain (`core/`, `transport/`, `config/`, `platform/`) | The code generator's **templates** — `tools/codegen.py` is readable and runs, but needs the commercial `tools/templates/` to produce output |
+| Every bundled example **including its committed generated C** — `west build` and run today, no license needed | Test generator (`testgen.py`), ARXML importer, VS Code extension, MCP server, AI assistant |
+| Study, modify, and redistribute under GPL v2 | Generating code for **proprietary** firmware; shipping closed-source firmware |
+| | Safety documentation package (Professional tier) |
+
+**In short:** clone this repo and you can build, run, and study the full stack and every example for free. A [Developer license](COMMERCIAL_NOTICE.md) adds the generator templates (regenerate from your own YAML) and the right to ship proprietary firmware. Full boundary: [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md).
+
+---
+
 ## 60-second walkthrough
 
 **1. Describe your ECU's diagnostic interface:**
