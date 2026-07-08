@@ -56,6 +56,8 @@ dtcs:
 
 **2. Generate everything:**
 
+> **Licensed step** — `tools/codegen.py` requires an EDS Developer or Professional license; the code-generation templates are the commercial deliverable. The runtime stack and the committed example outputs (`examples/*/generated/`) are fully GPL. See [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md) or [xaloqi.com](https://xaloqi.com).
+
 ```bash
 python3 tools/codegen.py \
   --config diagnostics_config.yaml \
@@ -168,14 +170,16 @@ pip install -r tools/requirements.txt
 
 ### Run the basic ECU example
 
+> **No license? Skip the codegen step.** This example's generated code is committed under `examples/basic_ecu/generated/`, so `west build` works out of the box on the GPL runtime. The `codegen.py` step below regenerates it and **requires a Developer/Professional license** (templates are commercial — see [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md)).
+
 ```bash
-# Generate code from the bundled example config
+# Generate code from the bundled example config  (licensed step — see note above)
 python3 tools/codegen.py \
   --config examples/basic_ecu/diagnostics_config.yaml \
   --out    examples/basic_ecu/generated/ \
   --safety-wrappers --asil-level B --test-gen
 
-# Build and run in simulator
+# Build and run in simulator  (works without a license — generated/ is committed)
 west build -b native_sim examples/basic_ecu \
   -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
 west build -t run
@@ -188,6 +192,8 @@ west build -t run
 git clone --depth=1 https://github.com/FreeRTOS/FreeRTOS-Kernel.git /opt/freertos-kernel
 
 # Generate code (same YAML as basic_ecu)
+# Licensed step — requires a Developer/Professional license (templates are commercial).
+# No license? This example's generated/ is committed; skip straight to west build.
 python3 tools/codegen.py \
   --config examples/basic_ecu_freertos/diagnostics_config.yaml \
   --out    examples/basic_ecu_freertos/generated/ \
@@ -235,7 +241,7 @@ cd examples/basic_ecu/generated/tests && pytest test_services.py test_did_*.py -
 ```
 diagnostics_config.yaml
         │
-        ▼  python3 tools/codegen.py
+        ▼  python3 tools/codegen.py   (licensed — Developer/Professional)
 ┌─────────────────────────────────────────┐
 │  Generated C (ASIL-B)                   │
 │  did_handlers.c  did_safety_wrappers.c  │
@@ -244,7 +250,7 @@ diagnostics_config.yaml
                  │
 ┌────────────────▼────────────────────────┐
 │  UDS Server Core  (core/)               │
-│  15 service handlers · session FSM      │
+│  19 service handlers · session FSM      │
 │  security manager · ASIL-B dispatcher   │
 └────────────────┬────────────────────────┘
                  │

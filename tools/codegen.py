@@ -211,6 +211,26 @@ def _fatal(message: str, code: int = 1) -> None:
     sys.exit(code)
 
 
+def _fatal_no_templates(template_dir: "Path") -> None:
+    """Fatal exit when the Jinja2 templates are absent.
+
+    The templates are the commercial deliverable, so their absence in a
+    community clone is a licensing boundary, not a bug — say so plainly, or
+    a GPL user reads 'template directory not found' as broken software.
+    """
+    _fatal(
+        f"Code generator templates not found: {template_dir}\n"
+        "       The templates are part of the Xaloqi EDS Developer license.\n"
+        "       The runtime stack and the committed example outputs "
+        "(examples/*/generated/) are fully GPL and free to use; the code\n"
+        "       generator itself requires a license. See COMMERCIAL_NOTICE.md,\n"
+        "       or https://xaloqi.com to obtain a Developer or Professional license.\n"
+        "       (Already licensed? Extract the toolchain ZIP into the repo root, "
+        "or pass --template-dir to point at your templates.)",
+        code=2,
+    )
+
+
 def _warn(message: str) -> None:
     """Print a non-fatal warning to stderr."""
     print(f"[codegen] WARN: {message}", file=sys.stderr)
@@ -1207,11 +1227,7 @@ def render_and_write(
         SystemExit(2): if the template directory does not exist.
     """
     if not template_dir.is_dir():
-        _fatal(
-            f"Template directory not found: {template_dir}. "
-            "Pass --template-dir to specify an alternate location.",
-            code=2
-        )
+        _fatal_no_templates(template_dir)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1314,10 +1330,7 @@ def render_safety_wrappers(
         SystemExit(3): on any Jinja2 rendering error.
     """
     if not template_dir.is_dir():
-        _fatal(
-            f"Template directory not found: {template_dir}.",
-            code=2
-        )
+        _fatal_no_templates(template_dir)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
