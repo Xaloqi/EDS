@@ -6,7 +6,7 @@
 - Zephyr workspace with EDS checked out
 - A minimal ECU firmware built and running in the simulator
 - UDS service 0x22 (ReadDataByIdentifier) responding to requests
-- All 37 unit tests passing
+- All 42 unit tests passing
 
 **No prior Zephyr knowledge assumed.**
 
@@ -61,7 +61,7 @@ west --version   # must print 1.2 or newer
 mkdir eds-workspace && cd eds-workspace
 
 # Initialise the workspace from the EDS repository
-west init -m https://github.com/Xaloqi/EDS --mr v1.8.2 .
+west init -m https://github.com/Xaloqi/EDS --mr v1.10.1 .
 
 # Pull Zephyr and all dependencies (this downloads ~500 MB, takes 2-4 min)
 west update
@@ -518,7 +518,7 @@ Run the integration tests in a second terminal to send traffic while it's runnin
 | `west build -b nucleo_h743zi2 examples/basic_ecu` | Cross-compile for STM32 Nucleo-H743ZI2 |
 | `west build -b mr_canhubk3 examples/basic_ecu -- -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay` | Cross-compile for NXP MR-CANHUBK3 (S32K344) |
 | `west flash` | Flash to connected hardware |
-| `bash build_tests.sh` | Run 37 unit tests |
+| `bash build_tests.sh` | Run 42 unit tests |
 | `pytest tests/integration/ -v` | Run Python integration tests |
 | `cd gui && npm ci && npm start` | Start GUI configurator |
 | `python3 tools/testgen.py --config CONFIG --out OUT` | Generate pytest test suite |

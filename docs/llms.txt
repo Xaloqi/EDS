@@ -207,10 +207,10 @@ platform/
   platform_api.h    Common HAL interface (Zephyr + FreeRTOS)
   zephyr/           Zephyr RTOS port (threads, CAN, NVM, flash, watchdog, DoIP shim)
   freertos/         FreeRTOS port (task, CAN shim, NVM abstraction, DoIP shim)
-tools/              codegen.py, testgen.py, mcp_server.py, 14 Jinja2 templates
-examples/           11 ECU examples — each with diagnostics_config.yaml + generated/
+tools/              codegen.py, testgen.py, mcp_server.py, 17 Jinja2 templates
+examples/           12 ECU examples — each with diagnostics_config.yaml + generated/
 gui/                React/TypeScript configurator and live dashboard
-tests/              37 Unity unit tests, Python integration tests, harness (68 tests)
+tests/              42 Unity unit tests, Python integration tests, harness (68 tests)
 ide/vscode-extension/  YAML validation, hover docs, Run Codegen command
 
 ## Requirements

@@ -13,7 +13,7 @@ ISO 15765-2 (ISO-TP) diagnostics stack for embedded RTOS targets. It is YAML-dri
 describe your DIDs, DTCs, and routines in YAML, run the code generator, and receive
 ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 
-**Version:** v1.9.0
+**Version:** v1.10.1
 **Target RTOS:** Zephyr v3.7+ · FreeRTOS (any version with static allocation support)
 **Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 (Cortex-M7) · NXP FRDM-MCX-N947 (MCX N947, Cortex-M33) · NXP MR-CANHUBK3 (S32K344, Cortex-M7) · QEMU ARM Cortex-M4 (FreeRTOS CI)
 **Transport:** ISO-TP over CAN (default) · DoIP over Ethernet/TCP (v1.6.0+)
@@ -846,7 +846,7 @@ pytest test_robustness_A_codegen.py \
 | Phase | Tests | What it covers |
 |---|---|---|
 | A | 22 | Generated file presence, C safety markers, GCC syntax |
-| B | 42 | Session transitions, TesterPresent, ECUReset, all 16 service NRCs |
+| B | 42 | Session transitions, TesterPresent, ECUReset, all 19 service NRCs |
 | C | 21 | CMAC SecurityAccess unlock/lockout/replay |
 | D | 30 | Customer workflow (fresh YAML → codegen → pytest), all 11 ECU examples |
 | E | 35 | DID read/write integrity, DTC lifecycle, session isolation |
@@ -1006,5 +1006,5 @@ tool-level assertions. Requires `pyyaml` only.
 
 ---
 
-*EDS v1.8.2 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
+*EDS v1.10.1 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
 *Runtime: GPL v2 · Examples: Apache 2.0 · Tools + IDE + GUI: Commercial*
