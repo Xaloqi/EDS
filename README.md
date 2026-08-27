@@ -230,7 +230,7 @@ For the full FreeRTOS integration guide (callbacks, NVM, reset, production porti
 ### Run the test suite
 
 ```bash
-# 37 Unity unit tests (host-native, no Zephyr SDK needed)
+# 42 Unity unit tests (host-native, no Zephyr SDK needed)
 bash build_tests.sh
 
 # 68 harness integration tests (Professional tier — requires harness/ sources)

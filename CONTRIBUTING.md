@@ -69,7 +69,7 @@ Bug reports, documentation improvements, and issue comments never require a CLA.
 - Changes that remove or weaken any step of the 5-step ASIL-B safety wrapper chain
 - Dynamic memory allocation (`malloc`, `free`) anywhere in the stack
 - Recursion in any safety-critical module
-- Changes that break the `native_sim` CI build or cause any of the 39 unit tests to fail
+- Changes that break the `native_sim` CI build or cause any of the 42 unit tests to fail
 - Hand-written changes to files under `generated/` — these are codegen output;
   fix the template in `tools/templates/` instead
 - External runtime dependencies not already present in the stack
@@ -126,7 +126,7 @@ python3 tools/codegen.py \
   --out generated/ \
   --safety-wrappers --asil-level B --test-gen
 
-# All 39 unit tests must pass
+# All 42 unit tests must pass
 bash build_tests.sh
 
 # All 68 harness tests must pass
@@ -137,7 +137,7 @@ west build -b native_sim examples/basic_ecu \
   -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay
 ```
 
-CI runs all 10 jobs automatically on pull requests. A PR will not be merged if
+CI runs all 13 jobs automatically on pull requests. A PR will not be merged if
 any CI job is red.
 
 ### 5. Pull request checklist
@@ -148,7 +148,7 @@ any CI job is red.
 - [ ] SPDX header on every new file
 - [ ] Unit test added or updated for the changed module
 - [ ] `generated/` files regenerated and committed if YAML or templates changed
-- [ ] All 39 unit tests pass locally (`bash build_tests.sh`)
+- [ ] All 42 unit tests pass locally (`bash build_tests.sh`)
 - [ ] PR title follows format: `[fix|feat|docs|test|chore]: short description`
 
 ---
@@ -186,8 +186,11 @@ here have caused real CI failures and customer-visible linker errors.
 - [ ] `docs/llms.txt` — service count (two places), remove from "not implemented" list
 - [ ] `docs/INTEGRATION_GUIDE.md` — add row to service table, remove from "out of scope"
 - [ ] `docs/TESTING_STRATEGY.md` — service count
-- [ ] `docs/README.md` — service count (two places)
 - [ ] `docs/AI_CONTEXT.md` — service count
+
+> `docs/README.md` was a standalone duplicate of the root README and drifted
+> out of sync for three releases (frozen at v1.8.2 through v1.10.0). It is now
+> a one-line pointer stub — do not restore duplicate content there.
 
 ### EDS-toolchain repo
 

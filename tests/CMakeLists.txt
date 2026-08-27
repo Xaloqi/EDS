@@ -227,8 +227,13 @@ set(DIAG_SRCS_SAFETY_WRAPPERS
 )
 
 set(DIAG_SRCS_SERVICES_FULL
-    # All 14 service handlers (SIDs 0x10/11/14/19/22/27/28/2E/31/3E/85
-    #   plus 0x34/36/37 download services)
+    # NOTE: this list is INCOMPLETE — missing service_0x23.c, service_0x2F.c,
+    # service_0x35.c, service_0x3D.c (added to the stack after this list was
+    # last updated). Not caught by CI: this CMakeLists.txt path is not
+    # currently invoked by CI or build_tests.sh (see EDS#73 for the sibling
+    # gap in add_diag_test() entries — likely the same root cause). Building
+    # any test that exercises those SIDs via this CMake path will link-fail.
+    # Listed here: SIDs 0x10/11/14/19/22/27/28/2A/2E/31/34/36/37/3E/85
     "${DIAG_SERVICES}/service_registration.c"
     "${DIAG_SERVICES}/service_0x10.c"
     "${DIAG_SERVICES}/service_0x11.c"

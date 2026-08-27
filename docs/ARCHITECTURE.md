@@ -1,6 +1,6 @@
 # Architecture — Xaloqi EDS
 
-**Version:** v1.6.0  
+**Version:** v1.10.1  
 **Status:** Production-ready. All CI jobs passing.
 
 ---
@@ -229,7 +229,7 @@ embedded-diagnostics-suite/
 The central entry point for all UDS requests. Receives a parsed UDS PDU from the ISO-TP layer,
 looks up the SID in the dispatch table, and calls the corresponding service handler.
 
-**14 implemented service handlers (v1.0.0):**
+**19 implemented service handlers:**
 
 | SID  | Service |
 |------|---------|
@@ -238,14 +238,18 @@ looks up the SID in the dispatch table, and calls the corresponding service hand
 | 0x14 | ClearDiagnosticInformation |
 | 0x19 | ReadDTCInformation |
 | 0x22 | ReadDataByIdentifier |
+| 0x23 | ReadMemoryByAddress |
 | 0x27 | SecurityAccess |
 | 0x28 | CommunicationControl |
+| 0x2A | ReadDataByPeriodicIdentifier |
 | 0x2E | WriteDataByIdentifier |
+| 0x2F | InputOutputControlByIdentifier |
 | 0x31 | RoutineControl |
 | 0x34 | RequestDownload |
 | 0x35 | RequestUpload |
 | 0x36 | TransferData |
 | 0x37 | RequestTransferExit |
+| 0x3D | WriteMemoryByAddress |
 | 0x3E | TesterPresent |
 | 0x85 | ControlDTCSetting |
 
@@ -293,7 +297,7 @@ expect fixed-length frames. See [docs/ISOTP_PADDING.md](ISOTP_PADDING.md).
 
 Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protocol over TCP.
 
-#### DoIP Feature Matrix (v1.8.x, ISO 13400-2:2019)
+#### DoIP Feature Matrix (current as of v1.10.1, ISO 13400-2:2019)
 
 | Feature | Payload type | Status | Notes |
 |---|---|---|---|
@@ -307,10 +311,10 @@ Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protoc
 | Diagnostic Message Positive Ack | 0x8002 | ✅ Implemented | Sent before UDS dispatch per ISO 13400-2 §9.5 |
 | Diagnostic Message Negative Ack | 0x8003 | ✅ Implemented | NACK codes: 0x03 (invalid src), 0x04 (unknown tgt), 0x05 (too large), 0x07 (not routed) |
 | Single active TCP connection | — | ✅ Implemented | Sequential accept; routing state reset on new connection |
-| UDP Vehicle Identification Request | 0x0001 | ❌ Not implemented | Out of scope for v1.8.x |
-| UDP Vehicle Identification w/ EID | 0x0002 | ❌ Not implemented | Out of scope for v1.8.x |
-| Vehicle Announcement | 0x0004 | ❌ Not implemented | Out of scope for v1.8.x |
-| Entity Status Request/Response | 0x4001/0x4002 | ❌ Not implemented | Out of scope for v1.8.x |
+| UDP Vehicle Identification Request | 0x0001 | ❌ Not implemented | Out of scope as of v1.10.1 |
+| UDP Vehicle Identification w/ EID | 0x0002 | ❌ Not implemented | Out of scope as of v1.10.1 |
+| Vehicle Announcement | 0x0004 | ❌ Not implemented | Out of scope as of v1.10.1 |
+| Entity Status Request/Response | 0x4001/0x4002 | ❌ Not implemented | Out of scope as of v1.10.1 |
 | Activation type 0x01 (OEM-specific) | 0x0005 | ❌ Not implemented | Only Default (0x00) supported |
 | Multiple simultaneous TCP clients | — | ❌ Not implemented | One client per server instance; clients queue sequentially |
 | TLS transport | — | ❌ Not implemented | Plain TCP only |

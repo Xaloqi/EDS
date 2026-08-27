@@ -223,7 +223,7 @@ routines:
 
 ## 6. Template Catalogue
 
-All 14 templates in `tools/templates/`:
+All 17 templates in `tools/templates/`:
 
 Note: the SOVD CDA output (`--sovd`) is generated directly by `build_sovd_cda()` in
 `codegen.py` — it uses no Jinja2 template. `json.dumps(indent=2)` is used instead to
@@ -245,6 +245,9 @@ avoid JSON-escaping issues.
 | `test_firmware_services.py.j2` | `test_firmware_services.py` | Firmware harness pytest |
 | `conftest.py.j2` | `conftest.py` | Simulator transport fixture |
 | `conftest_firmware.py.j2` | `conftest_firmware.py` | Firmware harness transport fixture |
+| `ecu_diagnostics_test_suite.can.j2` | `ecu_diagnostics_test_suite.can` | CANoe CAPL master test suite (`testgen.py --capl`) |
+| `test_did_XXXX.can.j2` | `test_did_XXXX.can` | Per-DID CANoe CAPL test module |
+| `test_dtcs.can.j2` | `test_dtcs.can` | DTC service CANoe CAPL tests (0x14 / 0x19) |
 
 ---
 

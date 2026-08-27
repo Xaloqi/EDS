@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
-**Version:** v1.8.2  
-**Status:** 39/39 unit test modules passing. 68/68 harness tests passing. 8/8 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
+**Version:** v1.10.1  
+**Status:** 42/42 unit test modules passing. 68/68 harness tests passing. 13/13 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
 
 ---
 
@@ -10,11 +10,11 @@
 EDS uses a four-layer testing strategy: unit tests, harness tests, integration tests, and system
 tests. All four layers run automatically in CI on every push and pull request.
 
-**Current test counts (v1.8.2):**
+**Current test counts (v1.10.1):**
 
 | Layer | Count | Framework | Status |
 |---|---|---|---|
-| Unit tests | 39 modules | Unity (C) | ✅ All passing |
+| Unit tests | 42 modules | Unity (C) | ✅ All passing |
 | Harness tests | 68 tests | Shell + GCC | ✅ All passing |
 | Integration tests | Per-DID/DTC suite | pytest (Python) | ✅ All passing |
 | System tests | native_sim E2E | Zephyr + pytest | ✅ All passing |
@@ -33,11 +33,11 @@ tests. All four layers run automatically in CI on every push and pull request.
 
 The test suite verifies:
 
-- Correct UDS protocol behaviour across all 14 implemented service handlers
+- Correct UDS protocol behaviour across all 19 implemented service handlers
 - Correct ISO-TP transport: SF/FF/CF/FC framing, timing, multi-frame reassembly
 - Correct DoIP transport: header encode/decode, routing activation, diagnostic message dispatch, negative acknowledgement generation, alive check (v1.6.0)
 - Enforcement of the ASIL-B 5-step DID access safety chain
-- Correct diagnostics code generation from YAML (all 14 templates)
+- Correct diagnostics code generation from YAML (all 17 templates)
 - Correct test generation from YAML (`testgen.py`) — verified for all examples
 - NVM DTC mirror persistence across simulated resets
 - Zero dynamic memory allocation anywhere in the stack
@@ -67,7 +67,7 @@ Integration Tests (Python ISO-TP/UDS simulation)
 Harness Tests (68 — GCC build + run on host)
               │
               ▼
-Unit Tests (39 modules — Unity on host)
+Unit Tests (42 modules — Unity on host)
 ```
 
 Each layer depends on the layer below it passing. CI runs all layers in sequence.
@@ -94,7 +94,7 @@ tests/unit_runnable/
 ```
 
 > **Note:** `tests/unit/` also exists and is referenced by `tests/CMakeLists.txt` for the Zephyr
-> native `ztest` build path. The canonical source for the 39-module CI run is `tests/unit_runnable/`,
+> native `ztest` build path. The canonical source for the 42-module CI run is `tests/unit_runnable/`,
 > executed by `scripts/build_tests.sh`. Consolidation of these two directories is tracked as a
 > future clean-up task.
 
@@ -102,10 +102,10 @@ tests/unit_runnable/
 
 ```bash
 bash scripts/build_tests.sh
-# Expected: 39 tests, 0 failures
+# Expected: 42 tests, 0 failures
 ```
 
-### Coverage — 39 unit test modules
+### Coverage — 42 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -116,7 +116,7 @@ bash scripts/build_tests.sh
 | `test_uds_security.c` | AES-128-CMAC seed/key, failed attempt counter, delay timer |
 | `test_uds_safety.c` | `uds_safety_self_test()`, violation counter increment, `last_violation_code` |
 
-**UDS Services (14 modules — one per SID)**
+**UDS Services (17 modules — one per SID, 0x23/0x3D combined)**
 
 | Module | Key test scenarios |
 |---|---|
@@ -125,31 +125,47 @@ bash scripts/build_tests.sh
 | `test_service_0x14.c` | Clear all DTCs, clear by group, clear with none active |
 | `test_service_0x19.c` | Report DTCs by status mask, report DTC count, report specific DTC |
 | `test_service_0x22.c` | Valid DID read, unknown DID → NRC 0x31, wrong session → NRC 0x7F |
+| `test_service_0x23_0x3D.c` | ReadMemoryByAddress + WriteMemoryByAddress: valid/invalid address-length format, out-of-range access |
 | `test_service_0x27.c` | Seed request, valid key → granted, invalid key → NRC 0x35 |
 | `test_service_0x28.c` | Enable/disable Rx, enable/disable Tx, wrong session |
-| `test_service_0x2e.c` | Valid DID write, write without security → NRC 0x33, wrong length → NRC 0x13 |
+| `test_service_0x2A.c` | ReadDataByPeriodicIdentifier: NULL ctx/req, request too short → NRC 0x13, invalid transmissionMode → NRC 0x12, subscribe SLOW/MEDIUM/FAST → SID 0x6A |
+| `test_service_0x2F.c` | InputOutputControlByIdentifier: request too short → NRC 0x13, unknown controlParam → NRC 0x12, DID not found → NRC 0x31, returnControlToECU |
 | `test_service_0x31.c` | Routine start, stop, request result, unknown routine ID |
 | `test_service_0x34.c` | Download request in programming session, rejected in default |
 | `test_service_0x35.c` | Upload request: valid readback, read_cb=NULL → NRC 0x22, address range, direction set |
 | `test_service_0x36.c` | Valid block transfer (download + upload), wrong block sequence counter → NRC 0x73 |
 | `test_service_0x37.c` | Transfer exit, exit without prior download |
-| `test_service_0x3d.c` | File transfer request, unsupported mode |
-| `test_service_0x3e.c` | Tester present with/without response, suppress positive response bit |
+| `test_service_0x3E.c` | Tester present with/without response, suppress positive response bit |
+| `test_service_0x85.c` | DTCSettingOn/Off in EXTENDED and PROGRAMMING sessions, echoed setting byte, DEFAULT session → NRC 0x7E |
 
-**Transport Layer (3 modules)**
+> `0x2E` (WriteDataByIdentifier) has no standalone test module — it is covered
+> by `test_phase5_access_table.c`, `test_phase5_server_access.c`, and
+> `test_uds_server.c`.
+
+**Transport Layer (4 modules)**
 
 | Module | Key test scenarios |
 |---|---|
 | `test_isotp.c` | SF Rx/Tx, FF+CF multi-frame, FC CTS/Wait/Overflow, N_Cr timeout |
+| `test_isotp_concurrent.c` | A new request interrupting an in-progress multi-frame reassembly (retransmit / second-request race) |
 | `test_can_transport.c` | Frame queuing, filter setup, loopback round-trip |
 | `test_doip_server.c` | 24 tests — see DoIP section below |
 
-**Diagnostics Databases (2 modules)**
+**Diagnostics Databases (4 modules)**
 
 | Module | Key test scenarios |
 |---|---|
 | `test_did_database.c` | DID lookup hit/miss, handler pointer validity, session bitmask |
 | `test_dtc_database.c` | DTC status set/clear, status persistence via NVM mock, severity |
+| `test_dtc_mirror.c` | DTC NVM mirror persistence — the H3 fix path across power-cycle |
+| `test_routine_database.c` | Routine registration, lookup, start/stop/results dispatch |
+
+**Generated Code & Periodic Scheduler (2 modules)**
+
+| Module | Key test scenarios |
+|---|---|
+| `test_did_handlers.c` | All generated DID read/write handler stubs and their safe-accessor wrappers |
+| `test_uds_periodic.c` | SID 0x2A scheduler: subscription lifecycle, timer mechanics, frame-pop behaviour |
 
 **Safety Wrappers (1 module)**
 
@@ -157,11 +173,12 @@ bash scripts/build_tests.sh
 |---|---|
 | `test_did_safety_wrappers.c` | All 5 steps exercised individually; each produces the correct NRC |
 
-**Phase-specific test modules (13 modules in `unit_runnable/`)**
+**Phase-specific test modules (10 modules in `unit_runnable/`)**
 
-Additional tests added in Phases 2–6 covering: suppress-bit handling, STmin boundary
+Additional tests added in Phases 2–5 covering: suppress-bit handling, STmin boundary
 conditions, session transition matrix, NVM DTC persistence, security algorithm correctness,
-DID access table validation, replay-protection logic, and DoIP protocol specifics.
+DID access table validation, and replay-protection logic — plus the DoIP module (counted
+separately above) and the periodic scheduler (counted above under Generated Code).
 
 ---
 
@@ -172,7 +189,7 @@ via the ZTEST shim (same build path as all other unit test modules).
 
 ```bash
 bash scripts/build_tests.sh
-# test_doip_server is included in the standard 39-module run
+# test_doip_server is included in the standard 42-module run
 ```
 
 **Test coverage — 24 ZTEST cases:**
@@ -380,7 +397,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          39 Unity modules via build_tests.sh
+   ├── unit-tests          42 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── integration-tests   Generated pytest suite, simulator mode
@@ -407,7 +424,7 @@ All 8 jobs must pass before a PR can be merged.
 
 Added in v1.3.0. Builds `examples/basic_ecu_freertos` with `-DEDS_PLATFORM=freertos`
 targeting QEMU ARM Cortex-M4. Downloads FreeRTOS-Kernel from GitHub, runs codegen,
-builds the ELF, and verifies it exists. The same 39 unit tests run against the FreeRTOS
+builds the ELF, and verifies it exists. The same 42 unit tests run against the FreeRTOS
 platform HAL (they mock the platform layer and are platform-independent).
 
 ### SafeBoot CI job (within `unit-tests`)
@@ -478,7 +495,7 @@ across unit, harness, and integration layers:
 - Buffer overflow attempts (request length > static buffer size)
 - Invalid session transitions (programming → default without reset)
 - Security bypass attempts (send key without prior seed request)
-- DID access in wrong session (all 16 services × 3 sessions)
+- DID access in wrong session (all 19 services × 3 sessions)
 - Rapid repeated SecurityAccess failures (verify lockout delay enforced)
 - DoIP DiagnosticMessage before Routing Activation (→ NACK 0x02)
 
@@ -490,7 +507,6 @@ across unit, harness, and integration layers:
 |---|---|---|
 | Hardware-in-the-loop (HiL) on Nucleo-H743ZI2 | Phase 10 D2 | Blocked on hardware arrival |
 | HiL CI job (self-hosted runner) | Phase 10 D4 | Blocked on D2 |
-| DoIP integration tests with full TestLab in private CI | v1.7.0 | Planned |
 | `testgen-capl` CI job — render all CAPL templates and verify no `TemplateError` | v1.2 | Planned |
 | Fuzz testing of ISO-TP and DoIP state machines | Future | Not yet scheduled |
 | WCET measurement from `-fstack-usage` output | Future | Stack usage files generated; analysis script not yet written |
