@@ -8,6 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+---
+
+## [1.10.1] — 2026-08-27
+
 ### Fixed
 
 - **`build_harness.sh` now explains itself on a community clone.** (#68, #70)
@@ -20,6 +24,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `__version__` bumped to 1.10.0, the SOVD stamp now derives from it, and a
   CI step asserts `__version__` matches the top entry of this file so the
   next release bump cannot miss it.
+
+### Changed
+
+- **Safety Manual reference updated to Rev 1.3.** (#75) INSTALL.md's tier
+  description and document table pointed at the superseded Rev 1.1; the
+  Professional ZIP has shipped Rev 1.3 since the 2026-07-07 rebuild.
+- **codegen's "no templates" error now explains the license boundary.** (#77)
+  Running `codegen.py` without the Developer/Professional templates used to
+  fail with a bare "template directory not found." The error now states
+  plainly that the runtime stack and example outputs are GPL and free to use,
+  while the code generator requires a license — with a pointer to
+  `COMMERCIAL_NOTICE.md`.
+- **README and COMMERCIAL_NOTICE spell out the open-core boundary up front.**
+  (#78) A new "what's free, what's licensed" section in the README, and a
+  corrected COMMERCIAL_NOTICE (it previously referenced non-existent
+  `docs/EDS_Safety_Manual_*` paths and undercounted the license tiers),
+  so the free/paid line is explicit before a user hits it as an error.
 
 ---
 
