@@ -303,9 +303,9 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 | `platform/` | Platform abstraction layer — `platform/zephyr/` (Zephyr HAL) · `platform/freertos/` (FreeRTOS HAL) · `platform_api.h` (shared interface) |
 | `tools/` | `codegen.py`, `testgen.py`, 17 Jinja2 templates |
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command *(Developer/Professional tier)* |
-| `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · sensor\_ecu · safeboot\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
+| `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · safeboot\_freertos\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard *(Developer/Professional tier)* |
-| `tests/` | 36 Unity unit tests, harness, Python integration tests |
+| `tests/` | 42 Unity unit tests, harness, Python integration tests |
 
 ---
 

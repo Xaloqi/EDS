@@ -61,7 +61,7 @@ any safety path. Initialization guards (initialized flags) on all context struct
                            ▼
 +----------------------------------------------------------+
 |                     UDS Server                           |
-|   Service dispatcher — 14 SIDs                           |
+|   Service dispatcher — 19 SIDs                           |
 |   Session manager (default / extended / programming)     |
 |   Security manager (AES-128-CMAC, levels 1–N)            |
 +----------------------------------------------------------+
@@ -116,15 +116,19 @@ embedded-diagnostics-suite/
 │       ├── service_0x14.c      # ClearDiagnosticInformation
 │       ├── service_0x19.c      # ReadDTCInformation
 │       ├── service_0x22.c      # ReadDataByIdentifier
+│       ├── service_0x23.c      # ReadMemoryByAddress
 │       ├── service_0x27.c      # SecurityAccess
 │       ├── service_0x28.c      # CommunicationControl
+│       ├── service_0x2A.c      # ReadDataByPeriodicIdentifier
 │       ├── service_0x2e.c      # WriteDataByIdentifier
+│       ├── service_0x2F.c      # InputOutputControlByIdentifier
 │       ├── service_0x31.c      # RoutineControl
 │       ├── service_0x34.c      # RequestDownload
 │       ├── service_0x35.c      # RequestUpload
 │       ├── service_transfer_common.h  # Shared parse/validate helpers (0x34+0x35)
 │       ├── service_0x36.c      # TransferData
 │       ├── service_0x37.c      # RequestTransferExit
+│       ├── service_0x3D.c      # WriteMemoryByAddress
 │       ├── service_0x3e.c      # TesterPresent
 │       └── service_0x85.c      # ControlDTCSetting
 │
@@ -216,7 +220,7 @@ embedded-diagnostics-suite/
 │   └── mocks/                  # Zephyr port mock + NVM mock for host builds
 │
 └── scripts/
-    ├── build_tests.sh          # Runs all 36 unit test modules
+    ├── build_tests.sh          # Runs all 42 unit test modules
     └── build_harness.sh        # Runs all 68 harness tests
 ```
 
@@ -587,7 +591,7 @@ The first five examples ship with committed generated output (DID handlers, safe
 
 | Job | What it validates |
 |---|---|
-| `unit-tests` | All 36 Unity unit test modules (host-native, no Zephyr SDK) |
+| `unit-tests` | All 42 Unity unit test modules (host-native, no Zephyr SDK) |
 | `integration-tests` | Generated pytest suite in simulator mode |
 | `firmware-integration-tests` | pytest + per-routine tests against compiled firmware |
 | `static-analysis` | GCC `-fanalyzer` + MISRA cppcheck (zero errors) |

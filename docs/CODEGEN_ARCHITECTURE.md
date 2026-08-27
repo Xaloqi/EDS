@@ -133,7 +133,7 @@ Produces the pytest test suite when `--test-gen` is active. One test file per DI
 
 ### Template System (`tools/templates/`)
 
-14 Jinja2 templates produce all generated output. Templates have access to the full enriched configuration object and use Jinja2 filters, loops, and conditionals to produce well-structured, commented C and Python output.
+17 Jinja2 templates produce all generated output. Templates have access to the full enriched configuration object and use Jinja2 filters, loops, and conditionals to produce well-structured, commented C and Python output.
 
 ---
 
