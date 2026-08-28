@@ -23,6 +23,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   gained a regression test, and `tests/unit_runnable/test_trng_fail_closed.c`
   no longer needs to work around the bug with delta-based counter
   assertions.
+- **30 dormant unit test cases are now actually executed.** (#87)
+  `ZTEST(suite, name)` cases in `tests/unit_runnable/test_phase5_security_algo.c`
+  (28 cases) and `tests/unit_runnable/test_uds_security.c` (2 cases) compiled
+  successfully but were never registered with a matching `RUN_TEST(...)` call
+  in their module's `run_all_tests()`, so they silently never ran — the module
+  still reported PASS. All 30 are now wired in.
+  While fixing this, `tc031_seed_embeds_security_level` was found to assert a
+  contract the implementation had deliberately abandoned: that
+  `uds_security_algo_generate_seed()` embeds `security_level` at
+  `UDS_ALGO_SEED_LEVEL_OFFSET`. It does not — domain separation is via a
+  distinct AES key per level (see the `[P1-SEC]` comment in
+  `core/uds_security_algo.c`). The case is rewritten as
+  `tc031_seed_does_not_encode_security_level`, asserting the current contract:
+  the byte at `UDS_ALGO_SEED_LEVEL_OFFSET` is identical across security levels
+  at the same sequence-counter value and is fully explained by the sequence
+  counter, not by `security_level`.
 
 ### Fixed — CI / build system
 
@@ -56,6 +72,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `cmake -S tests -B build && cmake --build build -j4 && ctest --test-dir
   build --output-on-failure` on every PR so this path cannot silently
   diverge from `build_tests.sh` again without CI going red.
+
+### Added
+
+- **Anti-drift guard for dormant unit tests.** (#87) `build_tests.sh` now
+  fails the build if any `ZTEST(suite, name)` case in `tests/unit_runnable/*.c`
+  has no matching `RUN_TEST(...)` call in that file's `run_all_tests()`,
+  naming the exact case(s) and file(s). Prevents the class of bug fixed above
+  from recurring silently.
 
 ### Security
 
