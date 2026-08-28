@@ -61,6 +61,7 @@
 
 #include "uds_security_algo.h"
 #include "uds_aes_cmac.h"
+#include "uds_safety.h"
 #include "uds_types.h"
 
 ZTEST_SUITE(test_phase5_security_algo, NULL, NULL, NULL, NULL, NULL);
@@ -381,12 +382,126 @@ ZTEST(test_phase5_security_algo, tc033_aes_cmac_rfc4493_empty)
     zassert_mem_equal(mac, exp, 16U, "RFC 4493 D.1 empty CMAC KAT failed");
 }
 
+/* =============================================================================
+ * [SEC-TRNG-FAILCLOSED-01] Regression guard
+ *
+ * This file compiles in the default DEVELOPMENT configuration (no
+ * CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY, no __ZEPHYR__ -> ALGO_ENTROPY_FAIL_CLOSED
+ * == 0 in core/uds_security_algo.c). These tests prove the pre-existing LFSR
+ * fallback path is byte-for-byte unchanged by the fail-closed production
+ * gate added alongside them. The mirror production-configuration behaviour
+ * is proven separately in tests/unit_runnable/test_trng_fail_closed.c
+ * (compiled with -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 — see build_tests.sh).
+ * ============================================================================= */
+
+/** TRNG stub that always fails, to drive the mid-session degradation path. */
+static uds_status_t stub_rng_cb_always_fails(uint8_t *buf, uint8_t len)
+{
+    (void)buf;
+    (void)len;
+    return UDS_STATUS_ERR_PLATFORM;
+}
+
+ZTEST(test_phase5_security_algo, tc034_no_rng_cb_dev_mode_uses_lfsr)
+{
+    uint8_t seed[UDS_ALGO_SEED_LEN];
+    uint8_t len = 0U;
+    uds_status_t rc;
+    bool all_zero = true;
+    uint8_t i;
+
+    uds_security_algo_reset();
+
+    rc = uds_security_algo_generate_seed(0x01U, seed, sizeof(seed), &len);
+    zassert_equal(rc, UDS_STATUS_OK, "dev mode: no RNG cb must still succeed via LFSR");
+    zassert_equal(len, (uint8_t)UDS_ALGO_SEED_LEN, "seed length must be full UDS_ALGO_SEED_LEN");
+
+    for (i = 0U; i < (uint8_t)UDS_ALGO_SEED_NONCE_LEN; i++) {
+        if (seed[UDS_ALGO_SEED_NONCE_OFFSET + i] != (uint8_t)0U) {
+            all_zero = false;
+            break;
+        }
+    }
+    zassert_false(all_zero, "LFSR-generated nonce must not be all-zero");
+}
+
+ZTEST(test_phase5_security_algo, tc035_trng_failure_dev_mode_soft_fallback)
+{
+    uint8_t seed[UDS_ALGO_SEED_LEN];
+    uint8_t len = 0U;
+    uds_status_t rc;
+    const uds_safety_ctx_t *ctx;
+    uint32_t violations_before;
+    uint32_t fallback_before;
+
+    uds_security_algo_reset();
+    (void)uds_safety_init();            /* may already be initialized — ignore */
+    (void)uds_safety_reset_counters();  /* start from a clean counter state */
+    uds_security_algo_set_rng_cb(stub_rng_cb_always_fails);
+
+    /*
+     * [pre-existing bug, tracked separately] uds_safety_reset_counters()
+     * does not reset platform_violations (see core/uds_safety.c). Use
+     * deltas so this test does not depend on that counter starting at zero.
+     */
+    ctx = uds_safety_get_ctx();
+    zassert_not_null(ctx, "safety ctx must be available");
+    violations_before = ctx->platform_violations;
+    fallback_before    = uds_security_algo_get_trng_fallback_count();
+
+    rc = uds_security_algo_generate_seed(0x01U, seed, sizeof(seed), &len);
+    zassert_equal(rc, UDS_STATUS_OK,
+        "dev mode: TRNG failure must still fall back to LFSR and return OK");
+    zassert_equal(len, (uint8_t)UDS_ALGO_SEED_LEN, "seed length must be full UDS_ALGO_SEED_LEN");
+    zassert_equal(uds_security_algo_get_trng_fallback_count(), fallback_before + 1U,
+        "exactly one new TRNG call failure must be counted");
+    zassert_equal(ctx->platform_violations, violations_before + 1U,
+        "exactly one new platform violation must be recorded");
+    zassert_equal(ctx->last_violation_code, UDS_STATUS_ERR_PLATFORM,
+        "dev-mode soft fallback must record ERR_PLATFORM, not SEED_UNAVAILABLE");
+
+    uds_security_algo_set_rng_cb(NULL);
+}
+
+ZTEST(test_phase5_security_algo, tc036_lfsr_determinism_guard)
+{
+    /*
+     * Explicit output-sequence guard: captures the actual LFSR fallback
+     * output byte-for-byte so that any future accidental change to the
+     * fallback (reordering, different loop bounds, different seed) is
+     * caught by a hard mismatch rather than a vague "still non-zero" check.
+     * Values captured from the LFSR (Galois 16-bit, seed 0xACE1) as it
+     * behaved before and after this change — unchanged in dev builds.
+     */
+    static const uint8_t expected_seed1_nonce[UDS_ALGO_SEED_NONCE_LEN] = {
+        0x70U, 0xE2U, 0x38U, 0x71U, 0x9CU, 0x38U
+    };
+    static const uint8_t expected_seed2_nonce[UDS_ALGO_SEED_NONCE_LEN] = {
+        0x4EU, 0x1CU, 0x27U, 0x0EU, 0x13U, 0xB3U
+    };
+    uint8_t seed1[UDS_ALGO_SEED_LEN];
+    uint8_t seed2[UDS_ALGO_SEED_LEN];
+    uint8_t len;
+
+    uds_security_algo_reset();
+    (void)uds_security_algo_generate_seed(0x01U, seed1, sizeof(seed1), &len);
+    (void)uds_security_algo_generate_seed(0x01U, seed2, sizeof(seed2), &len);
+
+    zassert_mem_equal(expected_seed1_nonce, &seed1[UDS_ALGO_SEED_NONCE_OFFSET],
+        UDS_ALGO_SEED_NONCE_LEN, "LFSR output sequence (seed 1) must be unchanged");
+    zassert_mem_equal(expected_seed2_nonce, &seed2[UDS_ALGO_SEED_NONCE_OFFSET],
+        UDS_ALGO_SEED_NONCE_LEN, "LFSR output sequence (seed 2) must be unchanged");
+}
+
 /* run_all_tests shim */
 extern void test_phase5_security_algo__tc001_reset_clears_sequence(void);
 extern void test_phase5_security_algo__tc006_level1_key_correct(void);
 extern void test_phase5_security_algo__tc026_oem_derive_callback_overrides_aes_cmac(void);
 extern void test_phase5_security_algo__tc032_aes128_known_answer(void);
 extern void test_phase5_security_algo__tc033_aes_cmac_rfc4493_empty(void);
+extern void test_phase5_security_algo__tc034_no_rng_cb_dev_mode_uses_lfsr(void);
+extern void test_phase5_security_algo__tc035_trng_failure_dev_mode_soft_fallback(void);
+extern void test_phase5_security_algo__tc036_lfsr_determinism_guard(void);
 
 void run_all_tests(void)
 {
@@ -395,4 +510,7 @@ void run_all_tests(void)
     RUN_TEST(test_phase5_security_algo__tc026_oem_derive_callback_overrides_aes_cmac);
     RUN_TEST(test_phase5_security_algo__tc032_aes128_known_answer);
     RUN_TEST(test_phase5_security_algo__tc033_aes_cmac_rfc4493_empty);
+    RUN_TEST(test_phase5_security_algo__tc034_no_rng_cb_dev_mode_uses_lfsr);
+    RUN_TEST(test_phase5_security_algo__tc035_trng_failure_dev_mode_soft_fallback);
+    RUN_TEST(test_phase5_security_algo__tc036_lfsr_determinism_guard);
 }

@@ -8,6 +8,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Security
+
+- **SecurityAccess entropy fallback now fails closed in production builds.**
+  `[SEC-TRNG-FAILCLOSED-01]` When no TRNG callback was registered (or the
+  registered callback failed at runtime), `algo_get_random()` in
+  `core/uds_security_algo.c` silently fell back to a deterministic 16-bit
+  Galois LFSR and SecurityAccess seeds kept being issued. This is now a
+  **production-only** behaviour change: development/CI builds keep the
+  unchanged LFSR fallback, but production builds (Zephyr build with
+  `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n`) refuse the seed request instead
+  (`UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE`, NRC 0x24) and never run the LFSR.
+  A refused request no longer advances the anti-replay sequence counter.
+  The two failure modes are distinguished in the `uds_safety` platform
+  violation record via `last_violation_code`
+  (`UDS_STATUS_ERR_PLATFORM` for the dev-mode soft fallback vs.
+  `UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE` for the production hard refusal).
+  See `SECURITY.md` for the full dev-vs-production behaviour table.
+
 ---
 
 ## [1.10.1] — 2026-08-27

@@ -122,6 +122,31 @@ fi
 SHIM_INCLUDE="-include ${ROOT}/tests/runner/ztest_shim.h"
 
 # ---------------------------------------------------------------------------
+# [SEC-TRNG-FAILCLOSED-01] Per-test extra compiler flags.
+#
+# Almost every test module compiles with the shared CFLAGS above. A small
+# number of tests need to force a specific build-mode gate that cannot be
+# reached from the default dev-configuration build — for example,
+# test_trng_fail_closed proves the PRODUCTION (fail-closed) entropy
+# behaviour of core/uds_security_algo.c, which only activates when
+# CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY is defined as 0 (see the
+# ALGO_ENTROPY_FAIL_CLOSED gate in that file). Keyed on the test name ($t
+# in the build loop below).
+# ---------------------------------------------------------------------------
+extra_flags_for_test() {
+    case "$1" in
+        test_trng_fail_closed)
+            # Forces ALGO_ENTROPY_FAIL_CLOSED=1 in this TU so the production
+            # fail-closed path is exercised on a host build.
+            echo "-DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
 # Include paths (mirrors CMakeLists.txt target_include_directories)
 # ---------------------------------------------------------------------------
 INCLUDES=(
@@ -254,6 +279,12 @@ TESTS=(
     test_phase5_server_access
     test_phase5_replay_protection
     test_doip_server
+    # [SEC-TRNG-FAILCLOSED-01] Production-configuration entropy fail-closed
+    # behaviour. Compiled separately (see extra_flags_for_test above) with
+    # CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 because that behaviour cannot be
+    # reached from the default dev-configuration build used by every other
+    # test in this list.
+    test_trng_fail_closed
 )
 
 # ---------------------------------------------------------------------------
@@ -300,13 +331,16 @@ for t in "${TESTS[@]}"; do
     test_src="${ROOT}/tests/unit_runnable/${t}.c"
     bin="${BUILD_DIR}/${t}"
 
+    # [SEC-TRNG-FAILCLOSED-01] Per-test extra flags (empty for most tests).
+    read -r -a extra_flags <<< "$(extra_flags_for_test "${t}")"
+
     # ── Build ──────────────────────────────────────────────────────────
     # [FIX-SETE] With set -euo pipefail active, `var=$(failing_cmd)` exits
     # the outer script immediately — build_rc=$? is never reached.
     # The `&& rc=0 || rc=$?` idiom captures exit code correctly without
     # triggering set -e. Root cause of all-tests silent BUILD_FAIL.
     build_out=$(
-        gcc "${CFLAGS[@]}" ${SHIM_INCLUDE} "${INCLUDES[@]}" \
+        gcc "${CFLAGS[@]}" "${extra_flags[@]}" ${SHIM_INCLUDE} "${INCLUDES[@]}" \
             "${test_src}" \
             "${STACK_SRCS[@]}" \
             -o "${bin}" 2>&1
