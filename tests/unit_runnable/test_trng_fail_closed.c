@@ -143,21 +143,15 @@ ZTEST(test_trng_fail_closed, tc001_no_rng_cb_production_refuses)
     uint8_t out_len = SENTINEL_BYTE;
     uds_status_t rc;
     const uds_safety_ctx_t *ctx;
-    uint32_t violations_before;
 
     uds_security_algo_reset();
     (void)uds_safety_init();
+    (void)uds_safety_reset_counters();
 
-    /*
-     * [pre-existing bug, tracked separately] uds_safety_reset_counters()
-     * does not reset platform_violations (see uds_safety.c) -- it was added
-     * by the HIGH-2 fix after reset_counters() was written and never wired
-     * in. Assert on the delta across this call rather than an absolute
-     * value so this test does not depend on that counter starting at zero.
-     */
     ctx = uds_safety_get_ctx();
     zassert_not_null(ctx, "safety ctx must be available");
-    violations_before = ctx->platform_violations;
+    zassert_equal(ctx->platform_violations, 0U,
+        "platform_violations must start at 0 after reset_counters()");
 
     fill_sentinel(seed, sizeof(seed));
 
@@ -168,8 +162,8 @@ ZTEST(test_trng_fail_closed, tc001_no_rng_cb_production_refuses)
     zassert_true(buf_is_sentinel(seed, sizeof(seed)),
         "seed buffer must be left untouched -- no seed was ever issued");
 
-    zassert_equal(ctx->platform_violations, violations_before + 1U,
-        "exactly one new platform violation must be recorded");
+    zassert_equal(ctx->platform_violations, 1U,
+        "exactly one platform violation must be recorded");
     zassert_equal(ctx->last_violation_code, UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
         "production hard refusal must record SEED_UNAVAILABLE, not PLATFORM");
 }
@@ -184,22 +178,23 @@ ZTEST(test_trng_fail_closed, tc002_failing_rng_cb_production_refuses)
     uint8_t out_len = SENTINEL_BYTE;
     uds_status_t rc;
     const uds_safety_ctx_t *ctx;
-    uint32_t violations_before;
     uint32_t fallback_before;
 
     uds_security_algo_reset();
     (void)uds_safety_init();
+    (void)uds_safety_reset_counters();
     uds_security_algo_set_rng_cb(stub_rng_cb_always_fails);
 
-    /*
-     * [pre-existing bug, tracked separately] uds_safety_reset_counters()
-     * does not reset platform_violations -- see the comment in TC-TFC-001.
-     * Use deltas so this test does not depend on counters starting at zero.
-     */
     ctx = uds_safety_get_ctx();
     zassert_not_null(ctx, "safety ctx must be available");
-    violations_before = ctx->platform_violations;
-    fallback_before    = uds_security_algo_get_trng_fallback_count();
+    zassert_equal(ctx->platform_violations, 0U,
+        "platform_violations must start at 0 after reset_counters()");
+    /*
+     * uds_security_algo_get_trng_fallback_count() is a module-global counter
+     * outside uds_safety_ctx_t with no reset hook, so it is still asserted
+     * on a delta across this call.
+     */
+    fallback_before = uds_security_algo_get_trng_fallback_count();
 
     fill_sentinel(seed, sizeof(seed));
 
@@ -219,8 +214,8 @@ ZTEST(test_trng_fail_closed, tc002_failing_rng_cb_production_refuses)
 
     zassert_equal(uds_security_algo_get_trng_fallback_count(), fallback_before + 1U,
         "exactly one new TRNG call failure must be counted");
-    zassert_equal(ctx->platform_violations, violations_before + 1U,
-        "exactly one new platform violation must be recorded");
+    zassert_equal(ctx->platform_violations, 1U,
+        "exactly one platform violation must be recorded");
     zassert_equal(ctx->last_violation_code, UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
         "production hard refusal must record SEED_UNAVAILABLE, not PLATFORM");
 
