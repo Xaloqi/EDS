@@ -143,8 +143,9 @@
  * LFSR fallback; it is never inherited by omission. This ordering matters:
  * an earlier revision of this gate tried to identify production builds by
  * testing for __ZEPHYR__, which silently left every FreeRTOS and bare-metal
- * production build (examples/*_freertos, and any OEM bare-metal port) on the
- * predictable LFSR — the exact failure this change exists to prevent. Deriving
+ * production build (examples/basic_ecu_freertos and its siblings, plus any
+ * OEM bare-metal port) on the predictable LFSR — the exact failure this
+ * change exists to prevent. Deriving
  * "development" from a positive signal instead makes the safe state the
  * default on every platform, including ones EDS does not ship a port for yet.
  *
