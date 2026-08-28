@@ -87,6 +87,98 @@
        "in your production prj.conf."
 #endif
 
+/* =============================================================================
+ * [SEC-TRNG-FAILCLOSED-01] Entropy fail-closed build-mode gate
+ *
+ * PROBLEM: when no TRNG callback is registered (or the registered TRNG
+ * callback fails at runtime), algo_get_random() historically fell back to
+ * a deterministic software LFSR and SecurityAccess seeds kept being issued.
+ * A security subsystem must fail CLOSED on loss of its entropy source, not
+ * silently degrade to a predictable PRNG. ALGO_ENTROPY_FAIL_CLOSED controls
+ * whether algo_get_random() is permitted to use the LFSR fallback:
+ *   1 -> fail closed: LFSR is NEVER used; entropy failure is refused.
+ *   0 -> LFSR fallback permitted (development / CI builds only).
+ *
+ * This must be a PRODUCTION-ONLY behaviour change: development and CI
+ * builds keep today's LFSR fallback so existing host/dev workflows are
+ * unaffected; only real production firmware fails closed.
+ *
+ * WHY THREE CASES, NOT TWO — Zephyr's Kconfig -> autoconf.h quirk:
+ * Zephyr's generated autoconf.h emits `#define CONFIG_X 1` for a Kconfig
+ * bool set to `y`, and OMITS the symbol entirely for `n` — it never emits
+ * `#define CONFIG_X 0`. A simple `#if !defined(X) || X` therefore cannot
+ * tell "explicitly off" apart from "not a Zephyr build at all". The three
+ * cases that must be distinguished are:
+ *
+ *   (a) CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY defined non-zero
+ *       -> development/CI build (Kconfig bool = y) -> LFSR allowed.
+ *   (b) CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY undefined, UNIT_TEST defined
+ *       -> host unit-test / harness build (no autoconf.h at all)
+ *       -> LFSR allowed.
+ *   (c) anything else -- Zephyr with the bool set to n (symbol omitted),
+ *       FreeRTOS, bare metal, or a platform not yet ported
+ *       -> PRODUCTION -> fail closed. This is the DEFAULT: the safe state
+ *       is what you get by omission, on every platform.
+ *
+ * A host test that wants to exercise the production (fail-closed) path
+ * forces it by compiling with -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0: the
+ * symbol is then defined AND zero, so case (a)'s "defined non-zero" test is
+ * false and the #elif/#else chain below falls through to the fail-closed
+ * default — the same outcome as case (b) on real Zephyr production
+ * hardware.
+ *
+ * NOTE ON THE CRIT-4 #error ABOVE: that pre-existing gate uses the older
+ * `defined(X) && !X` idiom, which does NOT handle case (b) above — on a
+ * real Zephyr production build (symbol omitted) the CRIT-4 #error is
+ * silently skipped rather than firing. This is a pre-existing gap, tracked
+ * separately as issue #84, and is deliberately NOT changed here — this
+ * gate only governs the TRNG entropy fallback, not the placeholder-key
+ * #error check.
+ *
+ * TRACEABILITY: SEC-TRNG-FAILCLOSED-01
+ * ============================================================================= */
+
+/*
+ * The default is FAIL CLOSED. A firmware build must *explicitly* opt in to the
+ * LFSR fallback; it is never inherited by omission. This ordering matters:
+ * an earlier revision of this gate tried to identify production builds by
+ * testing for __ZEPHYR__, which silently left every FreeRTOS and bare-metal
+ * production build (examples/basic_ecu_freertos and its siblings, plus any
+ * OEM bare-metal port) on the predictable LFSR — the exact failure this
+ * change exists to prevent. Deriving
+ * "development" from a positive signal instead makes the safe state the
+ * default on every platform, including ones EDS does not ship a port for yet.
+ *
+ * ALGO_ENTROPY_FAIL_CLOSED may also be forced directly on the compiler command
+ * line (-DALGO_ENTROPY_FAIL_CLOSED=1). That is the supported escape hatch for
+ * the CRIT-4 deviation documented above: an OEM key that happens to collide
+ * with the placeholder pattern requires CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=y in
+ * a *production* image, which would otherwise re-enable the LFSR as a side
+ * effect. Setting ALGO_ENTROPY_FAIL_CLOSED=1 keeps entropy failing closed
+ * independently of the key gate.
+ */
+#if !defined(ALGO_ENTROPY_FAIL_CLOSED)
+#  if defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY)
+     /* Kconfig symbol present and explicit. y -> development, n (compiled as
+      * an explicit 0, e.g. -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0) -> production. */
+#    if CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY
+#      define ALGO_ENTROPY_FAIL_CLOSED (0)
+#    else
+#      define ALGO_ENTROPY_FAIL_CLOSED (1)
+#    endif
+#  elif defined(UNIT_TEST)
+     /* Host unit-test / harness build (build_tests.sh, build_harness.sh).
+      * No autoconf.h exists at all here; keep the LFSR so native_sim and the
+      * host suites behave exactly as before. */
+#    define ALGO_ENTROPY_FAIL_CLOSED (0)
+#  else
+     /* Any firmware build that did not explicitly enable placeholder keys:
+      * Zephyr with the Kconfig bool set to n (symbol omitted from autoconf.h),
+      * FreeRTOS, or bare metal. Fail closed. */
+#    define ALGO_ENTROPY_FAIL_CLOSED (1)
+#  endif
+#endif
+
 /* --------------------------------------------------------------------------
  * Internal constants
  * -------------------------------------------------------------------------- */
@@ -210,48 +302,112 @@ static uint16_t algo_lfsr_next(void)
 
 /**
  * @brief Fill buf with random bytes from TRNG (preferred) or LFSR (fallback).
+ *
+ * [HIGH-2 FIX / SEC-TRNG-FAILCLOSED-01] Behaviour depends on
+ * ALGO_ENTROPY_FAIL_CLOSED (see the build-mode gate near the top of this
+ * file). There are three entry scenarios:
+ *
+ *   1. No TRNG callback registered (s_rng_cb == NULL):
+ *        - Development builds (ALGO_ENTROPY_FAIL_CLOSED == 0): unchanged —
+ *          fall through to the LFSR. s_trng_fallback_count is NOT touched:
+ *          that counter is documented as counting TRNG *call* failures, and
+ *          a callback that was never registered never made a call.
+ *        - Production builds (ALGO_ENTROPY_FAIL_CLOSED == 1): refuse. Record
+ *          a platform violation and return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE
+ *          without ever running the LFSR.
+ *
+ *   2. TRNG callback registered and returns UDS_STATUS_OK: unchanged in both
+ *      modes — the hardware entropy is used and the LFSR never runs.
+ *
+ *   3. TRNG callback registered but returns non-OK (runtime hardware fault):
+ *      s_trng_fallback_count is ALWAYS incremented (saturating) — this is a
+ *      genuine TRNG call failure in both modes.
+ *        - Development builds: unchanged — record UDS_STATUS_ERR_PLATFORM as
+ *          a platform violation (soft degraded fallback) and fall through to
+ *          the LFSR for graceful degradation.
+ *        - Production builds: record UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE as
+ *          the platform violation (hard refusal), scrub the caller's buffer,
+ *          and return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE. The LFSR does NOT
+ *          run.
+ *
+ * DISTINGUISHING THE TWO FAILURE MODES IN THE SAFETY CONTEXT:
+ * Both the development soft-fallback and the production hard-refusal bump
+ * the SAME uds_safety platform_violations counter (the correct bucket per
+ * the safety rules — a TRNG fault is a platform event, not a protocol
+ * violation) — no new counter or field is added to uds_safety; this is a
+ * deliberate reuse of the existing HIGH-2 pattern. They are distinguished
+ * by last_violation_code instead: the soft degraded fallback records
+ * UDS_STATUS_ERR_PLATFORM (0x60), while the hard production refusal records
+ * UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE (0x24).
+ *
+ * @return UDS_STATUS_OK if buf was filled (TRNG or, in development builds,
+ *         LFSR fallback).
+ * @return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE in production builds when no
+ *         entropy source is available (no callback registered, or the
+ *         registered callback failed). buf is left scrubbed to zero in the
+ *         registered-but-failed case; untouched in the no-callback case
+ *         (caller has not written to it yet at this point in the flow).
+ *
+ * TRACEABILITY: SEC-TRNG-FAULT-01 / HIGH-2, SEC-TRNG-FAILCLOSED-01
  */
-static void algo_get_random(uint8_t *buf, uint8_t len)
+static uds_status_t algo_get_random(uint8_t *buf, uint8_t len)
 {
     uint8_t i;
 
-    if (s_rng_cb != NULL) {
-        if (s_rng_cb(buf, len) == UDS_STATUS_OK) {
-            return;
-        }
-
+    if (s_rng_cb == NULL) {
+#if ALGO_ENTROPY_FAIL_CLOSED
+        /*
+         * [SEC-TRNG-FAILCLOSED-01] Production build, no TRNG registered.
+         * Fail closed: do NOT run the LFSR. s_trng_fallback_count is a
+         * call-failure counter and is deliberately not touched here — no
+         * call was ever made.
+         */
+        uds_safety_record_platform_violation(UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE);
+        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
+#endif
+        /* Development/CI build: fall through to the LFSR below. */
+    } else if (s_rng_cb(buf, len) == UDS_STATUS_OK) {
+        return UDS_STATUS_OK;
+    } else {
         /*
          * [HIGH-2 FIX] TRNG callback was registered but failed at runtime.
          *
          * This is a mid-session hardware degradation event: the entropy source
          * was present at startup (passed the Step 7.1 production gate) but has
-         * since become unreliable.  Two counters are incremented:
-         *
-         *   1. s_trng_fallback_count — module-local, reset on power cycle.
-         *      Readable via uds_security_algo_get_trng_fallback_count().
-         *      Allows the application to poll and take action (e.g. refuse
-         *      further SecurityAccess requests after N consecutive failures).
-         *
-         *   2. uds_safety platform_violations — persistent safety-module
-         *      counter, readable via uds_safety_get_ctx() and therefore via
-         *      a DID.  Survives session transitions; accumulates evidence of
-         *      hardware degradation across the ECU lifetime for field analysis.
-         *
-         * Both use saturating arithmetic (no wrap at UINT32_MAX).
-         * The LFSR fallback still runs to avoid blocking the caller, but the
-         * seed generated will be of degraded quality — the counters record
-         * this so auditors and field engineers know it happened.
+         * since become unreliable. s_trng_fallback_count is incremented in
+         * BOTH build modes — it counts raw TRNG call failures, and that is
+         * true regardless of what happens next.
          *
          * TRACEABILITY: SEC-TRNG-FAULT-01 / HIGH-2
          */
         if (s_trng_fallback_count < UINT32_MAX) {
             s_trng_fallback_count++;
         }
+#if ALGO_ENTROPY_FAIL_CLOSED
+        /*
+         * [SEC-TRNG-FAILCLOSED-01] Production build: hard refusal. Record
+         * the SEED_UNAVAILABLE code (distinct from the dev-mode PLATFORM
+         * code below) as last_violation_code, scrub the caller's buffer so
+         * no partial/stale data can leak out, and refuse — the LFSR must
+         * NOT run.
+         */
+        uds_safety_record_platform_violation(UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE);
+        (void)memset(buf, 0, (size_t)len);
+        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
+#else
+        /*
+         * Development/CI build: unchanged from before this change. Record
+         * the persistent, field-accessible platform-violation counter and
+         * fall through to the LFSR for graceful degradation. The seed
+         * generated will be of degraded quality — the counters record this
+         * so auditors and field engineers know it happened.
+         */
         uds_safety_record_platform_violation(UDS_STATUS_ERR_PLATFORM);
         /* Fall through to LFSR for graceful degradation. */
+#endif
     }
 
-    /* Software LFSR fallback (development only — see counter above). */
+    /* Software LFSR fallback (development only — see counters above). */
     for (i = (uint8_t)0U; i < len; i += (uint8_t)2U) {
         uint16_t rnd = algo_lfsr_next();
         buf[i] = (uint8_t)(rnd & (uint16_t)0xFFU);
@@ -259,6 +415,7 @@ static void algo_get_random(uint8_t *buf, uint8_t len)
             buf[i + (uint8_t)1U] = (uint8_t)((rnd >> 8U) & (uint16_t)0xFFU);
         }
     }
+    return UDS_STATUS_OK;
 }
 
 /* --------------------------------------------------------------------------
@@ -455,14 +612,27 @@ uds_status_t uds_security_algo_generate_seed(
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
+    /*
+     * [SEC-TRNG-FAILCLOSED-01] Generate entropy FIRST, and only advance/
+     * commit the sequence counter after entropy succeeded. A refused seed
+     * request (production build, no usable TRNG) must not burn sequence
+     * numbers — this only changes behaviour on the error path, which was
+     * unreachable before this change (algo_get_random() previously could
+     * not fail).
+     */
+    {
+        uds_status_t rng_status = algo_get_random(nonce, (uint8_t)UDS_ALGO_SEED_NONCE_LEN);
+        if (rng_status != UDS_STATUS_OK) {
+            (void)memset(nonce, 0, sizeof(nonce));
+            return rng_status;
+        }
+    }
+
     /* Advance monotonic sequence counter; skip 0x0000 (reserved sentinel). */
     s_sequence++;
     if (s_sequence == (uint16_t)0U) {
         s_sequence = (uint16_t)1U;
     }
-
-    /* Generate TRNG nonce. */
-    algo_get_random(nonce, (uint8_t)UDS_ALGO_SEED_NONCE_LEN);
 
     /* Pack seed: [nonce[0..5], seq_hi, seq_lo]
      * [P1-SEC] Domain separation via per-level AES key; security_level not

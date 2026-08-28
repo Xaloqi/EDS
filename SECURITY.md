@@ -90,9 +90,22 @@ placeholder keys. See `docs/SECURITY_NOTICE.md` for entropy requirements. The fu
 
 **TRNG:** Seed generation quality depends on the platform's hardware entropy source.
 Production deployments must supply a TRNG-backed callback via
-`uds_security_algo_set_rng_cb()`. Without a registered TRNG, the stack falls back to
-a 16-bit LFSR and logs a fault count — this is intentional for CI and simulator builds,
-not for field firmware.
+`uds_security_algo_set_rng_cb()`. Behaviour on loss of entropy is now **fail-closed
+in production, and unchanged in development/CI** — see `[SEC-TRNG-FAILCLOSED-01]` in
+`core/uds_security_algo.c`:
+
+- **Development/CI builds** (no `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n` Zephyr production
+  build): if no TRNG is registered, or a registered TRNG callback fails at runtime, the
+  stack falls back to a 16-bit software LFSR and logs a fault count. This is unchanged
+  legacy behaviour, intentional for CI and simulator builds only.
+- **Production builds** (Zephyr build with `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n`): the
+  LFSR is never used to satisfy a seed request. If no TRNG is registered, or the
+  registered TRNG callback fails, `SecurityAccess` seed generation is refused
+  (`UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE`, surfaced to the tester as NRC 0x24) instead
+  of silently degrading to a predictable seed. The fault is recorded in the
+  `uds_safety` platform-violations counter either way; the two cases are distinguished
+  by `last_violation_code` (`UDS_STATUS_ERR_PLATFORM` for the dev-mode soft fallback vs.
+  `UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE` for the production hard refusal).
 
 **ASIL-B DID access chain:** The 5-step validation chain is enforced at code generation
 time. It cannot be disabled by runtime configuration. Any mechanism that allows DID

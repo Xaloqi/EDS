@@ -153,9 +153,18 @@ typedef uds_status_t (*uds_algo_derive_cb_t)(
  * @brief Register a hardware TRNG source.
  *
  * MUST be called with a real entropy source before production deployment.
- * Pass NULL to revert to software LFSR fallback (development only).
+ *
+ * Passing NULL reverts to the software LFSR fallback ONLY in development/CI
+ * builds (ALGO_ENTROPY_FAIL_CLOSED == 0 — see uds_security_algo.c). In a
+ * production build (Zephyr build with CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n),
+ * passing NULL — or leaving no callback registered — instead makes every
+ * subsequent uds_security_algo_generate_seed() call fail closed and return
+ * UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE; the LFSR is never used to satisfy a
+ * production seed request.
  *
  * @param[in] rng_cb  TRNG callback. May be NULL.
+ *
+ * TRACEABILITY: SEC-TRNG-FAILCLOSED-01
  */
 void uds_security_algo_set_rng_cb(uds_algo_rng_cb_t rng_cb);
 
@@ -208,15 +217,29 @@ void uds_security_algo_reset(void);
 uint16_t uds_security_algo_get_sequence(void);
 
 /**
- * @brief [HIGH-2 FIX] Return the number of times the TRNG fallback was triggered.
+ * @brief [HIGH-2 FIX] Return the number of TRNG call failures observed.
  *
  * Counts how many times s_rng_cb was registered and non-NULL but returned
- * a non-OK status during seed generation, forcing the software LFSR fallback.
+ * a non-OK status during seed generation — i.e. raw TRNG *call* failures.
+ * A callback that was never registered does NOT count here: see
+ * uds_security_algo_set_rng_cb() for that case.
+ *
+ * What happens after each counted failure differs by build mode
+ * (ALGO_ENTROPY_FAIL_CLOSED — see uds_security_algo.c):
+ *   - Development/CI builds: each counted failure is followed by a
+ *     software LFSR fallback so the caller still receives a (degraded)
+ *     seed and UDS_STATUS_OK.
+ *   - Production builds: each counted failure is followed by a hard
+ *     refusal — uds_security_algo_generate_seed() returns
+ *     UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE and the LFSR is never used.
+ * In both modes the failure also increments uds_safety platform_violations,
+ * which persists across session transitions and is readable via a DID; the
+ * two failure modes are distinguished there by last_violation_code
+ * (UDS_STATUS_ERR_PLATFORM for the dev-mode soft fallback vs.
+ * UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE for the production hard refusal).
  *
  * A non-zero value indicates that the hardware entropy source has degraded
  * at least once since the last power cycle or uds_security_algo_reset() call.
- * Each fallback event also increments uds_safety platform_violations, which
- * persists across session transitions and is readable via a DID.
  *
  * Typical usage: register an application hook that polls this counter after
  * each seed generation and triggers a DTC or refuses further SecurityAccess
@@ -226,10 +249,10 @@ uint16_t uds_security_algo_get_sequence(void);
  * It is NOT reset by session transitions (intentional — mirrors the safety
  * module counter behaviour).
  *
- * @return Number of TRNG fallback events since last reset.
- *         Returns 0 when no TRNG is registered (LFSR-only dev mode).
+ * @return Number of TRNG call failures since last reset.
+ *         Returns 0 when no TRNG is registered (no calls have been made).
  *
- * TRACEABILITY: SEC-TRNG-FAULT-01 / HIGH-2
+ * TRACEABILITY: SEC-TRNG-FAULT-01 / HIGH-2, SEC-TRNG-FAILCLOSED-01
  */
 uint32_t uds_security_algo_get_trng_fallback_count(void);
 
@@ -263,9 +286,27 @@ bool uds_security_algo_keys_are_placeholder(void);
  * @param[in]  seed_buf_len    Buffer size (>= UDS_ALGO_SEED_LEN).
  * @param[out] out_seed_len    Bytes written (always UDS_ALGO_SEED_LEN).
  *
+ * [SEC-TRNG-FAILCLOSED-01] Entropy availability differs by build mode
+ * (ALGO_ENTROPY_FAIL_CLOSED — see uds_security_algo.c):
+ *   - Development/CI builds: if no TRNG is registered, or the registered
+ *     TRNG callback fails, a software LFSR fallback is used and this
+ *     function still returns UDS_STATUS_OK (unchanged legacy behaviour).
+ *   - Production builds (Zephyr build with
+ *     CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n): the LFSR is never used to
+ *     satisfy a seed request. If no TRNG is registered, or the registered
+ *     TRNG callback fails, this function fails closed: it returns
+ *     UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE, seed_buf and *out_seed_len are
+ *     left untouched, and the internal sequence counter is NOT advanced
+ *     (a refused request must not burn a sequence number).
+ *
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NULL_PTR if any pointer is NULL.
  * @return UDS_STATUS_ERR_INVALID_PARAM if buffer too small or level unknown.
+ * @return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE (production builds only) if no
+ *         entropy source is available. See core/uds_security.c, which maps
+ *         this to the same code from the seed_generate_cb contract, and
+ *         core/uds_server.c, which maps it to NRC 0x24
+ *         (requestSequenceError).
  */
 uds_status_t uds_security_algo_generate_seed(
     uint8_t  security_level,
