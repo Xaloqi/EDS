@@ -3,7 +3,7 @@
 # Xaloqi EDS
 # build_tests.sh  (project root)
 #
-# PURPOSE: Build and run all 36 host-side C unit tests.
+# PURPOSE: Build and run all 43 host-side C unit tests.
 #          Each test module is compiled independently with the full
 #          diagnostics stack linked in, then executed immediately.
 #
@@ -25,7 +25,7 @@
 #         --out examples/basic_ecu/generated/ --safety-wrappers --asil-level B --no-manifest
 #
 # USAGE:
-#   bash build_tests.sh              # Build + run all 37 tests
+#   bash build_tests.sh              # Build + run all 43 tests
 #   bash build_tests.sh --verbose    # Show individual test output
 #   bash build_tests.sh --keep-bin   # Keep binaries in build_test_host/
 #   bash build_tests.sh --coverage   # Build with gcov + generate lcov HTML report

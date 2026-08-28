@@ -111,13 +111,14 @@
  * cases that must be distinguished are:
  *
  *   (a) CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY defined non-zero
- *       -> Zephyr dev/CI build (Kconfig bool = y) -> LFSR allowed.
- *   (b) CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY undefined but __ZEPHYR__ defined
- *       -> Zephyr PRODUCTION build (Kconfig bool = n, symbol omitted)
- *       -> fail closed.
- *   (c) CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY undefined and __ZEPHYR__ undefined
+ *       -> development/CI build (Kconfig bool = y) -> LFSR allowed.
+ *   (b) CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY undefined, UNIT_TEST defined
  *       -> host unit-test / harness build (no autoconf.h at all)
  *       -> LFSR allowed.
+ *   (c) anything else -- Zephyr with the bool set to n (symbol omitted),
+ *       FreeRTOS, bare metal, or a platform not yet ported
+ *       -> PRODUCTION -> fail closed. This is the DEFAULT: the safe state
+ *       is what you get by omission, on every platform.
  *
  * A host test that wants to exercise the production (fail-closed) path
  * forces it by compiling with -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0: the
@@ -137,16 +138,44 @@
  * TRACEABILITY: SEC-TRNG-FAILCLOSED-01
  * ============================================================================= */
 
-#if defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY)
-#  if CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY
+/*
+ * The default is FAIL CLOSED. A firmware build must *explicitly* opt in to the
+ * LFSR fallback; it is never inherited by omission. This ordering matters:
+ * an earlier revision of this gate tried to identify production builds by
+ * testing for __ZEPHYR__, which silently left every FreeRTOS and bare-metal
+ * production build (examples/*_freertos, and any OEM bare-metal port) on the
+ * predictable LFSR — the exact failure this change exists to prevent. Deriving
+ * "development" from a positive signal instead makes the safe state the
+ * default on every platform, including ones EDS does not ship a port for yet.
+ *
+ * ALGO_ENTROPY_FAIL_CLOSED may also be forced directly on the compiler command
+ * line (-DALGO_ENTROPY_FAIL_CLOSED=1). That is the supported escape hatch for
+ * the CRIT-4 deviation documented above: an OEM key that happens to collide
+ * with the placeholder pattern requires CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=y in
+ * a *production* image, which would otherwise re-enable the LFSR as a side
+ * effect. Setting ALGO_ENTROPY_FAIL_CLOSED=1 keeps entropy failing closed
+ * independently of the key gate.
+ */
+#if !defined(ALGO_ENTROPY_FAIL_CLOSED)
+#  if defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY)
+     /* Kconfig symbol present and explicit. y -> development, n (compiled as
+      * an explicit 0, e.g. -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0) -> production. */
+#    if CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY
+#      define ALGO_ENTROPY_FAIL_CLOSED (0)
+#    else
+#      define ALGO_ENTROPY_FAIL_CLOSED (1)
+#    endif
+#  elif defined(UNIT_TEST)
+     /* Host unit-test / harness build (build_tests.sh, build_harness.sh).
+      * No autoconf.h exists at all here; keep the LFSR so native_sim and the
+      * host suites behave exactly as before. */
 #    define ALGO_ENTROPY_FAIL_CLOSED (0)
 #  else
+     /* Any firmware build that did not explicitly enable placeholder keys:
+      * Zephyr with the Kconfig bool set to n (symbol omitted from autoconf.h),
+      * FreeRTOS, or bare metal. Fail closed. */
 #    define ALGO_ENTROPY_FAIL_CLOSED (1)
 #  endif
-#elif defined(__ZEPHYR__)
-#  define ALGO_ENTROPY_FAIL_CLOSED (1)
-#else
-#  define ALGO_ENTROPY_FAIL_CLOSED (0)
 #endif
 
 /* --------------------------------------------------------------------------

@@ -12,11 +12,11 @@
 #              -> tests/runner/test_main.c         (Unity main + lifecycle)
 #              -> tests/runner/ztest_shim.h        (ZTEST-to-Unity macro map)
 #              -> project/unity/unity.c            (Unity assertion engine)
-#              -> tests/unit_runnable/test_<module>.c  (canonical test cases — 37 modules)
+#              -> tests/unit_runnable/test_<module>.c  (canonical test cases — 40 modules)
 #              -> <production sources>             (modules under test)
 #              -> generated/ did_handlers.c etc.  (generated stubs)
 #
-#          This design allows all 37 modules to be tested on a CI runner
+#          This design allows all 40 modules to be tested on a CI runner
 #          without a Zephyr SDK or hardware target, using only GCC/Clang
 #          and CMake. Each test module compiles independently to avoid
 #          link-time symbol conflicts between test modules.
@@ -41,7 +41,7 @@
 #
 # SAFETY CONTEXT : Test infrastructure — not safety-assessed.
 # CODING STANDARD: MISRA C:2012 alignment intended (advisory for test code).
-# VERSION        : 1.7.0 (37 modules wired, unit_runnable/ is the single canonical test directory)
+# VERSION        : 1.7.0 (40 modules wired, unit_runnable/ is the single canonical test directory)
 # SPDX-License-Identifier: Apache-2.0
 # =============================================================================
 
@@ -87,7 +87,7 @@ set(DIAG_PLATFORM      "${DIAG_ROOT}/platform")
 set(DIAG_PLATFORM_ZEPHYR "${DIAG_ROOT}/platform/zephyr")
 set(DIAG_GENERATED     "${DIAG_ROOT}/generated")
 set(DIAG_UNITY         "${DIAG_ROOT}/project/unity")
-# [M2] Canonical test directory is unit_runnable/ (37 modules).
+# [M2] Canonical test directory is unit_runnable/ (40 modules).
 # tests/legacy_unit/ has been removed — unit_runnable/ is the single source of truth.
 # build_tests.sh and this CMakeLists.txt both reference unit_runnable/.
 set(TEST_UNIT_DIR      "${CMAKE_CURRENT_SOURCE_DIR}/unit_runnable")
@@ -567,6 +567,31 @@ add_diag_test(test_phase5_security_algo
         "${TEST_UNIT_DIR}/test_phase5_security_algo.c"
         "${DIAG_CORE}/uds_security_algo.c"
         "${DIAG_CORE}/uds_aes_cmac.c"
+        # uds_safety.c is required: uds_security_algo.c calls
+        # uds_safety_record_platform_violation() on TRNG fault, and the
+        # dev-mode TRNG regression tests assert on the safety context.
+        # Omitting it left this target failing to link (pre-existing;
+        # this path is not CI-invoked — see FINDINGS O-1/O-9).
+        "${DIAG_CORE}/uds_safety.c"
+)
+
+# ---------------------------------------------------------------------------
+# 16b. test_trng_fail_closed  [SEC-TRNG-FAILCLOSED-01]
+#      Module under test: core/uds_security_algo.c in its PRODUCTION
+#      configuration, plus core/uds_security.c end-to-end.
+#      Compiled with CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 so the entropy gate
+#      selects fail-closed; that cannot be reached from the default host
+#      build used by every other module here. Mirrors build_tests.sh.
+# ---------------------------------------------------------------------------
+add_diag_test(test_trng_fail_closed
+    SOURCES
+        "${TEST_UNIT_DIR}/test_trng_fail_closed.c"
+        "${DIAG_CORE}/uds_security_algo.c"
+        "${DIAG_CORE}/uds_aes_cmac.c"
+        "${DIAG_CORE}/uds_safety.c"
+        "${DIAG_CORE}/uds_security.c"
+    DEFINES
+        CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0
 )
 
 # ===========================================================================
