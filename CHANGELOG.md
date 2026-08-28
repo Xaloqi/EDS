@@ -26,6 +26,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE` for the production hard refusal).
   See `SECURITY.md` for the full dev-vs-production behaviour table.
 
+### Documentation
+
+- `SECURITY.md` / `README.md`: state the SecurityAccess key *response*
+  truncation (4 bytes; the seed stays 8 bytes) explicitly, and distinguish
+  online-guess hardness (bounded by the 4-byte truncation, defended by the
+  3-attempt NVM-persisted lockout) from key-derivation hardness (128-bit,
+  via AES-128-CMAC). Closes the gap an external security review's 4/10
+  rating was largely driven by — the public docs previously said only
+  "AES-128-CMAC" with no mention of the truncation.
+
 ---
 
 ## [1.10.1] — 2026-08-27
