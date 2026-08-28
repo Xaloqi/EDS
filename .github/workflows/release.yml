@@ -1,0 +1,42 @@
+name: Publish GitHub Release
+
+# Automates the public Release object for every version tag — closes the
+# failure class found 2026-08-27 (O-10, xaloqi-knowledge
+# reviews/FINDINGS.md): v1.10.1 was tagged and shipped, but no GitHub
+# Release was ever published for it, so this repo's public Releases page
+# kept showing v1.10.0 as "Latest" for a full release cycle. A git tag and
+# a GitHub Release are different objects — creating one does not create
+# the other, and a purely manual "don't forget" step is exactly the kind
+# of step that gets forgotten.
+#
+# Deliberately does NOT automate the CHANGELOG roll, version bumps, or the
+# docs sweep (scripts/check_release_docs.py in xaloqi-knowledge) — those
+# must all happen and pass BEFORE a tag is pushed, and involve judgment
+# calls a workflow shouldn't make unattended. This only fires once a tag
+# already exists and only creates the Release for it.
+#
+# Release notes are extracted verbatim from the tagged CHANGELOG section
+# (scripts/extract_changelog_section.py) — mechanical, not hand-polished
+# prose. `gh release edit <tag> --notes-file ...` afterward if nicer
+# wording is wanted; the goal here is that a Release always exists and is
+# always marked Latest, not that its wording matches past releases exactly.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}   # manual re-run, e.g. after fixing a CHANGELOG typo
+
+permissions:
+  contents: write   # gh release create/edit in this same repo — no external secret needed
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Create the Release (idempotent) if this is a real tag push
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci_publish_release.sh "${GITHUB_REF_NAME}"
