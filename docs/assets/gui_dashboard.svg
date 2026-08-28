@@ -397,7 +397,7 @@
   <!-- ASIL-B status -->
   <text x="776" y="642" font-size="10" fill="#64748b" font-weight="600" letter-spacing="0.8">SAFETY</text>
   <rect x="776" y="650" width="120" height="22" rx="4" fill="#052e16" stroke="#166534" stroke-width="1"/>
-  <text x="836" y="665" font-size="10" fill="#4ade80" font-weight="700" text-anchor="middle">ASIL-B Ready</text>
+  <text x="836" y="665" font-size="10" fill="#4ade80" font-weight="700" text-anchor="middle">ASIL-B Oriented</text>
   <text x="776" y="685" font-size="10" fill="#64748b">5-step wrapper</text>
   <circle cx="884" cy="682" r="4" fill="#10b981"/>
   <text x="776" y="700" font-size="10" fill="#64748b">Safety self-test</text>

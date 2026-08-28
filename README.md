@@ -8,9 +8,10 @@
 
 Software Bill of Materials: [sbom.json](sbom.json) (CycloneDX 1.4)
 
-**Production-grade UDS diagnostics for Zephyr RTOS and FreeRTOS — configured in YAML, generated in seconds.**
+**UDS without AUTOSAR — production-grade ISO 14229 diagnostics for Zephyr RTOS and FreeRTOS, configured in YAML, generated in seconds.**
 
-Describe your DIDs and DTCs once. Get ISO 14229-compliant C code, ASIL-B safety wrappers, a full pytest suite, and CANoe CAPL scripts — all from a single `diagnostics_config.yaml`. No boilerplate. No hand-rolled session logic. Runs on `native_sim` in CI and on real CAN hardware the same day.
+No AUTOSAR Classic RTE/COM stack to adopt just to get session control,
+security access, and DTC handling. Describe your DIDs and DTCs once. Get ISO 14229-compliant C code, ASIL-B safety wrappers, a full pytest suite, and CANoe CAPL scripts — all from a single `diagnostics_config.yaml`. No boilerplate. No hand-rolled session logic. Runs on `native_sim` in CI and on real CAN hardware the same day.
 
 ---
 
