@@ -46,7 +46,8 @@
  *   TC-ALGO-028  Per-level key injection changes derivation result
  *   TC-ALGO-029  Key injection with NULL pointer returns ERR_NULL_PTR
  *   TC-ALGO-030  Key injection with unknown level returns ERR_INVALID_PARAM
- *   TC-ALGO-031  Seed embeds correct security_level byte at LEVEL_OFFSET
+ *   TC-ALGO-031  Seed does NOT encode security_level (domain separation is
+ *                via the per-level AES key, not a seed byte)
  *   TC-ALGO-032  AES-128 known-answer test (NIST FIPS 197 Appendix B)
  *   TC-ALGO-033  AES-CMAC known-answer test (RFC 4493 D.1 empty message)
  *
@@ -341,11 +342,46 @@ ZTEST(test_phase5_security_algo, tc030_key_injection_unknown_level)
     zassert_equal(uds_security_algo_set_level_key(0x09U, dk),
         UDS_STATUS_ERR_INVALID_PARAM, "unknown level must return ERR_INVALID_PARAM");
 }
-ZTEST(test_phase5_security_algo, tc031_seed_embeds_security_level)
+/*
+ * TC-ALGO-031 was rewritten (see issue #87). It originally asserted that
+ * seed[UDS_ALGO_SEED_LEVEL_OFFSET] == security_level -- a contract the
+ * implementation deliberately abandoned. UDS_ALGO_SEED_LEVEL_OFFSET is now
+ * only a backwards-compat alias for UDS_ALGO_SEED_SEQ_HI_OFFSET (see
+ * uds_security_algo.h), and uds_security_algo_generate_seed() packs
+ * [nonce(6), seq_hi, seq_lo] with the seed-packing comment there stating:
+ * "[P1-SEC] Domain separation via per-level AES key; security_level not
+ * embedded in seed bytes to allow full 16-bit big-endian sequence."
+ *
+ * The rewritten case asserts the CURRENT contract directly: generate a
+ * seed at two different security levels from the same sequence-counter
+ * value (reset before each) and show the byte at UDS_ALGO_SEED_LEVEL_OFFSET
+ * is identical across levels and fully explained by the sequence counter
+ * alone -- i.e. it is a sequence byte, not a level byte, and the level is
+ * not encoded there (or, by construction of the packing loop, anywhere
+ * else in the seed).
+ */
+ZTEST(test_phase5_security_algo, tc031_seed_does_not_encode_security_level)
 {
     uds_security_algo_reset();
-    uint8_t seed[UDS_ALGO_SEED_LEN]; gen_seed(0x03U, seed);
-    zassert_equal(seed[UDS_ALGO_SEED_LEVEL_OFFSET], (uint8_t)0x03U, "level byte must be 0x03");
+    uint8_t seed_l1[UDS_ALGO_SEED_LEN];
+    gen_seed(0x01U, seed_l1);
+    uint16_t seq_after_l1 = uds_security_algo_get_sequence();
+
+    uds_security_algo_reset();
+    uint8_t seed_l3[UDS_ALGO_SEED_LEN];
+    gen_seed(0x03U, seed_l3);
+    uint16_t seq_after_l3 = uds_security_algo_get_sequence();
+
+    zassert_equal(seq_after_l1, seq_after_l3,
+        "test setup: both seeds must be generated at the same counter value");
+
+    zassert_equal(seed_l1[UDS_ALGO_SEED_LEVEL_OFFSET], seed_l3[UDS_ALGO_SEED_LEVEL_OFFSET],
+        "seed byte at LEVEL_OFFSET must be identical across security levels at the "
+        "same counter value -- if the level were encoded there, it would differ");
+    zassert_equal(seed_l1[UDS_ALGO_SEED_LEVEL_OFFSET],
+        (uint8_t)((seq_after_l1 >> 8U) & (uint16_t)0xFFU),
+        "byte at LEVEL_OFFSET must equal the sequence counter's high byte (seq_hi), "
+        "confirming it is a sequence byte, not a security_level byte");
 }
 /* NIST FIPS 197 Appendix B */
 ZTEST(test_phase5_security_algo, tc032_aes128_known_answer)
@@ -495,8 +531,36 @@ ZTEST(test_phase5_security_algo, tc036_lfsr_determinism_guard)
 
 /* run_all_tests shim */
 extern void test_phase5_security_algo__tc001_reset_clears_sequence(void);
+extern void test_phase5_security_algo__tc002_generate_seed_length(void);
+extern void test_phase5_security_algo__tc003_seed_encodes_sequence(void);
+extern void test_phase5_security_algo__tc004_sequence_increments(void);
+extern void test_phase5_security_algo__tc005_sequence_never_zero(void);
 extern void test_phase5_security_algo__tc006_level1_key_correct(void);
+extern void test_phase5_security_algo__tc007_level2_key_correct(void);
+extern void test_phase5_security_algo__tc008_level1_level2_keys_differ(void);
+extern void test_phase5_security_algo__tc009_validate_accepts_correct_key(void);
+extern void test_phase5_security_algo__tc010_validate_rejects_wrong_key(void);
+extern void test_phase5_security_algo__tc011_replay_rejected(void);
+extern void test_phase5_security_algo__tc012_fresh_seed_accepted(void);
+extern void test_phase5_security_algo__tc013_level1_key_rejected_at_level2(void);
+extern void test_phase5_security_algo__tc014_level2_key_rejected_at_level1(void);
+extern void test_phase5_security_algo__tc015_generate_null_seed_buf(void);
+extern void test_phase5_security_algo__tc016_generate_null_out_len(void);
+extern void test_phase5_security_algo__tc017_generate_buf_too_small(void);
+extern void test_phase5_security_algo__tc018_derive_null_seed(void);
+extern void test_phase5_security_algo__tc019_derive_null_key_out(void);
+extern void test_phase5_security_algo__tc020_derive_unknown_level(void);
+extern void test_phase5_security_algo__tc021_validate_null_seed(void);
+extern void test_phase5_security_algo__tc022_validate_null_key(void);
+extern void test_phase5_security_algo__tc023_consecutive_seeds_differ_in_nonce(void);
+extern void test_phase5_security_algo__tc024_get_sequence_reflects_counter(void);
+extern void test_phase5_security_algo__tc025_trng_callback_overrides_lfsr(void);
 extern void test_phase5_security_algo__tc026_oem_derive_callback_overrides_aes_cmac(void);
+extern void test_phase5_security_algo__tc027_oem_derive_callback_clearable(void);
+extern void test_phase5_security_algo__tc028_key_injection_changes_derivation(void);
+extern void test_phase5_security_algo__tc029_key_injection_null_ptr(void);
+extern void test_phase5_security_algo__tc030_key_injection_unknown_level(void);
+extern void test_phase5_security_algo__tc031_seed_does_not_encode_security_level(void);
 extern void test_phase5_security_algo__tc032_aes128_known_answer(void);
 extern void test_phase5_security_algo__tc033_aes_cmac_rfc4493_empty(void);
 extern void test_phase5_security_algo__tc034_no_rng_cb_dev_mode_uses_lfsr(void);
@@ -506,8 +570,36 @@ extern void test_phase5_security_algo__tc036_lfsr_determinism_guard(void);
 void run_all_tests(void)
 {
     RUN_TEST(test_phase5_security_algo__tc001_reset_clears_sequence);
+    RUN_TEST(test_phase5_security_algo__tc002_generate_seed_length);
+    RUN_TEST(test_phase5_security_algo__tc003_seed_encodes_sequence);
+    RUN_TEST(test_phase5_security_algo__tc004_sequence_increments);
+    RUN_TEST(test_phase5_security_algo__tc005_sequence_never_zero);
     RUN_TEST(test_phase5_security_algo__tc006_level1_key_correct);
+    RUN_TEST(test_phase5_security_algo__tc007_level2_key_correct);
+    RUN_TEST(test_phase5_security_algo__tc008_level1_level2_keys_differ);
+    RUN_TEST(test_phase5_security_algo__tc009_validate_accepts_correct_key);
+    RUN_TEST(test_phase5_security_algo__tc010_validate_rejects_wrong_key);
+    RUN_TEST(test_phase5_security_algo__tc011_replay_rejected);
+    RUN_TEST(test_phase5_security_algo__tc012_fresh_seed_accepted);
+    RUN_TEST(test_phase5_security_algo__tc013_level1_key_rejected_at_level2);
+    RUN_TEST(test_phase5_security_algo__tc014_level2_key_rejected_at_level1);
+    RUN_TEST(test_phase5_security_algo__tc015_generate_null_seed_buf);
+    RUN_TEST(test_phase5_security_algo__tc016_generate_null_out_len);
+    RUN_TEST(test_phase5_security_algo__tc017_generate_buf_too_small);
+    RUN_TEST(test_phase5_security_algo__tc018_derive_null_seed);
+    RUN_TEST(test_phase5_security_algo__tc019_derive_null_key_out);
+    RUN_TEST(test_phase5_security_algo__tc020_derive_unknown_level);
+    RUN_TEST(test_phase5_security_algo__tc021_validate_null_seed);
+    RUN_TEST(test_phase5_security_algo__tc022_validate_null_key);
+    RUN_TEST(test_phase5_security_algo__tc023_consecutive_seeds_differ_in_nonce);
+    RUN_TEST(test_phase5_security_algo__tc024_get_sequence_reflects_counter);
+    RUN_TEST(test_phase5_security_algo__tc025_trng_callback_overrides_lfsr);
     RUN_TEST(test_phase5_security_algo__tc026_oem_derive_callback_overrides_aes_cmac);
+    RUN_TEST(test_phase5_security_algo__tc027_oem_derive_callback_clearable);
+    RUN_TEST(test_phase5_security_algo__tc028_key_injection_changes_derivation);
+    RUN_TEST(test_phase5_security_algo__tc029_key_injection_null_ptr);
+    RUN_TEST(test_phase5_security_algo__tc030_key_injection_unknown_level);
+    RUN_TEST(test_phase5_security_algo__tc031_seed_does_not_encode_security_level);
     RUN_TEST(test_phase5_security_algo__tc032_aes128_known_answer);
     RUN_TEST(test_phase5_security_algo__tc033_aes_cmac_rfc4493_empty);
     RUN_TEST(test_phase5_security_algo__tc034_no_rng_cb_dev_mode_uses_lfsr);

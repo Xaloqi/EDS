@@ -677,6 +677,8 @@ extern void test_uds_security_send_key__test_key_without_seed(void);
 extern void test_uds_security_send_key__test_correct_key_unlocks(void);
 extern void test_uds_security_send_key__test_wrong_key_increments_counter(void);
 extern void test_uds_security_send_key__test_lockout_after_max_attempts(void);
+extern void test_uds_security_send_key__test_wrong_level_key_consumed_as_failed_attempt(void);
+extern void test_uds_security_send_key__test_wrong_level_triggers_lockout(void);
 extern void test_uds_security_is_unlocked__test_initially_locked(void);
 extern void test_uds_security_is_unlocked__test_unlocked_after_correct_key(void);
 extern void test_uds_security_reset__test_reset_clears_level(void);
@@ -704,6 +706,8 @@ void run_all_tests(void)
     RUN_TEST(test_uds_security_send_key__test_correct_key_unlocks);
     RUN_TEST(test_uds_security_send_key__test_wrong_key_increments_counter);
     RUN_TEST(test_uds_security_send_key__test_lockout_after_max_attempts);
+    RUN_TEST(test_uds_security_send_key__test_wrong_level_key_consumed_as_failed_attempt);
+    RUN_TEST(test_uds_security_send_key__test_wrong_level_triggers_lockout);
     RUN_TEST(test_uds_security_is_unlocked__test_initially_locked);
     RUN_TEST(test_uds_security_is_unlocked__test_unlocked_after_correct_key);
     RUN_TEST(test_uds_security_reset__test_reset_clears_level);

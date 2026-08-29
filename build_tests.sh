@@ -376,6 +376,43 @@ for t in "${TESTS[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
+# [ISSUE-87] Anti-drift guard: every ZTEST(suite, name) case in
+# tests/unit_runnable/*.c must have a matching RUN_TEST(...) call inside
+# that file's run_all_tests(). A ZTEST case with no RUN_TEST compiles fine
+# but silently never executes -- the module still reports PASS even though
+# the case never ran. This guard fails the build if that drift recurs.
+#
+# [FIX-SETE] grep/comm returning "no matches" exit non-zero; under
+# set -euo pipefail that would abort the script inside a $(...) pipeline,
+# so every such command here is explicitly allowed to "fail" with `|| true`.
+# LC_ALL=C keeps sort/comm ordering stable regardless of the host locale.
+# ---------------------------------------------------------------------------
+WIRING_FAIL=0
+for f in "${ROOT}"/tests/unit_runnable/*.c; do
+    defined=$(LC_ALL=C grep -oP '^ZTEST\(\s*\K[A-Za-z0-9_]+\s*,\s*[A-Za-z0-9_]+' "${f}" 2>/dev/null \
+        | sed 's/\s*,\s*/__/' | LC_ALL=C sort -u) || true
+    wired=$(sed -n '/void run_all_tests/,/^}/p' "${f}" \
+        | LC_ALL=C grep -oP 'RUN_TEST\(\s*\K[A-Za-z0-9_]+' 2>/dev/null | LC_ALL=C sort -u) || true
+    missing=$(LC_ALL=C comm -23 <(echo "${defined}") <(echo "${wired}")) || true
+
+    if [[ -n "${missing}" ]]; then
+        echo "ERROR: ${f} has ZTEST case(s) with no matching RUN_TEST in run_all_tests():"
+        echo "${missing}" | sed 's/^/    /'
+        WIRING_FAIL=1
+    fi
+done
+
+if [[ $WIRING_FAIL -ne 0 ]]; then
+    echo ""
+    echo "FAIL: One or more ZTEST cases are defined but never wired into run_all_tests()."
+    echo "      They compile but never execute (see issue #87)."
+    exit 1
+else
+    echo ""
+    echo "PASS: All ZTEST cases in tests/unit_runnable/*.c are wired into run_all_tests()."
+fi
+
+# ---------------------------------------------------------------------------
 # [P2-4] Coverage report
 # ---------------------------------------------------------------------------
 if [[ $COVERAGE -eq 1 ]]; then

@@ -23,6 +23,63 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   gained a regression test, and `tests/unit_runnable/test_trng_fail_closed.c`
   no longer needs to work around the bug with delta-based counter
   assertions.
+- **30 dormant unit test cases are now actually executed.** (#87)
+  `ZTEST(suite, name)` cases in `tests/unit_runnable/test_phase5_security_algo.c`
+  (28 cases) and `tests/unit_runnable/test_uds_security.c` (2 cases) compiled
+  successfully but were never registered with a matching `RUN_TEST(...)` call
+  in their module's `run_all_tests()`, so they silently never ran — the module
+  still reported PASS. All 30 are now wired in.
+  While fixing this, `tc031_seed_embeds_security_level` was found to assert a
+  contract the implementation had deliberately abandoned: that
+  `uds_security_algo_generate_seed()` embeds `security_level` at
+  `UDS_ALGO_SEED_LEVEL_OFFSET`. It does not — domain separation is via a
+  distinct AES key per level (see the `[P1-SEC]` comment in
+  `core/uds_security_algo.c`). The case is rewritten as
+  `tc031_seed_does_not_encode_security_level`, asserting the current contract:
+  the byte at `UDS_ALGO_SEED_LEVEL_OFFSET` is identical across security levels
+  at the same sequence-counter value and is fully explained by the sequence
+  counter, not by `security_level`.
+
+### Fixed — CI / build system
+
+- **`tests/CMakeLists.txt` (the CTest build path) now actually configures,
+  builds, and passes — and is CI-enforced.** (#88) Previously broken at three
+  independent levels, none of which CI caught because CI only ran
+  `bash build_tests.sh` and never invoked CMake:
+  - Configure failed outright: `add_executable()` pointed generated sources
+    at `<repo-root>/generated/`, which does not exist. Generated sources live
+    under `examples/basic_ecu/generated/`, same as `build_tests.sh`.
+  - Every target then failed `core/uds_types.h`'s `_Static_assert` on
+    `uds_msg_buf_t` size: the compile definitions `build_tests.sh` passes
+    (`UNIT_TEST`, `NVM_STORE_HOST_MOCK`, `ISOTP_ENABLE_CAN_FD`,
+    `ISOTP_TX_PADDING`, `EDS_MSG_BUF_MAX_STACK_BYTES=8192`) were missing from
+    the CMake path entirely.
+  - Each `add_diag_test()` call carried its own hand-maintained, drifted
+    `SOURCES` list instead of linking the full stack, so targets that did
+    link failed with undefined-reference errors the moment one dependency
+    was added.
+
+  Fixed by introducing a single `DIAG_STACK_SRCS` list that mirrors
+  `build_tests.sh`'s `STACK_SRCS` array file-for-file and is linked into
+  every test executable, pointing generated-source references at
+  `examples/basic_ecu/generated/`, and adding the missing compile
+  definitions directory-wide. Also added the three targets that existed in
+  `build_tests.sh`'s `TESTS` array but had no CMake equivalent
+  (`test_service_0x2F`, `test_service_0x35`, `test_service_0x23_0x3D`),
+  bringing the CMake path to parity: 43 modules, matching `build_tests.sh`.
+
+  A new CI job, `"CMake/CTest Build (parity with build_tests.sh)"`, runs
+  `cmake -S tests -B build && cmake --build build -j4 && ctest --test-dir
+  build --output-on-failure` on every PR so this path cannot silently
+  diverge from `build_tests.sh` again without CI going red.
+
+### Added
+
+- **Anti-drift guard for dormant unit tests.** (#87) `build_tests.sh` now
+  fails the build if any `ZTEST(suite, name)` case in `tests/unit_runnable/*.c`
+  has no matching `RUN_TEST(...)` call in that file's `run_all_tests()`,
+  naming the exact case(s) and file(s). Prevents the class of bug fixed above
+  from recurring silently.
 
 ### Fixed — CI / build system
 
