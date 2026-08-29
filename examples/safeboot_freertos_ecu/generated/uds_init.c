@@ -5,7 +5,7 @@
  *
  * ECU       : SafeBootFreeRTOSECU
  * Version   : 1.0.0
- * Generated : 2026-06-23T19:16:15Z
+ * Generated : 2026-08-29T11:04:46Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -21,7 +21,7 @@
  *
  *          Initialisation sequence (order is mandatory — do not reorder):
  *            1.  uds_safety_init()                — safety check engine (REQ-SAFE-005)
- *            1.1 uds_safety_self_test()           — ISO 26262-6 §9.4.3 pre-start self-test
+ *            1.1 uds_safety_self_test()           — ISO 26262-6:2018 §7.4.12 (safety mechanism — pre-start verification)
  *            2.  did_database_init()              — DID storage table
  *            3.  dtc_database_init()              — DTC storage table
  *            3.5 dtc_mirror_init()                — DTC NVM mirror module (REQ-DTC-NVM-01)
@@ -145,7 +145,7 @@ uds_status_t uds_generated_init(
 
     /* ── Step 1.1: Safety module self-test ────────────────────────────────────────
      *
-     * [CRIT-2 FIX] ISO 26262-6 §9.4.3 requires a software component pre-start
+     * [CRIT-2 FIX] ISO 26262-6:2018 §7.4.12 (safety mechanisms) requires a pre-start
      * self-test for ASIL-B modules.  uds_safety_self_test() exercises each
      * safety check category (NULL ptr, request length, DTC status mask,
      * session validation) with known-good and known-bad inputs to confirm
@@ -162,7 +162,7 @@ uds_status_t uds_generated_init(
      * any database init, so the DID table is empty and no DTC is registered.
      * This is the state the self-test expects and was designed to run in.
      *
-     * TRACEABILITY: ISO 26262-6 §9.4.3 (REQ-SAFE-SELFTEST-01)
+     * TRACEABILITY: ISO 26262-6:2018 §7.4.12 (REQ-SAFE-SELFTEST-01)
      */
     {
         uds_safety_result_t self_test_rc = uds_safety_self_test();

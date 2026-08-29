@@ -5,7 +5,7 @@
  *
  * ECU       : SensorECU
  * Version   : 1.0.0
- * Generated : 2026-05-20T07:21:49Z
+ * Generated : 2026-08-29T11:04:46Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -21,7 +21,7 @@
  *
  *          Initialisation sequence (order is mandatory — do not reorder):
  *            1.  uds_safety_init()                — safety check engine (REQ-SAFE-005)
- *            1.1 uds_safety_self_test()           — ISO 26262-6 §9.4.3 pre-start self-test
+ *            1.1 uds_safety_self_test()           — ISO 26262-6:2018 §7.4.12 (safety mechanism — pre-start verification)
  *            2.  did_database_init()              — DID storage table
  *            3.  dtc_database_init()              — DTC storage table
  *            3.5 dtc_mirror_init()                — DTC NVM mirror module (REQ-DTC-NVM-01)
@@ -31,6 +31,7 @@
  *            5.5 dtc_mirror_load()                — restore DTC status from NVM (REQ-DTC-NVM-01)
  *            5.6 routine_handlers_register_all()  — populate routine table
  *            5.7 (flash ops — caller registers if DFU required)
+ *            5.8 uds_comm_control_init()          — SID 0x28 + 0x85 state machine
  *            6.  uds_session_init()               — session state machine
  *            7.  uds_security_init()              — seed/key state machine
  *            7.1 Production key + TRNG guard      — SEC-KEY-GATE-01 / SEC-TRNG-GATE-01
@@ -55,6 +56,7 @@
 #include "uds_security.h"
 #include "uds_security_algo.h"
 #include "uds_safety.h"
+#include "uds_comm_control.h"
 #include "uds_types.h"
 #include "services.h"
 #include "did_handlers.h"
@@ -141,7 +143,7 @@ uds_status_t uds_generated_init(
 
     /* ── Step 1.1: Safety module self-test ────────────────────────────────────────
      *
-     * [CRIT-2 FIX] ISO 26262-6 §9.4.3 requires a software component pre-start
+     * [CRIT-2 FIX] ISO 26262-6:2018 §7.4.12 (safety mechanisms) requires a pre-start
      * self-test for ASIL-B modules.  uds_safety_self_test() exercises each
      * safety check category (NULL ptr, request length, DTC status mask,
      * session validation) with known-good and known-bad inputs to confirm
@@ -158,7 +160,7 @@ uds_status_t uds_generated_init(
      * any database init, so the DID table is empty and no DTC is registered.
      * This is the state the self-test expects and was designed to run in.
      *
-     * TRACEABILITY: ISO 26262-6 §9.4.3 (REQ-SAFE-SELFTEST-01)
+     * TRACEABILITY: ISO 26262-6:2018 §7.4.12 (REQ-SAFE-SELFTEST-01)
      */
     {
         uds_safety_result_t self_test_rc = uds_safety_self_test();
@@ -339,6 +341,48 @@ uds_status_t uds_generated_init(
      * Then regenerate: python3 tools/codegen.py --config <yaml> --out generated/
      *                                            --safety-wrappers --asil-level B
      */
+    /* ── Step 5.8: Communication control + DTC setting state machine ──────
+     *
+     * Initialises the module that backs SID 0x28 (CommunicationControl) and
+     * SID 0x85 (ControlDTCSetting).  Without this call s_initialized is false
+     * and both services return NRC 0x22 (conditionsNotCorrect).
+     *
+     * Platform callbacks are OPTIONAL.  Passing NULL means:
+     *   - 0x28 responses succeed and the mode is tracked in software
+     *     (s_comm_mode), but no CAN filter is adjusted by the stack itself.
+     *   - 0x85 responses succeed and the flag is tracked (s_dtc_setting),
+     *     but no hardware DTC-storage gate is applied by the stack.
+     *
+     * OEM INTEGRATION: to wire real hardware behaviour, register callbacks
+     * before (or instead of) calling uds_generated_init():
+     *
+     *   static uds_status_t my_comm_cb(uds_comm_mode_t mode, uint8_t type) {
+     *       // adjust CAN filter — e.g. Zephyr: can_add_rx_filter / can_detach
+     *       return UDS_STATUS_OK;
+     *   }
+     *   static uds_status_t my_dtc_cb(uds_dtc_setting_mode_t mode) {
+     *       // gate DTC storage in the application
+     *       return UDS_STATUS_OK;
+     *   }
+     *   static const uds_comm_control_cfg_t k_comm_cfg = {
+     *       .comm_cb = my_comm_cb, .dtc_cb = my_dtc_cb };
+     *   uds_comm_control_init(&k_comm_cfg);
+     *   uds_generated_init(...);   // do NOT call uds_generated_init if
+     *                              // you already initialised comm_control
+     *
+     * TRACEABILITY: REQ-COMM-001, REQ-DTC-SET-001
+     */
+    {
+        static const uds_comm_control_cfg_t k_comm_cfg = {
+            .comm_cb = NULL,   /* OEM: wire platform CAN-filter callback here */
+            .dtc_cb  = NULL,   /* OEM: wire DTC-enable/disable callback here  */
+        };
+        status = uds_comm_control_init(&k_comm_cfg);
+        if (status != UDS_STATUS_OK) {
+            return status;
+        }
+    }
+
     /* ── Step 6: Session layer ─────────────────────────────────────────────
      *
      * Starts in UDS_SESSION_DEFAULT. S3server timer armed.

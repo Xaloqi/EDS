@@ -5,7 +5,7 @@
  *
  * ECU       : SafeBootFreeRTOSECU
  * Version   : 1.0.0
- * Generated : 2026-06-23T19:16:15Z
+ * Generated : 2026-08-29T11:04:46Z
  *
  * PURPOSE: Compile-time constants derived from diagnostics_config.yaml.
  *          Provides all protocol timing parameters, CAN addressing, and
@@ -102,6 +102,6 @@
 
 #define GEN_ECU_NAME            "SafeBootFreeRTOSECU"
 #define GEN_ECU_VERSION         "1.0.0"
-#define GEN_GENERATED_TIMESTAMP "2026-06-23T19:16:15Z"
+#define GEN_GENERATED_TIMESTAMP "2026-08-29T11:04:46Z"
 
 #endif /* GENERATED_CONFIG_H */
