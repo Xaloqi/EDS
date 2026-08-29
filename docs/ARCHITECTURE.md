@@ -220,7 +220,7 @@ embedded-diagnostics-suite/
 │   └── mocks/                  # Zephyr port mock + NVM mock for host builds
 │
 └── scripts/
-    ├── build_tests.sh          # Runs all 42 unit test modules
+    ├── build_tests.sh          # Runs all 43 unit test modules
     └── build_harness.sh        # Runs all 68 harness tests
 ```
 
@@ -591,7 +591,7 @@ The first five examples ship with committed generated output (DID handlers, safe
 
 | Job | What it validates |
 |---|---|
-| `unit-tests` | All 42 Unity unit test modules (host-native, no Zephyr SDK) |
+| `unit-tests` | All 43 Unity unit test modules (host-native, no Zephyr SDK) |
 | `integration-tests` | Generated pytest suite in simulator mode |
 | `firmware-integration-tests` | pytest + per-routine tests against compiled firmware |
 | `static-analysis` | GCC `-fanalyzer` + MISRA cppcheck (zero errors) |
