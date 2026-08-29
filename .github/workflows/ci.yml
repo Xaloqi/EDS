@@ -429,6 +429,49 @@ jobs:
           print(f"PASS: codegen __version__ {cg} matches CHANGELOG {cl}")
           PYEOF
 
+  # ── Job 1b: CMake/CTest build (parity with build_tests.sh) ─────────────────
+  #
+  # [EDS#88] tests/CMakeLists.txt is a second, independently documented way
+  # to build and run the 43 host unit tests (cmake -S tests -B build && ...).
+  # It previously did not configure at all — wrong generated/ path, missing
+  # compile definitions, and hand-maintained per-target source lists that had
+  # drifted from the real dependency graph — and nothing in CI ever exercised
+  # it, so the breakage went unnoticed. This job runs that path for real on
+  # every PR so it cannot silently rot again. It is intentionally separate
+  # from the unit-tests job above (which runs build_tests.sh): the two build
+  # systems must both work, and a failure in either should be attributed
+  # to that path specifically.
+  cmake-ctest-build:
+    name: "CMake/CTest Build (parity with build_tests.sh)"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc cmake python3 python3-pip
+
+      - name: Install Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Verify pre-committed generated files are present
+        run: |
+          for f in examples/basic_ecu/generated/uds_init.c \
+                   examples/basic_ecu/generated/did_handlers.c \
+                   examples/basic_ecu/generated/safety_config.h \
+                   examples/basic_ecu/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
+
+      - name: Configure (cmake -S tests -B build)
+        run: cmake -S tests -B build
+
+      - name: Build all test targets
+        run: cmake --build build -j4
+
+      - name: Run CTest
+        run: ctest --test-dir build --output-on-failure
 
   # ── Job 5: Generated integration tests (simulator mode) ───────────────────
   #

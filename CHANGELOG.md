@@ -24,6 +24,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   no longer needs to work around the bug with delta-based counter
   assertions.
 
+### Fixed — CI / build system
+
+- **`tests/CMakeLists.txt` (the CTest build path) now actually configures,
+  builds, and passes — and is CI-enforced.** (#88) Previously broken at three
+  independent levels, none of which CI caught because CI only ran
+  `bash build_tests.sh` and never invoked CMake:
+  - Configure failed outright: `add_executable()` pointed generated sources
+    at `<repo-root>/generated/`, which does not exist. Generated sources live
+    under `examples/basic_ecu/generated/`, same as `build_tests.sh`.
+  - Every target then failed `core/uds_types.h`'s `_Static_assert` on
+    `uds_msg_buf_t` size: the compile definitions `build_tests.sh` passes
+    (`UNIT_TEST`, `NVM_STORE_HOST_MOCK`, `ISOTP_ENABLE_CAN_FD`,
+    `ISOTP_TX_PADDING`, `EDS_MSG_BUF_MAX_STACK_BYTES=8192`) were missing from
+    the CMake path entirely.
+  - Each `add_diag_test()` call carried its own hand-maintained, drifted
+    `SOURCES` list instead of linking the full stack, so targets that did
+    link failed with undefined-reference errors the moment one dependency
+    was added.
+
+  Fixed by introducing a single `DIAG_STACK_SRCS` list that mirrors
+  `build_tests.sh`'s `STACK_SRCS` array file-for-file and is linked into
+  every test executable, pointing generated-source references at
+  `examples/basic_ecu/generated/`, and adding the missing compile
+  definitions directory-wide. Also added the three targets that existed in
+  `build_tests.sh`'s `TESTS` array but had no CMake equivalent
+  (`test_service_0x2F`, `test_service_0x35`, `test_service_0x23_0x3D`),
+  bringing the CMake path to parity: 43 modules, matching `build_tests.sh`.
+
+  A new CI job, `"CMake/CTest Build (parity with build_tests.sh)"`, runs
+  `cmake -S tests -B build && cmake --build build -j4 && ctest --test-dir
+  build --output-on-failure` on every PR so this path cannot silently
+  diverge from `build_tests.sh` again without CI going red.
+
 ### Security
 
 - **SecurityAccess entropy fallback now fails closed in production builds.**
