@@ -8,6 +8,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **CI coverage for the 7 example ECUs that had none.** (#98) Only
+  `basic_ecu`, `basic_ecu_doip`, `basic_ecu_freertos`, and
+  `safeboot_freertos_ecu` were ever built or checked by any CI job —
+  `ardep_ecu`, `bms_ecu`, `motor_controller_ecu`,
+  `robot_joint_controller_ecu`, `safeboot_ecu`, `sensor_ecu`, and
+  `sensor_ecu_freertos` had zero CI signal. This is exactly how the O-27
+  drift (a missing `uds_comm_control_init()` on 4 of these 7, causing
+  every SID 0x28/0x85 request to return NRC 0x22) went unnoticed for
+  months. Added 7 new jobs — `example-ardep`, `example-bms`,
+  `example-motor`, `example-sensor`, `example-sensor-frtos`,
+  `example-robot`, `example-safeboot` — ported from the equivalent,
+  already-working jobs in the private EDS-toolchain repo's own CI and
+  adapted for this repo's checkout layout. Deliberately does not add a
+  `west build`/Zephyr SDK cross-compile per example — that would
+  duplicate what `zephyr-native`/`zephyr-stm32`/`freertos-qemu` already
+  prove for `basic_ecu`, at real toolchain-install cost, for a class of
+  bug (missing an init call, config/header drift) that YAML validation
+  plus generated-file assertions catch just as well. Also adds one
+  assertion the source EDS-toolchain jobs don't have: a direct check for
+  `uds_comm_control_init()` in each example's generated `uds_init.c` —
+  the exact marker whose absence was O-27, verified to actually catch it
+  (confirmed all 7 pass today, after O-27's fix).
+
 ### Fixed
 
 - **`freertos_platform_api.c`'s ISO-TP RX-complete callback had the wrong
