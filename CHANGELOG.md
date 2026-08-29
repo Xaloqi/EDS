@@ -10,6 +10,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`freertos_platform_api.c`'s ISO-TP RX-complete callback had the wrong
+  signature.** (#96) `eds_on_isotp_rx_complete()`'s `length` parameter was
+  `uint16_t`, but `transport/isotp.h`'s `isotp_rx_complete_cb` typedef
+  declares it `uint32_t` — a function-pointer type mismatch at the
+  `isotp_process_rx_frame()` call site. CI's pinned `gcc-arm-none-eabi`
+  (~10.3.1) only warned; a real `arm-none-eabi-gcc` 14.2.1 cross-compile
+  rejects it outright with `-Wincompatible-pointer-types`, which is how this
+  was found — verifying #84's FreeRTOS fix stopped a full link one object
+  short. Widened the parameter to `uint32_t` to match the typedef exactly;
+  `s_poll_req_buf.length` (`uint16_t`) is unaffected — the existing
+  `UDS_MAX_PAYLOAD_LEN` (4095) bounds check already rejects anything that
+  wouldn't fit before the narrowing assignment, now made explicit. Verified
+  with a full real cross-compile + link of both FreeRTOS examples that use
+  this file (`basic_ecu_freertos`, `safeboot_freertos_ecu`) — both now reach
+  a complete `.elf`, and the fixed function compiles with zero warnings
+  even under `-Wconversion -Wsign-conversion`, stricter than this build
+  actually enforces.
+
+### Fixed
+
 - **All 12 example ECUs regenerated from the current codegen template,
   closing long-standing drift.** (EDS-toolchain#50) Two of the four
   examples added at "Initial public release" — `ardep_ecu`, `bms_ecu`,
