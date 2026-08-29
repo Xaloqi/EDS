@@ -60,6 +60,9 @@ static uds_status_t doip_send_frame(doip_server_state_t *s,
                                      uint16_t payload_type,
                                      const uint8_t *payload,
                                      uint32_t payload_len);
+static uds_status_t doip_send_all(doip_server_state_t *s,
+                                   const uint8_t *buf,
+                                   size_t len);
 
 /* ---------------------------------------------------------------------------
  * Frame byte layout helpers
@@ -324,10 +327,9 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
                              resp_buf->data,
                              (size_t)resp_buf->length);
 
-                int send_rc = s_ops->tcp_send(s->conn_ctx,
-                                              s->tx_buf,
-                                              (size_t)(DOIP_HEADER_LEN + resp_payload_len));
-                if (send_rc > 0) {
+                uds_status_t send_rc = doip_send_all(
+                    s, s->tx_buf, (size_t)(DOIP_HEADER_LEN + resp_payload_len));
+                if (send_rc == UDS_STATUS_OK) {
                     s->frames_sent++;
                 }
             }
@@ -454,6 +456,53 @@ connection_closed:
  * Internal: send helpers — all build in s->tx_buf to avoid stack allocation
  * ------------------------------------------------------------------------ */
 
+/* Maximum tcp_send() attempts per doip_send_all() call.
+ *
+ * A well-behaved backend delivers a full frame (up to DOIP_HEADER_LEN +
+ * DOIP_MAX_PDU_SIZE, ~4.1 KB here) in far fewer calls than this even with an
+ * aggressively small per-call chunk (e.g. a 64-byte cap needs ~65 calls for
+ * the largest frame). This bound exists purely so a wedged, congested, or
+ * otherwise misbehaving peer cannot spin the UDS task indefinitely retrying
+ * a send that is never going to finish — see issue #105. */
+#define DOIP_SEND_ALL_MAX_ATTEMPTS (128U)
+
+/* Retry tcp_send() until len bytes of buf are on the wire, or a hard error /
+ * stalled peer is detected.
+ *
+ * POSIX send() (and the LwIP/FreeRTOS backends behind
+ * eds_doip_platform_ops_t) may legally transmit fewer bytes than requested
+ * on a single call — this is not a socket error. Treating any positive
+ * return as "fully sent" silently drops the remainder, producing a
+ * truncated DoIP frame on the wire: the DoIP header advertises a payload
+ * length the peer never fully receives. This will not reproduce on
+ * loopback/native_sim, where the socket buffer virtually always accepts the
+ * whole write in one call — it surfaces on real Ethernet under congestion,
+ * with large diagnostic responses, or against a stricter TCP stack.
+ *
+ * Bounded by DOIP_SEND_ALL_MAX_ATTEMPTS: each call that sends zero bytes or
+ * errors is treated as a hard failure immediately (nothing to retry
+ * blindly), and each call that makes forward progress still counts against
+ * the attempt cap, so this loop always terminates. */
+static uds_status_t doip_send_all(doip_server_state_t *s, const uint8_t *buf, size_t len)
+{
+    size_t   sent     = 0U;
+    uint32_t attempts = 0U;
+
+    while (sent < len) {
+        if (attempts >= DOIP_SEND_ALL_MAX_ATTEMPTS) {
+            return UDS_STATUS_ERR_PLATFORM;
+        }
+        attempts++;
+
+        int n = s_ops->tcp_send(s->conn_ctx, &buf[sent], len - sent);
+        if (n <= 0) {
+            return UDS_STATUS_ERR_PLATFORM;
+        }
+        sent += (size_t)n;
+    }
+    return UDS_STATUS_OK;
+}
+
 static uds_status_t doip_send_frame(doip_server_state_t *s,
                                      uint16_t payload_type,
                                      const uint8_t *payload,
@@ -467,14 +516,12 @@ static uds_status_t doip_send_frame(doip_server_state_t *s,
     if (payload != NULL && payload_len > 0U) {
         (void)memcpy(&s->tx_buf[DOIP_HEADER_LEN], payload, (size_t)payload_len);
     }
-    int rc = s_ops->tcp_send(s->conn_ctx,
-                              s->tx_buf,
-                              (size_t)(DOIP_HEADER_LEN + payload_len));
-    if (rc > 0) {
+    uds_status_t rc = doip_send_all(s, s->tx_buf,
+                                     (size_t)(DOIP_HEADER_LEN + payload_len));
+    if (rc == UDS_STATUS_OK) {
         s->frames_sent++;
-        return UDS_STATUS_OK;
     }
-    return UDS_STATUS_ERR_PLATFORM;
+    return rc;
 }
 
 static uds_status_t doip_send_routing_activation_response(doip_server_state_t *s,

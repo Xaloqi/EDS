@@ -37,6 +37,8 @@
  *     - test_doip_diagnostic_msg_extracts_uds_pdu_correctly
  *     - test_doip_diagnostic_msg_calls_uds_core
  *     - test_doip_response_wraps_in_doip_frame
+ *     - test_doip_short_write_reassembles_large_response (Issue #105)
+ *     - test_doip_short_write_bounded_retry_gives_up (Issue #105)
  *     - test_doip_max_pdu_size_boundary
  *     - test_doip_handle_unknown_payload_type_ignored
  *
@@ -66,6 +68,17 @@ static int      g_mock_send_rc;  /* return value for tcp_send (positive = bytes 
 static size_t   g_mock_tx_frame_starts[32]; /* byte offset of each frame start */
 static int      g_mock_tx_frame_count;
 
+/* [Issue #105] Short-write simulation: when non-zero, mock_tcp_send() never
+ * accepts more than this many bytes in a single call, regardless of how
+ * much was requested — modelling a real TCP stack under congestion (POSIX
+ * send() may legally return fewer bytes than requested). 0 = disabled
+ * (always accept the full request, the pre-#105 mock behaviour). */
+static size_t   g_mock_send_chunk_cap;
+/* Total number of mock_tcp_send() invocations since the last reset — lets
+ * a test assert the retry loop terminated after a bounded number of calls
+ * rather than merely "the test function returned". */
+static int      g_mock_send_call_count;
+
 /* Track calls */
 static int      g_mock_listen_calls;
 static int      g_mock_accept_calls;
@@ -90,19 +103,35 @@ static int mock_tcp_accept(void *server_ctx, void **conn_ctx, uint32_t timeout_m
 static int mock_tcp_send(void *conn_ctx, const uint8_t *data, size_t len)
 {
     (void)conn_ctx;
+    g_mock_send_call_count++;
     if (g_mock_send_rc <= 0) {
         return g_mock_send_rc;
     }
-    /* Append to buffer so all frames are captured */
+
+    /* [Issue #105] Simulate a short write: accept at most g_mock_send_chunk_cap
+     * bytes this call even though `len` (possibly far more) was requested. */
+    size_t accepted = len;
+    if (g_mock_send_chunk_cap > 0U && accepted > g_mock_send_chunk_cap) {
+        accepted = g_mock_send_chunk_cap;
+    }
+
+    /* Append the accepted bytes to the capture buffer so the full sequence
+     * of (possibly many, possibly partial) calls can be reassembled and
+     * compared byte-for-byte against what the caller intended to send.
+     * This copy is intentionally NOT gated on g_mock_tx_frame_count so that
+     * short-write tests with more than 32 calls still capture every byte —
+     * only the (optional, best-effort) frame-start bookkeeping below is. */
     size_t space = sizeof(g_mock_tx_buf) - g_mock_tx_len;
-    size_t copy_len = (len < space) ? len : space;
-    if (copy_len > 0U && g_mock_tx_frame_count < 32) {
-        g_mock_tx_frame_starts[g_mock_tx_frame_count] = g_mock_tx_len;
-        g_mock_tx_frame_count++;
+    size_t copy_len = (accepted < space) ? accepted : space;
+    if (copy_len > 0U) {
+        if (g_mock_tx_frame_count < 32) {
+            g_mock_tx_frame_starts[g_mock_tx_frame_count] = g_mock_tx_len;
+            g_mock_tx_frame_count++;
+        }
         memcpy(&g_mock_tx_buf[g_mock_tx_len], data, copy_len);
         g_mock_tx_len += copy_len;
     }
-    return (int)len;
+    return (int)accepted;
 }
 
 static int mock_tcp_recv(void *conn_ctx, uint8_t *buf, size_t buf_len, uint32_t timeout_ms)
@@ -163,12 +192,14 @@ static void setup_mock_platform(void)
     uds_status_t rc = eds_doip_register_platform(&g_mock_ops);
     zassert_equal(rc, UDS_STATUS_OK, "register_platform failed");
 
-    g_mock_tx_len          = 0U;
-    g_mock_send_rc         = 512; /* default: success */
-    g_mock_listen_calls    = 0;
-    g_mock_accept_calls    = 0;
-    g_mock_close_calls     = 0;
-    g_mock_tx_frame_count  = 0;
+    g_mock_tx_len           = 0U;
+    g_mock_send_rc          = 512; /* default: success */
+    g_mock_send_chunk_cap   = 0U;  /* default: accept full requested length */
+    g_mock_send_call_count  = 0;
+    g_mock_listen_calls     = 0;
+    g_mock_accept_calls     = 0;
+    g_mock_close_calls      = 0;
+    g_mock_tx_frame_count   = 0;
     memset(g_mock_tx_buf, 0, sizeof(g_mock_tx_buf));
     memset(g_mock_tx_frame_starts, 0, sizeof(g_mock_tx_frame_starts));
 }
@@ -206,11 +237,26 @@ static uds_status_t stub_seed_gen(uint8_t level, uint8_t *seed_buf,
     return UDS_STATUS_OK;
 }
 
-static uds_server_ctx_t *init_uds_server(void)
+/* Common uds_server_ctx_t bring-up. `table`/`table_count` let a test
+ * register handlers (e.g. one returning a large response, needed to
+ * exercise doip_send_all()'s reassembly of a multi-call short write — see
+ * test_doip_short_write_* below); pass an empty table for the default
+ * "every service is serviceNotSupported" behaviour most tests rely on.
+ *
+ * uds_session_init()/uds_security_init()/uds_server_init() all refuse to
+ * re-run on an already-initialised context (return ERR_ALREADY_INITIALIZED,
+ * ignored here as (void), same as every other call site in this file) — so
+ * each *distinct* configuration this file needs its own dedicated set of
+ * static session/security/server contexts. Tests sharing a configuration
+ * (identical table) may keep sharing one set, as init_uds_server() below
+ * already relied on before this helper existed. */
+static uds_server_ctx_t *init_uds_server_with_ctx(uds_session_ctx_t *session_ctx,
+                                                    uds_security_ctx_t *security_ctx,
+                                                    uds_server_ctx_t *server_ctx,
+                                                    const uds_service_entry_t *table,
+                                                    size_t table_count)
 {
-    static const uds_service_entry_t empty_table[] = { { 0U, NULL, false } };
-
-    (void)uds_session_init(&g_session_ctx, 5000U);
+    (void)uds_session_init(session_ctx, 5000U);
 
     static const uds_security_cfg_t sec_cfg = {
         .max_attempts     = 3U,
@@ -218,20 +264,64 @@ static uds_server_ctx_t *init_uds_server(void)
         .key_validate_cb  = stub_key_validate,
         .seed_generate_cb = stub_seed_gen,
     };
-    (void)uds_security_init(&g_security_ctx, &sec_cfg);
+    (void)uds_security_init(security_ctx, &sec_cfg);
 
     uds_server_cfg_t srv_cfg = {
         .p2_server_max_ms      = 50U,
         .p2_star_server_max_ms = 5000U,
-        .session_ctx           = &g_session_ctx,
-        .security_ctx          = &g_security_ctx,
-        .service_table         = empty_table,
-        .service_table_count   = 0U,
+        .session_ctx           = session_ctx,
+        .security_ctx          = security_ctx,
+        .service_table         = table,
+        .service_table_count   = table_count,
         .access_table          = NULL,
         .access_table_count    = 0U,
     };
-    (void)uds_server_init(&g_uds_ctx, &srv_cfg);
-    return &g_uds_ctx;
+    (void)uds_server_init(server_ctx, &srv_cfg);
+    return server_ctx;
+}
+
+static uds_server_ctx_t *init_uds_server(void)
+{
+    static const uds_service_entry_t empty_table[] = { { 0U, NULL, false } };
+    return init_uds_server_with_ctx(&g_session_ctx, &g_security_ctx, &g_uds_ctx,
+                                     empty_table, 0U);
+}
+
+/* [Issue #105] Service handler that returns a large (~4 KB) positive
+ * response filled with a recognisable, position-dependent byte pattern, so
+ * a test can verify the *entire* response — not just its first bytes —
+ * survived reassembly across many short tcp_send() calls byte-identical. */
+#define TEST_LARGE_RESP_LEN 4000U
+
+static uds_status_t handler_large_response(uds_server_ctx_t *ctx,
+                                            const uds_msg_buf_t *req,
+                                            uds_msg_buf_t *resp)
+{
+    (void)ctx;
+    (void)req;
+    for (uint16_t i = 0U; i < (uint16_t)TEST_LARGE_RESP_LEN; i++) {
+        resp->data[i] = (uint8_t)(i & 0xFFU);
+    }
+    resp->length = (uint16_t)TEST_LARGE_RESP_LEN;
+    return UDS_STATUS_OK;
+}
+
+/* Dedicated context set: this configuration (custom service_table) differs
+ * from init_uds_server()'s empty table, so it cannot share g_uds_ctx et al.
+ * (see init_uds_server_with_ctx() doc comment above). */
+static uds_session_ctx_t   g_session_ctx_large_resp;
+static uds_security_ctx_t  g_security_ctx_large_resp;
+static uds_server_ctx_t    g_uds_ctx_large_resp;
+
+static uds_server_ctx_t *init_uds_server_with_large_response(void)
+{
+    static const uds_service_entry_t table[] = {
+        { 0x22U, handler_large_response, false },
+    };
+    return init_uds_server_with_ctx(&g_session_ctx_large_resp,
+                                     &g_security_ctx_large_resp,
+                                     &g_uds_ctx_large_resp,
+                                     table, 1U);
 }
 
 /* =========================================================================
@@ -656,6 +746,140 @@ ZTEST(doip_server_suite, test_doip_response_wraps_in_doip_frame)
                  "last sent frame should be positive ack or UDS response");
 }
 
+/* =========================================================================
+ * [Issue #105] doip_send_all() short-write regression tests
+ *
+ * Both tcp_send() call sites in doip_server.c used to treat any positive
+ * return as "fully sent". POSIX send() (and the platform backends behind
+ * eds_doip_platform_ops_t) may legally transmit fewer bytes than requested
+ * — the remainder was then silently dropped, producing a truncated DoIP
+ * frame on the wire. This never reproduced on loopback/native_sim, where a
+ * single tcp_send() call virtually always accepts the whole buffer — which
+ * is exactly why these two tests exist: mock_tcp_send() can now be told
+ * (via g_mock_send_chunk_cap) to accept only a handful of bytes per call,
+ * modelling real Ethernet under congestion or a stricter TCP stack.
+ * ========================================================================= */
+
+ZTEST(doip_server_suite, test_doip_short_write_reassembles_large_response)
+{
+    /* Regression test for the core bug: even when the platform tcp_send()
+     * never accepts more than 64 bytes per call, doip_send_all() must retry
+     * until the complete frame is on the wire — a large (~4 KB) diagnostic
+     * response must arrive byte-identical, not truncated. */
+    setup_mock_platform();
+    uds_server_ctx_t *uds = init_uds_server_with_large_response();
+    doip_server_state_t s = init_state(0xE400U);
+
+    uint8_t ra_payload[7];
+    build_routing_req_payload(ra_payload, 0x0E00U, 0x00U);
+    (void)doip_handle_frame(&s, uds, DOIP_PT_ROUTING_ACT_REQ, ra_payload, 7U);
+
+    memset(g_mock_tx_buf, 0, sizeof(g_mock_tx_buf));
+    g_mock_tx_len          = 0U;
+    g_mock_send_call_count = 0;
+    g_mock_send_chunk_cap  = 64U; /* never accept more than 64B in one call */
+
+    /* ReadDataByIdentifier (SID 0x22) — dispatched to handler_large_response(). */
+    uint8_t diag_payload[7] = { 0x0E, 0x00, 0xE4, 0x00, 0x22, 0xF1, 0x90 };
+    uds_status_t rc = doip_handle_frame(&s, uds, DOIP_PT_DIAGNOSTIC_MSG,
+                                         diag_payload, 7U);
+    zassert_equal(rc, UDS_STATUS_OK, "handle_frame failed under short writes");
+
+    /* Must have taken more than a couple of tcp_send() calls to prove the
+     * short-write path was actually exercised, not accidentally bypassed. */
+    zassert_true(g_mock_send_call_count > 2,
+                 "expected several short tcp_send() calls (large response, "
+                 "64B cap) — test is not exercising the short-write path");
+
+    /* Frame 0 in the capture buffer is the positive ack — read its own
+     * declared length to find where the diagnostic response frame begins. */
+    uint32_t ack_payload_len = read_be32(&g_mock_tx_buf[4]);
+    size_t   resp_frame_off  = (size_t)DOIP_HEADER_LEN + (size_t)ack_payload_len;
+
+    zassert_true(resp_frame_off + DOIP_HEADER_LEN <= g_mock_tx_len,
+                 "response frame header missing from captured stream");
+
+    uint16_t resp_type = read_be16(&g_mock_tx_buf[resp_frame_off + 2U]);
+    zassert_equal(resp_type, (uint16_t)DOIP_PT_DIAGNOSTIC_MSG,
+                  "expected a DiagnosticMessage response frame after the ack");
+
+    uint32_t resp_payload_len = read_be32(&g_mock_tx_buf[resp_frame_off + 4U]);
+    zassert_equal(resp_payload_len, (uint32_t)(TEST_LARGE_RESP_LEN + 4U),
+                  "response frame's declared payload length is wrong");
+
+    size_t resp_total = resp_frame_off + (size_t)DOIP_HEADER_LEN + (size_t)resp_payload_len;
+    zassert_equal(resp_total, g_mock_tx_len,
+                  "captured byte stream is shorter/longer than the full frame "
+                  "— a truncated or over-long send would fail this");
+
+    /* Response addressing: ECU (0xE400) -> tester (0x0E00). */
+    uint16_t resp_src = read_be16(&g_mock_tx_buf[resp_frame_off + DOIP_HEADER_LEN]);
+    uint16_t resp_tgt = read_be16(&g_mock_tx_buf[resp_frame_off + DOIP_HEADER_LEN + 2U]);
+    zassert_equal(resp_src, 0xE400U, "response src should be ECU logical address");
+    zassert_equal(resp_tgt, 0x0E00U, "response tgt should be tester address");
+
+    /* Byte-identical check across the full ~4 KB UDS payload — this is the
+     * crux of #105: a partial-send bug would corrupt/truncate bytes here
+     * even if the framing checks above happened to still look fine. */
+    const uint8_t *uds_resp = &g_mock_tx_buf[resp_frame_off + DOIP_HEADER_LEN + 4U];
+    bool mismatch = false;
+    for (uint16_t i = 0U; i < (uint16_t)TEST_LARGE_RESP_LEN; i++) {
+        if (uds_resp[i] != (uint8_t)(i & 0xFFU)) {
+            mismatch = true;
+            break;
+        }
+    }
+    zassert_false(mismatch, "reassembled response is not byte-identical to what was sent");
+}
+
+ZTEST(doip_server_suite, test_doip_short_write_bounded_retry_gives_up)
+{
+    /* doip_send_all() must NOT retry forever against a peer that never
+     * accepts more than a handful of bytes per call — a wedged or badly
+     * congested connection must not be able to hang the UDS task. We force
+     * a pathological 1-byte-per-call cap on a large (~4 KB) response, which
+     * no reasonable retry bound would ever walk to completion, and verify
+     * the call terminates promptly reporting failure rather than spinning
+     * until the buffer is naturally exhausted call-by-call (~4012 calls). */
+    setup_mock_platform();
+    uds_server_ctx_t *uds = init_uds_server_with_large_response();
+    doip_server_state_t s = init_state(0xE400U);
+
+    uint8_t ra_payload[7];
+    build_routing_req_payload(ra_payload, 0x0E00U, 0x00U);
+    (void)doip_handle_frame(&s, uds, DOIP_PT_ROUTING_ACT_REQ, ra_payload, 7U);
+
+    uint32_t frames_sent_before = s.frames_sent;
+    g_mock_send_call_count = 0;
+    g_mock_send_chunk_cap  = 1U; /* pathological: accepts 1 byte per call */
+
+    uint8_t diag_payload[7] = { 0x0E, 0x00, 0xE4, 0x00, 0x22, 0xF1, 0x90 };
+    uds_status_t rc = doip_handle_frame(&s, uds, DOIP_PT_DIAGNOSTIC_MSG,
+                                         diag_payload, 7U);
+
+    /* doip_handle_frame() itself still reports OK — a send failure on the
+     * response frame was already non-fatal to frame dispatch before this
+     * fix; this change only changes what counts as "sent", not whether
+     * send failures propagate out of doip_handle_frame(). */
+    zassert_equal(rc, UDS_STATUS_OK, "handle_frame should still return OK");
+
+    /* Only the small positive ack (well within any reasonable retry bound
+     * even at 1 byte/call) should have completed — the ~4 KB response must
+     * NOT be counted as sent. */
+    zassert_equal(s.frames_sent, frames_sent_before + 1U,
+                  "only the positive ack should have completed; the large "
+                  "response must be reported as failed, not silently "
+                  "counted as sent");
+
+    /* The retry loop must have given up long before it would take to walk
+     * the full ~4 KB frame one byte at a time (~4012 calls) — proving the
+     * bound in doip_send_all() actually engaged rather than looping until
+     * the buffer was naturally exhausted. */
+    zassert_true(g_mock_send_call_count < 300,
+                 "tcp_send() was called far more than a bounded retry should "
+                 "allow — doip_send_all() looks unbounded");
+}
+
 ZTEST(doip_server_suite, test_doip_max_pdu_size_boundary)
 {
     /* A payload of exactly (DOIP_MAX_PDU_SIZE + 1) bytes in the length field
@@ -789,6 +1013,9 @@ void run_all_tests(void)
     RUN_TEST(doip_server_suite__test_doip_diagnostic_msg_extracts_uds_pdu_correctly);
     RUN_TEST(doip_server_suite__test_doip_diagnostic_msg_calls_uds_core);
     RUN_TEST(doip_server_suite__test_doip_response_wraps_in_doip_frame);
+    /* [Issue #105] doip_send_all() short-write regression tests */
+    RUN_TEST(doip_server_suite__test_doip_short_write_reassembles_large_response);
+    RUN_TEST(doip_server_suite__test_doip_short_write_bounded_retry_gives_up);
     RUN_TEST(doip_server_suite__test_doip_max_pdu_size_boundary);
     RUN_TEST(doip_server_suite__test_doip_handle_unknown_payload_type_ignored);
     /* NULL-pointer guards */

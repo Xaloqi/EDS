@@ -8,6 +8,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **DoIP: `tcp_send()` short writes were treated as a complete send, silently
+  truncating frames on real Ethernet.** (#105) Both call sites in
+  `transport/doip/doip_server.c` accepted any positive return from
+  `tcp_send()` as "fully sent" — but POSIX `send()` (and the LwIP/FreeRTOS
+  backends behind `eds_doip_platform_ops_t`) may legally transmit fewer
+  bytes than requested. The remainder was then silently dropped, producing
+  a truncated DoIP frame on the wire. This never reproduced on
+  loopback/`native_sim`, where a single `tcp_send()` call virtually always
+  accepts the whole buffer — it surfaces on real Ethernet under congestion,
+  with large diagnostic responses (up to ~4 KB), or against a stricter TCP
+  stack. Added `doip_send_all()`, a bounded retry loop (max 128 attempts,
+  so a wedged/stalled peer cannot spin the UDS task indefinitely), used at
+  both call sites. New unit tests give `mock_tcp_send()` a configurable
+  per-call byte cap to simulate short writes and assert a large response
+  reassembles byte-identical, plus that the bounded retry actually gives up
+  rather than looping unboundedly.
+
 ## [1.11.0] — 2026-08-29
 
 ### Security
