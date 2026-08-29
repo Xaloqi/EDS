@@ -269,6 +269,7 @@ uds_status_t uds_safety_reset_counters(void)
     s_safety_ctx.session_check_violations  = 0U;
     s_safety_ctx.security_check_violations = 0U;
     s_safety_ctx.bounds_check_violations   = 0U;
+    s_safety_ctx.platform_violations       = 0U;  /* [HIGH-2] */
     s_safety_ctx.total_checks_performed    = 0U;
     s_safety_ctx.last_violation_code       = UDS_STATUS_OK;
 

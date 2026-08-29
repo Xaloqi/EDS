@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **`uds_safety_reset_counters()` now clears `platform_violations`.** (#86)
+  `platform_violations` was added to `uds_safety_ctx_t` by the `[HIGH-2]` fix
+  after `uds_safety_reset_counters()` was already written, and was never
+  wired into it — every other counter (`null_check_violations`,
+  `session_check_violations`, `security_check_violations`,
+  `bounds_check_violations`, `total_checks_performed`,
+  `last_violation_code`) was reset, but `platform_violations` survived the
+  call. `uds_safety_init()` already zeroed it correctly; only the
+  test-harness-only reset path was affected — this function must not be
+  called in production firmware. `tests/unit_runnable/test_uds_safety.c`
+  gained a regression test, and `tests/unit_runnable/test_trng_fail_closed.c`
+  no longer needs to work around the bug with delta-based counter
+  assertions.
+
 ### Security
 
 - **SecurityAccess entropy fallback now fails closed in production builds.**

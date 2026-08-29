@@ -263,6 +263,29 @@ ZTEST(test_safety_lifecycle, test_reset_counters_clears_violations)
                   "total checks cleared after reset");
 }
 
+/**
+ * TC-SAFE-LIFE-004: uds_safety_reset_counters() zeroes platform_violations.
+ *
+ * Regression test for issue #86: platform_violations (added by the [HIGH-2]
+ * fix) was never wired into uds_safety_reset_counters(), so a platform
+ * violation recorded before a reset would survive it.
+ */
+ZTEST(test_safety_lifecycle, test_reset_counters_clears_platform_violations)
+{
+    uds_safety_init();
+    uds_safety_reset_counters();
+    const uds_safety_ctx_t *ctx = uds_safety_get_ctx();
+
+    uds_safety_record_platform_violation(UDS_STATUS_ERR_PLATFORM);
+    zassert_true(ctx->platform_violations > 0U,
+                 "Platform violation must have been recorded");
+
+    uds_status_t rc = uds_safety_reset_counters();
+    zassert_equal(rc, UDS_STATUS_OK, "reset_counters must succeed");
+    zassert_equal(ctx->platform_violations, 0U,
+                  "platform_violations cleared after reset");
+}
+
 /* =========================================================================
  * Test suite: uds_safety_check_null_ptr (REQ-SAFE-004)
  * ========================================================================= */
@@ -955,6 +978,7 @@ ZTEST(test_safety_integrity, test_self_test_passes)
 extern void test_safety_lifecycle__test_init_and_get_ctx(void);
 extern void test_safety_lifecycle__test_get_ctx_not_null(void);
 extern void test_safety_lifecycle__test_reset_counters_clears_violations(void);
+extern void test_safety_lifecycle__test_reset_counters_clears_platform_violations(void);
 extern void test_safety_null_ptr__test_null_ptr_detected(void);
 extern void test_safety_null_ptr__test_non_null_ok(void);
 extern void test_safety_null_ptr__test_total_checks_increments(void);
@@ -1003,6 +1027,7 @@ void run_all_tests(void)
     RUN_TEST(test_safety_lifecycle__test_init_and_get_ctx);
     RUN_TEST(test_safety_lifecycle__test_get_ctx_not_null);
     RUN_TEST(test_safety_lifecycle__test_reset_counters_clears_violations);
+    RUN_TEST(test_safety_lifecycle__test_reset_counters_clears_platform_violations);
     RUN_TEST(test_safety_null_ptr__test_null_ptr_detected);
     RUN_TEST(test_safety_null_ptr__test_non_null_ok);
     RUN_TEST(test_safety_null_ptr__test_total_checks_increments);
