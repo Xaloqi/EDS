@@ -69,7 +69,7 @@ Bug reports, documentation improvements, and issue comments never require a CLA.
 - Changes that remove or weaken any step of the 5-step ASIL-B safety wrapper chain
 - Dynamic memory allocation (`malloc`, `free`) anywhere in the stack
 - Recursion in any safety-critical module
-- Changes that break the `native_sim` CI build or cause any of the 42 unit tests to fail
+- Changes that break the `native_sim` CI build or cause any unit test to fail (currently 43 — see build_tests.sh, which enforces its own count via an anti-drift check)
 - Hand-written changes to files under `generated/` — these are codegen output;
   fix the template in `tools/templates/` instead
 - External runtime dependencies not already present in the stack
@@ -126,7 +126,7 @@ python3 tools/codegen.py \
   --out generated/ \
   --safety-wrappers --asil-level B --test-gen
 
-# All 42 unit tests must pass
+# All unit tests must pass (currently 43)
 bash build_tests.sh
 
 # All 68 harness tests must pass
@@ -137,8 +137,10 @@ west build -b native_sim examples/basic_ecu \
   -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay
 ```
 
-CI runs all 13 jobs automatically on pull requests. A PR will not be merged if
-any CI job is red.
+CI runs the full workflow automatically on pull requests — see
+`.github/workflows/ci.yml` for the current job list (it grows as coverage is
+added; don't hardcode a count here, it has drifted before — #91). A PR will
+not be merged if any CI job is red.
 
 ### 5. Pull request checklist
 
@@ -148,7 +150,7 @@ any CI job is red.
 - [ ] SPDX header on every new file
 - [ ] Unit test added or updated for the changed module
 - [ ] `generated/` files regenerated and committed if YAML or templates changed
-- [ ] All 42 unit tests pass locally (`bash build_tests.sh`)
+- [ ] All unit tests pass locally (`bash build_tests.sh`)
 - [ ] PR title follows format: `[fix|feat|docs|test|chore]: short description`
 
 ---
@@ -278,7 +280,7 @@ safety-relevant code.
 ### What it is not used for
 
 - Autonomous merge decisions — no AI output is merged without human sign-off
-- Bypassing CI — all commits, regardless of origin, must pass all 10 CI jobs
+- Bypassing CI — all commits, regardless of origin, must pass all CI jobs (see .github/workflows/ci.yml for the current list)
 - Architecture decisions — module boundaries, safety architecture, and API contracts
   are defined by the project maintainer
 
@@ -286,8 +288,10 @@ safety-relevant code.
 
 Every commit that touches the EDS codebase, regardless of how it was generated, must satisfy:
 
-1. **CI gate:** All 10 CI jobs green — unit tests, integration tests, static analysis,
-   Zephyr build, FreeRTOS build, DoIP integration, harness tests, robustness tests.
+1. **CI gate:** All CI jobs green — unit tests, CMake/CTest parity, integration
+   tests, static analysis, Zephyr builds (multiple board targets), FreeRTOS
+   builds, DoIP integration, SOVD codegen, robustness campaign, harness tests.
+   See `.github/workflows/ci.yml` for the current, authoritative list.
 2. **Human sign-off:** The committing engineer reads, understands, and takes
    responsibility for every line before it is staged. AI-generated output is a
    starting point, not a finished deliverable.
