@@ -69,6 +69,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   is the intended remediation, but it is a real behaviour change for anyone
   who was unknowingly relying on the previously-broken, silently-inert
   gates. See `SECURITY.md` for the corrected dev-vs-production tables.
+  All 12 committed `examples/*/generated/uds_init.c` files carry the fixed
+  Step 7.1 guard (`#if EDS_BUILD_IS_PRODUCTION` in place of the broken
+  idiom) — applied as a targeted patch of that one block rather than a full
+  codegen regeneration, since `tools/templates/uds_init.c.j2` (private
+  EDS-toolchain repo) currently carries unrelated drift from what's
+  committed here (an ISO 26262 citation update, and a CommunicationControl
+  init step present in the template but missing from 4 of the 12 examples)
+  — tracked separately, not bundled into this security fix
+  ([EDS-toolchain#50](https://github.com/Xaloqi/EDS-toolchain/issues/50)).
 
 ### Fixed
 
