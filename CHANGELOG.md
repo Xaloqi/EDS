@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.11.0] — 2026-08-29
+
 ### Security
 
 - **BREAKING: unified build-mode detection closes a silent bypass of both the

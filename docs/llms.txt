@@ -210,7 +210,7 @@ platform/
 tools/              codegen.py, testgen.py, mcp_server.py, 17 Jinja2 templates
 examples/           12 ECU examples — each with diagnostics_config.yaml + generated/
 gui/                React/TypeScript configurator and live dashboard
-tests/              42 Unity unit tests, Python integration tests, harness (68 tests)
+tests/              43 Unity unit tests, Python integration tests, harness (68 tests)
 ide/vscode-extension/  YAML validation, hover docs, Run Codegen command
 
 ## Requirements
