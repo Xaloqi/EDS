@@ -13,14 +13,14 @@
  * See uds_security_algo.h for full design and integration documentation.
  *
  * KEY STORAGE SECURITY NOTICE:
- *   k_level_keys[] below contains PLACEHOLDER KEYS only.
+ *   s_level_keys[] below contains PLACEHOLDER KEYS only.
  *   These are NOT secret and must be replaced before production deployment.
  *
  *   Required actions before vehicle deployment:
  *     1. Do NOT commit real OEM keys to source control.
  *     2. Inject keys at runtime via uds_security_algo_set_level_key()
  *        from a secure source (OTP fuses, HSM, secure boot chain), OR
- *        replace k_level_keys[] in a secure build environment, OR
+ *        replace s_level_keys[] in a secure build environment, OR
  *        register a uds_algo_derive_cb_t that calls your HSM directly.
  *
  * REPLAY PROTECTION:
@@ -63,7 +63,7 @@
  * Production: must be set to n in prj.conf.  When a build declares itself
  * production (see EDS_BUILD_IS_PRODUCTION in uds_security_algo.h), this
  * #error fires, preventing a production firmware image from being linked
- * at all while k_level_keys[] still holds the compile-time placeholder
+ * at all while s_level_keys[] still holds the compile-time placeholder
  * values.
  *
  * WHAT THIS CHECK ACTUALLY DOES (corrected — see issue #84 PR discussion):
@@ -73,7 +73,7 @@
  * into a preprocessor-visible macro. The gate is an unconditional compile
  * failure whenever a production build is declared: it forces the
  * integrator to affirmatively prove intent — inject real keys via
- * uds_security_algo_set_level_key() at runtime, or edit k_level_keys[]
+ * uds_security_algo_set_level_key() at runtime, or edit s_level_keys[]
  * directly in a secure build environment — and then flip the build-mode
  * signal to production, before CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n (or
  * the FreeRTOS/override equivalent) can be believed. The actual runtime
@@ -174,22 +174,28 @@
  * (fail-closed) with no supported way to opt into the LFSR dev fallback —
  * a latent, CI-invisible gap in the already-merged PR #85 (FreeRTOS CI
  * jobs are build-only; they never exercise a live SecurityAccess request).
- * examples/*_freertos/CMakeLists.txt now defines
+ * Each FreeRTOS example's CMakeLists.txt now defines
  * CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY itself (default ON, i.e. development —
  * mirroring Zephyr Kconfig's own `default y`), giving FreeRTOS integrators
  * the same supported opt-in Zephyr already had. See SEC-BUILD-MODE-01 for
  * the full four-case derivation this alias now inherits.
  *
  * ALGO_ENTROPY_FAIL_CLOSED may also be forced directly on the compiler
- * command line (-DALGO_ENTROPY_FAIL_CLOSED=1), which overrides the alias
- * below via the header's own `#if !defined(EDS_BUILD_IS_PRODUCTION)`
- * guard not applying — set -DEDS_BUILD_IS_PRODUCTION=1 instead if the
- * intent is to also force the CRIT-4 gate at the same time; the two are
- * independent macros again only at the point of an explicit override.
+ * command line (-DALGO_ENTROPY_FAIL_CLOSED=<0|1>). The `#if !defined(...)`
+ * guard immediately below is what makes that override take effect: it
+ * skips the alias `#define` entirely when the command line already
+ * defined ALGO_ENTROPY_FAIL_CLOSED, so the literal command-line value
+ * stands on its own rather than being re-aliased to EDS_BUILD_IS_PRODUCTION.
+ * This is a SEPARATE override from -DEDS_BUILD_IS_PRODUCTION=<0|1>: forcing
+ * one does not force the other unless both are passed — set
+ * -DEDS_BUILD_IS_PRODUCTION=1 instead (or as well) if the intent is to also
+ * force the CRIT-4 gate at the same time.
  *
  * TRACEABILITY: SEC-TRNG-FAILCLOSED-01 (derives from SEC-BUILD-MODE-01)
  * ============================================================================= */
+#if !defined(ALGO_ENTROPY_FAIL_CLOSED)
 #define ALGO_ENTROPY_FAIL_CLOSED EDS_BUILD_IS_PRODUCTION
+#endif
 
 /* --------------------------------------------------------------------------
  * Internal constants
@@ -201,7 +207,7 @@
 /** Maximum number of security levels supported. */
 #define ALGO_MAX_LEVELS       (2U)
 
-/** Number of level keys defined in k_level_keys[]. */
+/** Number of level keys defined in s_level_keys[]. */
 #define ALGO_DEFINED_LEVELS   (2U)
 
 /* --------------------------------------------------------------------------

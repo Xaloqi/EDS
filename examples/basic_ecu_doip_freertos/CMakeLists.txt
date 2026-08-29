@@ -56,16 +56,6 @@ set(CMAKE_C_EXTENSIONS        OFF)
 # Required parameters
 # ---------------------------------------------------------------------------
 
-# [SEC-BUILD-MODE-01 / issue #84] FreeRTOS has no Kconfig of its own, so
-# without this option CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY is never defined for
-# a FreeRTOS build and EDS_BUILD_IS_PRODUCTION (core/uds_security_algo.h)
-# falls through to its PRODUCTION default on every build, including CI.
-# Mirrors Zephyr Kconfig's own `default y` for the same symbol: ON here
-# means "development / CI build, placeholder keys explicitly permitted."
-# Flip to OFF (-DEDS_PLACEHOLDER_KEYS_ONLY=OFF) to declare a production
-# build — this is what makes the CRIT-4 #error and the Step 7.1 runtime
-# guard in generated/uds_init.c reachable on FreeRTOS for the first time.
-option(EDS_PLACEHOLDER_KEYS_ONLY "Allow placeholder AES-128 security keys (DEVELOPMENT ONLY)" ON)
 
 if(NOT DEFINED FREERTOS_DIR)
     message(FATAL_ERROR "FREERTOS_DIR must point to FreeRTOS-Kernel directory")
@@ -85,6 +75,11 @@ endif()
 # ---------------------------------------------------------------------------
 
 set(DIAG_ROOT         "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+
+# [SEC-BUILD-MODE-01 / issue #84] shared FreeRTOS build-mode option -- see
+# cmake/eds_build_mode.cmake for why this is centralized rather than
+# declared per-example (same lesson as cmake/eds_service_sources.cmake).
+include(${DIAG_ROOT}/cmake/eds_build_mode.cmake)
 set(FREERTOS_PORT_DIR "${FREERTOS_DIR}/portable/GCC/ARM_CM4F")
 
 # ---------------------------------------------------------------------------
@@ -197,7 +192,7 @@ target_compile_definitions(eds_freertos_doip PRIVATE
     # defined-and-1-or-0 signal Zephyr's Kconfig already gives it. The
     # $<BOOL:...> generator expression emits 1 when EDS_PLACEHOLDER_KEYS_ONLY
     # is ON, 0 when OFF -- production is declared with
-    # -DEDS_PLACEHOLDER_KEYS_ONLY=OFF (see the option() above).
+    # -DEDS_PLACEHOLDER_KEYS_ONLY=OFF (see cmake/eds_build_mode.cmake).
     CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=$<BOOL:${EDS_PLACEHOLDER_KEYS_ONLY}>
 )
 

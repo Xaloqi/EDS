@@ -442,20 +442,18 @@ fi
 # rationale in uds_security_algo.c) must FAIL to compile, with an error
 # mentioning SEC-KEY-GATE-01.
 #
-# CASE B (regression guard): the default dev-mode compile every other test
-# in this script already performs (-DUNIT_TEST=1, no
-# CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY) must still succeed.
+# No separate regression-guard compile: the default dev-mode compile
+# (-DUNIT_TEST=1, no CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY) is already proven by
+# every one of the ~42 test modules built in the main loop above, all of
+# which link core/uds_security_algo.c under that exact configuration -- a
+# second compile here would only re-prove a fact the main loop already
+# established, on every single invocation of this script.
 # ---------------------------------------------------------------------------
 CRIT4_TMP_OBJ="$(mktemp -u /tmp/eds_crit4_negtest.XXXXXX.o)"
-CRIT4_INCLUDES=(
-    "-I${ROOT}/core"
-    "-I${ROOT}/core/uds_services"
-    "-I${ROOT}/transport"
-    "-I${ROOT}/config"
-    "-I${ROOT}/platform"
-    "-I${ROOT}/platform/zephyr"
-    "-I${ROOT}/examples/basic_ecu/generated"
-)
+# Reuses INCLUDES (defined above) rather than its own copy -- a second,
+# independently-maintained include-path array is exactly the "two copies of
+# the same fact drift apart" failure mode this PR fixes elsewhere; no reason
+# to reintroduce it here.
 
 echo ""
 echo "================================================================"
@@ -464,7 +462,7 @@ echo "================================================================"
 echo ""
 
 crit4_neg_out=$(
-    gcc -std=c11 -c -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 -DEDS_MSG_BUF_MAX_STACK_BYTES=8192         "${CRIT4_INCLUDES[@]}" "${ROOT}/core/uds_security_algo.c" -o "${CRIT4_TMP_OBJ}" 2>&1
+    gcc -std=c11 -c -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 -DEDS_MSG_BUF_MAX_STACK_BYTES=8192         "${INCLUDES[@]}" "${ROOT}/core/uds_security_algo.c" -o "${CRIT4_TMP_OBJ}" 2>&1
 ) && crit4_neg_rc=0 || crit4_neg_rc=$?
 rm -f "${CRIT4_TMP_OBJ}"
 
@@ -476,20 +474,6 @@ else
     echo "  FAIL: expected a SEC-KEY-GATE-01 compile failure, got:"
     echo "        rc=${crit4_neg_rc}"
     echo "${crit4_neg_out}" | sed 's/^/        /'
-    CRIT4_FAIL=1
-fi
-
-crit4_pos_out=$(
-    gcc -std=c11 -c -DUNIT_TEST=1 -DEDS_MSG_BUF_MAX_STACK_BYTES=8192         "${CRIT4_INCLUDES[@]}" "${ROOT}/core/uds_security_algo.c" -o "${CRIT4_TMP_OBJ}" 2>&1
-) && crit4_pos_rc=0 || crit4_pos_rc=$?
-rm -f "${CRIT4_TMP_OBJ}"
-
-if [[ ${crit4_pos_rc} -eq 0 ]]; then
-    echo "  PASS: default dev-mode compile (-DUNIT_TEST=1, no Kconfig symbol)"
-    echo "        still succeeds (regression guard)."
-else
-    echo "  FAIL: default dev-mode compile unexpectedly failed:"
-    echo "${crit4_pos_out}" | sed 's/^/        /'
     CRIT4_FAIL=1
 fi
 echo ""

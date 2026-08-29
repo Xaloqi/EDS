@@ -78,6 +78,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   init step present in the template but missing from 4 of the 12 examples)
   — tracked separately, not bundled into this security fix
   ([EDS-toolchain#50](https://github.com/Xaloqi/EDS-toolchain/issues/50)).
+  **`/code-review` caught and this fix corrects one real regression before
+  merge:** `ALGO_ENTROPY_FAIL_CLOSED`'s alias definition
+  (`#define ALGO_ENTROPY_FAIL_CLOSED EDS_BUILD_IS_PRODUCTION`) had no
+  `#if !defined(ALGO_ENTROPY_FAIL_CLOSED)` guard, so the documented
+  `-DALGO_ENTROPY_FAIL_CLOSED=1` command-line override (the CRIT-4
+  deviation escape hatch) was silently discarded — verified by compiling
+  with the override and `gcc -dM -E`, which showed the macro still
+  resolving to `EDS_BUILD_IS_PRODUCTION`'s value, with only a
+  "redefined" warning as the only trace. The guard is restored; also
+  fixed a naming typo in the CRIT-4 comment (`k_level_keys[]` →
+  `s_level_keys[]`, the actual identifier, in both new and pre-existing
+  prose), deduplicated `build_tests.sh`'s CRIT-4 negative-compile test
+  onto the existing shared `INCLUDES` array instead of a second
+  hand-maintained copy, removed a fully redundant regression-guard
+  compile (already proven by the ~42 other test modules built earlier in
+  the same script run), and centralized the 4 FreeRTOS examples'
+  `EDS_PLACEHOLDER_KEYS_ONLY` option into `cmake/eds_build_mode.cmake`
+  rather than duplicating it per example — mirroring this codebase's own
+  established convention (`cmake/eds_service_sources.cmake`) for exactly
+  this class of drift risk. Re-verified against a real ARM cross-compile
+  toolchain (`arm-none-eabi-gcc` + a fresh `FreeRTOS-Kernel` clone): every
+  object file compiles clean through link, including the patched
+  `uds_init.c`; the only remaining failure is the pre-existing, unrelated
+  callback-signature bug tracked as
+  [#96](https://github.com/Xaloqi/EDS/issues/96).
 
 ### Fixed
 

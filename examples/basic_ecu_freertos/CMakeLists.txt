@@ -57,16 +57,6 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 # Required parameters
 # ---------------------------------------------------------------------------
 
-# [SEC-BUILD-MODE-01 / issue #84] FreeRTOS has no Kconfig of its own, so
-# without this option CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY is never defined for
-# a FreeRTOS build and EDS_BUILD_IS_PRODUCTION (core/uds_security_algo.h)
-# falls through to its PRODUCTION default on every build, including CI.
-# Mirrors Zephyr Kconfig's own `default y` for the same symbol: ON here
-# means "development / CI build, placeholder keys explicitly permitted."
-# Flip to OFF (-DEDS_PLACEHOLDER_KEYS_ONLY=OFF) to declare a production
-# build — this is what makes the CRIT-4 #error and the Step 7.1 runtime
-# guard in generated/uds_init.c reachable on FreeRTOS for the first time.
-option(EDS_PLACEHOLDER_KEYS_ONLY "Allow placeholder AES-128 security keys (DEVELOPMENT ONLY)" ON)
 
 if(NOT DEFINED EDS_PLATFORM)
     set(EDS_PLATFORM "freertos")
@@ -91,6 +81,11 @@ endif()
 # Repo root (two levels up from this file)
 # ---------------------------------------------------------------------------
 set(DIAG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+
+# [SEC-BUILD-MODE-01 / issue #84] shared FreeRTOS build-mode option -- see
+# cmake/eds_build_mode.cmake for why this is centralized rather than
+# declared per-example (same lesson as cmake/eds_service_sources.cmake).
+include(${DIAG_ROOT}/cmake/eds_build_mode.cmake)
 
 # ---------------------------------------------------------------------------
 # Board-specific compiler flags
@@ -244,7 +239,7 @@ target_compile_definitions(eds_freertos PRIVATE
     # defined-and-1-or-0 signal Zephyr's Kconfig already gives it. The
     # $<BOOL:...> generator expression emits 1 when EDS_PLACEHOLDER_KEYS_ONLY
     # is ON, 0 when OFF -- production is declared with
-    # -DEDS_PLACEHOLDER_KEYS_ONLY=OFF (see the option() above).
+    # -DEDS_PLACEHOLDER_KEYS_ONLY=OFF (see cmake/eds_build_mode.cmake).
     CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=$<BOOL:${EDS_PLACEHOLDER_KEYS_ONLY}>
     # Suppress the uds_msg_buf_t _Static_assert: the FreeRTOS example
     # never allocates uds_msg_buf_t on the stack (module-level statics

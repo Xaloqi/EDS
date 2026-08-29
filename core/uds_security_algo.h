@@ -81,9 +81,10 @@
  *
  * PROBLEM (issue #84): this codebase had TWO independently-authored copies
  * of "is this a production build?" — the CRIT-4 placeholder-key #error in
- * uds_security_algo.c, and the Step 7.1 runtime guard generated into every
- * examples/*\/generated/uds_init.c from tools/templates/uds_init.c.j2 — and
- * they drifted to the SAME wrong answer independently:
+ * uds_security_algo.c, and the Step 7.1 runtime guard generated into the
+ * uds_init.c under every example directory, from tools/templates/uds_init.c.j2
+ * (private EDS-toolchain repo) — and they drifted to the SAME wrong answer
+ * independently:
  *
  *   #if defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY) && \
  *       !CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY
@@ -113,7 +114,7 @@
  *      test_trng_fail_closed.c and build_tests.sh already use to reach the
  *      production path from a host build; FreeRTOS's CMakeLists.txt now
  *      does this too, unconditionally, via a $<BOOL:...> generator
- *      expression — see examples/*_freertos/CMakeLists.txt). Non-zero ->
+ *      expression — see the FreeRTOS example CMakeLists.txt files). Non-zero ->
  *      development/CI (placeholder keys explicitly permitted) -> NOT
  *      production. Zero -> production.
  *   2. Symbol undefined, but UNIT_TEST is defined:
@@ -134,7 +135,7 @@
  *      FreeRTOS has no Kconfig equivalent of its own, so without its build
  *      system explicitly defining CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY it
  *      would land here on EVERY build, including CI. Case 3 is why
- *      examples/*_freertos/CMakeLists.txt now defines the symbol itself
+ *      each FreeRTOS example's CMakeLists.txt now defines the symbol itself
  *      (defaulting to development, mirroring Zephyr Kconfig's own
  *      `default y`) — see SEC-KEY-GATE-01 and that CMakeLists.txt for the
  *      mechanism. A FreeRTOS build that has NOT picked up that fix still
