@@ -41,6 +41,9 @@
  *     - test_doip_short_write_slow_but_progressing_succeeds (Issue #105 follow-up)
  *     - test_doip_short_write_stalled_peer_bounded_retry_gives_up (Issue #105 follow-up)
  *     - test_doip_max_pdu_size_boundary
+ *     - test_doip_oversized_response_returns_nrc_0x14 (Issue #108)
+ *     - test_doip_response_4084_bytes_still_sent_positive (Issue #108, boundary)
+ *     - test_doip_response_4085_bytes_triggers_nrc_0x14 (Issue #108, boundary)
  *     - test_doip_handle_unknown_payload_type_ignored
  *
  * FRAMEWORK: Zephyr Ztest (shim used for host builds — see tests/runner/)
@@ -333,6 +336,42 @@ static uds_server_ctx_t *init_uds_server_with_large_response(void)
     return init_uds_server_with_ctx(&g_session_ctx_large_resp,
                                      &g_security_ctx_large_resp,
                                      &g_uds_ctx_large_resp,
+                                     table, 1U);
+}
+
+/* [Issue #108] Service handler with a caller-configurable response length,
+ * so the DoIP frame-budget boundary (in-budget / dead-zone) can be exercised
+ * at exact byte counts (4084, 4085, ~4090) rather than only the fixed 4000B
+ * used by the #105 short-write tests above. Filled with the same
+ * position-dependent byte pattern so a positive-response test can still
+ * verify byte-identical payload, not just framing. */
+static uint16_t g_variable_resp_len;
+
+static uds_status_t handler_variable_response(uds_server_ctx_t *ctx,
+                                               const uds_msg_buf_t *req,
+                                               uds_msg_buf_t *resp)
+{
+    (void)ctx;
+    (void)req;
+    for (uint16_t i = 0U; i < g_variable_resp_len; i++) {
+        resp->data[i] = (uint8_t)(i & 0xFFU);
+    }
+    resp->length = g_variable_resp_len;
+    return UDS_STATUS_OK;
+}
+
+static uds_session_ctx_t   g_session_ctx_var_resp;
+static uds_security_ctx_t  g_security_ctx_var_resp;
+static uds_server_ctx_t    g_uds_ctx_var_resp;
+
+static uds_server_ctx_t *init_uds_server_with_variable_response(void)
+{
+    static const uds_service_entry_t table[] = {
+        { 0x22U, handler_variable_response, false },
+    };
+    return init_uds_server_with_ctx(&g_session_ctx_var_resp,
+                                     &g_security_ctx_var_resp,
+                                     &g_uds_ctx_var_resp,
                                      table, 1U);
 }
 
@@ -1010,6 +1049,155 @@ ZTEST(doip_server_suite, test_doip_max_pdu_size_boundary)
                   "wrong NACK code for oversized PDU");
 }
 
+/* =========================================================================
+ * Tests — Issue #108: oversized *response* (4085-4095 bytes) must not be
+ * silently dropped. uds_msg_buf_t.data holds up to UDS_MAX_PAYLOAD_LEN
+ * (4095) bytes, but a DoIP frame can only carry up to
+ * DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN (4088) bytes of payload, of which 4
+ * are the response addressing header — so a dispatched positive response
+ * longer than 4084 bytes used to fall through every branch with nothing
+ * sent at all. The fix downgrades that case to a UDS negative response
+ * (NRC 0x14 RESPONSE_TOO_LONG), which always fits.
+ * ========================================================================= */
+
+/* Helper: locate the diagnostic-message response frame that follows the
+ * positive ack in the captured tx stream, and return its UDS payload
+ * pointer/length via out-params. Mirrors the offset logic already used by
+ * the #105 short-write tests above.
+ *
+ * Must return void: zassert_*() (see ztest_shim.h) expands to a bare
+ * `return;` on failure, which only compiles inside a void function. */
+static void find_diag_response_uds_payload(uint16_t *out_uds_len,
+                                            const uint8_t **out_uds_payload)
+{
+    uint32_t ack_payload_len = read_be32(&g_mock_tx_buf[4]);
+    size_t   resp_frame_off  = (size_t)DOIP_HEADER_LEN + (size_t)ack_payload_len;
+
+    zassert_true(resp_frame_off + DOIP_HEADER_LEN <= g_mock_tx_len,
+                 "response frame header missing from captured stream");
+
+    uint16_t resp_type = read_be16(&g_mock_tx_buf[resp_frame_off + 2U]);
+    zassert_equal(resp_type, (uint16_t)DOIP_PT_DIAGNOSTIC_MSG,
+                  "expected a DiagnosticMessage response frame after the ack");
+
+    uint32_t resp_payload_len = read_be32(&g_mock_tx_buf[resp_frame_off + 4U]);
+    size_t resp_total = resp_frame_off + (size_t)DOIP_HEADER_LEN + (size_t)resp_payload_len;
+    zassert_equal(resp_total, g_mock_tx_len,
+                  "captured byte stream is shorter/longer than the full frame");
+
+    /* resp_payload_len = 4 addressing bytes + UDS payload */
+    zassert_true(resp_payload_len >= 4U, "response frame payload too short to hold addressing");
+    *out_uds_len     = (uint16_t)(resp_payload_len - 4U);
+    *out_uds_payload = &g_mock_tx_buf[resp_frame_off + DOIP_HEADER_LEN + 4U];
+}
+
+ZTEST(doip_server_suite, test_doip_oversized_response_returns_nrc_0x14)
+{
+    /* A service handler response of ~4090 bytes — squarely in the 4085-4095
+     * dead zone — must now produce a DoIP frame carrying a UDS 0x7F
+     * negative response with NRC 0x14 (RESPONSE_TOO_LONG), not silence. */
+    setup_mock_platform();
+    uds_server_ctx_t *uds = init_uds_server_with_variable_response();
+    doip_server_state_t s = init_state(0xE400U);
+
+    uint8_t ra_payload[7];
+    build_routing_req_payload(ra_payload, 0x0E00U, 0x00U);
+    (void)doip_handle_frame(&s, uds, DOIP_PT_ROUTING_ACT_REQ, ra_payload, 7U);
+
+    memset(g_mock_tx_buf, 0, sizeof(g_mock_tx_buf));
+    g_mock_tx_len        = 0U;
+    g_variable_resp_len  = 4090U;
+
+    /* ReadDataByIdentifier (SID 0x22) — dispatched to handler_variable_response(). */
+    uint8_t diag_payload[7] = { 0x0E, 0x00, 0xE4, 0x00, 0x22, 0xF1, 0x90 };
+    uds_status_t rc = doip_handle_frame(&s, uds, DOIP_PT_DIAGNOSTIC_MSG,
+                                         diag_payload, 7U);
+    zassert_equal(rc, UDS_STATUS_OK, "handle_frame failed for oversized response");
+
+    uint16_t uds_len = 0U;
+    const uint8_t *uds_resp = NULL;
+    find_diag_response_uds_payload(&uds_len, &uds_resp);
+
+    zassert_equal(uds_len, 3U,
+                  "negative response PDU should be exactly 3 bytes (SID, 0x7F, orig SID, NRC)");
+    zassert_equal(uds_resp[0], (uint8_t)UDS_SID_NEGATIVE_RESPONSE, "expected 0x7F negative response SID");
+    zassert_equal(uds_resp[1], 0x22U, "negative response should echo original SID (0x22)");
+    zassert_equal(uds_resp[2], (uint8_t)UDS_NRC_RESPONSE_TOO_LONG,
+                  "expected NRC 0x14 RESPONSE_TOO_LONG for an oversized response");
+}
+
+ZTEST(doip_server_suite, test_doip_response_4084_bytes_still_sent_positive)
+{
+    /* Boundary regression: exactly 4084 bytes is still the largest response
+     * that fits (4084 + 4 addressing bytes == DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN
+     * == 4088), so it must still be sent as the normal, unmodified positive
+     * response — proving the new dead-zone branch didn't disturb the
+     * existing in-budget path. */
+    setup_mock_platform();
+    uds_server_ctx_t *uds = init_uds_server_with_variable_response();
+    doip_server_state_t s = init_state(0xE400U);
+
+    uint8_t ra_payload[7];
+    build_routing_req_payload(ra_payload, 0x0E00U, 0x00U);
+    (void)doip_handle_frame(&s, uds, DOIP_PT_ROUTING_ACT_REQ, ra_payload, 7U);
+
+    memset(g_mock_tx_buf, 0, sizeof(g_mock_tx_buf));
+    g_mock_tx_len        = 0U;
+    g_variable_resp_len  = 4084U;
+
+    uint8_t diag_payload[7] = { 0x0E, 0x00, 0xE4, 0x00, 0x22, 0xF1, 0x90 };
+    uds_status_t rc = doip_handle_frame(&s, uds, DOIP_PT_DIAGNOSTIC_MSG,
+                                         diag_payload, 7U);
+    zassert_equal(rc, UDS_STATUS_OK, "handle_frame failed at the 4084-byte boundary");
+
+    uint16_t uds_len = 0U;
+    const uint8_t *uds_resp = NULL;
+    find_diag_response_uds_payload(&uds_len, &uds_resp);
+
+    zassert_equal(uds_len, 4084U, "expected the full 4084-byte positive response, unmodified");
+    bool mismatch = false;
+    for (uint16_t i = 0U; i < 4084U; i++) {
+        if (uds_resp[i] != (uint8_t)(i & 0xFFU)) {
+            mismatch = true;
+            break;
+        }
+    }
+    zassert_false(mismatch, "4084-byte positive response payload must be byte-identical");
+}
+
+ZTEST(doip_server_suite, test_doip_response_4085_bytes_triggers_nrc_0x14)
+{
+    /* Boundary at the new edge: 4085 bytes is the first response length
+     * that no longer fits, and must trigger the NRC 0x14 downgrade path. */
+    setup_mock_platform();
+    uds_server_ctx_t *uds = init_uds_server_with_variable_response();
+    doip_server_state_t s = init_state(0xE400U);
+
+    uint8_t ra_payload[7];
+    build_routing_req_payload(ra_payload, 0x0E00U, 0x00U);
+    (void)doip_handle_frame(&s, uds, DOIP_PT_ROUTING_ACT_REQ, ra_payload, 7U);
+
+    memset(g_mock_tx_buf, 0, sizeof(g_mock_tx_buf));
+    g_mock_tx_len        = 0U;
+    g_variable_resp_len  = 4085U;
+
+    uint8_t diag_payload[7] = { 0x0E, 0x00, 0xE4, 0x00, 0x22, 0xF1, 0x90 };
+    uds_status_t rc = doip_handle_frame(&s, uds, DOIP_PT_DIAGNOSTIC_MSG,
+                                         diag_payload, 7U);
+    zassert_equal(rc, UDS_STATUS_OK, "handle_frame failed at the 4085-byte boundary");
+
+    uint16_t uds_len = 0U;
+    const uint8_t *uds_resp = NULL;
+    find_diag_response_uds_payload(&uds_len, &uds_resp);
+
+    zassert_equal(uds_len, 3U,
+                  "negative response PDU should be exactly 3 bytes (SID, 0x7F, orig SID, NRC)");
+    zassert_equal(uds_resp[0], (uint8_t)UDS_SID_NEGATIVE_RESPONSE, "expected 0x7F negative response SID");
+    zassert_equal(uds_resp[1], 0x22U, "negative response should echo original SID (0x22)");
+    zassert_equal(uds_resp[2], (uint8_t)UDS_NRC_RESPONSE_TOO_LONG,
+                  "expected NRC 0x14 RESPONSE_TOO_LONG at the 4085-byte boundary");
+}
+
 ZTEST(doip_server_suite, test_doip_handle_unknown_payload_type_ignored)
 {
     setup_mock_platform();
@@ -1101,6 +1289,9 @@ void run_all_tests(void)
     RUN_TEST(doip_server_suite__test_doip_short_write_slow_but_progressing_succeeds);
     RUN_TEST(doip_server_suite__test_doip_short_write_stalled_peer_bounded_retry_gives_up);
     RUN_TEST(doip_server_suite__test_doip_max_pdu_size_boundary);
+    RUN_TEST(doip_server_suite__test_doip_oversized_response_returns_nrc_0x14);
+    RUN_TEST(doip_server_suite__test_doip_response_4084_bytes_still_sent_positive);
+    RUN_TEST(doip_server_suite__test_doip_response_4085_bytes_triggers_nrc_0x14);
     RUN_TEST(doip_server_suite__test_doip_handle_unknown_payload_type_ignored);
     /* NULL-pointer guards */
     RUN_TEST(doip_server_suite__test_doip_server_init_null_guard);
