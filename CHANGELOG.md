@@ -42,6 +42,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   128 calls; and a truly stalled peer is bounded and reported as a failure
   the caller must close the connection over.
 
+### Changed
+
+- **README and COMMERCIAL_NOTICE spell out the proprietary-firmware linking
+  right explicitly.** (#106) The open-core section and COMMERCIAL_NOTICE
+  already stated that a commercial license covers shipping closed-source
+  firmware, but not the specific question a reviewer evaluating the license
+  actually asks: can the GPL runtime (`core/`, `transport/`, `config/`,
+  `platform/`) be statically or dynamically linked into that firmware and
+  the binary distributed, with no GPL disclosure obligation for the
+  licensee's own code? Both files now answer that plainly, sourced from
+  `LICENSE_COMMERCIAL.txt` §5 — no change to the actual license terms.
+
 ## [1.11.0] — 2026-08-29
 
 ### Security
