@@ -95,6 +95,14 @@ A commercial license grants you the right to use Xaloqi EDS in one
 proprietary project per seat, ship binary firmware to your customers,
 and keep your firmware source code private.
 
+**Linking, explicitly:** the commercial license permits you to statically
+or dynamically link the GPL-licensed runtime stack (`core/`, `transport/`,
+`config/`, `platform/`) into proprietary, closed-source ECU firmware and
+distribute the resulting binary to your OEM or end customer — with no
+GPL source-disclosure obligation for your own firmware code. See
+`LICENSE_COMMERCIAL.txt` §5 ("GPL v2 Runtime and Commercial License
+Relationship") for the full terms.
+
 Full license terms: `LICENSE_COMMERCIAL.txt` in this repository.
 
 ---
