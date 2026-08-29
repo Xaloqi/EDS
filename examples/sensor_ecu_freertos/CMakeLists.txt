@@ -64,6 +64,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 # Required parameters
 # ---------------------------------------------------------------------------
 
+
 if(NOT DEFINED EDS_PLATFORM)
     set(EDS_PLATFORM "freertos")
 endif()
@@ -87,6 +88,11 @@ endif()
 # ---------------------------------------------------------------------------
 
 set(DIAG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+
+# [SEC-BUILD-MODE-01 / issue #84] shared FreeRTOS build-mode option -- see
+# cmake/eds_build_mode.cmake for why this is centralized rather than
+# declared per-example (same lesson as cmake/eds_service_sources.cmake).
+include(${DIAG_ROOT}/cmake/eds_build_mode.cmake)
 
 # ---------------------------------------------------------------------------
 # Board-specific compiler flags
@@ -229,6 +235,12 @@ target_include_directories(eds_sensor_freertos PRIVATE
 
 target_compile_definitions(eds_sensor_freertos PRIVATE
     EDS_PLATFORM_FREERTOS=1
+    # [SEC-BUILD-MODE-01 / issue #84] Give EDS_BUILD_IS_PRODUCTION the same
+    # defined-and-1-or-0 signal Zephyr's Kconfig already gives it. The
+    # $<BOOL:...> generator expression emits 1 when EDS_PLACEHOLDER_KEYS_ONLY
+    # is ON, 0 when OFF -- production is declared with
+    # -DEDS_PLACEHOLDER_KEYS_ONLY=OFF (see cmake/eds_build_mode.cmake).
+    CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=$<BOOL:${EDS_PLACEHOLDER_KEYS_ONLY}>
     # Suppress the uds_msg_buf_t _Static_assert: the FreeRTOS example
     # never allocates uds_msg_buf_t on the stack.
     EDS_MSG_BUF_MAX_STACK_BYTES=8192

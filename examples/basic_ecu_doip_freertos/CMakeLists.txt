@@ -56,6 +56,7 @@ set(CMAKE_C_EXTENSIONS        OFF)
 # Required parameters
 # ---------------------------------------------------------------------------
 
+
 if(NOT DEFINED FREERTOS_DIR)
     message(FATAL_ERROR "FREERTOS_DIR must point to FreeRTOS-Kernel directory")
 endif()
@@ -74,6 +75,11 @@ endif()
 # ---------------------------------------------------------------------------
 
 set(DIAG_ROOT         "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+
+# [SEC-BUILD-MODE-01 / issue #84] shared FreeRTOS build-mode option -- see
+# cmake/eds_build_mode.cmake for why this is centralized rather than
+# declared per-example (same lesson as cmake/eds_service_sources.cmake).
+include(${DIAG_ROOT}/cmake/eds_build_mode.cmake)
 set(FREERTOS_PORT_DIR "${FREERTOS_DIR}/portable/GCC/ARM_CM4F")
 
 # ---------------------------------------------------------------------------
@@ -182,6 +188,12 @@ target_compile_definitions(eds_freertos_doip PRIVATE
     EDS_DOIP_ONLY_BUILD=1
     FREERTOS_DOIP_TASK_STACK_WORDS=1024
     FREERTOS_DOIP_TASK_PRIORITY=6
+    # [SEC-BUILD-MODE-01 / issue #84] Give EDS_BUILD_IS_PRODUCTION the same
+    # defined-and-1-or-0 signal Zephyr's Kconfig already gives it. The
+    # $<BOOL:...> generator expression emits 1 when EDS_PLACEHOLDER_KEYS_ONLY
+    # is ON, 0 when OFF -- production is declared with
+    # -DEDS_PLACEHOLDER_KEYS_ONLY=OFF (see cmake/eds_build_mode.cmake).
+    CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=$<BOOL:${EDS_PLACEHOLDER_KEYS_ONLY}>
 )
 
 # ---------------------------------------------------------------------------

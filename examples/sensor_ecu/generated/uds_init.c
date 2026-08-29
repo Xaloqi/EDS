@@ -460,10 +460,24 @@ uds_status_t uds_generated_init(
      *   uds_security_algo_set_level_key(0x01U, otp_key_level1_16bytes);
      *   uds_security_algo_set_level_key(0x03U, otp_key_level2_16bytes);
      *
-     * TRACEABILITY: SEC-KEY-GATE-01 (CRIT-4) / SEC-TRNG-GATE-01 (HIGH-2)
+     * BUILD-MODE DERIVATION [SEC-BUILD-MODE-01 / issue #84]: this guard used
+     * to test `defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY) && !CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY`
+     * directly. Zephyr's generated autoconf.h omits the Kconfig symbol
+     * entirely (rather than emitting 0) when the bool is set to `n`, so that
+     * idiom silently never fired on a real Zephyr production build, and
+     * never fired on FreeRTOS at all (FreeRTOS never defined the symbol).
+     * It now consumes EDS_BUILD_IS_PRODUCTION (core/uds_security_algo.h),
+     * the single shared build-mode primitive the CRIT-4 #error in
+     * uds_security_algo.c also derives from, so the two cannot drift apart
+     * again. No `#include` change needed here — this file already includes
+     * uds_security_algo.h. Unlike the CRIT-4 site, this guard needs no
+     * `!defined(UNIT_TEST)` carve-out: no existing test compiles a
+     * generated uds_init.c under UNIT_TEST=1.
+     *
+     * TRACEABILITY: SEC-KEY-GATE-01 (CRIT-4) / SEC-TRNG-GATE-01 (HIGH-2) /
+     *               SEC-BUILD-MODE-01 (build-mode derivation)
      */
-#if defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY) && \
-    !CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY
+#if EDS_BUILD_IS_PRODUCTION
     {
         /* Production gate: refuse to start if keys or TRNG are missing. */
         if (uds_security_algo_keys_are_placeholder()) {
@@ -479,7 +493,7 @@ uds_status_t uds_generated_init(
             return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
         }
     }
-#endif /* !CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY */
+#endif /* EDS_BUILD_IS_PRODUCTION */
 
     /* ── Step 8: UDS server ────────────────────────────────────────────────
      *

@@ -413,6 +413,77 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# [SEC-BUILD-MODE-01 / issue #84] EDS_BUILD_IS_PRODUCTION macro probe.
+#
+# Compiles tests/probe_eds_build_is_production.c under every build-mode -D
+# combination the codebase can present and checks the macro resolves
+# correctly in each -- see scripts/verify_build_mode_macro.sh for the full
+# truth table and rationale.
+# ---------------------------------------------------------------------------
+echo ""
+if bash "${ROOT}/scripts/verify_build_mode_macro.sh"; then
+    BUILD_MODE_PROBE_FAIL=0
+else
+    BUILD_MODE_PROBE_FAIL=1
+fi
+
+# ---------------------------------------------------------------------------
+# [SEC-KEY-GATE-01 / CRIT-4 / issue #84] Negative compile test.
+#
+# Proves the CRIT-4 placeholder-key #error is now actually REACHABLE in a
+# real production build -- it never was before this fix (the old
+# `defined(X) && !X` idiom never fires when Zephyr's autoconf.h omits the
+# symbol for a Kconfig bool set to `n`, which is exactly what a real
+# production build looks like).
+#
+# CASE A (negative): compiling core/uds_security_algo.c with
+# -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 and WITHOUT -DUNIT_TEST (i.e. not a
+# host-test build -- see the CRIT-4 gate's own `!defined(UNIT_TEST)`
+# rationale in uds_security_algo.c) must FAIL to compile, with an error
+# mentioning SEC-KEY-GATE-01.
+#
+# No separate regression-guard compile: the default dev-mode compile
+# (-DUNIT_TEST=1, no CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY) is already proven by
+# every one of the ~42 test modules built in the main loop above, all of
+# which link core/uds_security_algo.c under that exact configuration -- a
+# second compile here would only re-prove a fact the main loop already
+# established, on every single invocation of this script.
+# ---------------------------------------------------------------------------
+CRIT4_TMP_OBJ="$(mktemp -u /tmp/eds_crit4_negtest.XXXXXX.o)"
+# Reuses INCLUDES (defined above) rather than its own copy -- a second,
+# independently-maintained include-path array is exactly the "two copies of
+# the same fact drift apart" failure mode this PR fixes elsewhere; no reason
+# to reintroduce it here.
+
+echo ""
+echo "================================================================"
+echo "  [SEC-KEY-GATE-01] CRIT-4 negative compile test"
+echo "================================================================"
+echo ""
+
+crit4_neg_out=$(
+    gcc -std=c11 -c -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 -DEDS_MSG_BUF_MAX_STACK_BYTES=8192         "${INCLUDES[@]}" "${ROOT}/core/uds_security_algo.c" -o "${CRIT4_TMP_OBJ}" 2>&1
+) && crit4_neg_rc=0 || crit4_neg_rc=$?
+rm -f "${CRIT4_TMP_OBJ}"
+
+CRIT4_FAIL=0
+if [[ ${crit4_neg_rc} -ne 0 ]] && echo "${crit4_neg_out}" | grep -q "SEC-KEY-GATE-01"; then
+    echo "  PASS: production build (CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0, no UNIT_TEST)"
+    echo "        correctly FAILS to compile, citing SEC-KEY-GATE-01."
+else
+    echo "  FAIL: expected a SEC-KEY-GATE-01 compile failure, got:"
+    echo "        rc=${crit4_neg_rc}"
+    echo "${crit4_neg_out}" | sed 's/^/        /'
+    CRIT4_FAIL=1
+fi
+echo ""
+
+if [[ ${BUILD_MODE_PROBE_FAIL} -ne 0 || ${CRIT4_FAIL} -ne 0 ]]; then
+    echo "FAIL: build-mode gate verification (SEC-BUILD-MODE-01 / SEC-KEY-GATE-01) failed."
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # [P2-4] Coverage report
 # ---------------------------------------------------------------------------
 if [[ $COVERAGE -eq 1 ]]; then

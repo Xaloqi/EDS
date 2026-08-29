@@ -76,6 +76,123 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* =============================================================================
+ * [SEC-BUILD-MODE-01] Shared build-mode primitive: EDS_BUILD_IS_PRODUCTION
+ *
+ * PROBLEM (issue #84): this codebase had TWO independently-authored copies
+ * of "is this a production build?" — the CRIT-4 placeholder-key #error in
+ * uds_security_algo.c, and the Step 7.1 runtime guard generated into the
+ * uds_init.c under every example directory, from tools/templates/uds_init.c.j2
+ * (private EDS-toolchain repo) — and they drifted to the SAME wrong answer
+ * independently:
+ *
+ *   #if defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY) && \
+ *       !CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY
+ *
+ * CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY is a Kconfig bool. Zephyr's generated
+ * autoconf.h emits `#define CONFIG_X 1` for a bool set to `y`, and OMITS
+ * the symbol entirely for `n` — it never emits `#define CONFIG_X 0`. So on
+ * a real Zephyr PRODUCTION build (the bool set to `n`, exactly what the
+ * docs tell integrators to do), defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY)
+ * is FALSE, and `defined(X) && !X` is false too — both gates silently did
+ * nothing in precisely the configuration they exist to protect.
+ *
+ * FIX: derive "is this production?" from ONE macro, defined here, and have
+ * every gate in this codebase (this file's own ALGO_ENTROPY_FAIL_CLOSED
+ * alias, the CRIT-4 #error in uds_security_algo.c, and the Step 7.1 guard
+ * in the uds_init.c.j2 template) reference it instead of re-deriving the
+ * same logic a second (or third) time. One definition cannot drift from
+ * itself; that is the actual root-cause fix for #84, not just a polarity
+ * flip on the two existing call sites.
+ *
+ * FOUR CASES, in priority order:
+ *
+ *   1. CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY is #defined (any value):
+ *      Kconfig bool was resolved to `y` by Zephyr's autoconf.h (value 1),
+ *      or a build explicitly forced it to a literal 0 or 1 on the command
+ *      line (e.g. -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0, the convention
+ *      test_trng_fail_closed.c and build_tests.sh already use to reach the
+ *      production path from a host build; FreeRTOS's CMakeLists.txt now
+ *      does this too, unconditionally, via a $<BOOL:...> generator
+ *      expression — see the FreeRTOS example CMakeLists.txt files). Non-zero ->
+ *      development/CI (placeholder keys explicitly permitted) -> NOT
+ *      production. Zero -> production.
+ *   2. Symbol undefined, but UNIT_TEST is defined:
+ *      Host unit-test / harness build (build_tests.sh, build_harness.sh).
+ *      No autoconf.h exists at all here and no build system defines the
+ *      Kconfig symbol. Treated as development so existing host suites keep
+ *      today's behaviour. NOTE: this case only applies when
+ *      CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY is undefined — case 1 takes
+ *      priority, so a host test that defines the symbol itself (to reach
+ *      the production path deliberately) is honoured over UNIT_TEST.
+ *   3. Neither symbol is defined:
+ *      Zephyr with the Kconfig bool set to `n` (symbol omitted from
+ *      autoconf.h — the case the old buggy idiom missed), FreeRTOS,
+ *      bare metal, or any platform not yet ported. PRODUCTION. This is
+ *      the default: the safe state is what you get by omission, on every
+ *      platform, including ones EDS does not ship a port for yet.
+ *
+ *      FreeRTOS has no Kconfig equivalent of its own, so without its build
+ *      system explicitly defining CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY it
+ *      would land here on EVERY build, including CI. Case 3 is why
+ *      each FreeRTOS example's CMakeLists.txt now defines the symbol itself
+ *      (defaulting to development, mirroring Zephyr Kconfig's own
+ *      `default y`) — see SEC-KEY-GATE-01 and that CMakeLists.txt for the
+ *      mechanism. A FreeRTOS build that has NOT picked up that fix still
+ *      correctly falls through to this case and fails closed, rather than
+ *      silently doing nothing the way the pre-#84 gates did.
+ *
+ * ESCAPE HATCH: EDS_BUILD_IS_PRODUCTION may be forced directly on the
+ * compiler command line (-DEDS_BUILD_IS_PRODUCTION=<0|1>), overriding all
+ * of the above. This is the supported override for a build whose signals
+ * disagree with its actual intent (see the CRIT-4 deviation process
+ * documented at that gate for one example).
+ *
+ * HOST TEST NOTE: a host test that wants to force the production path
+ * compiles with -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 (defined AND zero).
+ * That hits case 1 above (the nested nonzero/zero check), not the
+ * omitted-symbol path of case 3 — but lands on the same production value,
+ * so it is a faithful stand-in for real Zephyr/FreeRTOS production
+ * hardware without needing a cross-compiled toolchain in a host test.
+ *
+ * NOT EVERY CONSUMER SHOULD STOP HERE: this macro answers ONE question —
+ * "is this a production build" — in general. A specific gate may be
+ * asking a narrower question that "production, in general" does not fully
+ * capture, and may need its own additional qualifier layered on top of
+ * EDS_BUILD_IS_PRODUCTION rather than folded into it. Worked example: the
+ * CRIT-4 placeholder-key #error in uds_security_algo.c is not just asking
+ * "is this production" — it's asking "does this compiled binary actually
+ * contain real OEM keys," which a host unit-test build forcing production
+ * *behaviour* (to exercise some other gate's logic, e.g.
+ * ALGO_ENTROPY_FAIL_CLOSED via test_trng_fail_closed.c) can never
+ * satisfy. CRIT-4 therefore guards itself with its own, additional
+ * `&& !defined(UNIT_TEST)` at its call site — see that gate's comment for
+ * the full reasoning. That qualifier belongs at CRIT-4's call site only,
+ * NOT here: baking it into EDS_BUILD_IS_PRODUCTION itself would silently
+ * exempt every consumer of this macro from ever seeing "production" while
+ * UNIT_TEST is defined, including ALGO_ENTROPY_FAIL_CLOSED — which would
+ * break the very host-test forcing mechanism this note just described.
+ * Add narrowing conditions at the consumer, never inside this primitive.
+ *
+ * TRACEABILITY: SEC-BUILD-MODE-01 (root cause of issue #84). Referenced by
+ * SEC-KEY-GATE-01 (CRIT-4, uds_security_algo.c) and SEC-TRNG-FAILCLOSED-01
+ * (ALGO_ENTROPY_FAIL_CLOSED, uds_security_algo.c) — neither redefines this
+ * logic; both derive from it.
+ * ============================================================================= */
+#if !defined(EDS_BUILD_IS_PRODUCTION)
+#  if defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY)
+#    if CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY
+#      define EDS_BUILD_IS_PRODUCTION (0)
+#    else
+#      define EDS_BUILD_IS_PRODUCTION (1)
+#    endif
+#  elif defined(UNIT_TEST)
+#    define EDS_BUILD_IS_PRODUCTION (0)
+#  else
+#    define EDS_BUILD_IS_PRODUCTION (1)
+#  endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -100,28 +100,70 @@ conflated:
   hardness assumption.
 
 **Placeholder keys:** The repository ships with placeholder AES-128 keys
-(`0x00..0x0F` / `0x10..0x1F`). A compile-time gate (`CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY`)
-and a runtime guard in the generated init sequence prevent accidental deployment of
-placeholder keys. See `docs/SECURITY_NOTICE.md` for entropy requirements. The full OEM key injection procedure is included with the Professional tier.
+(`0x00..0x0F` / `0x10..0x1F`). Two independent gates now reliably stop accidental
+deployment of placeholder keys, both derived from a single shared build-mode primitive,
+`EDS_BUILD_IS_PRODUCTION` (`core/uds_security_algo.h`, `[SEC-BUILD-MODE-01]`, issue #84):
+
+- **Compile-time gate** (`[SEC-KEY-GATE-01]` / CRIT-4, `core/uds_security_algo.c`):
+  a production build (`EDS_BUILD_IS_PRODUCTION == 1`) now **actually refuses to
+  compile** — an unconditional `#error` — while `core/uds_security_algo.c` still
+  contains the compile-time placeholder key data. This is not conditional on
+  detecting the specific placeholder byte pattern; it forces the integrator to
+  affirmatively prove intent (inject real keys via `uds_security_algo_set_level_key()`,
+  or edit the key array in a secure build) before a production flag is honoured.
+- **Runtime guard** in the generated init sequence (Step 7.1): refuses to start
+  (`UDS_STATUS_ERR_CONDITIONS_NOT_MET`) if `uds_security_algo_keys_are_placeholder()`
+  still reports placeholder keys in a production build.
+
+**Zephyr**: set `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n` in your production `prj.conf` to
+declare a production build (unchanged from before this fix — what changed is that this
+now actually works: previously, Zephyr's generated `autoconf.h` OMITS the Kconfig
+symbol entirely for `n` rather than emitting `0`, which meant both gates silently did
+nothing in exactly this configuration — see issue #84).
+
+**FreeRTOS** (new, issue #84): FreeRTOS has no Kconfig of its own. Every FreeRTOS
+example's `CMakeLists.txt` now exposes `-DEDS_PLACEHOLDER_KEYS_ONLY=<ON|OFF>` (default
+`ON`, i.e. development). Set `-DEDS_PLACEHOLDER_KEYS_ONLY=OFF` to declare a production
+FreeRTOS build. Before this fix, no FreeRTOS build — development or production — ever
+defined `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY` at all, so both gates were silently inert
+on every FreeRTOS build, including CI. See `docs/SECURITY_NOTICE.md` for entropy
+requirements. The full OEM key injection procedure is included with the Professional
+tier.
 
 **TRNG:** Seed generation quality depends on the platform's hardware entropy source.
 Production deployments must supply a TRNG-backed callback via
 `uds_security_algo_set_rng_cb()`. Behaviour on loss of entropy is now **fail-closed
 in production, and unchanged in development/CI** — see `[SEC-TRNG-FAILCLOSED-01]` in
-`core/uds_security_algo.c`:
+`core/uds_security_algo.c`. `ALGO_ENTROPY_FAIL_CLOSED` is a plain alias for
+`EDS_BUILD_IS_PRODUCTION` (`[SEC-BUILD-MODE-01]`, issue #84) — the same shared
+build-mode primitive the placeholder-key gates above now use, so this and the
+placeholder-key protection can no longer drift apart the way they did before #84:
 
-- **Development/CI builds** (no `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n` Zephyr production
-  build): if no TRNG is registered, or a registered TRNG callback fails at runtime, the
-  stack falls back to a 16-bit software LFSR and logs a fault count. This is unchanged
-  legacy behaviour, intentional for CI and simulator builds only.
-- **Production builds** (Zephyr build with `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n`): the
-  LFSR is never used to satisfy a seed request. If no TRNG is registered, or the
-  registered TRNG callback fails, `SecurityAccess` seed generation is refused
-  (`UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE`, surfaced to the tester as NRC 0x24) instead
-  of silently degrading to a predictable seed. The fault is recorded in the
-  `uds_safety` platform-violations counter either way; the two cases are distinguished
-  by `last_violation_code` (`UDS_STATUS_ERR_PLATFORM` for the dev-mode soft fallback vs.
+- **Development/CI builds** (Zephyr with `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=y`,
+  FreeRTOS with `-DEDS_PLACEHOLDER_KEYS_ONLY=ON` — the default on both, or a host
+  unit-test build): if no TRNG is registered, or a registered TRNG callback fails at
+  runtime, the stack falls back to a 16-bit software LFSR and logs a fault count. This
+  is unchanged legacy behaviour, intentional for CI and simulator builds only.
+- **Production builds** (Zephyr with `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n`, or
+  FreeRTOS with `-DEDS_PLACEHOLDER_KEYS_ONLY=OFF`): the LFSR is never used to satisfy a
+  seed request. If no TRNG is registered, or the registered TRNG callback fails,
+  `SecurityAccess` seed generation is refused (`UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE`,
+  surfaced to the tester as NRC 0x24) instead of silently degrading to a predictable
+  seed. The fault is recorded in the `uds_safety` platform-violations counter either
+  way; the two cases are distinguished by `last_violation_code`
+  (`UDS_STATUS_ERR_PLATFORM` for the dev-mode soft fallback vs.
   `UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE` for the production hard refusal).
+
+**Retroactive fix (issue #84):** before this fix, no FreeRTOS build ever defined
+`CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY`, so `ALGO_ENTROPY_FAIL_CLOSED` always fell through
+to its own fail-closed default on FreeRTOS — a real FreeRTOS deployment with no TRNG
+registered has always gotten the production hard refusal, with **no supported way to
+opt into the development LFSR fallback**. This was a latent, CI-invisible gap in the
+already-merged TRNG fail-closed fix (PR #85): the `freertos-qemu` CI job is build-only
+(compiles, links, checks the ELF exists) and never exercises a live SecurityAccess
+request, so the gap never surfaced there. `-DEDS_PLACEHOLDER_KEYS_ONLY=ON` (the new
+FreeRTOS CMake default) now gives FreeRTOS the same supported development opt-in
+Zephyr's Kconfig always had.
 
 **ASIL-B DID access chain:** The 5-step validation chain is enforced at code generation
 time. It cannot be disabled by runtime configuration. Any mechanism that allows DID

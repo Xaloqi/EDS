@@ -8,6 +8,102 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Security
+
+- **BREAKING: unified build-mode detection closes a silent bypass of both the
+  CRIT-4 placeholder-key gate and the TRNG fail-closed gate — on Zephyr
+  production builds and on EVERY FreeRTOS build.** (#84)
+  `[SEC-BUILD-MODE-01]` Two independently-authored copies of "is this a
+  production build?" existed in this codebase — the CRIT-4 placeholder-key
+  `#error` in `core/uds_security_algo.c`, and the Step 7.1 runtime guard
+  generated into every `examples/*/generated/uds_init.c` — and both used the
+  same broken idiom: `defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY) &&
+  !CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY`. Zephyr's generated `autoconf.h` emits
+  `#define CONFIG_X 1` for a Kconfig bool set to `y`, and OMITS the symbol
+  entirely for `n` — it never emits `#define CONFIG_X 0`. So on a real Zephyr
+  **production** build (the bool set to `n`, exactly what the docs told
+  integrators to do), `defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY)` was FALSE,
+  and both gates silently did nothing — the CRIT-4 `#error` never fired and
+  the Step 7.1 runtime refusal never triggered, in precisely the
+  configuration they exist to protect.
+  Both gates now derive from one shared primitive, `EDS_BUILD_IS_PRODUCTION`
+  (`core/uds_security_algo.h`), so they cannot drift apart again. The CRIT-4
+  gate is `EDS_BUILD_IS_PRODUCTION && !defined(UNIT_TEST)` (the
+  `!defined(UNIT_TEST)` carve-out is unchanged from before this fix — it lets
+  a host unit test force `EDS_BUILD_IS_PRODUCTION=1` to exercise a different
+  gate's production behaviour, e.g. `test_trng_fail_closed.c`, without also
+  tripping the placeholder-key `#error` against a test binary that was never
+  going to have real keys). `ALGO_ENTROPY_FAIL_CLOSED`
+  (`[SEC-TRNG-FAILCLOSED-01]`, added in #85) is now a plain alias for
+  `EDS_BUILD_IS_PRODUCTION`.
+  **FreeRTOS landmine, fixed the same change:** FreeRTOS has no Kconfig of
+  its own, and no FreeRTOS example ever defined
+  `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY` anywhere in its build — so under the
+  OLD idiom, FreeRTOS was *always* unprotected by both gates (a second
+  instance of the same bug), and under a naive fail-closed-by-default fix it
+  would have flipped to refusing to build or initialise on *every* FreeRTOS
+  build, including CI, with no way to declare itself a development build.
+  All 4 FreeRTOS example `CMakeLists.txt` files
+  (`examples/basic_ecu_freertos`, `basic_ecu_doip_freertos`,
+  `sensor_ecu_freertos`, `safeboot_freertos_ecu`) now expose
+  `-DEDS_PLACEHOLDER_KEYS_ONLY=<ON|OFF>` (default `ON`, i.e. development —
+  mirroring Zephyr Kconfig's own `default y`), which feeds
+  `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY` the same defined-and-1-or-0 signal
+  Zephyr's Kconfig always gave.
+  **This also retroactively closes a latent gap in the already-merged
+  `ALGO_ENTROPY_FAIL_CLOSED` fix (PR #85, #90) for FreeRTOS specifically:**
+  because that gate already had the corrected fail-closed-by-default
+  polarity, and FreeRTOS never defined the Kconfig symbol, a real FreeRTOS
+  build has always silently resolved to the production TRNG behaviour (hard
+  refusal on TRNG loss) with **no supported way to opt into the development
+  LFSR fallback** — a gap invisible to CI because the `freertos-qemu` job is
+  build-only and never exercises a live SecurityAccess request. It is fixed
+  by the same `-DEDS_PLACEHOLDER_KEYS_ONLY` CMake option.
+  **Breaking change:** any FreeRTOS build, and any Zephyr production build
+  that was silently bypassing the CRIT-4 key gate and/or the TRNG
+  fail-closed gate before this fix, will now correctly refuse to *compile*
+  (CRIT-4, if placeholder keys are still present) or *initialise* (Step 7.1
+  runtime guard) unless it explicitly declares itself a development build
+  (`CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=y` on Zephyr,
+  `-DEDS_PLACEHOLDER_KEYS_ONLY=ON` on FreeRTOS — both are the default). This
+  is the intended remediation, but it is a real behaviour change for anyone
+  who was unknowingly relying on the previously-broken, silently-inert
+  gates. See `SECURITY.md` for the corrected dev-vs-production tables.
+  All 12 committed `examples/*/generated/uds_init.c` files carry the fixed
+  Step 7.1 guard (`#if EDS_BUILD_IS_PRODUCTION` in place of the broken
+  idiom) — applied as a targeted patch of that one block rather than a full
+  codegen regeneration, since `tools/templates/uds_init.c.j2` (private
+  EDS-toolchain repo) currently carries unrelated drift from what's
+  committed here (an ISO 26262 citation update, and a CommunicationControl
+  init step present in the template but missing from 4 of the 12 examples)
+  — tracked separately, not bundled into this security fix
+  ([EDS-toolchain#50](https://github.com/Xaloqi/EDS-toolchain/issues/50)).
+  **`/code-review` caught and this fix corrects one real regression before
+  merge:** `ALGO_ENTROPY_FAIL_CLOSED`'s alias definition
+  (`#define ALGO_ENTROPY_FAIL_CLOSED EDS_BUILD_IS_PRODUCTION`) had no
+  `#if !defined(ALGO_ENTROPY_FAIL_CLOSED)` guard, so the documented
+  `-DALGO_ENTROPY_FAIL_CLOSED=1` command-line override (the CRIT-4
+  deviation escape hatch) was silently discarded — verified by compiling
+  with the override and `gcc -dM -E`, which showed the macro still
+  resolving to `EDS_BUILD_IS_PRODUCTION`'s value, with only a
+  "redefined" warning as the only trace. The guard is restored; also
+  fixed a naming typo in the CRIT-4 comment (`k_level_keys[]` →
+  `s_level_keys[]`, the actual identifier, in both new and pre-existing
+  prose), deduplicated `build_tests.sh`'s CRIT-4 negative-compile test
+  onto the existing shared `INCLUDES` array instead of a second
+  hand-maintained copy, removed a fully redundant regression-guard
+  compile (already proven by the ~42 other test modules built earlier in
+  the same script run), and centralized the 4 FreeRTOS examples'
+  `EDS_PLACEHOLDER_KEYS_ONLY` option into `cmake/eds_build_mode.cmake`
+  rather than duplicating it per example — mirroring this codebase's own
+  established convention (`cmake/eds_service_sources.cmake`) for exactly
+  this class of drift risk. Re-verified against a real ARM cross-compile
+  toolchain (`arm-none-eabi-gcc` + a fresh `FreeRTOS-Kernel` clone): every
+  object file compiles clean through link, including the patched
+  `uds_init.c`; the only remaining failure is the pre-existing, unrelated
+  callback-signature bug tracked as
+  [#96](https://github.com/Xaloqi/EDS/issues/96).
+
 ### Fixed
 
 - **`uds_safety_reset_counters()` now clears `platform_violations`.** (#86)

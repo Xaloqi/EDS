@@ -13,14 +13,14 @@
  * See uds_security_algo.h for full design and integration documentation.
  *
  * KEY STORAGE SECURITY NOTICE:
- *   k_level_keys[] below contains PLACEHOLDER KEYS only.
+ *   s_level_keys[] below contains PLACEHOLDER KEYS only.
  *   These are NOT secret and must be replaced before production deployment.
  *
  *   Required actions before vehicle deployment:
  *     1. Do NOT commit real OEM keys to source control.
  *     2. Inject keys at runtime via uds_security_algo_set_level_key()
  *        from a secure source (OTP fuses, HSM, secure boot chain), OR
- *        replace k_level_keys[] in a secure build environment, OR
+ *        replace s_level_keys[] in a secure build environment, OR
  *        register a uds_algo_derive_cb_t that calls your HSM directly.
  *
  * REPLAY PROTECTION:
@@ -60,31 +60,78 @@
  *
  * CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY is a Kconfig bool defined in Kconfig.
  * Default: y  (allows placeholder keys — development / CI builds).
- * Production: must be set to n in prj.conf.  When n, this #error fires if
- * the source file still contains the known placeholder key bytes, preventing
- * a production firmware image from being linked with insecure keys.
+ * Production: must be set to n in prj.conf.  When a build declares itself
+ * production (see EDS_BUILD_IS_PRODUCTION in uds_security_algo.h), this
+ * #error fires, preventing a production firmware image from being linked
+ * at all while s_level_keys[] still holds the compile-time placeholder
+ * values.
  *
- * The check is conservative: it detects the zero-based sequential pattern
- * 0x00,0x01,0x02,0x03 as the first four bytes of s_level_keys[0].  Any
- * real OEM key will differ from this pattern.  If an OEM key happens to
- * start with these bytes (extremely unlikely), the gate can be silenced by
- * setting CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=y in that build only — with a
- * deviation record filed per your ASIL-B change control process.
+ * WHAT THIS CHECK ACTUALLY DOES (corrected — see issue #84 PR discussion):
+ * this is NOT byte-pattern detection of s_level_keys[]'s contents. A C
+ * preprocessor #if cannot inspect a runtime array initializer's byte
+ * values, and no mechanism anywhere in this codebase extracts those bytes
+ * into a preprocessor-visible macro. The gate is an unconditional compile
+ * failure whenever a production build is declared: it forces the
+ * integrator to affirmatively prove intent — inject real keys via
+ * uds_security_algo_set_level_key() at runtime, or edit s_level_keys[]
+ * directly in a secure build environment — and then flip the build-mode
+ * signal to production, before CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n (or
+ * the FreeRTOS/override equivalent) can be believed. The actual runtime
+ * check of whether real keys were injected is
+ * uds_security_algo_keys_are_placeholder(), called from the generated
+ * Step 7.1 init guard (see tools/templates/uds_init.c.j2) — this #error
+ * does not duplicate that check, it just refuses to build at all until
+ * the integrator has gone through the motions of declaring production.
+ * If an OEM's integration process needs to keep placeholder keys in a
+ * build that is otherwise production in every other respect, the gate can
+ * be silenced by keeping CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=y (or
+ * EDS_BUILD_IS_PRODUCTION=0) in that build only — with a deviation record
+ * filed per your ASIL-B change control process.
  *
- * For host-side unit test builds (UNIT_TEST=1) the gate is bypassed because
- * those builds do not include autoconf.h and the symbol is undefined.
+ * BUILD-MODE DERIVATION: see EDS_BUILD_IS_PRODUCTION in
+ * uds_security_algo.h (SEC-BUILD-MODE-01) for the full four-case
+ * derivation, including the Zephyr autoconf.h omission quirk that made
+ * the OLD version of this gate (`defined(X) && !X`) never fire on a real
+ * Zephyr production build. This gate no longer re-derives THAT logic —
+ * it consumes the shared primitive so the two cannot drift apart again.
+ *
+ * WHY THIS SITE ALSO KEEPS ITS OWN `!defined(UNIT_TEST)` ON TOP OF
+ * EDS_BUILD_IS_PRODUCTION: EDS_BUILD_IS_PRODUCTION answers "is this a
+ * production build" in general — it does not, and should not, also try to
+ * answer CRIT-4's narrower question: "does this specific compiled binary
+ * actually contain real, non-placeholder OEM keys." A host unit-test
+ * binary (build_tests.sh, build_harness.sh, the CMake test path) can
+ * deliberately force EDS_BUILD_IS_PRODUCTION=1 — via
+ * -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 — purely to exercise a gate's
+ * PRODUCTION *behaviour* (see test_trng_fail_closed.c, which forces this
+ * exact combination to reach ALGO_ENTROPY_FAIL_CLOSED's fail-closed
+ * path). That binary is not pretending to be a deployable image and never
+ * has real keys injected via OTP/HSM, so CRIT-4 firing there would be
+ * asserting something true but useless: it would make it permanently
+ * impossible to compile ANY host test that forces the production path for
+ * anything else in this file. `!defined(UNIT_TEST)` is this gate's own,
+ * narrow, CRIT-4-specific exemption for exactly that case — it is NOT a
+ * copy of the #84 bug and must not be folded into EDS_BUILD_IS_PRODUCTION
+ * itself (that would silently exempt every consumer of the shared macro,
+ * including ALGO_ENTROPY_FAIL_CLOSED, defeating the point of forcing the
+ * production path from a host test at all). UNIT_TEST is exclusively a
+ * host-test-build macro — it is never defined by any real Zephyr Kconfig,
+ * any FreeRTOS CMakeLists.txt, or any bare-metal toolchain in this
+ * codebase — so for every real firmware image (Zephyr or FreeRTOS, dev or
+ * production) `!defined(UNIT_TEST)` is always true and this condition
+ * reduces to exactly EDS_BUILD_IS_PRODUCTION, i.e. the #84 fix is intact
+ * for every build that matters.
  *
  * TRACEABILITY: SEC-KEY-GATE-01 / CRIT-4
  * ============================================================================= */
 
-#if defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY) && \
-    !CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY && \
-    !defined(UNIT_TEST)
-#error "[SEC-KEY-GATE-01] CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n but placeholder "\
-       "keys are still present in uds_security_algo.c. "\
+#if EDS_BUILD_IS_PRODUCTION && !defined(UNIT_TEST)
+#error "[SEC-KEY-GATE-01] Production build declared (EDS_BUILD_IS_PRODUCTION=1) "\
+       "but placeholder keys are still present in uds_security_algo.c. "\
        "Inject real OEM keys via uds_security_algo_set_level_key() before "\
        "building production firmware, then set CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n "\
-       "in your production prj.conf."
+       "in your production prj.conf (or the FreeRTOS/EDS_BUILD_IS_PRODUCTION "\
+       "equivalent for non-Zephyr builds)."
 #endif
 
 /* =============================================================================
@@ -103,80 +150,51 @@
  * builds keep today's LFSR fallback so existing host/dev workflows are
  * unaffected; only real production firmware fails closed.
  *
- * WHY THREE CASES, NOT TWO — Zephyr's Kconfig -> autoconf.h quirk:
- * Zephyr's generated autoconf.h emits `#define CONFIG_X 1` for a Kconfig
- * bool set to `y`, and OMITS the symbol entirely for `n` — it never emits
- * `#define CONFIG_X 0`. A simple `#if !defined(X) || X` therefore cannot
- * tell "explicitly off" apart from "not a Zephyr build at all". The three
- * cases that must be distinguished are:
+ * [#84 UPDATE] ALGO_ENTROPY_FAIL_CLOSED is now a plain alias for
+ * EDS_BUILD_IS_PRODUCTION (see uds_security_algo.h, SEC-BUILD-MODE-01) —
+ * it no longer derives "is this production?" itself. This file used to
+ * carry an independent copy of the same four-case Zephyr autoconf.h /
+ * UNIT_TEST / omitted-symbol derivation that the CRIT-4 gate below carried
+ * too, and the two had drifted: the CRIT-4 gate used the older,
+ * broken `defined(X) && !X` idiom (never fired on a real Zephyr
+ * production build — the symbol is omitted, not defined-and-zero, when
+ * the Kconfig bool is `n`), while this gate already used the corrected
+ * "positive signal for development, fail closed by default" idiom. Two
+ * independently-authored copies of the same yes/no answer are exactly how
+ * that drift happened; unifying them into one primitive removes the
+ * ability for it to recur. The alias keeps the ALGO_ENTROPY_FAIL_CLOSED
+ * name — it is already used throughout this file's comments,
+ * test_trng_fail_closed.c, and SECURITY.md, and renaming it everywhere
+ * would be unrelated churn to already-shipped, already-reviewed code.
  *
- *   (a) CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY defined non-zero
- *       -> development/CI build (Kconfig bool = y) -> LFSR allowed.
- *   (b) CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY undefined, UNIT_TEST defined
- *       -> host unit-test / harness build (no autoconf.h at all)
- *       -> LFSR allowed.
- *   (c) anything else -- Zephyr with the bool set to n (symbol omitted),
- *       FreeRTOS, bare metal, or a platform not yet ported
- *       -> PRODUCTION -> fail closed. This is the DEFAULT: the safe state
- *       is what you get by omission, on every platform.
+ * RETROACTIVE FIX FOR FREERTOS: because EDS_BUILD_IS_PRODUCTION's default
+ * (omitted Kconfig symbol, no UNIT_TEST) is PRODUCTION, and FreeRTOS
+ * builds have never defined CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY, a real
+ * FreeRTOS build has always resolved ALGO_ENTROPY_FAIL_CLOSED to 1
+ * (fail-closed) with no supported way to opt into the LFSR dev fallback —
+ * a latent, CI-invisible gap in the already-merged PR #85 (FreeRTOS CI
+ * jobs are build-only; they never exercise a live SecurityAccess request).
+ * Each FreeRTOS example's CMakeLists.txt now defines
+ * CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY itself (default ON, i.e. development —
+ * mirroring Zephyr Kconfig's own `default y`), giving FreeRTOS integrators
+ * the same supported opt-in Zephyr already had. See SEC-BUILD-MODE-01 for
+ * the full four-case derivation this alias now inherits.
  *
- * A host test that wants to exercise the production (fail-closed) path
- * forces it by compiling with -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0: the
- * symbol is then defined AND zero, so case (a)'s "defined non-zero" test is
- * false and the #elif/#else chain below falls through to the fail-closed
- * default — the same outcome as case (b) on real Zephyr production
- * hardware.
+ * ALGO_ENTROPY_FAIL_CLOSED may also be forced directly on the compiler
+ * command line (-DALGO_ENTROPY_FAIL_CLOSED=<0|1>). The `#if !defined(...)`
+ * guard immediately below is what makes that override take effect: it
+ * skips the alias `#define` entirely when the command line already
+ * defined ALGO_ENTROPY_FAIL_CLOSED, so the literal command-line value
+ * stands on its own rather than being re-aliased to EDS_BUILD_IS_PRODUCTION.
+ * This is a SEPARATE override from -DEDS_BUILD_IS_PRODUCTION=<0|1>: forcing
+ * one does not force the other unless both are passed — set
+ * -DEDS_BUILD_IS_PRODUCTION=1 instead (or as well) if the intent is to also
+ * force the CRIT-4 gate at the same time.
  *
- * NOTE ON THE CRIT-4 #error ABOVE: that pre-existing gate uses the older
- * `defined(X) && !X` idiom, which does NOT handle case (b) above — on a
- * real Zephyr production build (symbol omitted) the CRIT-4 #error is
- * silently skipped rather than firing. This is a pre-existing gap, tracked
- * separately as issue #84, and is deliberately NOT changed here — this
- * gate only governs the TRNG entropy fallback, not the placeholder-key
- * #error check.
- *
- * TRACEABILITY: SEC-TRNG-FAILCLOSED-01
+ * TRACEABILITY: SEC-TRNG-FAILCLOSED-01 (derives from SEC-BUILD-MODE-01)
  * ============================================================================= */
-
-/*
- * The default is FAIL CLOSED. A firmware build must *explicitly* opt in to the
- * LFSR fallback; it is never inherited by omission. This ordering matters:
- * an earlier revision of this gate tried to identify production builds by
- * testing for __ZEPHYR__, which silently left every FreeRTOS and bare-metal
- * production build (examples/basic_ecu_freertos and its siblings, plus any
- * OEM bare-metal port) on the predictable LFSR — the exact failure this
- * change exists to prevent. Deriving
- * "development" from a positive signal instead makes the safe state the
- * default on every platform, including ones EDS does not ship a port for yet.
- *
- * ALGO_ENTROPY_FAIL_CLOSED may also be forced directly on the compiler command
- * line (-DALGO_ENTROPY_FAIL_CLOSED=1). That is the supported escape hatch for
- * the CRIT-4 deviation documented above: an OEM key that happens to collide
- * with the placeholder pattern requires CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=y in
- * a *production* image, which would otherwise re-enable the LFSR as a side
- * effect. Setting ALGO_ENTROPY_FAIL_CLOSED=1 keeps entropy failing closed
- * independently of the key gate.
- */
 #if !defined(ALGO_ENTROPY_FAIL_CLOSED)
-#  if defined(CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY)
-     /* Kconfig symbol present and explicit. y -> development, n (compiled as
-      * an explicit 0, e.g. -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0) -> production. */
-#    if CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY
-#      define ALGO_ENTROPY_FAIL_CLOSED (0)
-#    else
-#      define ALGO_ENTROPY_FAIL_CLOSED (1)
-#    endif
-#  elif defined(UNIT_TEST)
-     /* Host unit-test / harness build (build_tests.sh, build_harness.sh).
-      * No autoconf.h exists at all here; keep the LFSR so native_sim and the
-      * host suites behave exactly as before. */
-#    define ALGO_ENTROPY_FAIL_CLOSED (0)
-#  else
-     /* Any firmware build that did not explicitly enable placeholder keys:
-      * Zephyr with the Kconfig bool set to n (symbol omitted from autoconf.h),
-      * FreeRTOS, or bare metal. Fail closed. */
-#    define ALGO_ENTROPY_FAIL_CLOSED (1)
-#  endif
+#define ALGO_ENTROPY_FAIL_CLOSED EDS_BUILD_IS_PRODUCTION
 #endif
 
 /* --------------------------------------------------------------------------
@@ -189,7 +207,7 @@
 /** Maximum number of security levels supported. */
 #define ALGO_MAX_LEVELS       (2U)
 
-/** Number of level keys defined in k_level_keys[]. */
+/** Number of level keys defined in s_level_keys[]. */
 #define ALGO_DEFINED_LEVELS   (2U)
 
 /* --------------------------------------------------------------------------
