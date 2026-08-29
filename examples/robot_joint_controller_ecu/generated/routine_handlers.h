@@ -1,6 +1,6 @@
 // File: generated/routine_handlers.h
 // GENERATED — do NOT edit manually.
-// ECU: RobotJointController  v1.0.0  Generated: 2026-06-23T19:16:15Z
+// ECU: RobotJointController  v1.0.0  Generated: 2026-08-29T11:04:45Z
 
 #ifndef ROUTINE_HANDLERS_H
 #define ROUTINE_HANDLERS_H

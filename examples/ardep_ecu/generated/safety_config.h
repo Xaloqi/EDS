@@ -5,7 +5,7 @@
  *
  * ECU       : ARDEP_IOController
  * Version   : 1.0.0
- * Generated : 2026-05-20T07:21:48Z
+ * Generated : 2026-08-29T11:04:45Z
  * ASIL Level: B
  *
  * PURPOSE: Compile-time ASIL safety configuration constants.
@@ -40,7 +40,7 @@
 #ifndef SAFETY_CONFIG_H
 #define SAFETY_CONFIG_H
 
-#define UDS_STACK_VERSION "1.0.0"
+#define UDS_STACK_VERSION "1.7.0"
 
 /* =============================================================================
  * ASIL level identification

@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU
  * Version   : 0.1.0
- * Generated : 2026-06-23T19:16:14Z
+ * Generated : 2026-08-29T11:04:45Z
  *
  * PURPOSE: Public interface for the generated UDS stack initialisation module.
  *

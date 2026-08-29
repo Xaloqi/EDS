@@ -8,6 +8,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **All 12 example ECUs regenerated from the current codegen template,
+  closing long-standing drift.** (EDS-toolchain#50) Two of the four
+  examples added at "Initial public release" — `ardep_ecu`, `bms_ecu`,
+  `motor_controller_ecu`, `sensor_ecu_freertos` — carried committed
+  `generated/` output that predated two real template fixes made months
+  earlier and never propagated: an ISO 26262 citation correction
+  (`§9.4.3` → `:2018 §7.4.12`, present in the other 8 examples already)
+  and `uds_comm_control_init()` Step 5.8, without which every SID 0x28
+  (CommunicationControl) and 0x85 (ControlDTCSetting) request on those 4
+  ECUs returned NRC 0x22 (`conditionsNotCorrect`) — a real functional
+  bug, not just stale documentation. Also picked up `UDS_STACK_VERSION`
+  catching up from a stale `1.0.0`/`1.6.0` to the current `1.7.0` on the
+  same 4 examples (the ECU's own version, e.g. `ARDEP_IOController
+  v1.0.0`, is unaffected — that's a separate field). The other 8
+  examples only picked up the ISO citation fix (they already had
+  CommunicationControl). Regenerated with the license-check bypass
+  (`XALOQI_LICENSE_SKIP=1`) and diffed every file in every example
+  against what was committed before touching anything — confirmed the
+  only differences anywhere are the two fixes above, the expected
+  per-generation timestamp, and the version bump; no DID/routine/safety
+  wrapper logic changed for any example. None of the 4 affected examples
+  are built by any CI job today (only `basic_ecu`, `basic_ecu_doip`,
+  `basic_ecu_freertos`, and `safeboot_freertos_ecu` are) — verified
+  correctness with a full host-side link of each against the real stack
+  instead (zero undefined references besides the expected missing
+  `main()`, which these init-sequence files don't define).
+
 ### Documentation
 
 - **Stale CI job-count comments corrected.** (#91) `.github/workflows/ci.yml`'s

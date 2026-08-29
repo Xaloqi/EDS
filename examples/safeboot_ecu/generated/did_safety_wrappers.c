@@ -5,7 +5,7 @@
  *
  * ECU       : SafeBootECU
  * Version   : 1.0.0
- * Generated : 2026-06-23T19:16:15Z
+ * Generated : 2026-08-29T11:04:45Z
  * ASIL Level: B
  *
  * PURPOSE: Per-DID safe accessor implementations (ASIL-B).

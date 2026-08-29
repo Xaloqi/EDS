@@ -1,6 +1,6 @@
 // File: generated/routine_handlers.c
 // GENERATED — do NOT edit manually.
-// ECU: SafeBootFreeRTOSECU  v1.0.0  Generated: 2026-06-23T19:16:15Z
+// ECU: SafeBootFreeRTOSECU  v1.0.0  Generated: 2026-08-29T11:04:46Z
 
 #include "routine_handlers.h"
 #include "routine_database.h"
