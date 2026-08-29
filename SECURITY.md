@@ -83,6 +83,22 @@ and credit you in the release notes unless you prefer to remain anonymous.
 in `core/uds_aes_cmac.c` is table-free and cache-timing resistant. Key material is
 scrubbed from stack memory after use.
 
+The key *response* sent back to the ECU is truncated to 4 bytes (the seed stays the full
+8 bytes). This is conventional for UDS SecurityAccess — ISO 14229-1 does not mandate a
+key length, and 2–4 byte responses are standard in production stacks. Two attacker
+models follow from this, with different actual strengths, and they should not be
+conflated:
+
+- *Guessing a valid response online* (sending seed/key attempts to the ECU over the bus)
+  is bounded by the 4-byte truncation — a 32-bit search space, not 128-bit. What makes
+  this impractical is not AES-128's hardness but attempt-limiting: `UDS_SECURITY_MAX_ATTEMPTS`
+  (3) consecutive failed attempts trigger a lockout whose state is persisted to NVM, so
+  it survives a power cycle.
+- *Deriving the level key* from captured `(seed, key)` pairs without brute-forcing online
+  is a separate, much harder problem — this is what the AES-128-CMAC construction
+  actually protects against, since CMAC is a secure PRF under the standard AES-128
+  hardness assumption.
+
 **Placeholder keys:** The repository ships with placeholder AES-128 keys
 (`0x00..0x0F` / `0x10..0x1F`). A compile-time gate (`CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY`)
 and a runtime guard in the generated init sequence prevent accidental deployment of
