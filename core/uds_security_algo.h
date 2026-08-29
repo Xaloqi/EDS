@@ -18,8 +18,17 @@
  *   ───────────────
  *   The 8-byte seed is structured as:
  *     Byte 0..5 : 48-bit TRNG nonce (from hardware RNG)
- *     Byte 6    : security_level (embedded for domain separation)
+ *     Byte 6    : sequence_hi    (upper 8 bits of monotonic counter)
  *     Byte 7    : sequence_lo    (lower 8 bits of monotonic counter)
+ *
+ *   [#94] security_level is NOT embedded in the seed — domain separation
+ *   between levels comes entirely from using a different AES key per level
+ *   (see uds_security_algo_generate_seed() in uds_security_algo.c), which
+ *   frees the full 16-bit sequence counter across bytes 6-7. This corrects
+ *   an earlier version of this comment block, which described a layout
+ *   where byte 6 held security_level. UDS_ALGO_SEED_LEVEL_OFFSET (below)
+ *   is kept only as a byte-compatible alias for UDS_ALGO_SEED_SEQ_HI_OFFSET
+ *   — it does not name a distinct field.
  *
  *   KEY DERIVATION
  *   ─────────────────────────────────────────

@@ -8,6 +8,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Documentation
+
+- **Stale CI job-count comments corrected.** (#91) `.github/workflows/ci.yml`'s
+  header comment said "8 jobs" and listed 8 by name — the actual count had
+  grown to 14 and the list was missing 6 jobs entirely. `CONTRIBUTING.md` said
+  "13 jobs" in one place and "10 CI jobs" in another, neither matching. All
+  three unit-test-count mentions in `CONTRIBUTING.md` still said "42" (now
+  43). Rather than replace one stale number with another that will drift the
+  next time a job is added or split, the job-count references now point at
+  `.github/workflows/ci.yml`'s `jobs:` block as the single authoritative
+  list instead of hardcoding a count.
+- **`uds_security_algo.h`'s ALGORITHM OVERVIEW comment corrected.** (#94) It
+  described seed byte 6 as holding `security_level`, a layout the
+  implementation no longer uses — domain separation is via a distinct AES
+  key per level, not a seed byte, freeing the full 16-bit sequence counter
+  across bytes 6-7. `UDS_ALGO_SEED_LEVEL_OFFSET` is noted as a
+  byte-compatible alias for `UDS_ALGO_SEED_SEQ_HI_OFFSET`, not a distinct
+  field — matching what `tests/unit_runnable/test_phase5_security_algo.c`'s
+  `tc031` already tests (fixed in #93's PR, #92).
+
 ### Security
 
 - **BREAKING: unified build-mode detection closes a silent bypass of both the
