@@ -8,100 +8,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
-### Added
-
-- **CI coverage for the 7 example ECUs that had none.** (#98) Only
-  `basic_ecu`, `basic_ecu_doip`, `basic_ecu_freertos`, and
-  `safeboot_freertos_ecu` were ever built or checked by any CI job —
-  `ardep_ecu`, `bms_ecu`, `motor_controller_ecu`,
-  `robot_joint_controller_ecu`, `safeboot_ecu`, `sensor_ecu`, and
-  `sensor_ecu_freertos` had zero CI signal. This is exactly how the O-27
-  drift (a missing `uds_comm_control_init()` on 4 of these 7, causing
-  every SID 0x28/0x85 request to return NRC 0x22) went unnoticed for
-  months. Added 7 new jobs — `example-ardep`, `example-bms`,
-  `example-motor`, `example-sensor`, `example-sensor-frtos`,
-  `example-robot`, `example-safeboot` — ported from the equivalent,
-  already-working jobs in the private EDS-toolchain repo's own CI and
-  adapted for this repo's checkout layout. Deliberately does not add a
-  `west build`/Zephyr SDK cross-compile per example — that would
-  duplicate what `zephyr-native`/`zephyr-stm32`/`freertos-qemu` already
-  prove for `basic_ecu`, at real toolchain-install cost, for a class of
-  bug (missing an init call, config/header drift) that YAML validation
-  plus generated-file assertions catch just as well. Also adds one
-  assertion the source EDS-toolchain jobs don't have: a direct check for
-  `uds_comm_control_init()` in each example's generated `uds_init.c` —
-  the exact marker whose absence was O-27, verified to actually catch it
-  (confirmed all 7 pass today, after O-27's fix).
-
-### Fixed
-
-- **`freertos_platform_api.c`'s ISO-TP RX-complete callback had the wrong
-  signature.** (#96) `eds_on_isotp_rx_complete()`'s `length` parameter was
-  `uint16_t`, but `transport/isotp.h`'s `isotp_rx_complete_cb` typedef
-  declares it `uint32_t` — a function-pointer type mismatch at the
-  `isotp_process_rx_frame()` call site. CI's pinned `gcc-arm-none-eabi`
-  (~10.3.1) only warned; a real `arm-none-eabi-gcc` 14.2.1 cross-compile
-  rejects it outright with `-Wincompatible-pointer-types`, which is how this
-  was found — verifying #84's FreeRTOS fix stopped a full link one object
-  short. Widened the parameter to `uint32_t` to match the typedef exactly;
-  `s_poll_req_buf.length` (`uint16_t`) is unaffected — the existing
-  `UDS_MAX_PAYLOAD_LEN` (4095) bounds check already rejects anything that
-  wouldn't fit before the narrowing assignment, now made explicit. Verified
-  with a full real cross-compile + link of both FreeRTOS examples that use
-  this file (`basic_ecu_freertos`, `safeboot_freertos_ecu`) — both now reach
-  a complete `.elf`, and the fixed function compiles with zero warnings
-  even under `-Wconversion -Wsign-conversion`, stricter than this build
-  actually enforces.
-
-### Fixed
-
-- **All 12 example ECUs regenerated from the current codegen template,
-  closing long-standing drift.** (EDS-toolchain#50) Two of the four
-  examples added at "Initial public release" — `ardep_ecu`, `bms_ecu`,
-  `motor_controller_ecu`, `sensor_ecu_freertos` — carried committed
-  `generated/` output that predated two real template fixes made months
-  earlier and never propagated: an ISO 26262 citation correction
-  (`§9.4.3` → `:2018 §7.4.12`, present in the other 8 examples already)
-  and `uds_comm_control_init()` Step 5.8, without which every SID 0x28
-  (CommunicationControl) and 0x85 (ControlDTCSetting) request on those 4
-  ECUs returned NRC 0x22 (`conditionsNotCorrect`) — a real functional
-  bug, not just stale documentation. Also picked up `UDS_STACK_VERSION`
-  catching up from a stale `1.0.0`/`1.6.0` to the current `1.7.0` on the
-  same 4 examples (the ECU's own version, e.g. `ARDEP_IOController
-  v1.0.0`, is unaffected — that's a separate field). The other 8
-  examples only picked up the ISO citation fix (they already had
-  CommunicationControl). Regenerated with the license-check bypass
-  (`XALOQI_LICENSE_SKIP=1`) and diffed every file in every example
-  against what was committed before touching anything — confirmed the
-  only differences anywhere are the two fixes above, the expected
-  per-generation timestamp, and the version bump; no DID/routine/safety
-  wrapper logic changed for any example. None of the 4 affected examples
-  are built by any CI job today (only `basic_ecu`, `basic_ecu_doip`,
-  `basic_ecu_freertos`, and `safeboot_freertos_ecu` are) — verified
-  correctness with a full host-side link of each against the real stack
-  instead (zero undefined references besides the expected missing
-  `main()`, which these init-sequence files don't define).
-
-### Documentation
-
-- **Stale CI job-count comments corrected.** (#91) `.github/workflows/ci.yml`'s
-  header comment said "8 jobs" and listed 8 by name — the actual count had
-  grown to 14 and the list was missing 6 jobs entirely. `CONTRIBUTING.md` said
-  "13 jobs" in one place and "10 CI jobs" in another, neither matching. All
-  three unit-test-count mentions in `CONTRIBUTING.md` still said "42" (now
-  43). Rather than replace one stale number with another that will drift the
-  next time a job is added or split, the job-count references now point at
-  `.github/workflows/ci.yml`'s `jobs:` block as the single authoritative
-  list instead of hardcoding a count.
-- **`uds_security_algo.h`'s ALGORITHM OVERVIEW comment corrected.** (#94) It
-  described seed byte 6 as holding `security_level`, a layout the
-  implementation no longer uses — domain separation is via a distinct AES
-  key per level, not a seed byte, freeing the full 16-bit sequence counter
-  across bytes 6-7. `UDS_ALGO_SEED_LEVEL_OFFSET` is noted as a
-  byte-compatible alias for `UDS_ALGO_SEED_SEQ_HI_OFFSET`, not a distinct
-  field — matching what `tests/unit_runnable/test_phase5_security_algo.c`'s
-  `tc031` already tests (fixed in #93's PR, #92).
-
 ### Security
 
 - **BREAKING: unified build-mode detection closes a silent bypass of both the
@@ -198,7 +104,68 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   callback-signature bug tracked as
   [#96](https://github.com/Xaloqi/EDS/issues/96).
 
+- **SecurityAccess entropy fallback now fails closed in production builds.**
+  `[SEC-TRNG-FAILCLOSED-01]` When no TRNG callback was registered (or the
+  registered callback failed at runtime), `algo_get_random()` in
+  `core/uds_security_algo.c` silently fell back to a deterministic 16-bit
+  Galois LFSR and SecurityAccess seeds kept being issued. This is now a
+  **production-only** behaviour change: development/CI builds keep the
+  unchanged LFSR fallback, but production builds (Zephyr build with
+  `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n`) refuse the seed request instead
+  (`UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE`, NRC 0x24) and never run the LFSR.
+  A refused request no longer advances the anti-replay sequence counter.
+  The two failure modes are distinguished in the `uds_safety` platform
+  violation record via `last_violation_code`
+  (`UDS_STATUS_ERR_PLATFORM` for the dev-mode soft fallback vs.
+  `UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE` for the production hard refusal).
+  See `SECURITY.md` for the full dev-vs-production behaviour table.
+
 ### Fixed
+
+- **`freertos_platform_api.c`'s ISO-TP RX-complete callback had the wrong
+  signature.** (#96) `eds_on_isotp_rx_complete()`'s `length` parameter was
+  `uint16_t`, but `transport/isotp.h`'s `isotp_rx_complete_cb` typedef
+  declares it `uint32_t` — a function-pointer type mismatch at the
+  `isotp_process_rx_frame()` call site. CI's pinned `gcc-arm-none-eabi`
+  (~10.3.1) only warned; a real `arm-none-eabi-gcc` 14.2.1 cross-compile
+  rejects it outright with `-Wincompatible-pointer-types`, which is how this
+  was found — verifying #84's FreeRTOS fix stopped a full link one object
+  short. Widened the parameter to `uint32_t` to match the typedef exactly;
+  `s_poll_req_buf.length` (`uint16_t`) is unaffected — the existing
+  `UDS_MAX_PAYLOAD_LEN` (4095) bounds check already rejects anything that
+  wouldn't fit before the narrowing assignment, now made explicit. Verified
+  with a full real cross-compile + link of both FreeRTOS examples that use
+  this file (`basic_ecu_freertos`, `safeboot_freertos_ecu`) — both now reach
+  a complete `.elf`, and the fixed function compiles with zero warnings
+  even under `-Wconversion -Wsign-conversion`, stricter than this build
+  actually enforces.
+
+- **All 12 example ECUs regenerated from the current codegen template,
+  closing long-standing drift.** (EDS-toolchain#50) Two of the four
+  examples added at "Initial public release" — `ardep_ecu`, `bms_ecu`,
+  `motor_controller_ecu`, `sensor_ecu_freertos` — carried committed
+  `generated/` output that predated two real template fixes made months
+  earlier and never propagated: an ISO 26262 citation correction
+  (`§9.4.3` → `:2018 §7.4.12`, present in the other 8 examples already)
+  and `uds_comm_control_init()` Step 5.8, without which every SID 0x28
+  (CommunicationControl) and 0x85 (ControlDTCSetting) request on those 4
+  ECUs returned NRC 0x22 (`conditionsNotCorrect`) — a real functional
+  bug, not just stale documentation. Also picked up `UDS_STACK_VERSION`
+  catching up from a stale `1.0.0`/`1.6.0` to the current `1.7.0` on the
+  same 4 examples (the ECU's own version, e.g. `ARDEP_IOController
+  v1.0.0`, is unaffected — that's a separate field). The other 8
+  examples only picked up the ISO citation fix (they already had
+  CommunicationControl). Regenerated with the license-check bypass
+  (`XALOQI_LICENSE_SKIP=1`) and diffed every file in every example
+  against what was committed before touching anything — confirmed the
+  only differences anywhere are the two fixes above, the expected
+  per-generation timestamp, and the version bump; no DID/routine/safety
+  wrapper logic changed for any example. None of the 4 affected examples
+  are built by any CI job today (only `basic_ecu`, `basic_ecu_doip`,
+  `basic_ecu_freertos`, and `safeboot_freertos_ecu` are) — verified
+  correctness with a full host-side link of each against the real stack
+  instead (zero undefined references besides the expected missing
+  `main()`, which these init-sequence files don't define).
 
 - **`uds_safety_reset_counters()` now clears `platform_violations`.** (#86)
   `platform_violations` was added to `uds_safety_ctx_t` by the `[HIGH-2]` fix
@@ -213,6 +180,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   gained a regression test, and `tests/unit_runnable/test_trng_fail_closed.c`
   no longer needs to work around the bug with delta-based counter
   assertions.
+
 - **30 dormant unit test cases are now actually executed.** (#87)
   `ZTEST(suite, name)` cases in `tests/unit_runnable/test_phase5_security_algo.c`
   (28 cases) and `tests/unit_runnable/test_uds_security.c` (2 cases) compiled
@@ -265,64 +233,55 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **CI coverage for the 7 example ECUs that had none.** (#98) Only
+  `basic_ecu`, `basic_ecu_doip`, `basic_ecu_freertos`, and
+  `safeboot_freertos_ecu` were ever built or checked by any CI job —
+  `ardep_ecu`, `bms_ecu`, `motor_controller_ecu`,
+  `robot_joint_controller_ecu`, `safeboot_ecu`, `sensor_ecu`, and
+  `sensor_ecu_freertos` had zero CI signal. This is exactly how the O-27
+  drift (a missing `uds_comm_control_init()` on 4 of these 7, causing
+  every SID 0x28/0x85 request to return NRC 0x22) went unnoticed for
+  months. Added 7 new jobs — `example-ardep`, `example-bms`,
+  `example-motor`, `example-sensor`, `example-sensor-frtos`,
+  `example-robot`, `example-safeboot` — ported from the equivalent,
+  already-working jobs in the private EDS-toolchain repo's own CI and
+  adapted for this repo's checkout layout. Deliberately does not add a
+  `west build`/Zephyr SDK cross-compile per example — that would
+  duplicate what `zephyr-native`/`zephyr-stm32`/`freertos-qemu` already
+  prove for `basic_ecu`, at real toolchain-install cost, for a class of
+  bug (missing an init call, config/header drift) that YAML validation
+  plus generated-file assertions catch just as well. Also adds one
+  assertion the source EDS-toolchain jobs don't have: a direct check for
+  `uds_comm_control_init()` in each example's generated `uds_init.c` —
+  the exact marker whose absence was O-27, verified to actually catch it
+  (confirmed all 7 pass today, after O-27's fix).
+
 - **Anti-drift guard for dormant unit tests.** (#87) `build_tests.sh` now
   fails the build if any `ZTEST(suite, name)` case in `tests/unit_runnable/*.c`
   has no matching `RUN_TEST(...)` call in that file's `run_all_tests()`,
   naming the exact case(s) and file(s). Prevents the class of bug fixed above
   from recurring silently.
 
-### Fixed — CI / build system
-
-- **`tests/CMakeLists.txt` (the CTest build path) now actually configures,
-  builds, and passes — and is CI-enforced.** (#88) Previously broken at three
-  independent levels, none of which CI caught because CI only ran
-  `bash build_tests.sh` and never invoked CMake:
-  - Configure failed outright: `add_executable()` pointed generated sources
-    at `<repo-root>/generated/`, which does not exist. Generated sources live
-    under `examples/basic_ecu/generated/`, same as `build_tests.sh`.
-  - Every target then failed `core/uds_types.h`'s `_Static_assert` on
-    `uds_msg_buf_t` size: the compile definitions `build_tests.sh` passes
-    (`UNIT_TEST`, `NVM_STORE_HOST_MOCK`, `ISOTP_ENABLE_CAN_FD`,
-    `ISOTP_TX_PADDING`, `EDS_MSG_BUF_MAX_STACK_BYTES=8192`) were missing from
-    the CMake path entirely.
-  - Each `add_diag_test()` call carried its own hand-maintained, drifted
-    `SOURCES` list instead of linking the full stack, so targets that did
-    link failed with undefined-reference errors the moment one dependency
-    was added.
-
-  Fixed by introducing a single `DIAG_STACK_SRCS` list that mirrors
-  `build_tests.sh`'s `STACK_SRCS` array file-for-file and is linked into
-  every test executable, pointing generated-source references at
-  `examples/basic_ecu/generated/`, and adding the missing compile
-  definitions directory-wide. Also added the three targets that existed in
-  `build_tests.sh`'s `TESTS` array but had no CMake equivalent
-  (`test_service_0x2F`, `test_service_0x35`, `test_service_0x23_0x3D`),
-  bringing the CMake path to parity: 43 modules, matching `build_tests.sh`.
-
-  A new CI job, `"CMake/CTest Build (parity with build_tests.sh)"`, runs
-  `cmake -S tests -B build && cmake --build build -j4 && ctest --test-dir
-  build --output-on-failure` on every PR so this path cannot silently
-  diverge from `build_tests.sh` again without CI going red.
-
-### Security
-
-- **SecurityAccess entropy fallback now fails closed in production builds.**
-  `[SEC-TRNG-FAILCLOSED-01]` When no TRNG callback was registered (or the
-  registered callback failed at runtime), `algo_get_random()` in
-  `core/uds_security_algo.c` silently fell back to a deterministic 16-bit
-  Galois LFSR and SecurityAccess seeds kept being issued. This is now a
-  **production-only** behaviour change: development/CI builds keep the
-  unchanged LFSR fallback, but production builds (Zephyr build with
-  `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n`) refuse the seed request instead
-  (`UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE`, NRC 0x24) and never run the LFSR.
-  A refused request no longer advances the anti-replay sequence counter.
-  The two failure modes are distinguished in the `uds_safety` platform
-  violation record via `last_violation_code`
-  (`UDS_STATUS_ERR_PLATFORM` for the dev-mode soft fallback vs.
-  `UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE` for the production hard refusal).
-  See `SECURITY.md` for the full dev-vs-production behaviour table.
-
 ### Documentation
+
+- **Stale CI job-count comments corrected.** (#91) `.github/workflows/ci.yml`'s
+  header comment said "8 jobs" and listed 8 by name — the actual count had
+  grown to 14 and the list was missing 6 jobs entirely. `CONTRIBUTING.md` said
+  "13 jobs" in one place and "10 CI jobs" in another, neither matching. All
+  three unit-test-count mentions in `CONTRIBUTING.md` still said "42" (now
+  43). Rather than replace one stale number with another that will drift the
+  next time a job is added or split, the job-count references now point at
+  `.github/workflows/ci.yml`'s `jobs:` block as the single authoritative
+  list instead of hardcoding a count.
+
+- **`uds_security_algo.h`'s ALGORITHM OVERVIEW comment corrected.** (#94) It
+  described seed byte 6 as holding `security_level`, a layout the
+  implementation no longer uses — domain separation is via a distinct AES
+  key per level, not a seed byte, freeing the full 16-bit sequence counter
+  across bytes 6-7. `UDS_ALGO_SEED_LEVEL_OFFSET` is noted as a
+  byte-compatible alias for `UDS_ALGO_SEED_SEQ_HI_OFFSET`, not a distinct
+  field — matching what `tests/unit_runnable/test_phase5_security_algo.c`'s
+  `tc031` already tests (fixed in #93's PR, #92).
 
 - `SECURITY.md` / `README.md`: state the SecurityAccess key *response*
   truncation (4 bytes; the seed stays 8 bytes) explicitly, and distinguish
