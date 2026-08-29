@@ -38,7 +38,8 @@
  *     - test_doip_diagnostic_msg_calls_uds_core
  *     - test_doip_response_wraps_in_doip_frame
  *     - test_doip_short_write_reassembles_large_response (Issue #105)
- *     - test_doip_short_write_bounded_retry_gives_up (Issue #105)
+ *     - test_doip_short_write_slow_but_progressing_succeeds (Issue #105 follow-up)
+ *     - test_doip_short_write_stalled_peer_bounded_retry_gives_up (Issue #105 follow-up)
  *     - test_doip_max_pdu_size_boundary
  *     - test_doip_handle_unknown_payload_type_ignored
  *
@@ -78,6 +79,12 @@ static size_t   g_mock_send_chunk_cap;
  * a test assert the retry loop terminated after a bounded number of calls
  * rather than merely "the test function returned". */
 static int      g_mock_send_call_count;
+/* [Issue #105 follow-up] Simulate a genuinely stalled/wedged peer: when
+ * true, mock_tcp_send() accepts ZERO bytes on every call, regardless of
+ * g_mock_send_chunk_cap. This is distinct from a chunk cap (which still
+ * makes forward progress every call, however slowly) — only this mode
+ * should ever trip doip_send_all()'s bounded give-up. */
+static bool     g_mock_send_stall;
 
 /* Track calls */
 static int      g_mock_listen_calls;
@@ -106,6 +113,10 @@ static int mock_tcp_send(void *conn_ctx, const uint8_t *data, size_t len)
     g_mock_send_call_count++;
     if (g_mock_send_rc <= 0) {
         return g_mock_send_rc;
+    }
+    if (g_mock_send_stall) {
+        /* [Issue #105 follow-up] Wedged peer: never accepts a single byte. */
+        return 0;
     }
 
     /* [Issue #105] Simulate a short write: accept at most g_mock_send_chunk_cap
@@ -194,7 +205,8 @@ static void setup_mock_platform(void)
 
     g_mock_tx_len           = 0U;
     g_mock_send_rc          = 512; /* default: success */
-    g_mock_send_chunk_cap   = 0U;  /* default: accept full requested length */
+    g_mock_send_chunk_cap   = 0U;     /* default: accept full requested length */
+    g_mock_send_stall       = false;  /* default: not a wedged peer */
     g_mock_send_call_count  = 0;
     g_mock_listen_calls     = 0;
     g_mock_accept_calls     = 0;
@@ -832,15 +844,19 @@ ZTEST(doip_server_suite, test_doip_short_write_reassembles_large_response)
     zassert_false(mismatch, "reassembled response is not byte-identical to what was sent");
 }
 
-ZTEST(doip_server_suite, test_doip_short_write_bounded_retry_gives_up)
+ZTEST(doip_server_suite, test_doip_short_write_stalled_peer_bounded_retry_gives_up)
 {
-    /* doip_send_all() must NOT retry forever against a peer that never
-     * accepts more than a handful of bytes per call — a wedged or badly
-     * congested connection must not be able to hang the UDS task. We force
-     * a pathological 1-byte-per-call cap on a large (~4 KB) response, which
-     * no reasonable retry bound would ever walk to completion, and verify
-     * the call terminates promptly reporting failure rather than spinning
-     * until the buffer is naturally exhausted call-by-call (~4012 calls). */
+    /* doip_send_all() must NOT retry forever against a peer that accepts
+     * ZERO bytes, ever — a genuinely wedged connection must not be able to
+     * hang the UDS task. This is deliberately distinct from a merely slow
+     * connection (see test_doip_short_write_slow_but_progressing_succeeds
+     * below): g_mock_send_stall makes every tcp_send() call return 0 (no
+     * forward progress at all), which is the only thing that should ever
+     * trip the bound.
+     *
+     * [Issue #105 follow-up] doip_handle_frame() must also propagate this
+     * failure (non-OK return) so the caller — eds_doip_server_run() — tears
+     * the now-desynced connection down instead of leaving it open. */
     setup_mock_platform();
     uds_server_ctx_t *uds = init_uds_server_with_large_response();
     doip_server_state_t s = init_state(0xE400U);
@@ -851,33 +867,100 @@ ZTEST(doip_server_suite, test_doip_short_write_bounded_retry_gives_up)
 
     uint32_t frames_sent_before = s.frames_sent;
     g_mock_send_call_count = 0;
-    g_mock_send_chunk_cap  = 1U; /* pathological: accepts 1 byte per call */
+    g_mock_send_stall      = true; /* wedged peer: accepts 0 bytes, always */
 
     uint8_t diag_payload[7] = { 0x0E, 0x00, 0xE4, 0x00, 0x22, 0xF1, 0x90 };
     uds_status_t rc = doip_handle_frame(&s, uds, DOIP_PT_DIAGNOSTIC_MSG,
                                          diag_payload, 7U);
 
-    /* doip_handle_frame() itself still reports OK — a send failure on the
-     * response frame was already non-fatal to frame dispatch before this
-     * fix; this change only changes what counts as "sent", not whether
-     * send failures propagate out of doip_handle_frame(). */
-    zassert_equal(rc, UDS_STATUS_OK, "handle_frame should still return OK");
+    /* [Issue #105 follow-up] A desynced connection must be reported, not
+     * silently swallowed — this is what lets eds_doip_server_run() close it. */
+    zassert_not_equal(rc, UDS_STATUS_OK,
+                       "a stalled send must be reported so the caller "
+                       "closes the connection, not silently absorbed");
 
-    /* Only the small positive ack (well within any reasonable retry bound
-     * even at 1 byte/call) should have completed — the ~4 KB response must
-     * NOT be counted as sent. */
-    zassert_equal(s.frames_sent, frames_sent_before + 1U,
-                  "only the positive ack should have completed; the large "
-                  "response must be reported as failed, not silently "
-                  "counted as sent");
+    /* Nothing completed against a peer accepting zero bytes — not even the
+     * small positive ack. */
+    zassert_equal(s.frames_sent, frames_sent_before,
+                  "no frame should count as sent against a peer accepting "
+                  "zero bytes");
 
-    /* The retry loop must have given up long before it would take to walk
-     * the full ~4 KB frame one byte at a time (~4012 calls) — proving the
-     * bound in doip_send_all() actually engaged rather than looping until
-     * the buffer was naturally exhausted. */
-    zassert_true(g_mock_send_call_count < 300,
-                 "tcp_send() was called far more than a bounded retry should "
-                 "allow — doip_send_all() looks unbounded");
+    /* Bounded: doip_send_all() must give up after a small, fixed number of
+     * no-progress calls (the ack alone hits the cap here, since it fails
+     * before the large response is ever attempted), not spin forever. */
+    zassert_true(g_mock_send_call_count > 0 && g_mock_send_call_count <= 200,
+                 "tcp_send() call count against a stalled peer should be "
+                 "small and bounded, not unbounded");
+}
+
+ZTEST(doip_server_suite, test_doip_short_write_slow_but_progressing_succeeds)
+{
+    /* [Issue #105 follow-up] A send that is merely SLOW — real Ethernet
+     * under congestion, legitimately delivering well under the requested
+     * length on every call, but always delivering *something* — must
+     * complete, even when it needs far more calls than a flat attempt
+     * budget would allow. Only a truly stalled connection (zero forward
+     * progress, see the test above) may ever be given up on.
+     *
+     * This is the exact scenario issue #105 was filed for. An earlier
+     * version of this fix counted every call — progress or not — against
+     * one flat cap (128 attempts): a ~4 KB response delivered at 24 bytes/
+     * call needs ~168 calls, comfortably more than that flat budget, so a
+     * perfectly healthy (if congested) connection would have had its
+     * response silently dropped. This test pins that it no longer does. */
+    setup_mock_platform();
+    uds_server_ctx_t *uds = init_uds_server_with_large_response();
+    doip_server_state_t s = init_state(0xE400U);
+
+    uint8_t ra_payload[7];
+    build_routing_req_payload(ra_payload, 0x0E00U, 0x00U);
+    (void)doip_handle_frame(&s, uds, DOIP_PT_ROUTING_ACT_REQ, ra_payload, 7U);
+
+    memset(g_mock_tx_buf, 0, sizeof(g_mock_tx_buf));
+    g_mock_tx_len          = 0U;
+    g_mock_send_call_count = 0;
+    g_mock_send_chunk_cap  = 24U; /* slow: 24B/call, always forward progress */
+
+    uint8_t diag_payload[7] = { 0x0E, 0x00, 0xE4, 0x00, 0x22, 0xF1, 0x90 };
+    uds_status_t rc = doip_handle_frame(&s, uds, DOIP_PT_DIAGNOSTIC_MSG,
+                                         diag_payload, 7U);
+    zassert_equal(rc, UDS_STATUS_OK,
+                  "a slow-but-always-progressing send must still succeed");
+
+    /* Confirms this test actually exercises the tight-margin boundary a
+     * flat attempt cap would have missed, not a case any cap would pass. */
+    zassert_true(g_mock_send_call_count > 128,
+                 "test should need more calls than a flat 128-attempt "
+                 "budget would allow, to actually prove the fix");
+
+    /* Same byte-identical reassembly check as the 64B-cap test above —
+     * correct framing and every payload byte, not just "some frame arrived". */
+    uint32_t ack_payload_len = read_be32(&g_mock_tx_buf[4]);
+    size_t   resp_frame_off  = (size_t)DOIP_HEADER_LEN + (size_t)ack_payload_len;
+    zassert_true(resp_frame_off + DOIP_HEADER_LEN <= g_mock_tx_len,
+                 "response frame header missing from captured stream");
+
+    uint16_t resp_type = read_be16(&g_mock_tx_buf[resp_frame_off + 2U]);
+    zassert_equal(resp_type, (uint16_t)DOIP_PT_DIAGNOSTIC_MSG,
+                  "expected a DiagnosticMessage response frame after the ack");
+
+    uint32_t resp_payload_len = read_be32(&g_mock_tx_buf[resp_frame_off + 4U]);
+    zassert_equal(resp_payload_len, (uint32_t)(TEST_LARGE_RESP_LEN + 4U),
+                  "response frame's declared payload length is wrong");
+
+    size_t resp_total = resp_frame_off + (size_t)DOIP_HEADER_LEN + (size_t)resp_payload_len;
+    zassert_equal(resp_total, g_mock_tx_len,
+                  "captured byte stream is shorter/longer than the full frame");
+
+    const uint8_t *uds_resp = &g_mock_tx_buf[resp_frame_off + DOIP_HEADER_LEN + 4U];
+    bool mismatch = false;
+    for (uint16_t i = 0U; i < (uint16_t)TEST_LARGE_RESP_LEN; i++) {
+        if (uds_resp[i] != (uint8_t)(i & 0xFFU)) {
+            mismatch = true;
+            break;
+        }
+    }
+    zassert_false(mismatch, "reassembled response is not byte-identical to what was sent");
 }
 
 ZTEST(doip_server_suite, test_doip_max_pdu_size_boundary)
@@ -1015,7 +1098,8 @@ void run_all_tests(void)
     RUN_TEST(doip_server_suite__test_doip_response_wraps_in_doip_frame);
     /* [Issue #105] doip_send_all() short-write regression tests */
     RUN_TEST(doip_server_suite__test_doip_short_write_reassembles_large_response);
-    RUN_TEST(doip_server_suite__test_doip_short_write_bounded_retry_gives_up);
+    RUN_TEST(doip_server_suite__test_doip_short_write_slow_but_progressing_succeeds);
+    RUN_TEST(doip_server_suite__test_doip_short_write_stalled_peer_bounded_retry_gives_up);
     RUN_TEST(doip_server_suite__test_doip_max_pdu_size_boundary);
     RUN_TEST(doip_server_suite__test_doip_handle_unknown_payload_type_ignored);
     /* NULL-pointer guards */

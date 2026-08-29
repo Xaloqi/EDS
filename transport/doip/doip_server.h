@@ -153,6 +153,14 @@ typedef struct eds_doip_platform_ops {
     /**
      * @brief Send data on an established TCP connection.
      *
+     * May transmit fewer bytes than requested (a short write) — the caller
+     * (doip_send_all() in doip_server.c) retries until the full buffer is
+     * sent. That retry loop assumes BLOCKING-socket semantics: each call
+     * either transmits >0 bytes, blocks until it can, or fails — it does
+     * not busy-return 0 to mean "nothing sent, try again later" the way a
+     * non-blocking socket's EWOULDBLOCK might. A non-blocking implementation
+     * of this callback is not supported as-is.
+     *
      * @param[in] conn_ctx  Connection handle from tcp_accept().
      * @param[in] data      Bytes to transmit.
      * @param[in] len       Number of bytes.
