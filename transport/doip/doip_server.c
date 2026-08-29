@@ -277,6 +277,12 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
         const uint8_t *uds_pdu = &payload[4];
         uint32_t uds_len   = payload_len - 4U;
 
+        /* [Issue #108] Capture the request's SID now, before req_buf/resp_buf
+         * are filled and (potentially) overwritten below — it is needed
+         * after dispatch to build a negative response if the dispatched
+         * response turns out too large to fit a DoIP frame. */
+        uint8_t original_sid = (uds_len >= 1U) ? uds_pdu[0] : 0U;
+
         /* Validate source matches activated tester */
         if (src_addr != s->tester_address) {
             (void)doip_send_diagnostic_negative_ack(s, DOIP_NACK_INVALID_SRC);
@@ -328,6 +334,44 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
             /* Encode DoIP Diagnostic Message response:
              * payload = our_logical_addr(2B) + tester_addr(2B) + UDS_resp(N) */
             uint32_t resp_payload_len = (uint32_t)resp_buf->length + 4U;
+
+            /* [Issue #108] The dispatched positive response does not fit
+             * this connection's DoIP frame budget (uds_msg_buf_t.data is
+             * sized up to UDS_MAX_PAYLOAD_LEN=4095 bytes, 11 bytes above
+             * what a DOIP_MAX_PDU_SIZE frame can carry after the 4-byte
+             * DoIP address header and DOIP_HEADER_LEN). The request's
+             * positive ack was already sent (ISO 13400-2 §9.5), so the
+             * tester is committed to waiting for a response frame here —
+             * dropping it silently just leaves the tester to time out on
+             * its own P2 timer. Downgrade to a UDS negative response
+             * (NRC 0x14 RESPONSE_TOO_LONG, ISO 14229-1) instead: it is
+             * always small (SID + 0x7F + original SID + NRC), so it is
+             * guaranteed to fit, and gives the tester a deterministic
+             * protocol-level rejection rather than silence.
+             *
+             * Deliberately NOT counted in ctx->negative_response_count: that
+             * counter lives in the UDS core (core/uds_server.c) and tracks
+             * outcomes of the *dispatch* itself (bad SID, access denied,
+             * handler error) — see uds_server_process_request(). Here,
+             * dispatch succeeded (dispatch_rc == UDS_STATUS_OK); the
+             * *transport* is what could not carry the result. Folding this
+             * in would blur two different failure classes behind one
+             * counter and would mean reaching into uds_server_ctx_t's
+             * internals from the transport layer, which this module
+             * otherwise never does (uds_ctx is always treated as opaque,
+             * passed only to uds_server_process_request()). */
+            if (resp_payload_len > (uint32_t)(DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN)) {
+                (void)uds_server_build_negative_response(original_sid,
+                                                          UDS_NRC_RESPONSE_TOO_LONG,
+                                                          resp_buf);
+                resp_payload_len = (uint32_t)resp_buf->length + 4U;
+            }
+            /* This guard now always holds once the downgrade above has run
+             * (the NRC PDU it builds is a fixed 3 bytes, well under budget);
+             * kept as an explicit, self-contained check anyway — rather than
+             * an `else`/unconditional fall-through — so this block's
+             * correctness never silently depends on that invariant holding
+             * elsewhere. */
             if (resp_payload_len <= (uint32_t)(DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN)) {
                 (void)doip_encode_header(s->tx_buf, DOIP_PT_DIAGNOSTIC_MSG,
                                          resp_payload_len);
