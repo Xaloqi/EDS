@@ -1140,15 +1140,501 @@ jobs:
             build/zephyr/zephyr.hex
             build/zephyr/zephyr.bin
 
-  # ── Job 9: BMS Zephyr build — native_sim ───────────────────────────────────
+  # ── Jobs: example ECU generated-file validation (issue #98) ────────────────
   #
-  # Builds the BMS example ECU firmware for the native_sim simulation target.
-  # Validates that the 24-DID BMS diagnostics_config.yaml produces firmware
-  # that compiles cleanly against the Zephyr build system.
+  # 7 of the 12 example ECUs under examples/ were never touched by any CI job
+  # before this — only basic_ecu, basic_ecu_doip, basic_ecu_freertos, and
+  # safeboot_freertos_ecu were covered. This is exactly how the O-27 drift
+  # went unnoticed for months: 4 of these 7 examples' committed generated/
+  # output was missing uds_comm_control_init() entirely (a real bug — every
+  # SID 0x28/0x85 request returned NRC 0x22), and nothing caught it.
   #
-  # Uses the same west setup as zephyr-native (Job 3) with the BMS example
-  # directory substituted as the application source.
+  # These jobs are ported from the equivalent, already-working example-*
+  # jobs in the private EDS-toolchain repo's own CI (which builds and tests
+  # these same 7 examples pre-codegen), adapted for this repo's checkout
+  # layout. They deliberately do NOT invoke west/Zephyr SDK or a FreeRTOS
+  # toolchain — that would duplicate what zephyr-native/zephyr-stm32/
+  # freertos-qemu already prove for basic_ecu, at real toolchain-install
+  # cost, for examples that don't need per-board cross-compile coverage to
+  # catch the class of bug that actually got through. Instead: YAML schema
+  # validity, presence of every generated file, the safety-critical markers
+  # that must appear in a correctly-generated uds_init.c, and DID-count
+  # consistency between the YAML and the generated headers via the existing
+  # scripts/verify_did_counts.py.
+  #
+  # [ISSUE-98 IMPROVEMENT] Adds one assertion the EDS-toolchain source jobs
+  # do not have: a direct check for `uds_comm_control_init()` in each
+  # example's generated uds_init.c. This is the exact marker whose absence
+  # was O-27 — verified locally that all 7 examples pass this check today,
+  # after O-27's regeneration fix (EDS#99). Worth back-porting to
+  # EDS-toolchain's own ci.yml separately; not done here (different repo).
   # ──────────────────────────────────────────────────────────────────────────
+
+  example-ardep:
+    name: "ARDEP ECU — generated file validation (35 DIDs)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python dependencies
+        run: pip install pyyaml
+      - name: Validate YAML schema
+        run: |
+          python3 - << 'EOF'
+          import yaml, sys
+          with open("examples/ardep_ecu/diagnostics_config.yaml") as f:
+              cfg = yaml.safe_load(f)
+          assert "metadata" in cfg, "missing metadata"
+          assert "dids" in cfg, "missing dids"
+          did_count = len(cfg["dids"])
+          print(f"PASS: YAML valid, {did_count} DIDs, "
+                f"{len(cfg.get('dtcs',[]))} DTCs, "
+                f"{len(cfg.get('routines',[]))} routines")
+          EOF
+      - name: Verify generated C/H files present
+        run: |
+          for f in \
+            examples/ardep_ecu/generated/uds_init.c \
+            examples/ardep_ecu/generated/uds_init.h \
+            examples/ardep_ecu/generated/did_handlers.c \
+            examples/ardep_ecu/generated/did_handlers.h \
+            examples/ardep_ecu/generated/did_safety_wrappers.c \
+            examples/ardep_ecu/generated/did_safety_wrappers.h \
+            examples/ardep_ecu/generated/safety_config.h \
+            examples/ardep_ecu/generated/generated_config.h; do
+            test -s "$f" && echo "OK: $f" || (echo "MISSING or EMPTY: $f" && exit 1)
+          done
+      - name: Assert safety markers in uds_init.c
+        run: |
+          grep -q "uds_safety_self_test()" examples/ardep_ecu/generated/uds_init.c \
+            && echo "PASS: uds_safety_self_test() present" \
+            || (echo "FAIL: uds_safety_self_test() MISSING" && exit 1)
+          grep -q "return self_test_rc" examples/ardep_ecu/generated/uds_init.c \
+            && echo "PASS: abort-on-failure guard present" \
+            || (echo "FAIL: abort-on-failure guard MISSING" && exit 1)
+          grep -q "keys_are_placeholder" examples/ardep_ecu/generated/uds_init.c \
+            && echo "PASS: placeholder key runtime guard present" \
+            || (echo "FAIL: placeholder key runtime guard MISSING" && exit 1)
+      - name: Assert uds_comm_control_init() present (issue #98 / O-27)
+        run: |
+          grep -q "uds_comm_control_init" examples/ardep_ecu/generated/uds_init.c \
+            && echo "PASS: uds_comm_control_init() present" \
+            || (echo "FAIL: uds_comm_control_init() MISSING — SID 0x28/0x85 will return NRC 0x22" && exit 1)
+      - name: Verify GEN_SAFETY_DID_COUNT matches YAML
+        run: |
+          python3 scripts/verify_did_counts.py \
+            --yaml          examples/ardep_ecu/diagnostics_config.yaml \
+            --safety-header examples/ardep_ecu/generated/safety_config.h \
+            --config-header examples/ardep_ecu/generated/generated_config.h
+      - name: Verify generated test files present
+        run: |
+          test -f examples/ardep_ecu/generated/tests/conftest.py \
+            && echo "OK: conftest.py" || (echo "MISSING: conftest.py" && exit 1)
+          test -f examples/ardep_ecu/generated/tests/test_services.py \
+            && echo "OK: test_services.py" || (echo "MISSING: test_services.py" && exit 1)
+          count=$(ls examples/ardep_ecu/generated/tests/test_did_*.py 2>/dev/null | wc -l)
+          echo "Per-DID test files: $count"
+          [ "$count" -ge 1 ] || (echo "FAIL: no per-DID test files" && exit 1)
+          echo "PASS: all test files present"
+
+  example-bms:
+    name: "BMS ECU — generated file validation (24 DIDs)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python dependencies
+        run: pip install pyyaml
+      - name: Validate YAML schema
+        run: |
+          python3 - << 'EOF'
+          import yaml, sys
+          with open("examples/bms_ecu/diagnostics_config.yaml") as f:
+              cfg = yaml.safe_load(f)
+          assert "metadata" in cfg and "dids" in cfg
+          print(f"PASS: YAML valid, {len(cfg['dids'])} DIDs, "
+                f"{len(cfg.get('dtcs',[]))} DTCs, "
+                f"{len(cfg.get('routines',[]))} routines")
+          EOF
+      - name: Verify generated C/H files present
+        run: |
+          for f in \
+            examples/bms_ecu/generated/uds_init.c \
+            examples/bms_ecu/generated/uds_init.h \
+            examples/bms_ecu/generated/did_handlers.c \
+            examples/bms_ecu/generated/did_handlers.h \
+            examples/bms_ecu/generated/did_safety_wrappers.c \
+            examples/bms_ecu/generated/did_safety_wrappers.h \
+            examples/bms_ecu/generated/safety_config.h \
+            examples/bms_ecu/generated/generated_config.h; do
+            test -s "$f" && echo "OK: $f" || (echo "MISSING or EMPTY: $f" && exit 1)
+          done
+      - name: Assert safety markers in uds_init.c
+        run: |
+          grep -q "uds_safety_self_test()" examples/bms_ecu/generated/uds_init.c \
+            && echo "PASS: uds_safety_self_test() present" \
+            || (echo "FAIL: uds_safety_self_test() MISSING" && exit 1)
+          grep -q "return self_test_rc" examples/bms_ecu/generated/uds_init.c \
+            && echo "PASS: abort-on-failure guard present" \
+            || (echo "FAIL: abort-on-failure guard MISSING" && exit 1)
+          grep -q "keys_are_placeholder" examples/bms_ecu/generated/uds_init.c \
+            && echo "PASS: placeholder key runtime guard present" \
+            || (echo "FAIL: placeholder key runtime guard MISSING" && exit 1)
+      - name: Assert uds_comm_control_init() present (issue #98 / O-27)
+        run: |
+          grep -q "uds_comm_control_init" examples/bms_ecu/generated/uds_init.c \
+            && echo "PASS: uds_comm_control_init() present" \
+            || (echo "FAIL: uds_comm_control_init() MISSING — SID 0x28/0x85 will return NRC 0x22" && exit 1)
+      - name: Verify GEN_SAFETY_DID_COUNT matches YAML
+        run: |
+          python3 scripts/verify_did_counts.py \
+            --yaml          examples/bms_ecu/diagnostics_config.yaml \
+            --safety-header examples/bms_ecu/generated/safety_config.h \
+            --config-header examples/bms_ecu/generated/generated_config.h
+      - name: Verify generated test files present
+        run: |
+          test -f examples/bms_ecu/generated/tests/conftest.py \
+            && echo "OK: conftest.py" || (echo "MISSING: conftest.py" && exit 1)
+          test -f examples/bms_ecu/generated/tests/test_services.py \
+            && echo "OK: test_services.py" || (echo "MISSING: test_services.py" && exit 1)
+          count=$(ls examples/bms_ecu/generated/tests/test_did_*.py 2>/dev/null | wc -l)
+          echo "Per-DID test files: $count"
+          [ "$count" -ge 1 ] || (echo "FAIL: no per-DID test files" && exit 1)
+          echo "PASS: all test files present"
+
+  example-motor:
+    name: "Motor Controller ECU — generated file validation (27 DIDs)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python dependencies
+        run: pip install pyyaml
+      - name: Validate YAML schema
+        run: |
+          python3 - << 'EOF'
+          import yaml, sys
+          with open("examples/motor_controller_ecu/diagnostics_config.yaml") as f:
+              cfg = yaml.safe_load(f)
+          assert "metadata" in cfg and "dids" in cfg
+          print(f"PASS: YAML valid, {len(cfg['dids'])} DIDs, "
+                f"{len(cfg.get('dtcs',[]))} DTCs, "
+                f"{len(cfg.get('routines',[]))} routines")
+          EOF
+      - name: Verify generated C/H files present
+        run: |
+          for f in \
+            examples/motor_controller_ecu/generated/uds_init.c \
+            examples/motor_controller_ecu/generated/uds_init.h \
+            examples/motor_controller_ecu/generated/did_handlers.c \
+            examples/motor_controller_ecu/generated/did_handlers.h \
+            examples/motor_controller_ecu/generated/did_safety_wrappers.c \
+            examples/motor_controller_ecu/generated/did_safety_wrappers.h \
+            examples/motor_controller_ecu/generated/safety_config.h \
+            examples/motor_controller_ecu/generated/generated_config.h; do
+            test -s "$f" && echo "OK: $f" || (echo "MISSING or EMPTY: $f" && exit 1)
+          done
+      - name: Assert safety markers in uds_init.c
+        run: |
+          grep -q "uds_safety_self_test()" examples/motor_controller_ecu/generated/uds_init.c \
+            && echo "PASS: uds_safety_self_test() present" \
+            || (echo "FAIL: uds_safety_self_test() MISSING" && exit 1)
+          grep -q "return self_test_rc" examples/motor_controller_ecu/generated/uds_init.c \
+            && echo "PASS: abort-on-failure guard present" \
+            || (echo "FAIL: abort-on-failure guard MISSING" && exit 1)
+          grep -q "keys_are_placeholder" examples/motor_controller_ecu/generated/uds_init.c \
+            && echo "PASS: placeholder key runtime guard present" \
+            || (echo "FAIL: placeholder key runtime guard MISSING" && exit 1)
+      - name: Assert uds_comm_control_init() present (issue #98 / O-27)
+        run: |
+          grep -q "uds_comm_control_init" examples/motor_controller_ecu/generated/uds_init.c \
+            && echo "PASS: uds_comm_control_init() present" \
+            || (echo "FAIL: uds_comm_control_init() MISSING — SID 0x28/0x85 will return NRC 0x22" && exit 1)
+      - name: Verify GEN_SAFETY_DID_COUNT matches YAML
+        run: |
+          python3 scripts/verify_did_counts.py \
+            --yaml          examples/motor_controller_ecu/diagnostics_config.yaml \
+            --safety-header examples/motor_controller_ecu/generated/safety_config.h \
+            --config-header examples/motor_controller_ecu/generated/generated_config.h
+      - name: Verify generated test files present
+        run: |
+          test -f examples/motor_controller_ecu/generated/tests/conftest.py \
+            && echo "OK: conftest.py" || (echo "MISSING: conftest.py" && exit 1)
+          test -f examples/motor_controller_ecu/generated/tests/test_services.py \
+            && echo "OK: test_services.py" || (echo "MISSING: test_services.py" && exit 1)
+          count=$(ls examples/motor_controller_ecu/generated/tests/test_did_*.py 2>/dev/null | wc -l)
+          echo "Per-DID test files: $count"
+          [ "$count" -ge 1 ] || (echo "FAIL: no per-DID test files" && exit 1)
+          echo "PASS: all test files present"
+
+  example-sensor:
+    name: "Sensor ECU — generated file validation (7 DIDs)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python dependencies
+        run: pip install pyyaml
+      - name: Validate YAML schema
+        run: |
+          python3 - << 'EOF'
+          import yaml, sys
+          with open("examples/sensor_ecu/diagnostics_config.yaml") as f:
+              cfg = yaml.safe_load(f)
+          assert "metadata" in cfg and "dids" in cfg
+          print(f"PASS: YAML valid, {len(cfg['dids'])} DIDs, "
+                f"{len(cfg.get('dtcs',[]))} DTCs, "
+                f"{len(cfg.get('routines',[]))} routines")
+          EOF
+      - name: Verify generated C/H files present
+        run: |
+          for f in \
+            examples/sensor_ecu/generated/uds_init.c \
+            examples/sensor_ecu/generated/uds_init.h \
+            examples/sensor_ecu/generated/did_handlers.c \
+            examples/sensor_ecu/generated/did_handlers.h \
+            examples/sensor_ecu/generated/did_safety_wrappers.c \
+            examples/sensor_ecu/generated/did_safety_wrappers.h \
+            examples/sensor_ecu/generated/safety_config.h \
+            examples/sensor_ecu/generated/generated_config.h; do
+            test -s "$f" && echo "OK: $f" || (echo "MISSING or EMPTY: $f" && exit 1)
+          done
+      - name: Assert safety markers in uds_init.c
+        run: |
+          grep -q "uds_safety_self_test()" examples/sensor_ecu/generated/uds_init.c \
+            && echo "PASS: uds_safety_self_test() present" \
+            || (echo "FAIL: uds_safety_self_test() MISSING" && exit 1)
+          grep -q "return self_test_rc" examples/sensor_ecu/generated/uds_init.c \
+            && echo "PASS: abort-on-failure guard present" \
+            || (echo "FAIL: abort-on-failure guard MISSING" && exit 1)
+          grep -q "keys_are_placeholder" examples/sensor_ecu/generated/uds_init.c \
+            && echo "PASS: placeholder key runtime guard present" \
+            || (echo "FAIL: placeholder key runtime guard MISSING" && exit 1)
+      - name: Assert uds_comm_control_init() present (issue #98 / O-27)
+        run: |
+          grep -q "uds_comm_control_init" examples/sensor_ecu/generated/uds_init.c \
+            && echo "PASS: uds_comm_control_init() present" \
+            || (echo "FAIL: uds_comm_control_init() MISSING — SID 0x28/0x85 will return NRC 0x22" && exit 1)
+      - name: Verify GEN_SAFETY_DID_COUNT matches YAML
+        run: |
+          python3 scripts/verify_did_counts.py \
+            --yaml          examples/sensor_ecu/diagnostics_config.yaml \
+            --safety-header examples/sensor_ecu/generated/safety_config.h \
+            --config-header examples/sensor_ecu/generated/generated_config.h
+      - name: Verify generated test files present
+        run: |
+          test -f examples/sensor_ecu/generated/tests/conftest.py \
+            && echo "OK: conftest.py" || (echo "MISSING: conftest.py" && exit 1)
+          test -f examples/sensor_ecu/generated/tests/test_services.py \
+            && echo "OK: test_services.py" || (echo "MISSING: test_services.py" && exit 1)
+          count=$(ls examples/sensor_ecu/generated/tests/test_did_*.py 2>/dev/null | wc -l)
+          echo "Per-DID test files: $count"
+          [ "$count" -ge 1 ] || (echo "FAIL: no per-DID test files" && exit 1)
+          echo "PASS: all test files present"
+
+  example-sensor-frtos:
+    name: "Sensor ECU FreeRTOS — generated file validation (7 DIDs)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python dependencies
+        run: pip install pyyaml
+      - name: Validate YAML schema
+        run: |
+          python3 - << 'EOF'
+          import yaml, sys
+          with open("examples/sensor_ecu_freertos/diagnostics_config.yaml") as f:
+              cfg = yaml.safe_load(f)
+          assert "metadata" in cfg and "dids" in cfg
+          print(f"PASS: YAML valid, {len(cfg['dids'])} DIDs, "
+                f"{len(cfg.get('dtcs',[]))} DTCs, "
+                f"{len(cfg.get('routines',[]))} routines")
+          EOF
+      - name: Verify generated C/H files present
+        run: |
+          for f in \
+            examples/sensor_ecu_freertos/generated/uds_init.c \
+            examples/sensor_ecu_freertos/generated/uds_init.h \
+            examples/sensor_ecu_freertos/generated/did_handlers.c \
+            examples/sensor_ecu_freertos/generated/did_handlers.h \
+            examples/sensor_ecu_freertos/generated/did_safety_wrappers.c \
+            examples/sensor_ecu_freertos/generated/did_safety_wrappers.h \
+            examples/sensor_ecu_freertos/generated/safety_config.h \
+            examples/sensor_ecu_freertos/generated/generated_config.h; do
+            test -s "$f" && echo "OK: $f" || (echo "MISSING or EMPTY: $f" && exit 1)
+          done
+      - name: Assert safety markers in uds_init.c
+        run: |
+          grep -q "uds_safety_self_test()" examples/sensor_ecu_freertos/generated/uds_init.c \
+            && echo "PASS: uds_safety_self_test() present" \
+            || (echo "FAIL: uds_safety_self_test() MISSING" && exit 1)
+          grep -q "return self_test_rc" examples/sensor_ecu_freertos/generated/uds_init.c \
+            && echo "PASS: abort-on-failure guard present" \
+            || (echo "FAIL: abort-on-failure guard MISSING" && exit 1)
+          grep -q "keys_are_placeholder" examples/sensor_ecu_freertos/generated/uds_init.c \
+            && echo "PASS: placeholder key runtime guard present" \
+            || (echo "FAIL: placeholder key runtime guard MISSING" && exit 1)
+      - name: Assert uds_comm_control_init() present (issue #98 / O-27)
+        run: |
+          grep -q "uds_comm_control_init" examples/sensor_ecu_freertos/generated/uds_init.c \
+            && echo "PASS: uds_comm_control_init() present" \
+            || (echo "FAIL: uds_comm_control_init() MISSING — SID 0x28/0x85 will return NRC 0x22" && exit 1)
+      - name: Verify GEN_SAFETY_DID_COUNT matches YAML
+        run: |
+          python3 scripts/verify_did_counts.py \
+            --yaml          examples/sensor_ecu_freertos/diagnostics_config.yaml \
+            --safety-header examples/sensor_ecu_freertos/generated/safety_config.h \
+            --config-header examples/sensor_ecu_freertos/generated/generated_config.h
+      - name: Verify generated test files present
+        run: |
+          test -f examples/sensor_ecu_freertos/generated/tests/conftest.py \
+            && echo "OK: conftest.py" || (echo "MISSING: conftest.py" && exit 1)
+          test -f examples/sensor_ecu_freertos/generated/tests/test_services.py \
+            && echo "OK: test_services.py" || (echo "MISSING: test_services.py" && exit 1)
+          count=$(ls examples/sensor_ecu_freertos/generated/tests/test_did_*.py 2>/dev/null | wc -l)
+          echo "Per-DID test files: $count"
+          [ "$count" -ge 1 ] || (echo "FAIL: no per-DID test files" && exit 1)
+          echo "PASS: all test files present"
+
+  example-robot:
+    name: "Robot Joint Controller ECU — generated file validation (10 DIDs)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python dependencies
+        run: pip install pyyaml
+      - name: Validate YAML schema
+        run: |
+          python3 - << 'EOF'
+          import yaml, sys
+          with open("examples/robot_joint_controller_ecu/diagnostics_config.yaml") as f:
+              cfg = yaml.safe_load(f)
+          assert "metadata" in cfg and "dids" in cfg
+          print(f"PASS: YAML valid, {len(cfg['dids'])} DIDs, "
+                f"{len(cfg.get('dtcs',[]))} DTCs, "
+                f"{len(cfg.get('routines',[]))} routines")
+          EOF
+      - name: Verify generated C/H files present
+        run: |
+          for f in \
+            examples/robot_joint_controller_ecu/generated/uds_init.c \
+            examples/robot_joint_controller_ecu/generated/uds_init.h \
+            examples/robot_joint_controller_ecu/generated/did_handlers.c \
+            examples/robot_joint_controller_ecu/generated/did_handlers.h \
+            examples/robot_joint_controller_ecu/generated/did_safety_wrappers.c \
+            examples/robot_joint_controller_ecu/generated/did_safety_wrappers.h \
+            examples/robot_joint_controller_ecu/generated/safety_config.h \
+            examples/robot_joint_controller_ecu/generated/generated_config.h; do
+            test -s "$f" && echo "OK: $f" || (echo "MISSING or EMPTY: $f" && exit 1)
+          done
+      - name: Assert safety markers in uds_init.c
+        run: |
+          grep -q "uds_safety_self_test()" examples/robot_joint_controller_ecu/generated/uds_init.c \
+            && echo "PASS: uds_safety_self_test() present" \
+            || (echo "FAIL: uds_safety_self_test() MISSING" && exit 1)
+          grep -q "return self_test_rc" examples/robot_joint_controller_ecu/generated/uds_init.c \
+            && echo "PASS: abort-on-failure guard present" \
+            || (echo "FAIL: abort-on-failure guard MISSING" && exit 1)
+          grep -q "keys_are_placeholder" examples/robot_joint_controller_ecu/generated/uds_init.c \
+            && echo "PASS: placeholder key runtime guard present" \
+            || (echo "FAIL: placeholder key runtime guard MISSING" && exit 1)
+      - name: Assert uds_comm_control_init() present (issue #98 / O-27)
+        run: |
+          grep -q "uds_comm_control_init" examples/robot_joint_controller_ecu/generated/uds_init.c \
+            && echo "PASS: uds_comm_control_init() present" \
+            || (echo "FAIL: uds_comm_control_init() MISSING — SID 0x28/0x85 will return NRC 0x22" && exit 1)
+      - name: Verify GEN_SAFETY_DID_COUNT matches YAML
+        run: |
+          python3 scripts/verify_did_counts.py \
+            --yaml          examples/robot_joint_controller_ecu/diagnostics_config.yaml \
+            --safety-header examples/robot_joint_controller_ecu/generated/safety_config.h \
+            --config-header examples/robot_joint_controller_ecu/generated/generated_config.h
+      - name: Verify generated test files present
+        run: |
+          test -f examples/robot_joint_controller_ecu/generated/tests/conftest.py \
+            && echo "OK: conftest.py" || (echo "MISSING: conftest.py" && exit 1)
+          test -f examples/robot_joint_controller_ecu/generated/tests/test_services.py \
+            && echo "OK: test_services.py" || (echo "MISSING: test_services.py" && exit 1)
+          count=$(ls examples/robot_joint_controller_ecu/generated/tests/test_did_*.py 2>/dev/null | wc -l)
+          echo "Per-DID test files: $count"
+          [ "$count" -ge 1 ] || (echo "FAIL: no per-DID test files" && exit 1)
+          echo "PASS: all test files present"
+
+  example-safeboot:
+    name: "SafeBoot ECU — generated file validation (5 DIDs)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python dependencies
+        run: pip install pyyaml
+      - name: Validate YAML schema
+        run: |
+          python3 - << 'EOF'
+          import yaml, sys
+          with open("examples/safeboot_ecu/diagnostics_config.yaml") as f:
+              cfg = yaml.safe_load(f)
+          assert "metadata" in cfg and "dids" in cfg
+          safeboot = cfg.get("safeboot", {})
+          print(f"PASS: YAML valid, {len(cfg['dids'])} DIDs, "
+                f"safeboot.enabled={safeboot.get('enabled', False)}")
+          EOF
+      - name: Verify generated C/H files present
+        run: |
+          for f in \
+            examples/safeboot_ecu/generated/uds_init.c \
+            examples/safeboot_ecu/generated/uds_init.h \
+            examples/safeboot_ecu/generated/did_handlers.c \
+            examples/safeboot_ecu/generated/did_handlers.h \
+            examples/safeboot_ecu/generated/did_safety_wrappers.c \
+            examples/safeboot_ecu/generated/did_safety_wrappers.h \
+            examples/safeboot_ecu/generated/safety_config.h \
+            examples/safeboot_ecu/generated/generated_config.h; do
+            test -s "$f" && echo "OK: $f" || (echo "MISSING or EMPTY: $f" && exit 1)
+          done
+      - name: Assert safety markers in uds_init.c
+        run: |
+          grep -q "uds_safety_self_test()" examples/safeboot_ecu/generated/uds_init.c \
+            && echo "PASS: uds_safety_self_test() present" \
+            || (echo "FAIL: uds_safety_self_test() MISSING" && exit 1)
+          grep -q "return self_test_rc" examples/safeboot_ecu/generated/uds_init.c \
+            && echo "PASS: abort-on-failure guard present" \
+            || (echo "FAIL: abort-on-failure guard MISSING" && exit 1)
+          grep -q "keys_are_placeholder" examples/safeboot_ecu/generated/uds_init.c \
+            && echo "PASS: placeholder key runtime guard present" \
+            || (echo "FAIL: placeholder key runtime guard MISSING" && exit 1)
+      - name: Assert uds_comm_control_init() present (issue #98 / O-27)
+        run: |
+          grep -q "uds_comm_control_init" examples/safeboot_ecu/generated/uds_init.c \
+            && echo "PASS: uds_comm_control_init() present" \
+            || (echo "FAIL: uds_comm_control_init() MISSING — SID 0x28/0x85 will return NRC 0x22" && exit 1)
+      - name: Assert safeboot block present in YAML
+        run: |
+          python3 - << 'EOF'
+          import yaml, sys
+          with open("examples/safeboot_ecu/diagnostics_config.yaml") as f:
+              cfg = yaml.safe_load(f)
+          sb = cfg.get("safeboot", {})
+          if not sb.get("enabled"):
+              print("FAIL: safeboot.enabled is not true in safeboot_ecu YAML")
+              sys.exit(1)
+          print(f"PASS: safeboot.enabled=true, max_block_length={sb.get('max_block_length')}")
+          EOF
+      - name: Verify GEN_SAFETY_DID_COUNT matches YAML
+        run: |
+          python3 scripts/verify_did_counts.py \
+            --yaml          examples/safeboot_ecu/diagnostics_config.yaml \
+            --safety-header examples/safeboot_ecu/generated/safety_config.h \
+            --config-header examples/safeboot_ecu/generated/generated_config.h
+      - name: Verify generated test files present
+        run: |
+          test -f examples/safeboot_ecu/generated/tests/conftest.py \
+            && echo "OK: conftest.py" || (echo "MISSING: conftest.py" && exit 1)
+          test -f examples/safeboot_ecu/generated/tests/test_services.py \
+            && echo "OK: test_services.py" || (echo "MISSING: test_services.py" && exit 1)
+          echo "PASS: safeboot test files present"
 
   freertos-qemu:
     name: "FreeRTOS Build — QEMU ARM Cortex-M4"
