@@ -11,7 +11,8 @@
  *          This is the firmware counterpart to xaloqi-tester DoipBus (Python).
  *
  *          Supported in v1.7.0:
- *            - TCP connection accept (up to DOIP_MAX_CONNECTIONS)
+ *            - TCP connection accept (one active connection at a time,
+ *              served serially — see DOIP_MAX_CONNECTIONS below)
  *            - Routing Activation Request/Response (Default type 0x00)
  *            - UDS DiagnosticMessage (0x8001): receive, dispatch, respond
  *            - DiagnosticMessage Positive Ack (0x8002)
@@ -92,7 +93,11 @@ extern "C" {
 #define DOIP_MAX_PDU_SIZE       (4096U)
 #endif
 
-/** Maximum concurrent TCP clients accepted. */
+/** TCP listen() backlog — the number of pending inbound connections the
+ * platform accept queue will hold. This is NOT the number of connections
+ * served concurrently: eds_doip_server_run() handles one connection at a
+ * time (serial model, see eds_doip_server_run() below) — a queued client
+ * waits until the current one closes before tcp_accept() picks it up. */
 #ifndef DOIP_MAX_CONNECTIONS
 #define DOIP_MAX_CONNECTIONS    (4U)
 #endif
@@ -147,6 +152,14 @@ typedef struct eds_doip_platform_ops {
 
     /**
      * @brief Send data on an established TCP connection.
+     *
+     * May transmit fewer bytes than requested (a short write) — the caller
+     * (doip_send_all() in doip_server.c) retries until the full buffer is
+     * sent. That retry loop assumes BLOCKING-socket semantics: each call
+     * either transmits >0 bytes, blocks until it can, or fails — it does
+     * not busy-return 0 to mean "nothing sent, try again later" the way a
+     * non-blocking socket's EWOULDBLOCK might. A non-blocking implementation
+     * of this callback is not supported as-is.
      *
      * @param[in] conn_ctx  Connection handle from tcp_accept().
      * @param[in] data      Bytes to transmit.

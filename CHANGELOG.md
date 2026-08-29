@@ -8,6 +8,40 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **DoIP: `tcp_send()` short writes were treated as a complete send, silently
+  truncating frames on real Ethernet.** (#105) Both call sites in
+  `transport/doip/doip_server.c` accepted any positive return from
+  `tcp_send()` as "fully sent" — but POSIX `send()` (and the LwIP/FreeRTOS
+  backends behind `eds_doip_platform_ops_t`) may legally transmit fewer
+  bytes than requested. The remainder was then silently dropped, producing
+  a truncated DoIP frame on the wire. This never reproduced on
+  loopback/`native_sim`, where a single `tcp_send()` call virtually always
+  accepts the whole buffer — it surfaces on real Ethernet under congestion,
+  with large diagnostic responses (up to ~4 KB), or against a stricter TCP
+  stack. Added `doip_send_all()`, a bounded retry loop used at both call
+  sites that keeps calling `tcp_send()` until the full buffer is on the
+  wire. The bound counts only *consecutive no-progress* calls (128 in a
+  row returning `<= 0`) against a give-up threshold, not total call count —
+  a merely slow connection that keeps delivering some bytes every call,
+  however few, is never killed by this bound and always completes; only a
+  genuinely wedged peer (zero bytes accepted, repeatedly) does. (An earlier
+  iteration of this fix counted every call — progress or not — against one
+  flat 128-attempt cap, which could itself have dropped a perfectly good
+  response under real Ethernet congestion — exactly the scenario this issue
+  was filed for; caught in review before merge.) When `doip_send_all()`
+  does give up, `doip_handle_frame()` now reports the failure so
+  `eds_doip_server_run()` closes the connection via its existing cleanup
+  path, instead of leaving a peer waiting on a partial/desynced frame that
+  will never fully arrive. New unit tests give `mock_tcp_send()` a
+  configurable per-call byte cap (and a dedicated "always stalls" mode) to
+  simulate short writes, and assert: a large response reassembles
+  byte-identical under a comfortable 64B/call cap; a *slow but always
+  progressing* 24B/call send still succeeds even though it needs more than
+  128 calls; and a truly stalled peer is bounded and reported as a failure
+  the caller must close the connection over.
+
 ## [1.11.0] — 2026-08-29
 
 ### Security

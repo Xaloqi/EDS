@@ -60,6 +60,9 @@ static uds_status_t doip_send_frame(doip_server_state_t *s,
                                      uint16_t payload_type,
                                      const uint8_t *payload,
                                      uint32_t payload_len);
+static uds_status_t doip_send_all(doip_server_state_t *s,
+                                   const uint8_t *buf,
+                                   size_t len);
 
 /* ---------------------------------------------------------------------------
  * Frame byte layout helpers
@@ -292,8 +295,19 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
             return UDS_STATUS_OK;
         }
 
-        /* Send positive ack before dispatching (ISO 13400-2 §9.5) */
-        (void)doip_send_diagnostic_positive_ack(s, src_addr, tgt_addr);
+        /* Send positive ack before dispatching (ISO 13400-2 §9.5).
+         *
+         * [Issue #105 follow-up] A failed/partial ack send leaves this
+         * connection's byte stream desynced — the peer may have received
+         * only part of a frame, with more of it never coming. Propagate
+         * the failure so the caller (eds_doip_server_run()) tears the
+         * connection down via its one existing close path, rather than
+         * dispatch a UDS request on a connection that's already corrupt. */
+        uds_status_t ack_rc = doip_send_diagnostic_positive_ack(s, src_addr, tgt_addr);
+        if (ack_rc != UDS_STATUS_OK) {
+            s->frames_received++;
+            return UDS_STATUS_ERR_PLATFORM;
+        }
 
         /* --- Assemble request into uds_msg_buf_t and dispatch --- */
         /* Use the static buffers in doip_server_state_t — no stack allocation
@@ -309,6 +323,7 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
         uds_status_t dispatch_rc = uds_server_process_request(uds_ctx,
                                                                req_buf,
                                                                resp_buf);
+        uds_status_t resp_send_rc = UDS_STATUS_OK;
         if (dispatch_rc == UDS_STATUS_OK && resp_buf->length > 0U) {
             /* Encode DoIP Diagnostic Message response:
              * payload = our_logical_addr(2B) + tester_addr(2B) + UDS_resp(N) */
@@ -324,10 +339,9 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
                              resp_buf->data,
                              (size_t)resp_buf->length);
 
-                int send_rc = s_ops->tcp_send(s->conn_ctx,
-                                              s->tx_buf,
-                                              (size_t)(DOIP_HEADER_LEN + resp_payload_len));
-                if (send_rc > 0) {
+                resp_send_rc = doip_send_all(
+                    s, s->tx_buf, (size_t)(DOIP_HEADER_LEN + resp_payload_len));
+                if (resp_send_rc == UDS_STATUS_OK) {
                     s->frames_sent++;
                 }
             }
@@ -336,6 +350,15 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
          * no response frame is sent (ISO 14229-1 §7.5.2.4). This is
          * handled inside uds_server_process_request — resp_buf->length == 0. */
         s->frames_received++;
+
+        /* [Issue #105 follow-up] Same reasoning as the ack above: a failed
+         * response send can leave a partial DoIP frame on the wire, so the
+         * connection must be torn down rather than left open — the peer
+         * would otherwise wait on bytes that are never coming, or misparse
+         * whatever arrives next as a continuation of this frame. */
+        if (resp_send_rc != UDS_STATUS_OK) {
+            return UDS_STATUS_ERR_PLATFORM;
+        }
         return UDS_STATUS_OK;
     }
 
@@ -433,9 +456,22 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
             }
 
             /* --- Dispatch --- */
-            (void)doip_handle_frame(s, uds_ctx, payload_type,
-                                     (payload_len > 0U) ? s->rx_buf : NULL,
-                                     payload_len);
+            uds_status_t dispatch_status = doip_handle_frame(
+                s, uds_ctx, payload_type,
+                (payload_len > 0U) ? s->rx_buf : NULL,
+                payload_len);
+            if (dispatch_status != UDS_STATUS_OK) {
+                /* [Issue #105 follow-up] doip_handle_frame() reports non-OK
+                 * here only when a response send inside it failed (s and
+                 * uds_ctx are already validated non-NULL above, so the
+                 * NULL-guard paths cannot fire from this call site) —
+                 * doip_send_all() gave up on a stalled peer, or a partial
+                 * send left the byte stream desynced. Either way the
+                 * connection is no longer trustworthy: close it via the
+                 * same cleanup path used for recv failures and malformed
+                 * headers, rather than keep reading frames on it. */
+                goto connection_closed;
+            }
         }
 
 connection_closed:
@@ -454,6 +490,69 @@ connection_closed:
  * Internal: send helpers — all build in s->tx_buf to avoid stack allocation
  * ------------------------------------------------------------------------ */
 
+/* Maximum CONSECUTIVE no-progress tcp_send() calls (return <= 0) that
+ * doip_send_all() will tolerate before giving up.
+ *
+ * Deliberately NOT a cap on the total number of calls: a call that sends
+ * at least one byte, however few, resets this counter to zero and does not
+ * count against it. A merely SLOW connection — real Ethernet under
+ * congestion, legitimately delivering well under the requested length per
+ * call but always delivering *something* — is bounded only by the frame
+ * length itself (every successful call advances by >=1 byte, so the loop
+ * always terminates for a healthy link, however long it takes) and can
+ * never be killed here. Only a connection that is genuinely stalled —
+ * DOIP_SEND_ALL_MAX_STALLS calls in a row that accept zero bytes or error
+ * out — hits this cap, so a wedged/broken peer still cannot spin the UDS
+ * task forever. (An earlier version of this fix counted every call,
+ * progress or not, against one flat cap — that could drop a perfectly
+ * good response under exactly the "real Ethernet under congestion"
+ * scenario issue #105 was filed for; see the PR discussion.) */
+#define DOIP_SEND_ALL_MAX_STALLS (128U)
+
+/* Retry tcp_send() until len bytes of buf are on the wire, or a hard error /
+ * stalled peer is detected.
+ *
+ * POSIX send() (and the LwIP/FreeRTOS backends behind
+ * eds_doip_platform_ops_t) may legally transmit fewer bytes than requested
+ * on a single call — this is not a socket error. Treating any positive
+ * return as "fully sent" silently drops the remainder, producing a
+ * truncated DoIP frame on the wire: the DoIP header advertises a payload
+ * length the peer never fully receives. This will not reproduce on
+ * loopback/native_sim, where the socket buffer virtually always accepts the
+ * whole write in one call — it surfaces on real Ethernet under congestion,
+ * with large diagnostic responses, or against a stricter TCP stack.
+ *
+ * This loop assumes tcp_send() has BLOCKING-socket semantics (each call
+ * either transmits >0 bytes, blocks, or fails — it does not busy-return 0
+ * to mean "would block"); every current backend (Zephyr/LwIP, FreeRTOS/
+ * LwIP) is blocking. A non-blocking backend that returns 0 for "try again
+ * later" would busy-spin this loop against DOIP_SEND_ALL_MAX_STALLS instead
+ * of yielding — not addressed here, since no such backend exists today.
+ *
+ * Bounded by DOIP_SEND_ALL_MAX_STALLS consecutive no-progress calls — see
+ * that macro's doc comment for why total call count is not the bound. */
+static uds_status_t doip_send_all(doip_server_state_t *s, const uint8_t *buf, size_t len)
+{
+    size_t   sent   = 0U;
+    uint32_t stalls = 0U;
+
+    while (sent < len) {
+        int n = s_ops->tcp_send(s->conn_ctx, &buf[sent], len - sent);
+        if (n > 0) {
+            sent  += (size_t)n;
+            stalls = 0U;
+            continue;
+        }
+
+        /* No bytes accepted this call (or a hard error) — retry, bounded. */
+        stalls++;
+        if (stalls >= DOIP_SEND_ALL_MAX_STALLS) {
+            return UDS_STATUS_ERR_PLATFORM;
+        }
+    }
+    return UDS_STATUS_OK;
+}
+
 static uds_status_t doip_send_frame(doip_server_state_t *s,
                                      uint16_t payload_type,
                                      const uint8_t *payload,
@@ -467,14 +566,12 @@ static uds_status_t doip_send_frame(doip_server_state_t *s,
     if (payload != NULL && payload_len > 0U) {
         (void)memcpy(&s->tx_buf[DOIP_HEADER_LEN], payload, (size_t)payload_len);
     }
-    int rc = s_ops->tcp_send(s->conn_ctx,
-                              s->tx_buf,
-                              (size_t)(DOIP_HEADER_LEN + payload_len));
-    if (rc > 0) {
+    uds_status_t rc = doip_send_all(s, s->tx_buf,
+                                     (size_t)(DOIP_HEADER_LEN + payload_len));
+    if (rc == UDS_STATUS_OK) {
         s->frames_sent++;
-        return UDS_STATUS_OK;
     }
-    return UDS_STATUS_ERR_PLATFORM;
+    return rc;
 }
 
 static uds_status_t doip_send_routing_activation_response(doip_server_state_t *s,
