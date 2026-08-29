@@ -497,10 +497,21 @@ static uds_msg_buf_t s_poll_resp_buf;
  *
  * Runs in the context of the UDS poll task. s_poll_req_buf and s_poll_resp_buf
  * are module-level statics — no concurrent access from other tasks or ISRs.
+ *
+ * [#96 FIX] `length` widened from uint16_t to uint32_t to match
+ * isotp_rx_complete_cb's typedef (transport/isotp.h) exactly. The narrower
+ * parameter made this a function-pointer signature mismatch at the
+ * isotp_process_rx_frame() call site below — a real
+ * -Wincompatible-pointer-types error on GCC 14+, silently downgraded to a
+ * warning by the older gcc-arm-none-eabi CI is pinned to
+ * (cmake/toolchain/arm-none-eabi.cmake), which is why it was never caught.
+ * s_poll_req_buf.length (uint16_t) is unaffected: the existing
+ * UDS_MAX_PAYLOAD_LEN (4095) bounds check below already rejects anything
+ * that wouldn't fit before the narrowing assignment, now made explicit.
  */
 static void eds_on_isotp_rx_complete(
     const uint8_t *data,
-    uint16_t       length,
+    uint32_t       length,
     void          *arg)
 {
     uds_server_ctx_t *srv = (uds_server_ctx_t *)arg;
@@ -512,14 +523,14 @@ static void eds_on_isotp_rx_complete(
         return;
     }
 
-    if ((length == (uint16_t)0U) || (length > (uint16_t)UDS_MAX_PAYLOAD_LEN)) {
+    if ((length == (uint32_t)0U) || (length > (uint32_t)UDS_MAX_PAYLOAD_LEN)) {
         return;
     }
 
-    for (i = (uint16_t)0U; i < length; i++) {
+    for (i = (uint16_t)0U; i < (uint16_t)length; i++) {
         s_poll_req_buf.data[i] = data[i];
     }
-    s_poll_req_buf.length  = length;
+    s_poll_req_buf.length  = (uint16_t)length;
     s_poll_resp_buf.length = (uint16_t)0U;
 
     status = uds_server_process_request(srv, &s_poll_req_buf, &s_poll_resp_buf);
