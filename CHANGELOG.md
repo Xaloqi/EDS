@@ -37,6 +37,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DoIP: a UDS response of 4085–4095 bytes was silently dropped — no frame,
+  not even a negative response.** (#108) `uds_msg_buf_t.data` is sized
+  `UDS_MAX_PAYLOAD_LEN` (4095), eleven bytes above the DoIP frame budget
+  (`DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN` = 4088, of which 4 are the response
+  addressing header, leaving 4084 usable). A service handler that legitimately
+  filled its response buffer into that range fell through
+  `doip_handle_frame()`'s `DOIP_PT_DIAGNOSTIC_MSG` send guard entirely. Because
+  the positive ack for the *request* had already gone out (ISO 13400-2 §9.5),
+  the tester was left to time out on its own P2 timer with no protocol-level
+  rejection — while the request-side equivalent, `DOIP_NACK_MSG_TOO_LARGE`,
+  has always existed for oversized *requests*. An oversized response is now
+  downgraded in place via `uds_server_build_negative_response()` to a UDS 0x7F
+  carrying NRC 0x14 (`responseTooLong`, ISO 14229-1), which always fits, and
+  sent through the existing encode/send path; the original request's SID is
+  captured before the buffers are reused so the NRC echoes it correctly.
+  Deliberately does not increment `ctx->negative_response_count` — that counter
+  tracks *dispatch* outcomes, and here dispatch succeeded and the transport
+  could not carry the result, a different failure class. Three regression tests
+  cover the dead zone (4090 B), the unchanged boundary (4084 B, byte-exact
+  positive response) and the new edge (4085 B), and were verified non-vacuous
+  by mutating the fix's boundary condition. Fixed in #109; this entry was
+  missed at merge time.
+
 - **DTC NVM mirror: no integrity check — a truncated/corrupted record
   degraded to silent partial success.** (#114) `config/dtc_mirror.c`'s
   on-disk format was just a 2-byte entry count followed by fixed-size
