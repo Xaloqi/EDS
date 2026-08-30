@@ -1,7 +1,9 @@
 # Phase 1 — Production Security Hardening
 
 ## Change Record
-## Historical record. Current unit test count: 36. See TESTING_STRATEGY.md.
+> **Historical record.** The counts below describe Phase 1 as it stood at the
+> time and are deliberately not updated. For the current unit-test count see
+> [TESTING_STRATEGY.md](TESTING_STRATEGY.md).
 
 **Phase:** 1 (Security Hardening)  
 **Baseline:** Phase 6B (post housekeeping)  

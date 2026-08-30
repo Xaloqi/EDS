@@ -243,7 +243,7 @@ jobs:
 
   # ── Job 1: Host unit tests ─────────────────────────────────────────────────
   unit-tests:
-    name: "Unit Tests (44 modules)"
+    name: "Unit Tests"
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -274,6 +274,13 @@ jobs:
           echo "$result"
           echo "$result" | grep -q "44 passed, 0 failed" || \
             (echo "ERROR: Expected '44 passed, 0 failed'" && exit 1)
+
+      # [#119] Prose-side counterpart of the step above. The step above keeps
+      # this workflow honest about the module count; nothing used to keep the
+      # docs honest, and they drifted to 42/35 against an actual 43 while
+      # pointing at a scripts/build_tests.sh that has never existed.
+      - name: Verify docs agree with the real test count
+        run: python3 scripts/verify_doc_counts.py
 
       - name: Verify pre-committed test files present
         run: |

@@ -587,28 +587,40 @@ The first five examples ship with committed generated output (DID handlers, safe
 
 ## 13. CI Pipeline (`.github/workflows/ci.yml`)
 
-16 jobs run on every push and pull request:
+The `jobs:` block in `.github/workflows/ci.yml` is the authoritative list —
+the job count is deliberately not restated here, because a hand-maintained
+number drifts (this section once claimed 16 jobs and named ten that no longer
+exist; see #91 and #119). Each job's `name:` is what appears as a status check
+on a pull request:
 
-| Job | What it validates |
+| Job | Status-check name |
 |---|---|
-| `unit-tests` | All 43 Unity unit test modules (host-native, no Zephyr SDK) |
-| `integration-tests` | Generated pytest suite in simulator mode |
-| `firmware-integration-tests` | pytest + per-routine tests against compiled firmware |
-| `static-analysis` | GCC `-fanalyzer` + MISRA cppcheck (zero errors) |
-| `gui-build` | TypeScript typecheck + Vite production build |
-| `zephyr-native` | `west build -b native_sim` (basic\_ecu) |
-| `zephyr-stm32` | Cross-compile for Nucleo-H743ZI2 (basic\_ecu) |
-| `ardep-example` | ARDEP codegen + simulator tests (35 DIDs, 19 DTCs) |
-| `bms-example` | BMS codegen + simulator tests (24 DIDs, 10 DTCs) |
-| `bms-zephyr-native` | `west build -b native_sim` (bms\_ecu) |
-| `mc-example` | Motor controller codegen + simulator tests (27 DIDs) |
-| `mc-zephyr-native` | `west build -b native_sim` (motor\_controller\_ecu) |
-| `sensor-example` | SensorECU codegen + generated file check (7 DIDs, 4 DTCs) |
-| `robotics-example` | Robot Joint Controller codegen + generated file check |
-| `safeboot-example` | SafeBootECU: verifies `zephyr_flash_ops_init()` generated when enabled; regression check that `basic_ecu` does not generate it |
-| `freertos-qemu` | FreeRTOS ARM cross-compile for QEMU Cortex-M4 (`basic_ecu_freertos`) |
-| `freertos-safeboot` | FreeRTOS OTA DFU compile — QEMU Cortex-M4, RAM stub flash (`safeboot_freertos_ecu`) |
-| `doip-integration` | basic\_ecu\_doip native_sim build · 24 DoIP unit tests · pytest end-to-end (skipped when xaloqi-tester absent) |
+| `unit-tests` | Unit Tests |
+| `cmake-ctest-build` | CMake/CTest Build (parity with build_tests.sh) |
+| `integration-tests` | Integration Tests (generated, simulator mode) |
+| `static-analysis` | Static Analysis + MISRA C:2012 (zero open violations) |
+| `zephyr-native` | Zephyr Build — native_sim |
+| `zephyr-stm32` | Zephyr Build — nucleo_h743zi (cross-compile) |
+| `zephyr-nxp` | Zephyr Build — frdm_mcxn947/mcxn947/cpu0 (cross-compile) |
+| `zephyr-nxp-s32k` | Zephyr Build — mr_canhubk3 / S32K344 (cross-compile) |
+| `example-ardep` | ARDEP ECU — generated file validation (35 DIDs) |
+| `example-bms` | BMS ECU — generated file validation (24 DIDs) |
+| `example-motor` | Motor Controller ECU — generated file validation (27 DIDs) |
+| `example-sensor` | Sensor ECU — generated file validation (7 DIDs) |
+| `example-sensor-frtos` | Sensor ECU FreeRTOS — generated file validation (7 DIDs) |
+| `example-robot` | Robot Joint Controller ECU — generated file validation (10 DIDs) |
+| `example-safeboot` | SafeBoot ECU — generated file validation (5 DIDs) |
+| `freertos-qemu` | FreeRTOS Build — QEMU ARM Cortex-M4 |
+| `freertos-safeboot` | FreeRTOS Safeboot Build — QEMU Cortex-M4 (RAM stub flash) |
+| `doip-integration` | DoIP Integration (native_sim + DoipBus) |
+| `sovd-codegen` | SOVD CDA Generation |
+| `robustness-tests` | Robustness Campaign (439 tests, 12 phases) |
+| `harness-tests` | Harness Integration Tests (68 C tests, MISRA-clean build) |
+
+The `unit-tests` job's display name carries no module count on purpose: it is a
+required status check, and renaming it whenever the count changes silently
+strands the requirement (#119). The count is asserted inside the job's
+`Verify test count` step instead.
 
 Global env: `XALOQI_LICENSE_SKIP=1` (codegen bypasses license check in CI — `_license.py` and templates are not present in the public repo).
 

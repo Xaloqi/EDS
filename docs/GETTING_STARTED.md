@@ -474,7 +474,7 @@ pip3 install -r tools/requirements.txt
 
 ### Unit tests fail: `37 tests expected, X found`
 
-The test count in `scripts/build_tests.sh` must match the actual test files. Run:
+The test count in `build_tests.sh` must match the actual test files. Run:
 ```bash
 bash build_tests.sh 2>&1 | tail -5
 ```
