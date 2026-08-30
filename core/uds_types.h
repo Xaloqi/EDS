@@ -160,6 +160,16 @@ typedef enum uds_status {
     UDS_STATUS_ERR_PLATFORM              = 0x60, /**< Platform-specific error. */
     UDS_STATUS_ERR_OS_RESOURCE           = 0x61, /**< OS resource allocation failed. */
 
+    /* --- NVM persistence integrity errors --- */
+    UDS_STATUS_ERR_NVM_DATA_CORRUPT      = 0x62U, /**< Persisted NVM record failed an
+                                                         integrity check (bad magic, bad
+                                                         version, bad CRC, or a byte count
+                                                         inconsistent with the declared
+                                                         entry count) — distinct from
+                                                         ERR_PLATFORM (I/O failure) and
+                                                         ERR_NOT_INITIALIZED (no record
+                                                         present / module not ready). */
+
     UDS_STATUS_MAX                                /**< Sentinel — do not use as return value. */
 } uds_status_t;
 

@@ -37,6 +37,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DTC NVM mirror: no integrity check — a truncated/corrupted record
+  degraded to silent partial success.** (#114) `config/dtc_mirror.c`'s
+  on-disk format was just a 2-byte entry count followed by fixed-size
+  entries — no magic number, version, or CRC. On load, a truncated entry
+  mid-loop simply `break`d out of the parse loop and the function still
+  returned `UDS_STATUS_OK`, so a corrupted record was indistinguishable
+  from a legitimately short one and whatever entries had been parsed so
+  far were silently applied. The on-disk format is now
+  `[magic:2][version:1][count:2][entries...][crc32:4]`, reusing the
+  existing transfer-service CRC-32 engine
+  (`uds_transfer_crc32_update`/`_finalise` in `core/uds_transfer_ctx.c`,
+  already a global include for `config/` per the declared build-layer
+  order). `dtc_mirror_load()` now validates magic, version, declared
+  length, and CRC-32 *before* applying any entry, so a corrupt record can
+  never partially apply — it is now reported distinctly via the new
+  `UDS_STATUS_ERR_NVM_DATA_CORRUPT` status instead. A record that is too
+  short or does not carry the new magic (including a legacy pre-fix
+  record with the old headerless format) is deliberately treated as "no
+  mirror yet" and discarded — a documented, one-time migration trade-off
+  on first boot after upgrading to this fix. `dtc_mirror_flush_all()` and
+  `dtc_mirror_clear_all()` now share one writer for the new format. New
+  regression tests in `tests/unit_runnable/test_dtc_mirror.c` cover a
+  valid round-trip, a CRC-mismatched entry, a truncated record, a legacy
+  (no-magic) record, and an unsupported version — all reported as the
+  correct one of the three distinct cases (no-mirror / valid / corrupt).
+
 - **ISO-TP: the N_As timer was armed once at First Frame and never rearmed or
   stopped, aborting any multi-frame TX that took longer than 25 ms.** (#111)
   `tx_as_timer_ms` was set to `ISOTP_TIMEOUT_AS_MS` (25 ms) when the FF went

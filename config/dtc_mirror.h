@@ -23,10 +23,27 @@
  *            - dtc_mirror_save()        → called from dtc_database_set_status()
  *            - dtc_mirror_flush_all()   → called from zephyr_port_nvm_flush()
  *
- * WIRE FORMAT (NVM_KEY_DTC_MIRROR):
- *   [count:2][entry_0:4][entry_1:4]...[entry_n:4]
+ * WIRE FORMAT (NVM_KEY_DTC_MIRROR) — v1, integrity-checked (issue #114):
+ *   [magic:2][version:1][count:2][entry_0:4]...[entry_n:4][crc32:4]
  *   Each entry: [dtc_code:3 big-endian][status_byte:1]
- *   Maximum payload: 2 + 128 × 4 = 514 bytes.
+ *   magic   = 0x44,0x4D ("DM"). Identifies a v1-or-later record.
+ *   version = DTC_MIRROR_FORMAT_VERSION. Bump on any layout change.
+ *   count   = number of entries, big-endian.
+ *   crc32   = CRC-32 (same polynomial/algorithm as the transfer-service
+ *             helper in core/uds_transfer_ctx.c) computed over
+ *             [version..last entry byte] (i.e. everything except the
+ *             magic and the CRC field itself), big-endian.
+ *   Maximum payload: 5 + 128 × 4 + 4 = 521 bytes.
+ *
+ * INTEGRITY (issue #114 fix):
+ *   Before this fix, the mirror was [count:2][entries...] with no way to
+ *   tell a truncated/corrupted record from a legitimately short one — a
+ *   short read mid-loop silently applied only the entries it had parsed
+ *   and still returned UDS_STATUS_OK. dtc_mirror_load() now validates the
+ *   whole record (magic, version, declared length, CRC-32) BEFORE applying
+ *   any entry to the live database, so a corrupt record can never partially
+ *   apply. See dtc_mirror_load() below for the exact case breakdown and the
+ *   deliberate legacy-record migration decision.
  *
  * SAFETY  : ASIL-B candidate. Confirmed DTC bits are safety-relevant.
  * STANDARD: MISRA C:2012 alignment intended.
@@ -48,15 +65,29 @@ extern "C" {
  * Wire format constants
  * -------------------------------------------------------------------------- */
 
-/** Header: 2-byte entry count. */
-#define DTC_MIRROR_HEADER_BYTES  (2U)
+/** Magic bytes identifying a v1-or-later (integrity-checked) mirror record.
+ *  Chosen so a legacy pre-header record's leading count field can never
+ *  collide with it: a legacy count is bounded by UDS_MAX_DTC_COUNT (128),
+ *  so its high byte is always 0x00, whereas DTC_MIRROR_MAGIC_0 is not. */
+#define DTC_MIRROR_MAGIC_0       ((uint8_t)0x44U) /* 'D' */
+#define DTC_MIRROR_MAGIC_1       ((uint8_t)0x4DU) /* 'M' */
+
+/** Wire format version of the header below. Bump on any layout change. */
+#define DTC_MIRROR_FORMAT_VERSION ((uint8_t)1U)
+
+/** Fixed-position header fields: magic(2) + version(1) + count(2). */
+#define DTC_MIRROR_HEADER_BYTES  (5U)
 
 /** Per-entry size: 3-byte DTC code + 1-byte status. */
 #define DTC_MIRROR_ENTRY_BYTES   (4U)
 
-/** Maximum mirror payload: header + max_entries × entry_size. */
+/** CRC-32 trailer appended after the last entry. */
+#define DTC_MIRROR_CRC_BYTES     (4U)
+
+/** Maximum mirror payload: header + max_entries × entry_size + CRC trailer. */
 #define DTC_MIRROR_MAX_BYTES     ((uint16_t)(DTC_MIRROR_HEADER_BYTES + \
-                                  (UDS_MAX_DTC_COUNT * DTC_MIRROR_ENTRY_BYTES)))
+                                  (UDS_MAX_DTC_COUNT * DTC_MIRROR_ENTRY_BYTES) + \
+                                  DTC_MIRROR_CRC_BYTES))
 
 /* --------------------------------------------------------------------------
  * Public API
@@ -77,16 +108,48 @@ uds_status_t dtc_mirror_init(void);
 /**
  * @brief Load persisted DTC status bytes from NVM into the live database.
  *
- * Reads the NVM mirror and calls dtc_database_set_status() for each entry
- * found. Entries in the mirror for DTCs not registered in the database are
- * silently skipped (e.g. after a firmware update removes a DTC).
+ * Reads the NVM mirror, validates it as a whole (magic, version, declared
+ * length, CRC-32), and — only if every check passes — calls
+ * dtc_database_set_status() for each entry. Validation happens before any
+ * entry is applied, so a corrupt record can never partially apply (issue
+ * #114). Entries in a valid mirror for DTCs not registered in the current
+ * database are silently skipped (e.g. after a firmware update removes a
+ * DTC).
  *
  * Must be called after both nvm_store_init() and dtc_database_init()
  * (and after all DTCs have been registered via dtc_database_register()).
  *
- * @return UDS_STATUS_OK if mirror loaded (or no mirror found — first boot).
- * @return UDS_STATUS_ERR_NOT_INITIALIZED if dtc_mirror_init() not called.
+ * Three cases are distinguished:
+ *   1. No record present, OR a record that does not begin with the v1
+ *      magic (DTC_MIRROR_MAGIC_0/1) — returns OK, no entries applied.
+ *      DELIBERATE MIGRATION DECISION (issue #114): this bucket also
+ *      covers a legacy pre-header record written by firmware built before
+ *      this fix (format was [count:2][entries...], no magic). Such a
+ *      record cannot be safely told apart from unrelated short/garbage
+ *      data by shape alone, so it is not specially parsed — it is
+ *      discarded exactly like "no mirror yet". This is a one-time,
+ *      expected event on first boot after upgrading to this fix: the
+ *      device boots with DTC status at defaults instead of restoring
+ *      whatever the legacy record held. Everything logged/reported from
+ *      here on is therefore about NEW-format records only.
+ *   2. A record with valid magic, version, length and CRC — restored,
+ *      returns OK.
+ *   3. A record with valid magic but a version mismatch, a byte count
+ *      inconsistent with its declared entry count, or a CRC-32 mismatch —
+ *      returns UDS_STATUS_ERR_NVM_DATA_CORRUPT and applies nothing. This
+ *      is the case the original bug silently mishandled: a corrupted
+ *      NEW-format record is now reported as a distinct condition rather
+ *      than partially (and silently) applied.
+ *
+ * @return UDS_STATUS_OK if mirror loaded (or no/legacy mirror — case 1).
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if dtc_mirror_init() not called,
+ *         or NVM is not ready.
  * @return UDS_STATUS_ERR_PLATFORM if NVM read error.
+ * @return UDS_STATUS_ERR_NVM_DATA_CORRUPT if a v1-tagged record fails
+ *         validation (case 3 above). Note: callers written before this
+ *         fix that only treat OK/ERR_NOT_INITIALIZED/ERR_PLATFORM as
+ *         non-fatal will treat this new status as a hard error — see
+ *         issue #114 PR discussion.
  */
 uds_status_t dtc_mirror_load(void);
 

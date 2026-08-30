@@ -236,14 +236,17 @@ void test_flush_empty_table(void)
     /* No DTCs registered */
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, dtc_mirror_flush_all());
 
-    uint8_t buf[8];
+    uint8_t buf[16];
     size_t  len = 0U;
     TEST_ASSERT_EQUAL(UDS_STATUS_OK,
         nvm_store_read(NVM_KEY_DTC_MIRROR, buf, sizeof(buf), &len));
-    /* Header only: 2 bytes, count = 0 */
-    TEST_ASSERT_EQUAL_INT((int)2U, (int)len);
-    TEST_ASSERT_EQUAL_UINT8(0x00U, buf[0]); /* count high */
-    TEST_ASSERT_EQUAL_UINT8(0x00U, buf[1]); /* count low  */
+    /* Header(5) + no entries + crc(4) = 9 bytes, count = 0 */
+    TEST_ASSERT_EQUAL_INT((int)9U, (int)len);
+    TEST_ASSERT_EQUAL_UINT8(DTC_MIRROR_MAGIC_0, buf[0]);
+    TEST_ASSERT_EQUAL_UINT8(DTC_MIRROR_MAGIC_1, buf[1]);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)DTC_MIRROR_FORMAT_VERSION, buf[2]);
+    TEST_ASSERT_EQUAL_UINT8(0x00U, buf[3]); /* count high */
+    TEST_ASSERT_EQUAL_UINT8(0x00U, buf[4]); /* count low  */
 }
 
 /* 10. dtc_mirror_init returns ERR_ALREADY_INITIALIZED on second call within same setUp */
