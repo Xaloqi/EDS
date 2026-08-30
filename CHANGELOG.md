@@ -38,6 +38,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **ISO-TP: the N_Ar timer in `isotp_tick_1ms()` could drive `rx_state` to
+  `ISOTP_STATE_ERROR` from any state, including `IDLE`.** (#135) The N_Ar
+  branch added by #122 decremented `rx_ar_timer_ms` and fired unconditionally,
+  unlike its TX-side mirror, N_As, which #111 deliberately guarded on
+  `tx_state`. Latent under the single-diagnostics-task model — `isotp_send_fc()`
+  arms and disarms `rx_ar_timer_ms` around one `can_transport_transmit()` call,
+  so it is never still armed when a tick lands — but `can_transport_transmit()`
+  is permitted to block, and in an integration that drives `isotp_tick_1ms()`
+  from an independent timer context, a tick landing inside that window could
+  expire N_Ar and set `rx_state = ISOTP_STATE_ERROR` concurrently with a
+  caller's `isotp_reset()` / `isotp_reset_rx()` (#132), silently undoing the
+  recovery. Guarded the branch on `rx_state == ISOTP_STATE_RX_WAIT_CF` — the
+  only state in which an FC confirmation can be outstanding — and added the
+  symmetric disarm-on-`IDLE` branch, mirroring #111's N_As treatment exactly.
+
 - **ISO-TP: `isotp_get_state()` hid an RX error behind any concurrent transmit,
   and `isotp_reset()` could not recover one direction alone.** (#132)
   `isotp_ctx_t` runs two independent state machines, `rx_state` and `tx_state`,

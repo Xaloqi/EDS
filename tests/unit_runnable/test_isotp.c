@@ -1348,6 +1348,98 @@ ZTEST(test_isotp_tick, test_tick_idle)
     }
 }
 
+/**
+ * TC-ISTP-TICK-004 [#135]: a stale rx_ar_timer_ms while rx_state is IDLE must
+ * not corrupt rx_state to ERROR.
+ *
+ * isotp_send_fc() always disarms rx_ar_timer_ms on return, so this timer
+ * should never legitimately be nonzero once rx_state is back to IDLE. But
+ * that is exactly the "should never happen" case the N_As guard (#111) was
+ * written to survive rather than assume away -- a caller that has just
+ * reset the RX channel (e.g. isotp_reset_rx() / isotp_reset(), #132) must
+ * not have that recovery silently undone by a stray decrement landing on
+ * the very next tick. This is the issue's own suggested regression test,
+ * reproduced here for N_Ar's TX-side mirror is guarded the same way.
+ */
+ZTEST(test_isotp_tick, test_stale_ar_timer_in_idle_does_not_corrupt_state)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    isotp_state_t state;
+    isotp_get_state(&ctx, &state);
+    zassert_equal(state, ISOTP_STATE_IDLE, "Must start IDLE");
+
+    /* Simulate a stale N_Ar left armed by, e.g., a caller resetting the RX
+     * channel out from under an outstanding FC confirmation in a
+     * multi-context integration. */
+    ctx.rx_ar_timer_ms = 1U;
+
+    uds_status_t rc = isotp_tick_1ms(&ctx);
+    zassert_equal(rc, UDS_STATUS_OK,
+                  "A stale N_Ar must not fire while rx_state is IDLE");
+
+    isotp_get_state(&ctx, &state);
+    zassert_equal(state, ISOTP_STATE_IDLE,
+                  "rx_state must remain IDLE -- N_Ar must not corrupt it");
+}
+
+/**
+ * TC-ISTP-TICK-005 [#135]: a stale rx_ar_timer_ms while rx_state is already
+ * ERROR must not return a spurious N_Ar timeout status.
+ *
+ * Unlike the IDLE case, overwriting rx_state with ERROR here is a no-op --
+ * but the tick's return value is not. Without the state guard, this path
+ * would return UDS_STATUS_ERR_TP_TIMEOUT_AR for a timer that has nothing to
+ * do with why the channel is actually in ERROR, misreporting the cause to
+ * the caller. Covers "any state other than RX_WAIT_CF", not just IDLE.
+ */
+ZTEST(test_isotp_tick, test_stale_ar_timer_in_error_does_not_report_ar_timeout)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    ctx.rx_state        = ISOTP_STATE_ERROR;
+    ctx.rx_ar_timer_ms  = 1U;
+
+    uds_status_t rc = isotp_tick_1ms(&ctx);
+    zassert_equal(rc, UDS_STATUS_OK,
+                  "A stale N_Ar must not report ERR_TP_TIMEOUT_AR outside RX_WAIT_CF");
+
+    isotp_state_t state;
+    isotp_get_state(&ctx, &state);
+    zassert_equal(state, ISOTP_STATE_ERROR, "rx_state must remain ERROR, unchanged");
+}
+
+/**
+ * TC-ISTP-TICK-006 [#135]: disarm-on-idle safety net -- if rx_state is IDLE
+ * while rx_ar_timer_ms is still nonzero, a tick must zero it so it cannot
+ * fire late on some future re-arm sequence.
+ *
+ * Mirrors the symmetric tx_as_timer_ms disarm-on-idle branch (#111) exactly;
+ * this state (IDLE with a nonzero rx_ar_timer_ms) should not be reachable in
+ * practice given how isotp_send_fc() arms and disarms the timer today, but
+ * the guard exists as a safety net regardless and is tested the same way.
+ */
+ZTEST(test_isotp_tick, test_ar_timer_disarmed_when_idle)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    ctx.rx_ar_timer_ms = (uint32_t)ISOTP_TIMEOUT_AR_MS;
+
+    zassert_equal(isotp_tick_1ms(&ctx), UDS_STATUS_OK,
+                  "Disarm-on-idle tick must return OK");
+    zassert_equal(ctx.rx_ar_timer_ms, 0U,
+                  "rx_ar_timer_ms must be disarmed while rx_state is IDLE");
+}
+
 /* =========================================================================
  * Test suite: isotp_reset
  * ========================================================================= */
@@ -2094,6 +2186,9 @@ extern void test_isotp_transmit__test_tx_busy(void);
 extern void test_isotp_tick__test_null_ctx(void);
 extern void test_isotp_tick__test_cr_timeout(void);
 extern void test_isotp_tick__test_tick_idle(void);
+extern void test_isotp_tick__test_stale_ar_timer_in_idle_does_not_corrupt_state(void);
+extern void test_isotp_tick__test_stale_ar_timer_in_error_does_not_report_ar_timeout(void);
+extern void test_isotp_tick__test_ar_timer_disarmed_when_idle(void);
 extern void test_isotp_reset__test_null_ctx(void);
 extern void test_isotp_reset__test_reset_from_error(void);
 extern void test_isotp_get_state__test_null_ctx(void);
@@ -2159,6 +2254,9 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_tick__test_null_ctx);
     RUN_TEST(test_isotp_tick__test_cr_timeout);
     RUN_TEST(test_isotp_tick__test_tick_idle);
+    RUN_TEST(test_isotp_tick__test_stale_ar_timer_in_idle_does_not_corrupt_state);
+    RUN_TEST(test_isotp_tick__test_stale_ar_timer_in_error_does_not_report_ar_timeout);
+    RUN_TEST(test_isotp_tick__test_ar_timer_disarmed_when_idle);
     RUN_TEST(test_isotp_reset__test_null_ctx);
     RUN_TEST(test_isotp_reset__test_reset_from_error);
     RUN_TEST(test_isotp_get_state__test_null_ctx);
