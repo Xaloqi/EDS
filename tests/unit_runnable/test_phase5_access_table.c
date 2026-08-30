@@ -27,12 +27,27 @@
  *   TC-ACL-017  lookup() with NULL table returns ERR_NULL_PTR
  *   TC-ACL-018  lookup() with NULL out_entry returns ERR_NULL_PTR
  *   TC-ACL-019  lookup() count=0 → no match (NULL out_entry, OK return)
- *   TC-ACL-020  Unknown SID not in table → NULL out_entry (no restriction)
+ *   TC-ACL-020  Unknown SID not in table → lookup() still returns NULL
+ *               out_entry (the ALLOW/DENY decision itself is made by
+ *               enforce(), see TC-ACL-022/026-029)
  *   TC-ACL-021  Custom single-entry table overrides default for a specific SID
- *   TC-ACL-022  enforce() with NULL entry → OK (no restriction)
+ *   TC-ACL-022  [#113] enforce() with NULL entry → DENY by default
+ *               (fail-closed; was OK/"no restriction" pre-#113)
  *   TC-ACL-023  enforce() with NULL security_ctx and require_unlocked → ERR_NULL_PTR
  *   TC-ACL-024  enforce() with require_unlocked=false → OK regardless of security state
  *   TC-ACL-025  acl_session_to_bit: session_mask bitmapping for all four types
+ *   TC-ACL-026  [#113 regression] Unregistered SID 0x99, DEFAULT session →
+ *               DENIED end-to-end (lookup + enforce) against the default
+ *               table
+ *   TC-ACL-027  [#113 regression] Unregistered SID 0x99, EXTENDED session →
+ *               DENIED end-to-end
+ *   TC-ACL-028  [#113 regression] Unregistered SID 0x99, PROGRAMMING
+ *               session → DENIED end-to-end
+ *   TC-ACL-029  [#113] Denial for an unlisted SID maps to
+ *               UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION (NRC 0x7F)
+ *   TC-ACL-030  [#113] Default table has an explicit row for SID 0x31
+ *               RoutineControl (the one previously-unlisted registered
+ *               service — see UDS_ACCESS_TABLE_DEFAULT_COUNT 18→19)
  *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h)
  * =============================================================================
@@ -71,6 +86,33 @@ static bool default_table_allows(uint8_t sid, uds_session_type_t sess)
     return ((entry->session_mask & bit) != (uint8_t)0U);
 }
 
+/**
+ * [#113] End-to-end access decision: lookup() followed by enforce(), the
+ * same two-step sequence uds_server.c's srv_check_access_rights() performs.
+ * Unlike default_table_allows() above (which only asks "did lookup() find a
+ * matching row in this session" and does not touch enforce()), this reflects
+ * the ACTUAL allow/deny decision — including the fail-closed default for a
+ * service_id with no ACL row at all.
+ */
+static uds_status_t default_table_decide(uint8_t sid, uds_session_type_t sess)
+{
+    const uds_access_entry_t *entry = NULL;
+    uds_status_t rc = uds_access_table_lookup(
+        uds_access_table_get_default(),
+        (uint8_t)UDS_ACCESS_TABLE_DEFAULT_COUNT,
+        sid, sess, &entry);
+
+    if (rc != UDS_STATUS_OK) { return rc; }
+
+    if ((entry != NULL) &&
+        ((entry->session_mask &
+          (uint8_t)((uint8_t)1U << ((uint8_t)sess - (uint8_t)1U))) == (uint8_t)0U)) {
+        return UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION;
+    }
+
+    return uds_access_table_enforce(entry, NULL);
+}
+
 /* =========================================================================
  * Test cases
  * ========================================================================= */
@@ -91,12 +133,14 @@ ZTEST(test_phase5_access_table, tc001_get_default_not_null)
  * then 13 → 14 when 0x35 RequestUpload was added,
  * then 14 → 15 when 0x2F InputOutputControlByIdentifier was added,
  * then 15 → 16 when 0x2A ReadDataByPeriodicIdentifier was added,
- * then 16 → 18 when 0x23 ReadMemoryByAddress + 0x3D WriteMemoryByAddress were added.
+ * then 16 → 18 when 0x23 ReadMemoryByAddress + 0x3D WriteMemoryByAddress were added,
+ * then 18 → 19 [#113] when the previously-missing SID 0x31 RoutineControl
+ * row was added (see the fail-closed-default fix in this file's module).
  */
 ZTEST(test_phase5_access_table, tc002_default_table_count)
 {
-    zassert_equal((uint8_t)UDS_ACCESS_TABLE_DEFAULT_COUNT, (uint8_t)18U,
-        "default table must have exactly 18 entries");
+    zassert_equal((uint8_t)UDS_ACCESS_TABLE_DEFAULT_COUNT, (uint8_t)19U,
+        "default table must have exactly 19 entries");
 }
 
 /**
@@ -279,7 +323,12 @@ ZTEST(test_phase5_access_table, tc019_lookup_count_zero)
 }
 
 /**
- * TC-ACL-020: Unknown SID not in table → NULL out_entry (no restriction).
+ * TC-ACL-020: Unknown SID not in table → lookup() still returns NULL
+ * out_entry with status OK. This is lookup()'s own contract (it must let
+ * the caller tell "not in table" apart from "in table, wrong session") and
+ * is UNCHANGED by #113 — what changed is what enforce() does with that NULL
+ * entry afterwards (fail-closed by default; see TC-ACL-022 and
+ * TC-ACL-026..029 below for the actual allow/deny decision).
  */
 ZTEST(test_phase5_access_table, tc020_unknown_sid_no_restriction)
 {
@@ -292,7 +341,7 @@ ZTEST(test_phase5_access_table, tc020_unknown_sid_no_restriction)
         &entry);
     zassert_equal(rc, UDS_STATUS_OK, "unknown SID must return OK");
     zassert_is_null(entry,
-        "unknown SID must yield NULL entry (no restriction applied)");
+        "unknown SID must yield NULL entry from lookup()");
 }
 
 /**
@@ -323,15 +372,24 @@ ZTEST(test_phase5_access_table, tc021_custom_table_overrides_default)
 }
 
 /**
- * TC-ACL-022: enforce() with NULL entry → UDS_STATUS_OK (no restriction).
+ * TC-ACL-022: [#113] enforce() with NULL entry → DENY by default
+ * (fail-closed). Before #113 this asserted UDS_STATUS_OK ("no
+ * restriction") — that was the exact bug reported in issue #113: a
+ * service_id with no ACL row was silently fully permitted. With
+ * UDS_ACL_ALLOW_UNLISTED_SERVICES left at its default (0), a NULL entry is
+ * now denied with UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION, which
+ * uds_server.c maps to NRC 0x7F. The permissive opt-in itself is exercised
+ * by tests/unit_runnable/test_uds_acl_permissive_opt_in.c, compiled with
+ * -DUDS_ACL_ALLOW_UNLISTED_SERVICES=1 (see tests/CMakeLists.txt /
+ * build_tests.sh), which restores this exact OK return.
  */
-ZTEST(test_phase5_access_table, tc022_enforce_null_entry_ok)
+ZTEST(test_phase5_access_table, tc022_enforce_null_entry_fail_closed_by_default)
 {
     uds_security_ctx_t sec_ctx;
     (void)memset(&sec_ctx, 0, sizeof(sec_ctx));
     uds_status_t rc = uds_access_table_enforce(NULL, &sec_ctx);
-    zassert_equal(rc, UDS_STATUS_OK,
-        "enforce with NULL entry must return OK (no restriction)");
+    zassert_equal(rc, UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION,
+        "enforce with NULL entry must DENY by default (fail-closed, #113)");
 }
 
 /**
@@ -396,6 +454,74 @@ ZTEST(test_phase5_access_table, tc025_session_bitmask_mapping)
         "ALL mask must equal OR of all four session masks");
 }
 
+/**
+ * TC-ACL-026: [#113 regression] Register a fake/unregistered service, SID
+ * 0x99, with no ACL entry: access against the default table in the DEFAULT
+ * session must be DENIED, not silently allowed. This is the exact
+ * regression scenario from issue #113.
+ */
+ZTEST(test_phase5_access_table, tc026_fake_sid_0x99_denied_default)
+{
+    uds_status_t rc = default_table_decide((uint8_t)0x99U, UDS_SESSION_DEFAULT);
+    zassert_not_equal(rc, UDS_STATUS_OK,
+        "SID 0x99 (no ACL entry) must be DENIED in DEFAULT session, not allowed");
+}
+
+/**
+ * TC-ACL-027: [#113 regression] Same as TC-ACL-026, EXTENDED session.
+ */
+ZTEST(test_phase5_access_table, tc027_fake_sid_0x99_denied_extended)
+{
+    uds_status_t rc = default_table_decide((uint8_t)0x99U, UDS_SESSION_EXTENDED);
+    zassert_not_equal(rc, UDS_STATUS_OK,
+        "SID 0x99 (no ACL entry) must be DENIED in EXTENDED session, not allowed");
+}
+
+/**
+ * TC-ACL-028: [#113 regression] Same as TC-ACL-026, PROGRAMMING session.
+ */
+ZTEST(test_phase5_access_table, tc028_fake_sid_0x99_denied_programming)
+{
+    uds_status_t rc = default_table_decide((uint8_t)0x99U, UDS_SESSION_PROGRAMMING);
+    zassert_not_equal(rc, UDS_STATUS_OK,
+        "SID 0x99 (no ACL entry) must be DENIED in PROGRAMMING session, not allowed");
+}
+
+/**
+ * TC-ACL-029: [#113] The denial for an unlisted SID maps to the specific
+ * status uds_server.c translates to NRC 0x7F
+ * (serviceNotSupportedInActiveSession) — not just "any non-OK status".
+ */
+ZTEST(test_phase5_access_table, tc029_fake_sid_0x99_denial_status)
+{
+    uds_status_t rc = default_table_decide((uint8_t)0x99U, UDS_SESSION_DEFAULT);
+    zassert_equal(rc, UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION,
+        "unlisted-SID denial must be UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION"
+        " (NRC 0x7F)");
+}
+
+/**
+ * TC-ACL-030: [#113] SID 0x31 RoutineControl — the one registered service
+ * that had NO ACL row before #113 — now has an explicit row in the default
+ * table and is reachable exactly as before (all sessions, no ACL-layer
+ * security; per-routine gating happens inside service_0x31.c). This proves
+ * the fail-closed flip did not silently break RoutineControl.
+ */
+ZTEST(test_phase5_access_table, tc030_0x31_has_explicit_row_all_sessions)
+{
+    zassert_true(default_table_allows(UDS_SID_ROUTINE_CONTROL, UDS_SESSION_DEFAULT),
+        "0x31 must still be reachable (ACL layer) in DEFAULT session");
+    zassert_true(default_table_allows(UDS_SID_ROUTINE_CONTROL, UDS_SESSION_EXTENDED),
+        "0x31 must still be reachable (ACL layer) in EXTENDED session");
+    zassert_true(default_table_allows(UDS_SID_ROUTINE_CONTROL, UDS_SESSION_PROGRAMMING),
+        "0x31 must still be reachable (ACL layer) in PROGRAMMING session");
+
+    uds_status_t rc = default_table_decide(UDS_SID_ROUTINE_CONTROL, UDS_SESSION_DEFAULT);
+    zassert_equal(rc, UDS_STATUS_OK,
+        "0x31 end-to-end (lookup+enforce) must still be OK at the ACL layer"
+        " in DEFAULT session — per-routine gating happens inside the handler");
+}
+
 /* =========================================================================
  * run_all_tests
  * ========================================================================= */
@@ -421,10 +547,15 @@ extern void test_phase5_access_table__tc018_lookup_null_out_entry(void);
 extern void test_phase5_access_table__tc019_lookup_count_zero(void);
 extern void test_phase5_access_table__tc020_unknown_sid_no_restriction(void);
 extern void test_phase5_access_table__tc021_custom_table_overrides_default(void);
-extern void test_phase5_access_table__tc022_enforce_null_entry_ok(void);
+extern void test_phase5_access_table__tc022_enforce_null_entry_fail_closed_by_default(void);
 extern void test_phase5_access_table__tc023_enforce_null_sec_ctx_with_require(void);
 extern void test_phase5_access_table__tc024_enforce_no_security_required_ok(void);
 extern void test_phase5_access_table__tc025_session_bitmask_mapping(void);
+extern void test_phase5_access_table__tc026_fake_sid_0x99_denied_default(void);
+extern void test_phase5_access_table__tc027_fake_sid_0x99_denied_extended(void);
+extern void test_phase5_access_table__tc028_fake_sid_0x99_denied_programming(void);
+extern void test_phase5_access_table__tc029_fake_sid_0x99_denial_status(void);
+extern void test_phase5_access_table__tc030_0x31_has_explicit_row_all_sessions(void);
 
 void run_all_tests(void)
 {
@@ -449,8 +580,13 @@ void run_all_tests(void)
     RUN_TEST(test_phase5_access_table__tc019_lookup_count_zero);
     RUN_TEST(test_phase5_access_table__tc020_unknown_sid_no_restriction);
     RUN_TEST(test_phase5_access_table__tc021_custom_table_overrides_default);
-    RUN_TEST(test_phase5_access_table__tc022_enforce_null_entry_ok);
+    RUN_TEST(test_phase5_access_table__tc022_enforce_null_entry_fail_closed_by_default);
     RUN_TEST(test_phase5_access_table__tc023_enforce_null_sec_ctx_with_require);
     RUN_TEST(test_phase5_access_table__tc024_enforce_no_security_required_ok);
     RUN_TEST(test_phase5_access_table__tc025_session_bitmask_mapping);
+    RUN_TEST(test_phase5_access_table__tc026_fake_sid_0x99_denied_default);
+    RUN_TEST(test_phase5_access_table__tc027_fake_sid_0x99_denied_extended);
+    RUN_TEST(test_phase5_access_table__tc028_fake_sid_0x99_denied_programming);
+    RUN_TEST(test_phase5_access_table__tc029_fake_sid_0x99_denial_status);
+    RUN_TEST(test_phase5_access_table__tc030_0x31_has_explicit_row_all_sessions);
 }

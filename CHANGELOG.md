@@ -8,6 +8,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Security
+
+- **BREAKING: UDS access-control table now fails CLOSED for any service_id
+  with no explicit ACL row — audit your deployment before merging.** (#113)
+  `core/uds_access_table.c`'s `uds_access_table_lookup()` /
+  `uds_access_table_enforce()`, and `core/uds_server.c`'s
+  `srv_check_access_rights()`, treated a service_id absent from the active
+  access table (the built-in default table, or an OEM-supplied custom one
+  via `uds_server_cfg_t.access_table`) as "no restriction" — fully
+  reachable, in every session, with no security check, purely by omission.
+  A new SID added to `service_registration.c` without a matching ACL row
+  became silently unauthenticated. The default is now fail-closed: an
+  unlisted service_id is DENIED (NRC 0x7F, serviceNotSupportedInActiveSession)
+  unless the new compile-time opt-in `UDS_ACL_ALLOW_UNLISTED_SERVICES`
+  (Kconfig: `CONFIG_UDS_ACL_ALLOW_UNLISTED_SERVICES`, default `n`/`0`) is
+  explicitly set. **Every service_id the built-in default table ships today
+  keeps its exact prior behaviour** — including SID 0x31 RoutineControl,
+  the one registered service that previously had no ACL row at all and now
+  has an explicit, deliberately permissive one (see the row's comment in
+  `core/uds_access_table.c`). The behaviour change applies to: (1) any
+  future SID added without a matching ACL row, and (2) any OEM-supplied
+  custom `access_table` that does not cover every service_id it registers —
+  audit your custom table's coverage, or set the opt-in, before upgrading a
+  production deployment past this change. See the PR for the full SID
+  audit and regression tests (fake SID 0x99 denied by default across
+  sessions; opt-in verified to restore the old behaviour end-to-end).
+
 ### Fixed
 
 - **ISO-TP: the N_As timer was armed once at First Frame and never rearmed or

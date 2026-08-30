@@ -38,6 +38,7 @@
 #include "uds_session.h"
 #include "uds_security.h"
 #include "uds_types.h"
+#include "uds_access_table.h"
 
 /* =========================================================================
  * Shared stubs for session / security / service table
@@ -90,6 +91,26 @@ static const uds_service_entry_t g_test_service_table[] = {
 };
 #define TEST_SVC_TABLE_COUNT  (2U)
 
+/*
+ * [#113] ACL rows for this file's test services.
+ *
+ * Prior to #113, srv_check_access_rights() fell back to the built-in
+ * production default table (cfg.access_table left NULL) and silently
+ * PERMITTED SID 0xFF — an artificial test-only SID with no row of its own
+ * in that table — because a missing ACL row meant "no restriction". Under
+ * the #113 fail-closed default, a service_id absent from the active table
+ * is now DENIED, so this test suite must supply its own explicit table
+ * covering both test SIDs rather than relying on the production default
+ * table's (unrelated) coverage. All-sessions / no-security matches this
+ * suite's pre-#113 effective behaviour exactly — these tests exist to
+ * exercise dispatch and handler-error-to-NRC translation, not ACL policy.
+ */
+static const uds_access_entry_t g_test_access_table[] = {
+    { 0x3EU, UDS_ACL_SESSION_ALL, 0U, false },
+    { 0xFFU, UDS_ACL_SESSION_ALL, 0U, false },
+};
+#define TEST_ACL_TABLE_COUNT  (2U)
+
 /* =========================================================================
  * Helpers
  * ========================================================================= */
@@ -124,6 +145,9 @@ static uds_status_t srv_init_with_table(void)
         .security_ctx          = &g_sec,
         .service_table         = g_test_service_table,
         .service_table_count   = (uint8_t)TEST_SVC_TABLE_COUNT,
+        /* [#113] explicit ACL rows for both test SIDs — see g_test_access_table. */
+        .access_table          = g_test_access_table,
+        .access_table_count    = (uint8_t)TEST_ACL_TABLE_COUNT,
     };
     return uds_server_init(&g_srv, &cfg);
 }
