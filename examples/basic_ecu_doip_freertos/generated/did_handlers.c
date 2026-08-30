@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP_FreeRTOS
  * Version   : 1.6.0
- * Generated : 2026-08-30T11:15:04Z
+ * Generated : 2026-08-30T13:14:20Z
  *
  * PURPOSE: DID read/write handler stubs and static DID registration table.
  *          Each handler returns deterministic stub data (zeros) until the

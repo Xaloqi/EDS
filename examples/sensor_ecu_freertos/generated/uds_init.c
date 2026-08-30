@@ -5,7 +5,7 @@
  *
  * ECU       : SensorECU
  * Version   : 1.0.0
- * Generated : 2026-08-30T11:15:05Z
+ * Generated : 2026-08-30T13:16:46Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.

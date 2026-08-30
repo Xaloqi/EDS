@@ -40,4 +40,4 @@ CAN_INTERFACE=pcan CAN_CHANNEL=PCAN_USBBUS1 pytest . -v --hil
 
 ---
 
-*Generated 2026-08-30T11:15:03Z by tools/testgen.py*
+*Generated 2026-08-30T13:13:32Z by tools/testgen.py*

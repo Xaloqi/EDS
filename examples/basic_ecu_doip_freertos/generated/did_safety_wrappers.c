@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP_FreeRTOS
  * Version   : 1.6.0
- * Generated : 2026-08-30T11:15:04Z
+ * Generated : 2026-08-30T13:14:20Z
  * ASIL Level: B
  *
  * PURPOSE: Per-DID safe accessor implementations (ASIL-B).

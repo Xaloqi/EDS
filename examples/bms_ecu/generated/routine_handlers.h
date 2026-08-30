@@ -1,6 +1,6 @@
 // File: generated/routine_handlers.h
 // GENERATED — do NOT edit manually.
-// ECU: BMS_MainController  v1.0.0  Generated: 2026-08-30T11:15:04Z
+// ECU: BMS_MainController  v1.0.0  Generated: 2026-08-30T13:15:22Z
 
 #ifndef ROUTINE_HANDLERS_H
 #define ROUTINE_HANDLERS_H
