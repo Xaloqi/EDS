@@ -195,6 +195,7 @@ typedef struct isotp_ctx {
     uint32_t         rx_expected_len;                   /**< Total expected message length. */
     uint32_t         rx_received_len;                   /**< Bytes received so far. */
     uint8_t          rx_expected_sn;                    /**< Expected consecutive frame SN. */
+    uint8_t          rx_blocks_received;                /**< [#121] CFs received in current block. */
     uint32_t         rx_cr_timer_ms;                    /**< Cr timeout countdown (ms). */
 
     /* TX state */

@@ -157,6 +157,25 @@ static uds_status_t init_isotp(isotp_ctx_t *ctx)
     return isotp_init(ctx, &cfg);
 }
 
+/**
+ * Initialise a fresh isotp_ctx_t advertising a non-zero BlockSize / STmin
+ * (Classic CAN).  [#121] Used by the RX block-size regression tests.
+ */
+static uds_status_t init_isotp_bs(isotp_ctx_t *ctx, uint8_t block_size, uint8_t stmin_ms)
+{
+    isotp_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.rx_can_id   = 0x7DFU;
+    cfg.tx_can_id   = 0x7E8U;
+    cfg.block_size  = block_size;
+    cfg.stmin_ms    = stmin_ms;
+#if ISOTP_ENABLE_CAN_FD
+    cfg.use_fd      = false;
+#endif
+    cfg.can         = &g_mock_can;
+    return isotp_init(ctx, &cfg);
+}
+
 #if ISOTP_ENABLE_CAN_FD
 /** Initialise a fresh isotp_ctx_t in CAN FD mode. */
 static uds_status_t init_isotp_fd(isotp_ctx_t *ctx)
@@ -449,6 +468,178 @@ ZTEST(test_isotp_rx_multi, test_cf_without_ff)
     zassert_equal(rc, UDS_STATUS_ERR_TP_UNEXPECTED_PDU,
                   "CF in IDLE state must be rejected");
     zassert_false(g_rx_cb_called, "Callback must not fire for unexpected CF");
+}
+
+/*
+ * Shared fixture for the block-size regression tests below.
+ *
+ * A 37-byte inbound PDU: the FF carries 6 bytes, CF1..CF4 carry 7 bytes each
+ * and CF5 carries the trailing 3 bytes.  Five CFs is the smallest transfer
+ * that exercises TWO complete blocks at BS = 2 and therefore proves the
+ * per-block counter is RESET, not merely fired once.
+ */
+#define ISOTP_BS_TEST_PDU_LEN  (37U)
+
+/** Fill @p out with the deterministic 37-byte reference payload. */
+static void bs_test_make_payload(uint8_t *out)
+{
+    uint8_t i;
+    for (i = 0U; i < (uint8_t)ISOTP_BS_TEST_PDU_LEN; i++) {
+        out[i] = (uint8_t)(0x01U + i);
+    }
+}
+
+/** Feed the FF (6 payload bytes) of the shared fixture into @p ctx. */
+static uds_status_t bs_test_send_ff(isotp_ctx_t *ctx, const uint8_t *payload)
+{
+    uint8_t ff[8];
+    uds_can_frame_t f;
+
+    ff[0] = 0x10U;                              /* FF, FF_DL hi nibble = 0 */
+    ff[1] = (uint8_t)ISOTP_BS_TEST_PDU_LEN;     /* FF_DL lo = 37           */
+    memcpy(&ff[2], &payload[0], 6U);
+    f = make_can_frame(0x7DFU, ff, 8U);
+    return isotp_process_rx_frame(ctx, &f, rx_complete_cb, NULL);
+}
+
+/**
+ * Feed CF number @p sn (1-based) of the shared fixture into @p ctx.
+ * CF1..CF4 carry 7 bytes; CF5 carries the final 3.
+ */
+static uds_status_t bs_test_send_cf(isotp_ctx_t *ctx, const uint8_t *payload, uint8_t sn)
+{
+    uint8_t cf[8];
+    uds_can_frame_t f;
+    uint8_t  n      = (sn == 5U) ? 3U : 7U;
+    uint32_t offset = 6U + ((uint32_t)(sn - 1U) * 7U);
+
+    cf[0] = (uint8_t)(0x20U | (sn & 0x0FU));
+    memcpy(&cf[1], &payload[offset], (size_t)n);
+    f = make_can_frame(0x7DFU, cf, (uint8_t)(n + 1U));
+    return isotp_process_rx_frame(ctx, &f, rx_complete_cb, NULL);
+}
+
+/** Byte-check that @p f is a well-formed FC CTS echoing @p bs / @p stmin. */
+static void bs_test_assert_fc_cts(const uds_can_frame_t *f, uint8_t bs, uint8_t stmin,
+                                  const char *what)
+{
+    zassert_equal(f->id, 0x7E8U, "%s: FC must go out on the TX CAN ID", what);
+    zassert_equal((f->data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_FC,
+                  "%s: PCI type nibble must be FC (3)", what);
+    zassert_equal((f->data[0] & 0x0FU), (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND,
+                  "%s: FlowStatus must be CTS (0)", what);
+    zassert_equal(f->data[1], bs, "%s: FC must echo the configured BlockSize", what);
+    zassert_equal(f->data[2], stmin, "%s: FC must echo the configured STmin", what);
+#if !ISOTP_TX_PADDING
+    zassert_equal(f->dlc, 3U, "%s: unpadded FC is 3 bytes", what);
+#endif
+}
+
+/**
+ * TC-ISTP-RX-MF-005 [#121]: with a non-zero advertised BlockSize the receiver
+ * must send a further FC CTS after every BS consecutive frames
+ * (ISO 15765-2 §9.6.5).
+ *
+ * BS = 2, STmin = 10 ms, 37-byte PDU (FF + 5 CFs).  Expected FC frames:
+ *   [0] immediately after the FF,
+ *   [1] after CF2  — closes block 1,
+ *   [2] after CF4  — closes block 2,
+ *   none after CF5 — the PDU is complete, the sender has nothing left to send.
+ *
+ * Before the fix the CF branch never called isotp_send_fc(), so only the
+ * FF's CTS was ever emitted and a BS-honouring tester stalled at CF2 until
+ * its own N_Bs expired.
+ */
+ZTEST(test_isotp_rx_multi, test_rx_block_size_periodic_fc)
+{
+    uint8_t payload[ISOTP_BS_TEST_PDU_LEN];
+    isotp_ctx_t ctx;
+    isotp_state_t state;
+
+    mock_can_reset();
+    rx_cb_reset();
+    memset(&ctx, 0, sizeof(ctx));
+    bs_test_make_payload(payload);
+    zassert_equal(init_isotp_bs(&ctx, 2U, 10U), UDS_STATUS_OK, "init failed");
+
+    /* FF → initial CTS. */
+    zassert_equal(bs_test_send_ff(&ctx, payload), UDS_STATUS_OK, "FF rejected");
+    zassert_equal(g_mock_tx_count, 1U, "FF must trigger exactly one FC");
+    bs_test_assert_fc_cts(&g_mock_tx_frames[0], 2U, 10U, "FC after FF");
+
+    /* CF1 — mid-block, no FC. */
+    zassert_equal(bs_test_send_cf(&ctx, payload, 1U), UDS_STATUS_OK, "CF1 rejected");
+    zassert_equal(g_mock_tx_count, 1U, "No FC may be sent mid-block (after CF1)");
+
+    /* CF2 — closes block 1, a further FC CTS is required. */
+    zassert_equal(bs_test_send_cf(&ctx, payload, 2U), UDS_STATUS_OK, "CF2 rejected");
+    zassert_equal(g_mock_tx_count, 2U,
+                  "ISO 15765-2 9.6.5: a further FC is required after BS=2 CFs");
+    bs_test_assert_fc_cts(&g_mock_tx_frames[1], 2U, 10U, "FC after CF2");
+    zassert_false(g_rx_cb_called, "PDU is not complete yet");
+
+    /* CF3 — mid-block, no FC (proves the counter reset, not a latch). */
+    zassert_equal(bs_test_send_cf(&ctx, payload, 3U), UDS_STATUS_OK, "CF3 rejected");
+    zassert_equal(g_mock_tx_count, 2U, "No FC may be sent mid-block (after CF3)");
+
+    /* CF4 — closes block 2. */
+    zassert_equal(bs_test_send_cf(&ctx, payload, 4U), UDS_STATUS_OK, "CF4 rejected");
+    zassert_equal(g_mock_tx_count, 3U, "A third FC is required after the 2nd block");
+    bs_test_assert_fc_cts(&g_mock_tx_frames[2], 2U, 10U, "FC after CF4");
+
+    /* CF5 — completes the PDU; no trailing FC. */
+    zassert_equal(bs_test_send_cf(&ctx, payload, 5U), UDS_STATUS_OK, "CF5 rejected");
+    zassert_equal(g_mock_tx_count, 3U,
+                  "No FC may follow the final CF — the PDU is complete");
+
+    zassert_true(g_rx_cb_called, "Callback must fire once the PDU is complete");
+    zassert_equal(g_rx_cb_len, (uint32_t)ISOTP_BS_TEST_PDU_LEN,
+                  "Reassembled length must be 37");
+    zassert_equal(memcmp(g_rx_cb_data, payload, (size_t)ISOTP_BS_TEST_PDU_LEN), 0,
+                  "Reassembled payload must be byte-identical to what was sent");
+
+    zassert_equal(isotp_get_state(&ctx, &state), UDS_STATUS_OK, "get_state failed");
+    zassert_equal(state, ISOTP_STATE_IDLE, "RX must return to IDLE");
+}
+
+/**
+ * TC-ISTP-RX-MF-006 [#121] non-regression: BlockSize 0 means "unlimited", so
+ * the receiver must send exactly ONE FC (the FF's CTS) for the whole PDU and
+ * behave byte-for-byte as it did before the #121 fix.  This is the default
+ * configuration (ISOTP_DEFAULT_BLOCK_SIZE == 0) used by every bundled example.
+ *
+ * Same 37-byte / 5-CF transfer as TC-ISTP-RX-MF-005, so the two tests differ
+ * only in the advertised BlockSize.
+ */
+ZTEST(test_isotp_rx_multi, test_rx_block_size_zero_single_fc)
+{
+    uint8_t payload[ISOTP_BS_TEST_PDU_LEN];
+    isotp_ctx_t ctx;
+    uint8_t sn;
+
+    mock_can_reset();
+    rx_cb_reset();
+    memset(&ctx, 0, sizeof(ctx));
+    bs_test_make_payload(payload);
+    /* init_isotp() is the shared BS=0 / STmin=0 default helper. */
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    zassert_equal(bs_test_send_ff(&ctx, payload), UDS_STATUS_OK, "FF rejected");
+    zassert_equal(g_mock_tx_count, 1U, "FF must trigger exactly one FC");
+    bs_test_assert_fc_cts(&g_mock_tx_frames[0], 0U, 0U, "FC after FF (BS=0)");
+
+    for (sn = 1U; sn <= 5U; sn++) {
+        zassert_equal(bs_test_send_cf(&ctx, payload, sn), UDS_STATUS_OK,
+                      "CF rejected");
+        zassert_equal(g_mock_tx_count, 1U,
+                      "BS=0 is unlimited: no further FC may ever be sent");
+    }
+
+    zassert_true(g_rx_cb_called, "Callback must fire once the PDU is complete");
+    zassert_equal(g_rx_cb_len, (uint32_t)ISOTP_BS_TEST_PDU_LEN,
+                  "Reassembled length must be 37");
+    zassert_equal(memcmp(g_rx_cb_data, payload, (size_t)ISOTP_BS_TEST_PDU_LEN), 0,
+                  "Reassembled payload must be byte-identical to what was sent");
 }
 
 #if ISOTP_ENABLE_CAN_FD
@@ -1218,6 +1409,8 @@ extern void test_isotp_rx_single__test_sf_seven_bytes(void);
 extern void test_isotp_rx_multi__test_first_frame_triggers_fc(void);
 extern void test_isotp_rx_multi__test_ff_cf_complete(void);
 extern void test_isotp_rx_multi__test_cf_without_ff(void);
+extern void test_isotp_rx_multi__test_rx_block_size_periodic_fc(void);
+extern void test_isotp_rx_multi__test_rx_block_size_zero_single_fc(void);
 #if ISOTP_ENABLE_CAN_FD
 extern void test_isotp_rx_multi__test_ff_overflow(void);
 extern void test_isotp_canfd__test_fd_sf_rx_10_bytes(void);
@@ -1269,6 +1462,8 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_rx_multi__test_first_frame_triggers_fc);
     RUN_TEST(test_isotp_rx_multi__test_ff_cf_complete);
     RUN_TEST(test_isotp_rx_multi__test_cf_without_ff);
+    RUN_TEST(test_isotp_rx_multi__test_rx_block_size_periodic_fc);
+    RUN_TEST(test_isotp_rx_multi__test_rx_block_size_zero_single_fc);
 #if ISOTP_ENABLE_CAN_FD
     RUN_TEST(test_isotp_rx_multi__test_ff_overflow);
     RUN_TEST(test_isotp_canfd__test_fd_sf_rx_10_bytes);

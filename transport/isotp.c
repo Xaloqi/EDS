@@ -282,11 +282,12 @@ uds_status_t isotp_process_rx_frame(
 
             (void)memcpy(ctx->rx_buf, &frame->data[ff_data_offset], (size_t)ff_data_bytes);
 
-            ctx->rx_expected_len = ff_dl;
-            ctx->rx_received_len = (uint32_t)ff_data_bytes;
-            ctx->rx_expected_sn  = (uint8_t)1U;
-            ctx->rx_cr_timer_ms  = (uint32_t)ISOTP_TIMEOUT_CR_MS;
-            ctx->rx_state        = ISOTP_STATE_RX_WAIT_CF;
+            ctx->rx_expected_len    = ff_dl;
+            ctx->rx_received_len    = (uint32_t)ff_data_bytes;
+            ctx->rx_expected_sn     = (uint8_t)1U;
+            ctx->rx_blocks_received = (uint8_t)0U;  /* [#121] new block starts here */
+            ctx->rx_cr_timer_ms     = (uint32_t)ISOTP_TIMEOUT_CR_MS;
+            ctx->rx_state           = ISOTP_STATE_RX_WAIT_CF;
 
             /* Send FC CTS — best-effort; ignore transmit errors. */
             (void)isotp_send_fc(ctx,
@@ -338,12 +339,47 @@ uds_status_t isotp_process_rx_frame(
             ctx->rx_received_len = ctx->rx_received_len + copy_len;
             ctx->rx_expected_sn  = (uint8_t)(ctx->rx_expected_sn + (uint8_t)1U);
 
-            /* Reset Cr timer on each received CF. */
+            /* Reset Cr timer on each received CF.  This assignment also
+             * re-arms N_Cr for the block-boundary FC emitted below: sending
+             * an FC is a liveness event exactly like receiving a CF, so the
+             * next block gets a full N_Cr window. */
             ctx->rx_cr_timer_ms = (uint32_t)ISOTP_TIMEOUT_CR_MS;
 
             if (ctx->rx_received_len >= ctx->rx_expected_len) {
-                ctx->rx_state = ISOTP_STATE_IDLE;
+                ctx->rx_state           = ISOTP_STATE_IDLE;
+                ctx->rx_blocks_received = (uint8_t)0U;
                 rx_cb(ctx->rx_buf, ctx->rx_expected_len, rx_cb_arg);
+            } else {
+                /* [#121][P2-TP-05] RX-side block-size handling, the mirror of
+                 * isotp_tx_pump()'s tx_block_size / tx_blocks_sent tracking.
+                 *
+                 * ISO 15765-2 §9.6.5: a receiver that advertised BlockSize
+                 * BS != 0 must send a further FC CTS after every BS
+                 * consecutive frames; the sender is not permitted to continue
+                 * until it arrives.  Without this the sender stalls at the end
+                 * of the first block until its own N_Bs expires.
+                 *
+                 * BS == 0 means "unlimited" (ISOTP_DEFAULT_BLOCK_SIZE, and the
+                 * configuration every bundled example uses): no further FC is
+                 * ever sent, so this path is a no-op and the emitted frame
+                 * sequence is unchanged.
+                 *
+                 * No FC is emitted after the final CF — the branch above has
+                 * already completed the PDU and the sender has nothing left
+                 * to send. */
+                if (ctx->local_block_size != (uint8_t)0U) {
+                    ctx->rx_blocks_received =
+                        (uint8_t)(ctx->rx_blocks_received + (uint8_t)1U);
+
+                    if (ctx->rx_blocks_received >= ctx->local_block_size) {
+                        ctx->rx_blocks_received = (uint8_t)0U;
+                        /* Best-effort, mirroring the FF handler's CTS. */
+                        (void)isotp_send_fc(ctx,
+                                            (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND,
+                                            ctx->local_block_size,
+                                            ctx->local_stmin_ms);
+                    }
+                }
             }
 
             return UDS_STATUS_OK;
@@ -693,22 +729,23 @@ uds_status_t isotp_reset(isotp_ctx_t *ctx)
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
-    ctx->rx_state          = ISOTP_STATE_IDLE;
-    ctx->tx_state          = ISOTP_STATE_IDLE;
-    ctx->rx_expected_len   = (uint32_t)0U;
-    ctx->rx_received_len   = (uint32_t)0U;
-    ctx->rx_expected_sn    = (uint8_t)0U;
-    ctx->rx_cr_timer_ms    = 0U;
-    ctx->tx_data           = NULL;
-    ctx->tx_total_len      = (uint32_t)0U;
-    ctx->tx_sent_len       = (uint32_t)0U;
-    ctx->tx_sn             = (uint8_t)0U;
-    ctx->tx_block_size     = (uint8_t)0U;
-    ctx->tx_stmin_ms       = (uint8_t)0U;
-    ctx->tx_stmin_timer_ms = 0U;
-    ctx->tx_bs_timer_ms    = 0U;
-    ctx->tx_as_timer_ms    = 0U;
-    ctx->tx_blocks_sent    = (uint8_t)0U;
+    ctx->rx_state           = ISOTP_STATE_IDLE;
+    ctx->tx_state           = ISOTP_STATE_IDLE;
+    ctx->rx_expected_len    = (uint32_t)0U;
+    ctx->rx_received_len    = (uint32_t)0U;
+    ctx->rx_expected_sn     = (uint8_t)0U;
+    ctx->rx_blocks_received = (uint8_t)0U;
+    ctx->rx_cr_timer_ms     = 0U;
+    ctx->tx_data            = NULL;
+    ctx->tx_total_len       = (uint32_t)0U;
+    ctx->tx_sent_len        = (uint32_t)0U;
+    ctx->tx_sn              = (uint8_t)0U;
+    ctx->tx_block_size      = (uint8_t)0U;
+    ctx->tx_stmin_ms        = (uint8_t)0U;
+    ctx->tx_stmin_timer_ms  = 0U;
+    ctx->tx_bs_timer_ms     = 0U;
+    ctx->tx_as_timer_ms     = 0U;
+    ctx->tx_blocks_sent     = (uint8_t)0U;
 
     return UDS_STATUS_OK;
 }
