@@ -606,6 +606,22 @@ add_diag_test(test_trng_fail_closed
         CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0
 )
 
+# ---------------------------------------------------------------------------
+# test_uds_acl_permissive_opt_in  [#113]
+#      Module under test: core/uds_access_table.c / core/uds_server.c in
+#      the UDS_ACL_ALLOW_UNLISTED_SERVICES=1 (permissive opt-in) build
+#      configuration, which cannot be reached from the default host build
+#      used by every other test module here. Mirrors test_trng_fail_closed's
+#      per-target DEFINES pattern.
+# ---------------------------------------------------------------------------
+add_diag_test(test_uds_acl_permissive_opt_in
+    SOURCES
+        "${TEST_UNIT_DIR}/test_uds_acl_permissive_opt_in.c"
+        ${DIAG_STACK_SRCS}
+    DEFINES
+        UDS_ACL_ALLOW_UNLISTED_SERVICES=1
+)
+
 # ===========================================================================
 # Summary target: print all registered tests
 # ===========================================================================

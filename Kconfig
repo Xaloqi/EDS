@@ -172,4 +172,41 @@ config DIAG_PLACEHOLDER_KEYS_ONLY
 	  CI can compile and run functional tests without real keys.
 	  TRACEABILITY: CRIT-4 / SEC-KEY-GATE-01
 
+# ---------------------------------------------------------------------------
+# Access control table  [#113 FIX]
+# ---------------------------------------------------------------------------
+
+config UDS_ACL_ALLOW_UNLISTED_SERVICES
+	bool "Permit UDS services with no access-table entry (NOT RECOMMENDED)"
+	default n
+	help
+	  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	  WARNING: leave this 'n' unless you have specifically audited every
+	  service_id in your deployment that has no row in the active access
+	  table (the built-in default table, or a custom one supplied via
+	  uds_server_cfg_t.access_table) and decided it should be reachable
+	  with NO session or security restriction at the ACL layer.
+	  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+	  Prior to #113, a service_id with no matching row in the access table
+	  was silently PERMITTED with no restriction at all — the ACL layer's
+	  default was fail-open. That meant a new SID added to
+	  service_registration.c (or to a custom table) without a matching ACL
+	  row became fully accessible, in every session, with no security
+	  check, purely by omission.
+
+	  With this option left 'n' (the default), any service_id absent from
+	  the active table is now DENIED — the server returns NRC 0x7F
+	  (serviceNotSupportedInActiveSession) instead of dispatching the
+	  handler. Set 'y' only to restore the pre-#113 permissive behaviour
+	  for every unlisted service in your deployment; to allow just ONE
+	  specific service with no ACL-layer restriction, add an explicit row
+	  for that service_id to your table instead (see the SID 0x31
+	  RoutineControl row in core/uds_access_table.c for a worked example)
+	  and leave this option at its secure default.
+
+	  FreeRTOS / bare-metal builds: define UDS_ACL_ALLOW_UNLISTED_SERVICES
+	  (no CONFIG_ prefix) directly, e.g. -DUDS_ACL_ALLOW_UNLISTED_SERVICES=1.
+	  TRACEABILITY: #113
+
 endmenu

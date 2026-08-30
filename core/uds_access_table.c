@@ -83,6 +83,13 @@
  *        Restricted to non-default sessions. Turning off DTC setting from
  *        Default session could mask faults during normal vehicle operation.
  *
+ *   0x31 RoutineControl  [#113]
+ *        Available in all sessions; no ACL-layer security requirement.
+ *        Deliberately permissive here — real per-routine session/security
+ *        gating happens inside service_0x31.c against routine_database.c's
+ *        per-RID min_session/security_level. See the row's own comment
+ *        below for the full rationale.
+ *
  * -------------------------------------------------------------------------- */
 
 static const uds_access_entry_t k_default_table[UDS_ACCESS_TABLE_DEFAULT_COUNT] = {
@@ -272,6 +279,37 @@ static const uds_access_entry_t k_default_table[UDS_ACCESS_TABLE_DEFAULT_COUNT] 
         .required_sec_level = (uint8_t)1U,
         .require_unlocked   = true,
     },
+
+    /* [15] 0x31 RoutineControl — all sessions, no ACL-layer security. [#113]
+     *
+     *  ADDED as part of the #113 fail-closed fix. Prior to this fix, 0x31
+     *  was registered in service_registration.c but had NO row in this
+     *  table; under the old fail-open default that meant "no restriction",
+     *  which happened to match this row's effect. Flipping the table's
+     *  default to fail-closed would otherwise have made RoutineControl
+     *  completely unreachable in every session — this explicit row keeps
+     *  its behaviour unchanged.
+     *
+     *  session_mask=ALL / require_unlocked=false is intentional, not an
+     *  oversight: unlike every other service in this table, RoutineControl
+     *  access is NOT uniform across all routines — routine_database.c
+     *  carries a per-RID min_session and security_level, enforced inside
+     *  service_0x31.c's s_validate_routine_access() (REQ-SAFE-002,
+     *  REQ-SAFE-003) *after* dispatch. Gating 0x31 itself at the ACL layer
+     *  would either (a) block routines that are legitimately callable from
+     *  Default session, or (b) require this table to know every OEM's
+     *  per-RID policy, which belongs in routine_database.c, not here. The
+     *  ACL layer's job for 0x31 is only to make sure a missing row can
+     *  never silently grant access the way #113 describes — this row
+     *  documents that "no ACL restriction" is the deliberate, audited
+     *  policy for this SID, not an accidental gap.
+     */
+    {
+        .service_id         = UDS_SID_ROUTINE_CONTROL,
+        .session_mask       = UDS_ACL_SESSION_ALL,
+        .required_sec_level = (uint8_t)0U,
+        .require_unlocked   = false,
+    },
 };
 
 /* --------------------------------------------------------------------------
@@ -354,7 +392,17 @@ uds_status_t uds_access_table_lookup(
         return UDS_STATUS_OK;
     }
 
-    /* No matching entry found — no restriction. */
+    /*
+     * [#113] No matching entry found. This function's own contract is
+     * unchanged: return OK with *out_entry == NULL so the caller can tell
+     * "not in table" apart from "in table, wrong session" (non-NULL entry,
+     * session bit clear — handled above). Whether "not in table" ultimately
+     * ALLOWS or DENIES access is decided in ONE place only —
+     * uds_access_table_enforce(), gated by UDS_ACL_ALLOW_UNLISTED_SERVICES —
+     * so every caller (uds_server.c's dispatcher and any OEM code calling
+     * this API directly) gets the same fail-closed-by-default decision
+     * instead of re-implementing it.
+     */
     *out_entry = NULL;
     return UDS_STATUS_OK;
 }
@@ -365,9 +413,33 @@ uds_status_t uds_access_table_enforce(
 {
     bool unlocked;
 
-    /* No entry → no restriction → access granted. */
+    /*
+     * [#113] No entry → access DECISION for the "not in table" case.
+     *
+     * Prior to #113 this returned UDS_STATUS_OK unconditionally ("no
+     * restriction"), so a service_id with no ACL row — e.g. a new SID added
+     * to service_registration.c without a matching row here — was fully
+     * reachable with no session or security gate at all. That is the wrong
+     * default for security-relevant middleware: fail-closed (deny) is now
+     * the default, with an explicit, deployment-wide opt-in
+     * (UDS_ACL_ALLOW_UNLISTED_SERVICES, default 0) for integrators who have
+     * deliberately chosen permissive-by-default behaviour. See the
+     * "UDS_ACL_ALLOW_UNLISTED_SERVICES" section of uds_access_table.h for
+     * the full rationale and how to set it per platform.
+     *
+     * UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION is deliberately reused
+     * here rather than introducing a new status: it already maps to NRC
+     * 0x7F (serviceNotSupportedInActiveSession) in uds_server.c, which is
+     * the NRC this file's own lookup() comment above says a missing rule
+     * should have produced all along ("This behaviour enables proper NRC
+     * 0x7F ... vs leaving access open when there's simply no rule").
+     */
     if (entry == NULL) {
+#if UDS_ACL_ALLOW_UNLISTED_SERVICES
         return UDS_STATUS_OK;
+#else
+        return UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION;
+#endif
     }
 
     /*

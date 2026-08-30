@@ -388,7 +388,10 @@ static uds_nrc_t srv_status_to_nrc(uds_status_t status)
  * Flow:
  *   1. Select table: use cfg.access_table if provided, else default.
  *   2. Look up (service_id, active_session) in the table.
- *   3. No entry found → access granted (permissive default).
+ *   3. No entry found → uds_access_table_enforce(NULL, ...) decides: DENIED
+ *      by default (NRC 0x7F serviceNotSupportedInActiveSession) as of
+ *      [#113], unless UDS_ACL_ALLOW_UNLISTED_SERVICES=1 opts back into the
+ *      pre-#113 permissive behaviour. See uds_access_table.h/.c.
  *   4. Entry found, session_mask does NOT cover active session
  *      → NRC 0x7F serviceNotSupportedInActiveSession.
  *   5. require_unlocked=true and required security level is not active
@@ -398,6 +401,9 @@ static uds_nrc_t srv_status_to_nrc(uds_status_t status)
  * OEM CUSTOMISATION:
  *   Pass a custom uds_access_entry_t[] via uds_server_cfg_t.access_table.
  *   The stack never needs to be recompiled to change access policy.
+ *   [#113] Remember: with the fail-closed default, any service_id NOT
+ *   covered by your custom table is now DENIED rather than silently
+ *   allowed — audit your table's SID coverage.
  */
 static uds_status_t srv_check_access_rights(
     uds_server_ctx_t          *ctx,
@@ -435,22 +441,42 @@ static uds_status_t srv_check_access_rights(
         return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
 
-    if (acl_entry == NULL) {
-        /* No entry in table — no restriction. */
-        return UDS_STATUS_OK;
+    /*
+     * [#113 FIX] acl_entry == NULL ("not in table") used to short-circuit
+     * straight to UDS_STATUS_OK right here — a second, independent copy of
+     * the fail-open "no restriction" decision that uds_access_table.c's own
+     * enforce() also made. That duplication was the actual production bug:
+     * even after making uds_access_table_enforce() fail-closed, THIS
+     * function never called it for the acl_entry == NULL case, so real
+     * dispatch (every request that reaches here) stayed permissive
+     * regardless of what enforce() decided.
+     *
+     * Fix: only run the session_mask check when there IS a matching entry
+     * (unchanged from before), then ALWAYS fall through to
+     * uds_access_table_enforce() — including with acl_entry == NULL — so
+     * there is exactly one place (uds_access_table_enforce(), gated by
+     * UDS_ACL_ALLOW_UNLISTED_SERVICES) that decides what "not in table"
+     * means. See core/uds_access_table.c / uds_access_table.h for the
+     * rationale.
+     */
+    if (acl_entry != NULL) {
+        /*
+         * Entry found. Verify that the active session is covered by the
+         * entry's session_mask. The lookup populates acl_entry on any
+         * service_id match, even when the session bit is missing — that
+         * signals "wrong session".
+         */
+        session_bit = (uint8_t)((uint8_t)1U << ((uint8_t)active_session - (uint8_t)1U));
+        if ((acl_entry->session_mask & session_bit) == (uint8_t)0U) {
+            return UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION;
+        }
     }
 
     /*
-     * Entry found. Verify that the active session is covered by the entry's
-     * session_mask. The lookup populates acl_entry on any service_id match,
-     * even when the session bit is missing — that signals "wrong session".
+     * Enforce security level requirement — or, if acl_entry is NULL, the
+     * fail-closed-by-default "not in table" decision itself (see comment
+     * above and uds_access_table_enforce()'s own doc comment).
      */
-    session_bit = (uint8_t)((uint8_t)1U << ((uint8_t)active_session - (uint8_t)1U));
-    if ((acl_entry->session_mask & session_bit) == (uint8_t)0U) {
-        return UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION;
-    }
-
-    /* Enforce security level requirement. */
     rc = uds_access_table_enforce(acl_entry, ctx->cfg.security_ctx);
     if (rc != UDS_STATUS_OK) {
         if (rc == UDS_STATUS_ERR_SEC_NOT_UNLOCKED) {

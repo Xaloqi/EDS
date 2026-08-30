@@ -28,16 +28,50 @@
  *   session_mask is a bitfield — one bit per session type. Multiple sessions
  *   can share the same access rule in a single entry.
  *
- *   A service with no matching entry is ALLOWED (the default is permissive so
- *   that service-level guards in individual handlers remain authoritative).
- *   The table only ADDS restrictions on top of the handler's own checks.
+ *   [#113 FIX] A service with NO matching entry is DENIED by default
+ *   (fail-closed) — see UDS_ACL_ALLOW_UNLISTED_SERVICES below. A missing row
+ *   most often means a new SID was added to service_registration.c and the
+ *   author forgot to add a corresponding ACL row; treating that as "no
+ *   restriction" silently granted full, unauthenticated access to it in
+ *   every session. Prior to this fix the default was permissive (see
+ *   issue #113 for the incident that prompted this change); every SID that
+ *   is actually reachable through the built-in default table has an
+ *   explicit row below so this flip does not change behaviour for any
+ *   service this stack ships today.
  *
  * LOOKUP ALGORITHM:
  *   1. Walk the table from entry 0 to entry (count - 1).
  *   2. If entry.service_id matches AND (1 << active_session) & entry.session_mask != 0:
  *        → enforce entry.required_sec + entry.require_unlocked
- *   3. If no matching entry: access granted.
+ *   3. If no matching entry: uds_access_table_lookup() itself still returns
+ *      NULL (so callers can distinguish "not in table" from "in table, wrong
+ *      session"); the access DECISION for that NULL case is made by
+ *      uds_access_table_enforce(), gated by UDS_ACL_ALLOW_UNLISTED_SERVICES
+ *      (deny unless the integrator opts in).
  *   4. First match wins — put more specific rules before general ones.
+ *
+ * UDS_ACL_ALLOW_UNLISTED_SERVICES — permissive opt-in for unlisted services:
+ *
+ *   Compile-time switch (same convention as ISOTP_TX_PADDING in
+ *   transport/isotp.h). Default 0 (fail-closed): a service_id with no
+ *   matching row in the active table — default or OEM-custom — is DENIED.
+ *   Set to 1 to restore the pre-#113 permissive behaviour for a specific
+ *   deployment that has audited every unlisted SID and deliberately wants
+ *   it reachable with no ACL-layer restriction (handler-level guards, if
+ *   any, still apply).
+ *
+ *   Zephyr:                 CONFIG_UDS_ACL_ALLOW_UNLISTED_SERVICES=y in
+ *                            prj.conf (see Kconfig).
+ *   FreeRTOS / bare-metal:   #define UDS_ACL_ALLOW_UNLISTED_SERVICES 1
+ *                            before including this header, or pass
+ *                            -DUDS_ACL_ALLOW_UNLISTED_SERVICES=1 to the
+ *                            compiler.
+ *
+ *   This is a per-deployment policy decision, not a per-SID one: it applies
+ *   to every service_id absent from whichever table is active. OEMs who
+ *   want permissive behaviour for only SOME unlisted services should instead
+ *   add explicit ACL rows for those specific SIDs and leave this switch at
+ *   its secure default.
  *
  * DEFAULT TABLE (uds_access_table_get_default() / UDS_ACCESS_TABLE_DEFAULT):
  *
@@ -50,13 +84,25 @@
  *                                         (security guard is inside the handler)
  *   SID  0x28 CommunicationControl     — Extended+Programming, no security
  *   SID  0x2E WriteDataByIdentifier    — Extended+Programming, Level 1 required
+ *   SID  0x31 RoutineControl           — all sessions, no ACL-layer security
+ *                                         (per-routine session/security gate
+ *                                         enforced inside service_0x31.c —
+ *                                         see [#113] row rationale in
+ *                                         uds_access_table.c)
  *   SID  0x3E TesterPresent            — all sessions, no security
  *   SID  0x85 ControlDTCSetting        — Extended+Programming, no security
+ *
+ *   (SIDs 0x23/0x2A/0x2F/0x34/0x35/0x36/0x37/0x3D also have rows — see the
+ *   table definition in uds_access_table.c for the full, current list.)
  *
  * OEM CUSTOMISATION:
  *   Declare a custom uds_access_entry_t[] array and pass it via the
  *   access_table / access_table_count fields in uds_server_cfg_t.
- *   NULL leaves the default table active.
+ *   NULL leaves the default table active. Remember: with the fail-closed
+ *   default, any service_id NOT covered by your custom table is now DENIED
+ *   rather than silently allowed — audit your table's coverage after
+ *   upgrading past #113, or set UDS_ACL_ALLOW_UNLISTED_SERVICES=1 if you
+ *   need the old behaviour immediately while you do that audit.
  *
  * STANDARD: MISRA C:2012 alignment intended.
  * SPDX-License-Identifier: GPL-2.0-only
@@ -72,6 +118,24 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+
+/* --------------------------------------------------------------------------
+ * [#113] Fail-closed-by-default permissive opt-in.
+ *
+ * See the "UDS_ACL_ALLOW_UNLISTED_SERVICES" section of the file header
+ * comment above for the full rationale and wiring instructions. Kept as a
+ * plain, non-CONFIG_-prefixed macro (matching ISOTP_TX_PADDING's convention
+ * in transport/isotp.h) so it is usable identically from Zephyr (via the
+ * Kconfig symbol of the same name), FreeRTOS, and bare-metal builds, and
+ * from host unit tests via a plain -D compiler flag.
+ *
+ * Default 0 — fail-closed: a service_id absent from the active table is
+ * DENIED. Set to 1 only for a deployment that has deliberately chosen
+ * permissive-by-default behaviour for its unlisted services.
+ * -------------------------------------------------------------------------- */
+#ifndef UDS_ACL_ALLOW_UNLISTED_SERVICES
+#define UDS_ACL_ALLOW_UNLISTED_SERVICES 0
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -172,8 +236,14 @@ typedef struct uds_access_entry {
 
 /**
  * @brief Number of entries in the built-in default access rights table.
+ *
+ * [#113] 18 -> 19: added the SID 0x31 (RoutineControl) row, which was
+ * previously absent (fell through the old fail-open default). See the row
+ * comment in uds_access_table.c for why it is intentionally permissive at
+ * the ACL layer (per-routine session/security checks live in
+ * core/uds_services/service_0x31.c instead).
  */
-#define UDS_ACCESS_TABLE_DEFAULT_COUNT  (18U)
+#define UDS_ACCESS_TABLE_DEFAULT_COUNT  (19U)
 
 /* --------------------------------------------------------------------------
  * Public API
