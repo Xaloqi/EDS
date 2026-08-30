@@ -4,7 +4,7 @@
 #
 # ECU       : MotorController_Inverter
 # Version   : 1.0.0
-# Generated : 2026-08-30T11:15:04Z
+# Generated : 2026-08-30T13:15:27Z
 #
 # DID       : 0xE303  (MC_IGBT_PhaseC_JunctionTemp_degC)
 # Access    : read

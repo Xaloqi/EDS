@@ -4,7 +4,7 @@
 #
 # ECU       : ARDEP_IOController
 # Version   : 1.0.0
-# Generated : 2026-08-30T11:15:03Z
+# Generated : 2026-08-30T13:12:17Z
 #
 # DID       : 0x2003  (PowerIO_Output2_Current_mA)
 # Access    : read

@@ -4,7 +4,7 @@
 #
 # ECU       : BMS_MainController
 # Version   : 1.0.0
-# Generated : 2026-08-30T11:15:04Z
+# Generated : 2026-08-30T13:15:22Z
 #
 # DID       : 0xDE00  (BMS_StateOfCharge_04pct)
 # Access    : read

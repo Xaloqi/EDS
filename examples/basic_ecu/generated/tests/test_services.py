@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-05-19T17:30:37Z
+# Generated : 2026-08-30T13:12:55Z
 #
 # PURPOSE: UDS service-level and ISO-TP transport tests derived from
 #          diagnostics_config.yaml.
@@ -395,6 +395,45 @@ class TestReadDTCInformation:
         dtc_section_len = len(pdu) - 3
         assert dtc_section_len % 4 == 0, (
             f"DTC section length {dtc_section_len} is not a multiple of 4"
+        )
+
+    def test_report_fault_detection_counter_sub0b(self, uds_bus: IsoTpTransport) -> None:
+        """
+        Sub 0x0B (reportDTCFaultDetectionCounter) — ISO 14229-1 §11.3.11.
+        Response: [0x59, 0x0B, {dtc3B, counter}...] — no DTCStatusAvailabilityMask.
+        Empty list (2 bytes) is valid when no DTCs are in pre-confirmed state.
+        """
+        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x0B]))
+        assert pdu is not None
+        if pdu[0] == SID_NEGATIVE_RESPONSE:
+            pytest.skip(f"ReadDTCInformation 0x0B not available (NRC 0x{pdu[2]:02X})")
+        assert pdu[0] == (SID_READ_DTC_INFO + POSITIVE_RESPONSE_OFFSET)
+        assert pdu[1] == 0x0B, f"sub-function echo must be 0x0B, got 0x{pdu[1]:02X}"
+        assert len(pdu) >= 2, "response must be at least 2 bytes"
+        # No availability mask — DTC section starts at byte 2, stride 4
+        dtc_section_len = len(pdu) - 2
+        assert dtc_section_len % 4 == 0, (
+            f"DTC section length {dtc_section_len} must be a multiple of 4 "
+            f"(3-byte DTC code + 1-byte counter per record)"
+        )
+
+    def test_report_dtc_permanent_status_sub19(self, uds_bus: IsoTpTransport) -> None:
+        """
+        Sub 0x19 (reportDTCWithPermanentStatus) — ISO 14229-1 §11.3.25.
+        Response: [0x59, 0x19, availMask, {dtc3B, statusByte}...]
+        Empty list (3 bytes) is valid when no DTCs are marked permanent.
+        """
+        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x19]))
+        assert pdu is not None
+        if pdu[0] == SID_NEGATIVE_RESPONSE:
+            pytest.skip(f"ReadDTCInformation 0x19 not available (NRC 0x{pdu[2]:02X})")
+        assert pdu[0] == (SID_READ_DTC_INFO + POSITIVE_RESPONSE_OFFSET)
+        assert pdu[1] == 0x19, f"sub-function echo must be 0x19, got 0x{pdu[1]:02X}"
+        assert len(pdu) >= 3, "response must be at least 3 bytes (RSID + sub + availMask)"
+        # DTC section after availability mask byte
+        dtc_section_len = len(pdu) - 3
+        assert dtc_section_len % 4 == 0, (
+            f"DTC section length {dtc_section_len} must be a multiple of 4"
         )
 
     def test_invalid_subfunction_rejected(self, uds_bus: IsoTpTransport) -> None:

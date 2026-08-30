@@ -38,6 +38,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **11 examples' `generated/tests/test_services.py` was missing ReadDTCInformation
+  sub `0x0B`/`0x19` coverage that the template gained months ago.** (#127)
+  `EDS-toolchain` commit `2efba87` added `test_report_fault_detection_counter_sub0b`
+  (ISO 14229-1 §11.3.11) and `test_report_dtc_permanent_status_sub19` (§11.3.25) to
+  `tools/templates/test_services.py.j2`, but the committed `generated/` output for
+  every example that carries a `tests/` directory (`ardep_ecu`, `basic_ecu`,
+  `basic_ecu_doip`, `basic_ecu_doip_freertos`, `basic_ecu_freertos`, `bms_ecu`,
+  `motor_controller_ecu`, `robot_joint_controller_ecu`, `safeboot_ecu`, `sensor_ecu`,
+  `sensor_ecu_freertos` — `safeboot_freertos_ecu` is generated without `--test-gen`
+  and was never affected) predated that commit. Not a functional defect — missing
+  test coverage only — first found and deliberately excluded from #124's regeneration
+  scope (logged as O-37) to keep that PR's diff to its actual subject. Regenerated all
+  11 examples' full `generated/` output via `tools/codegen.py --test-gen` (plus each
+  example's own `--safety-wrappers --asil-level B` / manifest flags, matched to what
+  was already committed) and diffed every touched file against the previously
+  committed version before staging: outside `test_services.py`, nothing changed but
+  the expected per-generation timestamp fields (`Generated:` headers,
+  `GEN_GENERATED_TIMESTAMP`, and — for the 3 examples that carry one — the manifest's
+  `generated_at`/`config_source`/`output_dir`/`generator`); inside `test_services.py`,
+  the only change in all 11 was the same timestamp line plus the two new test methods,
+  verbatim.
+
 - **ISO-TP: every Flow Control transmit failure was discarded, and there was no
   N_Ar timer at all.** (#122) Both `isotp_send_fc()` call sites in
   `transport/isotp.c` threw the return value away with `(void)` — the comment at

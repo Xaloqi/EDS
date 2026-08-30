@@ -1,8 +1,8 @@
 {
   "phase": "Phase 3",
-  "generated_at": "2026-08-30T11:15:05Z",
-  "config_source": "/home/raul/EDS-wt-124-regen/examples/sensor_ecu_freertos/diagnostics_config.yaml",
-  "output_dir": "/home/raul/EDS-wt-124-regen/examples/sensor_ecu_freertos/generated",
+  "generated_at": "2026-08-30T13:16:46Z",
+  "config_source": "/home/raul/EDS-wt-127/examples/sensor_ecu_freertos/diagnostics_config.yaml",
+  "output_dir": "/home/raul/EDS-wt-127/examples/sensor_ecu_freertos/generated",
   "safety_wrappers": true,
   "asil_level": "B",
   "files": [
@@ -33,5 +33,5 @@
     "examples/sensor_ecu_freertos/generated/tests/requirements_testgen.txt",
     "examples/sensor_ecu_freertos/generated/tests/README.md"
   ],
-  "generator": "/home/raul/EDS-wt-124-regen/tools/codegen.py"
+  "generator": "/home/raul/EDS-wt-127/tools/codegen.py"
 }

@@ -4,7 +4,7 @@
 #
 # ECU       : SafeBootECU
 # Version   : 1.0.0
-# Generated : 2026-08-30T11:15:05Z
+# Generated : 2026-08-30T13:15:59Z
 #
 # DID       : 0xF18C  (ECUSerialNumber)
 # Access    : read
