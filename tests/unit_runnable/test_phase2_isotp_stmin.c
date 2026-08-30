@@ -19,6 +19,10 @@
  *   TC-STMIN-009  FC OVERFLOW → ERROR state
  *   TC-STMIN-010  FC WAIT restarts Bs timer
  *   TC-STMIN-011  Full 13-byte transfer: 1 FF + 2 CF at STmin=0
+ *   TC-STMIN-012  [#111] STmin=20ms multi-CF transfer at real 1ms tick cadence
+ *                 completes (total elapsed > N_As) instead of erroring
+ *   TC-STMIN-013  [#111] N_As is not left armed across the FC wait
+ *   TC-STMIN-014  [#111] FC WAIT then CTS past 25ms still completes
  *
  * FRAMEWORK: Zephyr Ztest (host shim)
  * =============================================================================
@@ -292,6 +296,131 @@ ZTEST(test_phase2_isotp_stmin, tc011_full_20_byte_transfer)
     zassert_equal(ISOTP_STATE_IDLE, ctx.tx_state, "State must be IDLE");
 }
 
+/* -------------------------------------------------------------------------
+ * TC-STMIN-012..014 — regression for #111.
+ *
+ * N_As (ISO 15765-2 §6.7.2, Table 5) is the confirmation window of ONE
+ * transmitted frame. It is not a whole-transfer watchdog: the FC wait is
+ * governed by N_Bs and the CF cadence by STmin/N_Cs. Before the fix,
+ * tx_as_timer_ms was armed once at FF-send and never rearmed or stopped, so
+ * it counted down across the entire transfer and forced ISOTP_STATE_ERROR
+ * 25 ms after the FF on a perfectly valid exchange.
+ *
+ * These cases drive isotp_tick_1ms() at a real 1 ms cadence and use the
+ * public FC RX path instead of injecting TX state, which is why the existing
+ * TC-STMIN-002..005/011 cases never caught this.
+ * ------------------------------------------------------------------------- */
+
+ZTEST(test_phase2_isotp_stmin, tc012_stmin20_multi_cf_realtime_completes)
+{
+    mock_reset();
+    isotp_ctx_t ctx = make_ctx();
+    /* 34 bytes: FF carries 6, then 4 CFs of 7 = 34 total.
+     * At STmin = 20 ms the last CF leaves the pump 80 ms after the FC CTS —
+     * far beyond ISOTP_TIMEOUT_AS_MS (25 ms). */
+    uint8_t data[34];
+    for (uint8_t i = 0U; i < 34U; i++) { data[i] = (uint8_t)(i + 1U); }
+
+    zassert_equal(UDS_STATUS_OK, isotp_transmit(&ctx, data, 34U),
+                  "FF must be transmitted");
+    zassert_equal(ISOTP_STATE_TX_WAIT_FC, ctx.tx_state, "Must wait for FC");
+
+    /* Real FC CTS through the public RX path — no TX state injection. */
+    uds_can_frame_t fc = make_fc(0x00U, 0U, 20U);
+    zassert_equal(UDS_STATUS_OK,
+                  isotp_process_rx_frame(&ctx, &fc, null_rx_cb, NULL),
+                  "FC CTS must be accepted");
+    zassert_equal(ISOTP_STATE_TX_SEND_CF, ctx.tx_state, "Must be sending CFs");
+    zassert_equal(20U, ctx.tx_stmin_ms, "STmin must decode to 20ms");
+
+    /* Drive a true 1 ms cadence. No timer may expire on a valid exchange. */
+    int completed_at = -1;
+    for (int ms = 0; ms < 300; ms++) {
+        uds_status_t rc = isotp_tick_1ms(&ctx);
+        zassert_equal(UDS_STATUS_OK, rc,
+                      "tick must not report a timeout on a valid transfer");
+        zassert_not_equal(ISOTP_STATE_ERROR, ctx.tx_state,
+                          "TX must not enter ERROR on a valid exchange");
+        if (ctx.tx_state == ISOTP_STATE_IDLE) { completed_at = ms; break; }
+    }
+
+    zassert_true(completed_at >= 0, "Transfer must complete");
+    zassert_true(completed_at > (int)ISOTP_TIMEOUT_AS_MS,
+                 "Test is only meaningful if it outlives N_As");
+    zassert_equal(ISOTP_STATE_IDLE, ctx.tx_state, "State must be IDLE");
+    zassert_equal(5U, g_tx_count, "FF + 4 CFs = 5 frames");
+
+    /* Reassemble what actually went on the wire and compare byte-for-byte. */
+    uint8_t seen[34];
+    memcpy(&seen[0], &g_tx_frames[0].data[2], 6U);   /* FF payload */
+    for (uint8_t n = 1U; n < 5U; n++) {
+        uint8_t len = (uint8_t)(g_tx_frames[n].dlc - 1U);
+        zassert_equal((uint8_t)(0x20U | (n & 0x0FU)), g_tx_frames[n].data[0],
+                      "CF PCI/SN must be sequential");
+        memcpy(&seen[6U + ((n - 1U) * 7U)], &g_tx_frames[n].data[1], len);
+    }
+    zassert_mem_equal(data, seen, 34U, "Transmitted payload must be intact");
+}
+
+ZTEST(test_phase2_isotp_stmin, tc013_as_not_armed_across_fc_wait)
+{
+    mock_reset();
+    isotp_ctx_t ctx = make_ctx();
+    uint8_t data[20];
+    for (uint8_t i = 0U; i < 20U; i++) { data[i] = i; }
+
+    zassert_equal(UDS_STATUS_OK, isotp_transmit(&ctx, data, 20U), "");
+
+    /* N_As stops on the FF's transmission confirmation; the FC wait belongs
+     * to N_Bs (75 ms), so a 40 ms wait must not trip anything. */
+    zassert_equal(0U, ctx.tx_as_timer_ms,
+                  "N_As must be stopped once the FF is confirmed");
+
+    for (int ms = 0; ms < 40; ms++) {
+        zassert_equal(UDS_STATUS_OK, isotp_tick_1ms(&ctx),
+                      "N_Bs (75ms) must govern the FC wait, not N_As (25ms)");
+    }
+    zassert_equal(ISOTP_STATE_TX_WAIT_FC, ctx.tx_state,
+                  "Must still be waiting for FC at t=40ms");
+}
+
+ZTEST(test_phase2_isotp_stmin, tc014_fc_wait_then_cts_completes)
+{
+    mock_reset();
+    isotp_ctx_t ctx = make_ctx();
+    uint8_t data[20];
+    for (uint8_t i = 0U; i < 20U; i++) { data[i] = i; }
+
+    zassert_equal(UDS_STATUS_OK, isotp_transmit(&ctx, data, 20U), "");
+
+    /* FC WAIT at t=30ms restarts N_Bs; CTS follows at t=60ms. Both are past
+     * N_As (25 ms) measured from the FF. */
+    for (int ms = 0; ms < 30; ms++) {
+        zassert_equal(UDS_STATUS_OK, isotp_tick_1ms(&ctx), "");
+    }
+    uds_can_frame_t fc_wait = make_fc(0x01U, 0U, 0U);
+    zassert_equal(UDS_STATUS_OK,
+                  isotp_process_rx_frame(&ctx, &fc_wait, null_rx_cb, NULL), "");
+    zassert_equal(ISOTP_STATE_TX_WAIT_FC, ctx.tx_state, "");
+
+    for (int ms = 0; ms < 30; ms++) {
+        zassert_equal(UDS_STATUS_OK, isotp_tick_1ms(&ctx),
+                      "FC WAIT must extend the wait via N_Bs");
+    }
+
+    uds_can_frame_t fc_cts = make_fc(0x00U, 0U, 10U);
+    zassert_equal(UDS_STATUS_OK,
+                  isotp_process_rx_frame(&ctx, &fc_cts, null_rx_cb, NULL), "");
+
+    for (int ms = 0; ms < 100; ms++) {
+        zassert_equal(UDS_STATUS_OK, isotp_tick_1ms(&ctx), "");
+        if (ctx.tx_state == ISOTP_STATE_IDLE) { break; }
+    }
+    zassert_equal(ISOTP_STATE_IDLE, ctx.tx_state,
+                  "Transfer must complete after an FC WAIT sequence");
+    zassert_equal(3U, g_tx_count, "FF + 2 CFs = 3 frames");
+}
+
 extern void test_phase2_isotp_stmin__tc001_ff_sets_wait_fc(void);
 extern void test_phase2_isotp_stmin__tc002_stmin0_cf_on_first_tick(void);
 extern void test_phase2_isotp_stmin__tc003_stmin5_no_cf_before_5_ticks(void);
@@ -303,6 +432,9 @@ extern void test_phase2_isotp_stmin__tc008_stmin_reserved_to_0ms(void);
 extern void test_phase2_isotp_stmin__tc009_fc_overflow_sets_error(void);
 extern void test_phase2_isotp_stmin__tc010_fc_wait_restarts_bs(void);
 extern void test_phase2_isotp_stmin__tc011_full_20_byte_transfer(void);
+extern void test_phase2_isotp_stmin__tc012_stmin20_multi_cf_realtime_completes(void);
+extern void test_phase2_isotp_stmin__tc013_as_not_armed_across_fc_wait(void);
+extern void test_phase2_isotp_stmin__tc014_fc_wait_then_cts_completes(void);
 
 void run_all_tests(void)
 {
@@ -317,4 +449,7 @@ void run_all_tests(void)
     RUN_TEST(test_phase2_isotp_stmin__tc009_fc_overflow_sets_error);
     RUN_TEST(test_phase2_isotp_stmin__tc010_fc_wait_restarts_bs);
     RUN_TEST(test_phase2_isotp_stmin__tc011_full_20_byte_transfer);
+    RUN_TEST(test_phase2_isotp_stmin__tc012_stmin20_multi_cf_realtime_completes);
+    RUN_TEST(test_phase2_isotp_stmin__tc013_as_not_armed_across_fc_wait);
+    RUN_TEST(test_phase2_isotp_stmin__tc014_fc_wait_then_cts_completes);
 }

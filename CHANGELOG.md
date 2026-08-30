@@ -10,6 +10,40 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **ISO-TP: the N_As timer was armed once at First Frame and never rearmed or
+  stopped, aborting any multi-frame TX that took longer than 25 ms.** (#111)
+  `tx_as_timer_ms` was set to `ISOTP_TIMEOUT_AS_MS` (25 ms) when the FF went
+  out and was then never rearmed on FC CTS reception and never rearmed per
+  consecutive frame in `isotp_tx_pump()`, so it counted down across the entire
+  transfer — `TX_WAIT_FC` *and* `TX_SEND_CF` — instead of across one frame.
+  `isotp_tick_1ms()` checks it before the STmin pump and returns immediately on
+  expiry, so any multi-frame transmission whose total wall-clock time from FF
+  to completion exceeded 25 ms went to `ISOTP_STATE_ERROR` mid-transfer on a
+  fully valid protocol exchange. That is trivially true for any peer
+  requesting a non-trivial STmin (a 20 ms STmin errors out after the second
+  CF) or for any transfer of more than a handful of CFs; an FC WAIT sequence,
+  which restarted N_Bs but not N_As, tripped it too. Root cause: N_As
+  (ISO 15765-2 §6.7.2, Table 5 — the confirmation window of a *single*
+  transmitted frame) had been collapsed into what was effectively a
+  whole-transfer watchdog spanning windows that belong to N_Bs and STmin/N_Cs.
+  N_As is now armed immediately before each `can_transport_transmit()` call on
+  the segmented TX path (both FF paths and every CF) and stopped on that
+  call's return, which is the transmission-confirmation point at this layer —
+  it therefore measures exactly the one-frame window it is defined to measure
+  and never accumulates. The FC wait is bounded by N_Bs (75 ms) as
+  ISO 15765-2 intends, so a peer that never sends an FC is still caught, now
+  with `UDS_STATUS_ERR_TP_TIMEOUT_BS` at 75 ms rather than
+  `UDS_STATUS_ERR_TP_TIMEOUT_AS` at 25 ms. Existing tests missed this because
+  they inject TX state directly instead of driving the public FC path, and
+  never tick `isotp_tick_1ms()` across a realistic elapsed interval — one of
+  them had to explicitly zero `tx_as_timer_ms` to stop N_As from pre-empting
+  the N_Bs timeout it was actually testing. Three new regression tests drive a
+  true 1 ms tick cadence through a full multi-CF transfer at STmin = 20 ms
+  (80 ms total, well past N_As) via a real FC CTS frame and assert the
+  transfer completes with the payload byte-identical on the wire, that N_As is
+  not left armed across the FC wait, and that an FC WAIT followed by a late
+  CTS still completes.
+
 - **DoIP: `tcp_send()` short writes were treated as a complete send, silently
   truncating frames on real Ethernet.** (#105) Both call sites in
   `transport/doip/doip_server.c` accepted any positive return from

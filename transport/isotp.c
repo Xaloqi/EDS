@@ -369,6 +369,15 @@ uds_status_t isotp_process_rx_frame(
             /* Stop Bs timer — FC received in time. */
             ctx->tx_bs_timer_ms = 0U;
 
+            /*
+             * [#111] N_As is the confirmation window of a single transmitted
+             * frame (ISO 15765-2 §6.7.2, Table 5) — it is not the timer for
+             * this wait, and it must never still be running here. Stopping it
+             * explicitly on every FS (CTS, WAIT and the abort cases alike)
+             * keeps that invariant local and checkable.
+             */
+            ctx->tx_as_timer_ms = 0U;
+
             switch (fs) {
                 case (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND:
                     /* [P2-TP-06] Extract and decode STmin. */
@@ -541,7 +550,10 @@ uds_status_t isotp_transmit(
         }
 #endif
 
-        tx_rc = can_transport_transmit(ctx->can, &ff);
+        /* [#111] N_As spans this one frame only — see the classic FF path. */
+        ctx->tx_as_timer_ms = (uint32_t)ISOTP_TIMEOUT_AS_MS;
+        tx_rc               = can_transport_transmit(ctx->can, &ff);
+        ctx->tx_as_timer_ms = 0U;
         if (tx_rc != UDS_STATUS_OK) {
             return UDS_STATUS_ERR_TP_TX_FAILED;
         }
@@ -549,7 +561,6 @@ uds_status_t isotp_transmit(
         ctx->tx_sent_len    = (uint32_t)first_data;
         ctx->tx_sn          = (uint8_t)1U;
         ctx->tx_bs_timer_ms = (uint32_t)ISOTP_TIMEOUT_BS_MS;
-        ctx->tx_as_timer_ms = (uint32_t)ISOTP_TIMEOUT_AS_MS;
         ctx->tx_state       = ISOTP_STATE_TX_WAIT_FC;
         return UDS_STATUS_OK;
     }
@@ -569,7 +580,24 @@ uds_status_t isotp_transmit(
         (void)memcpy(&ff.data[2], data, (size_t)6U);
         /* Classic CAN FF fills all 8 bytes (2 PCI + 6 data) — padding not required. */
 
-        tx_rc = can_transport_transmit(ctx->can, &ff);
+        /*
+         * [#111] N_As (ISO 15765-2 §6.7.2, Table 5) measures ONE frame's
+         * request-to-confirmation window: it starts when the N_PDU is handed
+         * to the data link layer and stops on that frame's transmission
+         * confirmation. can_transport_transmit() is both the request and the
+         * confirmation point at this layer — it returns UDS_STATUS_OK only
+         * once the data link layer has accepted the frame — so N_As is armed
+         * immediately before the call and stopped on its return.
+         *
+         * It must NOT stay armed after this point. The wait for the FC that
+         * follows is N_Bs (75 ms), and the CF cadence that follows that is
+         * STmin/N_Cs. Previously N_As was armed here and never rearmed or
+         * stopped, so it counted down across the whole transfer and forced
+         * ISOTP_STATE_ERROR 25 ms after the FF on a valid exchange.
+         */
+        ctx->tx_as_timer_ms = (uint32_t)ISOTP_TIMEOUT_AS_MS;
+        tx_rc               = can_transport_transmit(ctx->can, &ff);
+        ctx->tx_as_timer_ms = 0U;
         if (tx_rc != UDS_STATUS_OK) {
             return UDS_STATUS_ERR_TP_TX_FAILED;
         }
@@ -579,7 +607,6 @@ uds_status_t isotp_transmit(
 
         /* [P2-TP-05] Arm Bs timer — must receive FC within ISOTP_TIMEOUT_BS_MS. */
         ctx->tx_bs_timer_ms = (uint32_t)ISOTP_TIMEOUT_BS_MS;
-        ctx->tx_as_timer_ms = (uint32_t)ISOTP_TIMEOUT_AS_MS;
         ctx->tx_state       = ISOTP_STATE_TX_WAIT_FC;
     }
 
@@ -607,14 +634,16 @@ uds_status_t isotp_tick_1ms(isotp_ctx_t *ctx)
         }
     }
 
-    /* --- TX As timer (sender frame confirmation) ---
+    /* --- TX As timer (single-frame transmission confirmation) ---
      *
-     * This timer guards the interval between sending an FF/CF and receiving
-     * the transport-layer acknowledgement (FC for FF, or the next-block FC
-     * for a CF batch). It must only run while the TX state machine is
-     * actively waiting — NOT after TX is complete (IDLE) or in ERROR.
-     * Running it unconditionally would corrupt tx_state 25 ms after a
-     * successful multi-frame send completes.
+     * [#111] N_As guards ONE frame's request-to-confirmation window, not the
+     * FC wait (that is N_Bs) and not the CF batch (that is STmin/N_Cs). Every
+     * TX site arms it immediately before can_transport_transmit() and stops it
+     * on that call's return, so on a valid exchange it is never still armed
+     * when a tick lands and this branch cannot fire. It is retained as the
+     * enforcement point should a frame's confirmation ever be left outstanding
+     * across a tick boundary. The state guard keeps a stale timer from
+     * corrupting tx_state once TX is complete (IDLE) or already in ERROR.
      */
     if ((ctx->tx_as_timer_ms > 0U) &&
         (ctx->tx_state == ISOTP_STATE_TX_WAIT_FC ||
@@ -815,6 +844,7 @@ static void isotp_tx_pump(isotp_ctx_t *ctx)
         ctx->tx_state       = ISOTP_STATE_IDLE;
         ctx->tx_data        = NULL;
         ctx->tx_as_timer_ms = 0U;  /* disarm — TX done */
+        ctx->tx_bs_timer_ms = 0U;
         return;
     }
 
@@ -832,7 +862,12 @@ static void isotp_tx_pump(isotp_ctx_t *ctx)
     isotp_pad_frame(cf.data, (uint8_t)(cf_data_len + (uint8_t)1U), (uint8_t)8U);
 #endif
 
-    tx_rc = can_transport_transmit(ctx->can, &cf);
+    /* [#111] N_As covers this single CF only — armed at the data link layer
+     * request, stopped on its confirmation. See the FF path in
+     * isotp_transmit() for the full rationale. */
+    ctx->tx_as_timer_ms = (uint32_t)ISOTP_TIMEOUT_AS_MS;
+    tx_rc               = can_transport_transmit(ctx->can, &cf);
+    ctx->tx_as_timer_ms = 0U;
     if (tx_rc != UDS_STATUS_OK) {
         ctx->tx_state = ISOTP_STATE_ERROR;
         return;
@@ -844,9 +879,10 @@ static void isotp_tx_pump(isotp_ctx_t *ctx)
 
     /* Check if all bytes have been sent. */
     if (ctx->tx_sent_len >= ctx->tx_total_len) {
-        ctx->tx_state    = ISOTP_STATE_IDLE;
-        ctx->tx_data     = NULL;
-        ctx->tx_bs_timer_ms = 0U;
+        ctx->tx_state       = ISOTP_STATE_IDLE;
+        ctx->tx_data        = NULL;
+        ctx->tx_bs_timer_ms = 0U;  /* disarm — TX done */
+        ctx->tx_as_timer_ms = 0U;
         return;
     }
 
