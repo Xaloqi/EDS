@@ -57,8 +57,13 @@ extern "C" {
  *  Persisting this prevents lockout bypass by power-cycling the ECU. */
 #define NVM_KEY_SEC_LOCKOUT_MS     ((uint16_t)0x0002U)
 
-/** DTC status-byte mirror: array of (dtc_code[3] + status_byte[1]) * count.
- *  Maximum size: UDS_MAX_DTC_COUNT * 4 bytes = 512 bytes. */
+/** DTC status-byte mirror: array of (dtc_code[3] + status_byte[1]) * count,
+ *  plus a 5-byte header and 4-byte CRC-32 trailer (see config/dtc_mirror.h).
+ *  Maximum size: DTC_MIRROR_MAX_BYTES = 509 bytes, deliberately capped
+ *  below NVM_MAX_RECORD_BYTES and enforced by a _Static_assert in
+ *  config/dtc_mirror.c — NOT simply UDS_MAX_DTC_COUNT * 4 (issue #123:
+ *  that naive formula, plus the header/CRC overhead, is 9 bytes over this
+ *  record's cap). */
 #define NVM_KEY_DTC_MIRROR         ((uint16_t)0x0003U)
 
 /** Session statistics block (nvm_session_stats_t, ~16 bytes). */

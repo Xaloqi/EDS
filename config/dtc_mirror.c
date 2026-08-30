@@ -31,6 +31,36 @@
 #include <stdint.h>
 
 /* --------------------------------------------------------------------------
+ * Build-time sizing guarantee (issue #123)
+ * -------------------------------------------------------------------------- */
+
+/*
+ * DTC_MIRROR_MAX_BYTES (computed FROM DTC_MIRROR_MAX_PERSISTED_DTCS, see
+ * dtc_mirror.h) must never exceed the platform's per-record NVM cap. This
+ * is what makes DTC_MIRROR_MAX_PERSISTED_DTCS a real guarantee rather than
+ * a comment: if a future change to any of the wire-format sizing constants
+ * (header bytes, entry bytes, the persisted-DTC cap) breaks the inequality,
+ * the BUILD fails here instead of nvm_store_write() silently rejecting the
+ * mirror write at runtime — the original issue #123 failure mode.
+ *
+ * MISRA_ANALYSIS guard: cppcheck's MISRA addon reports _Static_assert as
+ * "Rule N/A" (not covered by any MISRA rule), which would inflate the
+ * open-violation count. misra_analysis.py defines MISRA_ANALYSIS=1 during
+ * static analysis passes to exclude this assertion from that pass only;
+ * GCC and Clang always see it. Same pattern as core/uds_types.h.
+ */
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L) && !defined(MISRA_ANALYSIS)
+_Static_assert(
+    DTC_MIRROR_MAX_BYTES <= NVM_MAX_RECORD_BYTES,
+    "DTC_MIRROR_MAX_BYTES exceeds NVM_MAX_RECORD_BYTES — the DTC mirror "
+    "would silently fail to persist at worst-case fault load (issue #123). "
+    "Lower DTC_MIRROR_MAX_PERSISTED_DTCS in dtc_mirror.h, or raise "
+    "NVM_MAX_RECORD_BYTES in platform/nvm_store.h after checking every "
+    "other NVM_KEY_* consumer of that shared cap."
+);
+#endif
+
+/* --------------------------------------------------------------------------
  * Internal state
  * -------------------------------------------------------------------------- */
 
@@ -90,9 +120,15 @@ static uds_status_t mirror_serialize_internal(bool force_status_zero, size_t *ou
 
     count = (uint16_t)0U;
 
-    /* Iterate using the dtc_database export accessor. */
+    /* Iterate using the dtc_database export accessor. Bounded by
+     * DTC_MIRROR_MAX_PERSISTED_DTCS (issue #123), not UDS_MAX_DTC_COUNT:
+     * dtc_database may hold more entries than the mirror can persist within
+     * NVM_MAX_RECORD_BYTES. Entries at index >= the cap are simply not
+     * written — the buffer-full break below is a redundant safety net,
+     * not the primary mechanism now that this loop bound already matches
+     * DTC_MIRROR_MAX_BYTES's derivation. */
     {
-        uint16_t max_dtcs = (uint16_t)UDS_MAX_DTC_COUNT;
+        uint16_t max_dtcs = (uint16_t)DTC_MIRROR_MAX_PERSISTED_DTCS;
         uint16_t idx;
 
         for (idx = (uint16_t)0U; idx < max_dtcs; idx++) {
@@ -225,9 +261,11 @@ uds_status_t dtc_mirror_load(void)
     count  = (uint16_t)((uint16_t)buf[3] << 8U);
     count |= (uint16_t)  buf[4];
 
-    if (count > (uint16_t)UDS_MAX_DTC_COUNT) {
-        /* Declared count exceeds the largest table this build could ever
-         * have written — cannot be a genuine record from this format. */
+    if (count > (uint16_t)DTC_MIRROR_MAX_PERSISTED_DTCS) {
+        /* Declared count exceeds the largest count this build could ever
+         * have WRITTEN (issue #123: the mirror now caps what it persists
+         * at DTC_MIRROR_MAX_PERSISTED_DTCS, not UDS_MAX_DTC_COUNT) —
+         * cannot be a genuine record from this format. */
         return UDS_STATUS_ERR_NVM_DATA_CORRUPT;
     }
 

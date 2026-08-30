@@ -17,7 +17,18 @@
  *   Entries absent from database (firmware update removes DTC) skipped
  *   DTC with status 0x00 NOT lost on round-trip
  *
- * TEST COUNT: 13
+ * Also covers issue #123 (DTC mirror could exceed NVM_MAX_RECORD_BYTES
+ * before UDS_MAX_DTC_COUNT was reached):
+ *   Filling to DTC_MIRROR_MAX_PERSISTED_DTCS (today's persisted-DTC cap)
+ *     round-trips every entry through flush_all()/load().
+ *   Filling dtc_database to its full UDS_MAX_DTC_COUNT (128) capacity still
+ *     flushes OK (this is the regression check: on unmodified pre-#123
+ *     source, this flush_all() call returns ERR_INVALID_PARAM instead of
+ *     OK because the serialized record is 521 bytes against the 512-byte
+ *     NVM cap); entries beyond the persisted-DTC cap are documented as not
+ *     persisted, not corrupted.
+ *
+ * TEST COUNT: 15
  * =============================================================================
  */
 
@@ -301,6 +312,144 @@ void test_get_count_null_guard(void)
 }
 
 /* --------------------------------------------------------------------------
+ * Issue #123 — DTC mirror sizing vs. NVM_MAX_RECORD_BYTES
+ * -------------------------------------------------------------------------- */
+
+/*
+ * Deliberately a LITERAL, not config/dtc_mirror.h's DTC_MIRROR_MAX_PERSISTED_DTCS:
+ * these two tests must still compile against the unmodified pre-#123 source
+ * (which does not define that constant) so the regression check below fails
+ * at its runtime assertion — proving the actual behavioral bug — rather than
+ * failing to build and masking what's really being tested. TC-MIRROR-028 in
+ * test_dtc_mirror.c cross-checks this literal against the real
+ * DTC_MIRROR_MAX_PERSISTED_DTCS constant, so drift between the two is caught.
+ */
+#define TEST_EXPECTED_MIRROR_PERSISTED_CAP ((uint16_t)125U)
+
+/* Register `count` unique, nonzero DTC codes (0x010000 + i) with distinct
+ * status bytes ((i % 0xFF) + 1, always nonzero so "not persisted" is
+ * distinguishable from a genuine round-tripped 0x00 status). */
+static void register_n_dtcs_with_status(uint16_t count)
+{
+    uint16_t i;
+
+    for (i = 0U; i < count; i++) {
+        uint32_t dtc_code = 0x010000UL + (uint32_t)i;
+        uint8_t  status    = (uint8_t)((i % 0xFFU) + 1U);
+
+        TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+            dtc_database_register(dtc_code, 0x00U, NULL));
+        TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+            dtc_database_set_status(dtc_code, status));
+    }
+}
+
+/* 14. Filling to exactly TEST_EXPECTED_MIRROR_PERSISTED_CAP (today's cap,
+ * 125) must flush OK and every entry must round-trip through a
+ * power-cycle. */
+void test_flush_and_load_at_persisted_cap_round_trips_all(void)
+{
+    uint16_t i;
+
+    register_n_dtcs_with_status(TEST_EXPECTED_MIRROR_PERSISTED_CAP);
+
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, dtc_mirror_flush_all());
+
+    /* Power-cycle: preserve NVM data, re-init all modules cleanly. */
+    nvm_mock_deinit();
+    nvm_store_init(NULL);
+    dtc_database_test_reset();
+    dtc_database_init();
+    dtc_mirror_test_reset();
+    dtc_mirror_init();
+
+    /* Re-register (as stack init would), then load. */
+    for (i = 0U; i < TEST_EXPECTED_MIRROR_PERSISTED_CAP; i++) {
+        uint32_t dtc_code = 0x010000UL + (uint32_t)i;
+        TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+            dtc_database_register(dtc_code, 0x00U, NULL));
+    }
+
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, dtc_mirror_load());
+
+    for (i = 0U; i < TEST_EXPECTED_MIRROR_PERSISTED_CAP; i++) {
+        uint32_t     dtc_code = 0x010000UL + (uint32_t)i;
+        uint8_t      expected = (uint8_t)((i % 0xFFU) + 1U);
+        dtc_entry_t *e        = dtc_database_find(dtc_code);
+
+        TEST_ASSERT_NOT_NULL(e);
+        TEST_ASSERT_EQUAL_UINT8(expected, e->status_byte);
+    }
+}
+
+/* 15. THE REGRESSION TEST (issue #123): filling dtc_database to its full
+ * UDS_MAX_DTC_COUNT (128) capacity — three more than the mirror's
+ * persisted cap — must still flush OK.
+ *
+ * On unmodified pre-#123 source this assertion FAILS: mirror_serialize()
+ * walks all 128 registered entries, producing a 521-byte record
+ * (5 + 128*4 + 4), and nvm_store_write() rejects anything over
+ * NVM_MAX_RECORD_BYTES (512) — dtc_mirror_flush_all() returns a non-OK
+ * status instead of UDS_STATUS_OK. This is the exact issue #123 failure
+ * mode: silent persistence loss at worst-case fault load.
+ *
+ * After the fix, the mirror only ever serializes the first
+ * TEST_EXPECTED_MIRROR_PERSISTED_CAP entries (509 bytes) and the write
+ * succeeds. Entries beyond the cap are a documented limitation, not a
+ * crash or a truncated/corrupt write: after a power-cycle and reload,
+ * DTCs within the cap round-trip exactly, and DTCs beyond it come back at
+ * their power-on default (0x00) rather than the (nonzero) status set
+ * before the flush — proving they were simply never written, not
+ * partially/incorrectly written. */
+void test_flush_at_full_dtc_database_capacity_still_succeeds(void)
+{
+    uint16_t i;
+
+    TEST_ASSERT_EQUAL((uint16_t)128U, (uint16_t)UDS_MAX_DTC_COUNT);
+    TEST_ASSERT_TRUE((uint16_t)UDS_MAX_DTC_COUNT > TEST_EXPECTED_MIRROR_PERSISTED_CAP);
+
+    register_n_dtcs_with_status((uint16_t)UDS_MAX_DTC_COUNT);
+
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, dtc_mirror_flush_all());
+
+    /* Power-cycle and reload. */
+    nvm_mock_deinit();
+    nvm_store_init(NULL);
+    dtc_database_test_reset();
+    dtc_database_init();
+    dtc_mirror_test_reset();
+    dtc_mirror_init();
+
+    for (i = 0U; i < (uint16_t)UDS_MAX_DTC_COUNT; i++) {
+        uint32_t dtc_code = 0x010000UL + (uint32_t)i;
+        TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+            dtc_database_register(dtc_code, 0x00U, NULL));
+    }
+
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, dtc_mirror_load());
+
+    /* Within the persisted cap: exact round-trip. */
+    for (i = 0U; i < TEST_EXPECTED_MIRROR_PERSISTED_CAP; i++) {
+        uint32_t     dtc_code = 0x010000UL + (uint32_t)i;
+        uint8_t      expected = (uint8_t)((i % 0xFFU) + 1U);
+        dtc_entry_t *e        = dtc_database_find(dtc_code);
+
+        TEST_ASSERT_NOT_NULL(e);
+        TEST_ASSERT_EQUAL_UINT8(expected, e->status_byte);
+    }
+
+    /* Beyond the persisted cap: documented as not persisted -> default 0x00,
+     * NOT the nonzero status that was set (and never written) before flush. */
+    for (i = TEST_EXPECTED_MIRROR_PERSISTED_CAP; i < (uint16_t)UDS_MAX_DTC_COUNT; i++) {
+        uint32_t     dtc_code = 0x010000UL + (uint32_t)i;
+        dtc_entry_t *e        = dtc_database_find(dtc_code);
+
+        TEST_ASSERT_NOT_NULL(e);
+        TEST_ASSERT_EQUAL_UINT8(0x00U, e->status_byte);
+    }
+}
+
+/* --------------------------------------------------------------------------
  * Test runner
  * -------------------------------------------------------------------------- */
 void run_all_tests(void)
@@ -318,4 +467,6 @@ void run_all_tests(void)
     RUN_TEST(test_zero_status_round_trips);
     RUN_TEST(test_get_by_index_null_guard);
     RUN_TEST(test_get_count_null_guard);
+    RUN_TEST(test_flush_and_load_at_persisted_cap_round_trips_all);
+    RUN_TEST(test_flush_at_full_dtc_database_capacity_still_succeeds);
 }

@@ -66,6 +66,17 @@
  *     TC-MIRROR-027  Valid magic + unsupported version → load() reports
  *                    ERR_NVM_DATA_CORRUPT
  *
+ *   Mirror sizing vs. the NVM record cap (issue #123):
+ *     TC-MIRROR-028  DTC_MIRROR_MAX_BYTES (today's persisted-DTC cap) fits
+ *                    within NVM_MAX_RECORD_BYTES — the fix is internally
+ *                    consistent (the _Static_assert in dtc_mirror.c is the
+ *                    primary enforcement; this is a runtime cross-check).
+ *     TC-MIRROR-029  Proves issue #123 was a real bug, independent of
+ *                    TC-MIRROR-028: recomputes the OLD (pre-fix) sizing
+ *                    formula — header + UDS_MAX_DTC_COUNT entries + CRC —
+ *                    directly from the raw wire-format constants, and
+ *                    shows it exceeds NVM_MAX_RECORD_BYTES.
+ *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h for host compilation)
  * NVM:       NVM_STORE_HOST_MOCK (RAM-backed mock, controlled via nvm_mock_reset /
  *            nvm_mock_deinit)
@@ -790,6 +801,50 @@ ZTEST(dtc_mirror, test_load_reports_corrupt_on_bad_version)
 }
 
 /* ==========================================================================
+ * Mirror sizing vs. the NVM record cap (issue #123)
+ * ========================================================================== */
+
+/* TC-MIRROR-028  DTC_MIRROR_MAX_BYTES (derived from today's
+ * DTC_MIRROR_MAX_PERSISTED_DTCS) fits within NVM_MAX_RECORD_BYTES.
+ *
+ * The build-time _Static_assert in dtc_mirror.c is the primary enforcement
+ * (it fails the BUILD, not just this test, if a future change to any
+ * sizing constant breaks the inequality) — this is a runtime cross-check
+ * of the same fact, and pins the exact byte counts so a silent change to
+ * either constant is caught here too. */
+ZTEST(dtc_mirror, test_mirror_max_bytes_fits_nvm_cap)
+{
+    zassert_equal(125U, (unsigned int)DTC_MIRROR_MAX_PERSISTED_DTCS,
+                  "issue #123 ceiling: 5 + N*4 + 4 <= 512 => N <= 125");
+    zassert_equal(509U, (unsigned int)DTC_MIRROR_MAX_BYTES,
+                  "DTC_MIRROR_MAX_BYTES must be 5 + 125*4 + 4 = 509");
+    zassert_true(DTC_MIRROR_MAX_BYTES <= NVM_MAX_RECORD_BYTES,
+                  "DTC_MIRROR_MAX_BYTES must fit within NVM_MAX_RECORD_BYTES");
+}
+
+/* TC-MIRROR-029  Proves issue #123 was a real bug: recompute the OLD
+ * (pre-fix) sizing formula directly from the raw wire-format constants —
+ * header + UDS_MAX_DTC_COUNT (128) entries + CRC trailer, exactly what
+ * DTC_MIRROR_MAX_BYTES used to expand to before this fix — and show it
+ * exceeds NVM_MAX_RECORD_BYTES. This is independent of
+ * DTC_MIRROR_MAX_PERSISTED_DTCS, so it proves the defect was real rather
+ * than merely that today's cap is internally consistent (TC-MIRROR-028). */
+ZTEST(dtc_mirror, test_old_full_table_sizing_would_have_exceeded_nvm_cap)
+{
+    size_t old_formula_bytes = (size_t)DTC_MIRROR_HEADER_BYTES
+                              + ((size_t)UDS_MAX_DTC_COUNT * (size_t)DTC_MIRROR_ENTRY_BYTES)
+                              + (size_t)DTC_MIRROR_CRC_BYTES;
+
+    zassert_equal((size_t)521U, old_formula_bytes,
+                  "pre-#123 formula: 5 + 128*4 + 4 = 521");
+    zassert_true(old_formula_bytes > (size_t)NVM_MAX_RECORD_BYTES,
+                  "issue #123: sizing the mirror from UDS_MAX_DTC_COUNT (128) "
+                  "overshoots NVM_MAX_RECORD_BYTES (512) by 9 bytes — this is "
+                  "the bug that made nvm_store_write() silently reject the "
+                  "mirror write once the live DTC table grew past 125 entries");
+}
+
+/* ==========================================================================
  * run_all_tests
  * ========================================================================== */
 
@@ -835,4 +890,8 @@ void run_all_tests(void)
     RUN_TEST(dtc_mirror__test_load_reports_corrupt_on_truncated_record);
     RUN_TEST(dtc_mirror__test_load_treats_legacy_record_as_no_mirror);
     RUN_TEST(dtc_mirror__test_load_reports_corrupt_on_bad_version);
+
+    /* Mirror sizing vs. the NVM record cap (issue #123) */
+    RUN_TEST(dtc_mirror__test_mirror_max_bytes_fits_nvm_cap);
+    RUN_TEST(dtc_mirror__test_old_full_table_sizing_would_have_exceeded_nvm_cap);
 }

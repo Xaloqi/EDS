@@ -195,6 +195,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   clamp-and-continue behavior as correct has been rewritten to assert the
   reject-and-abort behavior instead.
 
+- **DTC NVM mirror could exceed the shared NVM record cap before
+  `UDS_MAX_DTC_COUNT` was reached — silent persistence loss at worst-case
+  fault load.** (#123) `config/dtc_mirror.h`'s `DTC_MIRROR_MAX_BYTES` was
+  sized from `UDS_MAX_DTC_COUNT` (128): `5 + 128*4 + 4 = 521` bytes, 9 bytes
+  over `platform/nvm_store.h`'s `NVM_MAX_RECORD_BYTES` (512) — a cap shared
+  with unrelated NVM consumers (security counters, session stats), so
+  widening it was out of scope (flagged but deliberately deferred when
+  #114 added the 9-byte integrity header/CRC that narrowed the safe
+  ceiling from 127 to 125). Once the live DTC table grew past 125 entries,
+  `nvm_store_write()`'s own length guard silently rejected the mirror
+  write with a non-OK status; both call sites already treat that as
+  best-effort/non-fatal, so nothing crashed — but ConfirmedDTC persistence
+  silently stopped updating exactly when a device was closest to its
+  worst-case fault load, the scenario #114's integrity metadata exists to
+  make trustworthy. Fixed by capping what the mirror promises to persist,
+  not by raising the shared NVM cap: new `DTC_MIRROR_MAX_PERSISTED_DTCS`
+  (125, the largest count that fits `NVM_MAX_RECORD_BYTES` alongside the
+  header and CRC trailer) now bounds both the serializer's iteration and
+  `DTC_MIRROR_MAX_BYTES`'s own derivation, enforced by a build-time
+  `_Static_assert` in `dtc_mirror.c` so any future change to the sizing
+  constants fails the build instead of failing silently at runtime.
+  `dtc_database` still holds up to `UDS_MAX_DTC_COUNT` (128) DTCs; entries
+  beyond the persisted cap are a documented limitation — simply not
+  written, never truncated or corrupted. New regression tests: filling to
+  exactly the new cap round-trips every entry through a flush/power-cycle/
+  load; filling to the full `UDS_MAX_DTC_COUNT` (128) still flushes OK,
+  with entries beyond the cap correctly absent (not corrupted) after
+  reload — this is the one that fails against unmodified pre-fix source
+  (`dtc_mirror_flush_all()` returns a non-OK status instead of OK); and a
+  standalone arithmetic test recomputes the old pre-#123 formula directly
+  from the raw wire-format constants to prove the defect was real,
+  independent of today's cap.
+
 ### Security
 
 - **BREAKING: UDS access-control table now fails CLOSED for any service_id
