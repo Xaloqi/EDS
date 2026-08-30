@@ -38,6 +38,44 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **ISO-TP: every Flow Control transmit failure was discarded, and there was no
+  N_Ar timer at all.** (#122) Both `isotp_send_fc()` call sites in
+  `transport/isotp.c` threw the return value away with `(void)` — the comment at
+  the CTS site said so outright ("best-effort; ignore transmit errors"). If the
+  CAN controller rejected the FC (bus-off, full TX mailbox, arbitration loss
+  past the driver's own timeout), the receiver still transitioned to
+  `ISOTP_STATE_RX_WAIT_CF` and returned `UDS_STATUS_OK` as though flow control
+  had been granted. The sender never saw the FC and failed on its own N_Bs,
+  while the ECU silently burned its full N_Cr (150 ms) waiting for consecutive
+  frames that could not come — and the actual fault, a failed local transmit the
+  platform layer *did* report, was visible nowhere. Separately, ISO 15765-2
+  Table 5's **N_Ar** — the receiver-side mirror of N_As, the confirmation window
+  for the FC the receiver transmits, budgeted at 25 ms — did not exist in any
+  form: no `ISOTP_TIMEOUT_AR_MS`, no timer field. Both call sites now propagate
+  the status: a rejected FC drives the RX channel to `ISOTP_STATE_ERROR` and
+  returns `UDS_STATUS_ERR_TP_TX_FAILED`, matching how this file already handles
+  an RX fault that has mutated context (the CF handler's SN, DLC and overflow
+  paths) and how the TX path handles a failed `can_transport_transmit()` in
+  `isotp_tx_pump()`. At the OVERFLOW site the transmit failure now takes
+  precedence over `ERR_TP_OVERFLOW`, which would have reported the peer's
+  protocol condition while hiding our own hardware fault. New
+  `ISOTP_TIMEOUT_AR_MS` (25 ms) and `isotp_ctx_t.rx_ar_timer_ms` scope N_Ar to
+  the single FC transmit exactly as #111 scoped N_As: armed immediately before
+  `can_transport_transmit()`, stopped on its return, with a tick-handler branch
+  (new `UDS_STATUS_ERR_TP_TIMEOUT_AR`, 0x38) as the enforcement point for ports
+  whose transmit blocks — the Zephyr port blocks in `can_send()` for up to
+  `K_MSEC(25)`. The window after the FC is N_Cr, never N_Ar. Found in the same
+  pass as #111; the opposite defect class — #111 invented a spurious error on a
+  valid exchange, this one suppressed a genuine one. **Rebase note:** #121
+  (merged first) added a *third* `isotp_send_fc()` call site — the periodic
+  block-boundary FC the CF branch sends once BlockSize handling is in place —
+  which still discarded its status with `(void)` and an explicitly stale
+  comment claiming to mirror the FF handler's (by-then-fixed) CTS. Brought to
+  the same standard as the other two sites while reconciling the two branches,
+  with its own regression test
+  (`test_periodic_block_boundary_fc_tx_failure_is_reported`) proven to fail
+  against the unreconciled code and pass after.
+
 - **ISO-TP RX: the receiver advertised a BlockSize it never honoured — any
   `isotp_cfg_t.block_size > 0` stalled every inbound multi-frame transfer.**
   (#121) `isotp_init()` stored `cfg->block_size` into `ctx->local_block_size`

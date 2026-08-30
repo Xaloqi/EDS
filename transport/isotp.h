@@ -45,6 +45,21 @@ extern "C" {
 #define ISOTP_TIMEOUT_AS_MS   (25U)
 #endif
 
+/**
+ * Ar: Receiver side timeout for the transmission confirmation of a SINGLE
+ * CAN frame (ISO 15765-2:2016 Table 5) — the exact receiver-side mirror of
+ * N_As, and budgeted identically at 25 ms.
+ *
+ * The only frame the receiver transmits during a reassembly is the Flow
+ * Control frame, so N_Ar is the confirmation window of that FC. It starts
+ * when the FC N_PDU is passed to the data link layer and stops on that
+ * frame's transmission confirmation. It is NOT the wait for consecutive
+ * frames — that window is ISOTP_TIMEOUT_CR_MS.
+ */
+#ifndef ISOTP_TIMEOUT_AR_MS
+#define ISOTP_TIMEOUT_AR_MS   (25U)
+#endif
+
 /** Bs: Sender side timeout to receive a Flow Control frame. */
 #ifndef ISOTP_TIMEOUT_BS_MS
 #define ISOTP_TIMEOUT_BS_MS   (75U)
@@ -197,6 +212,7 @@ typedef struct isotp_ctx {
     uint8_t          rx_expected_sn;                    /**< Expected consecutive frame SN. */
     uint8_t          rx_blocks_received;                /**< [#121] CFs received in current block. */
     uint32_t         rx_cr_timer_ms;                    /**< Cr timeout countdown (ms). */
+    uint32_t         rx_ar_timer_ms;                    /**< Ar timeout countdown (ms) — armed only across the FC frame's transmission confirmation. */
 
     /* TX state */
     isotp_state_t    tx_state;                          /**< Current TX state. */
@@ -296,6 +312,9 @@ uds_status_t isotp_init(isotp_ctx_t *ctx, const isotp_cfg_t *cfg);
  * @return UDS_STATUS_ERR_TP_FRAME_INVALID if frame format is not recognized.
  * @return UDS_STATUS_ERR_TP_OVERFLOW if RX buffer would be exceeded.
  * @return UDS_STATUS_ERR_TP_UNEXPECTED_PDU if frame received in invalid state.
+ * @return UDS_STATUS_ERR_TP_TX_FAILED if the Flow Control frame this function
+ *         had to transmit was rejected by the data link layer. The RX channel
+ *         is left in ISOTP_STATE_ERROR and requires isotp_reset().
  *
  * @note TIMING: Must complete within CAN frame inter-arrival time.
  */
@@ -335,18 +354,23 @@ uds_status_t isotp_transmit(
 /**
  * @brief 1 ms periodic tick for ISO-TP timer management.
  *
- * Drives Cr, Bs, and As timeout timers. Transitions channel to
+ * Drives Cr, Ar, Bs, and As timeout timers. Transitions channel to
  * ISOTP_STATE_ERROR on timeout expiry.
  *
  * @note As is scoped to one frame's transmission confirmation and is stopped
  *       by the TX path as soon as can_transport_transmit() returns, so it does
  *       not bound the FC wait (Bs) or a multi-frame CF sequence (STmin).
+ * @note Ar is the receiver-side mirror of As, scoped to the Flow Control
+ *       frame's transmission confirmation and stopped by isotp_send_fc() as
+ *       soon as can_transport_transmit() returns. It does not bound the wait
+ *       for consecutive frames (Cr).
  *
  * @param[in] ctx  Initialized ISO-TP context.
  *
  * @return UDS_STATUS_OK if no timeout occurred.
  * @return UDS_STATUS_ERR_TP_TIMEOUT_CR if Cr timer expired.
  * @return UDS_STATUS_ERR_TP_TIMEOUT_AS if As timer expired.
+ * @return UDS_STATUS_ERR_TP_TIMEOUT_AR if Ar timer expired (FC confirmation).
  * @return UDS_STATUS_ERR_TP_TIMEOUT_BS if Bs timer expired (no FC received).
  * @return UDS_STATUS_ERR_NULL_PTR if ctx is NULL.
  *

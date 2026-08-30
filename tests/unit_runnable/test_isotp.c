@@ -48,12 +48,40 @@ static uds_can_frame_t  g_mock_tx_frames[16];
 static uint8_t          g_mock_tx_count;
 static uds_status_t     g_mock_tx_return;
 
+/*
+ * [#122] Flow-Control-specific transmit failure injection.
+ *
+ * g_mock_tx_return fails every frame indiscriminately, which cannot separate
+ * a rejected FC from a rejected SF/FF/CF. These hooks reject ONLY frames whose
+ * N_PCItype is FC, so the receiver-side FC transmit path can be exercised in
+ * isolation.
+ *
+ * g_mock_observed_ctx additionally samples ctx->rx_ar_timer_ms from *inside*
+ * the transmit call — i.e. within the N_Ar confirmation window — which is the
+ * only point at which an armed N_Ar is observable.
+ */
+static bool               g_mock_fail_on_fc;
+static const isotp_ctx_t *g_mock_observed_ctx;
+static uint32_t           g_mock_ar_timer_during_fc;
+static bool               g_mock_fc_observed;
+
 static uds_status_t mock_can_transmit(can_transport_t *self, const uds_can_frame_t *frame)
 {
     (void)self;
     if (g_mock_tx_count < 16U) {
         g_mock_tx_frames[g_mock_tx_count++] = *frame;
     }
+
+    if ((uint8_t)((frame->data[0] >> 4U) & 0x0FU) == (uint8_t)ISOTP_FRAME_TYPE_FC) {
+        if (g_mock_observed_ctx != NULL) {
+            g_mock_ar_timer_during_fc = g_mock_observed_ctx->rx_ar_timer_ms;
+            g_mock_fc_observed        = true;
+        }
+        if (g_mock_fail_on_fc) {
+            return UDS_STATUS_ERR_CAN_TX_FAILED;
+        }
+    }
+
     return g_mock_tx_return;
 }
 
@@ -109,6 +137,11 @@ static void mock_can_reset(void)
     memset(g_mock_tx_frames, 0, sizeof(g_mock_tx_frames));
     g_mock_tx_count  = 0U;
     g_mock_tx_return = UDS_STATUS_OK;
+    /* [#122] */
+    g_mock_fail_on_fc         = false;
+    g_mock_observed_ctx       = NULL;
+    g_mock_ar_timer_during_fc = 0U;
+    g_mock_fc_observed        = false;
 }
 
 static void rx_cb_reset(void)
@@ -642,6 +675,172 @@ ZTEST(test_isotp_rx_multi, test_rx_block_size_zero_single_fc)
                   "Reassembled payload must be byte-identical to what was sent");
 }
 
+/**
+ * TC-ISTP-RX-MF-005 [#122]: FF whose FC CTS transmit is rejected by the CAN
+ *                            controller must NOT be reported as success.
+ *
+ * ISO 15765-2 Table 5 gives the receiver an N_Ar window for the Flow Control
+ * frame it transmits. If the data link layer rejects that frame (bus-off, full
+ * TX mailbox, arbitration loss past the driver's own timeout), flow control was
+ * never granted: the sender never saw an FC and will never send a CF.
+ *
+ * Returning UDS_STATUS_OK and entering ISOTP_STATE_RX_WAIT_CF makes the ECU
+ * burn its full N_Cr (150 ms) waiting for consecutive frames that cannot come,
+ * while the real fault -- a local transmit failure the platform layer DID
+ * report -- is visible nowhere.
+ */
+ZTEST(test_isotp_rx_multi, test_ff_fc_cts_tx_failure_is_reported)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    /* Reject ONLY the Flow Control frame; SF/FF/CF transmits still succeed. */
+    g_mock_fail_on_fc = true;
+
+    /* FF: total_len = 10 bytes, first 6 bytes = 0x01..0x06 */
+    uint8_t ff_payload[] = { 0x10U, 0x0AU, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U };
+    uds_can_frame_t ff = make_can_frame(0x7DFU, ff_payload, 8U);
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL);
+
+    /* The FC must genuinely have been attempted -- otherwise this test is vacuous. */
+    zassert_true(g_mock_tx_count >= 1U, "FC CTS must be attempted after an FF");
+    zassert_equal((g_mock_tx_frames[0].data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_FC,
+                  "Attempted frame must be of FC type");
+
+    zassert_not_equal(rc, UDS_STATUS_OK,
+                      "A rejected FC transmit must not be reported as success");
+    zassert_equal(rc, UDS_STATUS_ERR_TP_TX_FAILED,
+                  "FC transmit failure must surface as ERR_TP_TX_FAILED");
+
+    isotp_state_t state;
+    zassert_equal(isotp_get_state(&ctx, &state), UDS_STATUS_OK, "get_state failed");
+    zassert_not_equal(state, ISOTP_STATE_RX_WAIT_CF,
+                      "Must not await CFs that flow control never authorised");
+    zassert_equal(state, ISOTP_STATE_ERROR,
+                  "RX channel must go to ERROR after a failed FC transmit");
+    zassert_false(g_rx_cb_called, "No callback for an aborted reassembly");
+}
+
+/**
+ * TC-ISTP-RX-MF-006 [#122]: control case -- the FC failure injection used by
+ * TC-ISTP-RX-MF-005 is specific to Flow Control frames.
+ *
+ * A Single Frame reception transmits nothing at all, so it must be completely
+ * unaffected while g_mock_fail_on_fc is set. This pins the injection to the FC
+ * path and rules out a blanket "all transmits fail" reading of MF-005.
+ */
+ZTEST(test_isotp_rx_multi, test_fc_tx_failure_injection_is_fc_specific)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    g_mock_fail_on_fc = true;
+
+    uint8_t sf_payload[] = { 0x03U, 0xAAU, 0xBBU, 0xCCU, 0x00U, 0x00U, 0x00U, 0x00U };
+    uds_can_frame_t sf = make_can_frame(0x7DFU, sf_payload, 8U);
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &sf, rx_complete_cb, NULL);
+
+    zassert_equal(rc, UDS_STATUS_OK, "SF RX sends no FC and must still succeed");
+    zassert_true(g_rx_cb_called, "SF callback must fire");
+    zassert_equal(g_rx_cb_len, 3U, "SF payload length mismatch");
+    zassert_equal(g_mock_tx_count, 0U, "SF RX must not transmit any frame");
+}
+
+/**
+ * TC-ISTP-RX-MF-007 [#122]: N_Ar is armed across the FC transmit and stopped on
+ *                            its confirmation -- and never leaks into N_Cr.
+ *
+ * N_Ar (ISO 15765-2 Table 5, 25 ms) is the receiver-side mirror of N_As: it
+ * measures ONE frame's request-to-confirmation window, here the FC the receiver
+ * transmits. The timer is only observable from inside can_transport_transmit(),
+ * which is where the mock samples it; after the call returns it must be zero,
+ * and the wait that follows belongs to N_Cr, not N_Ar.
+ */
+ZTEST(test_isotp_rx_multi, test_n_ar_armed_across_fc_transmit_only)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    g_mock_observed_ctx = &ctx;
+
+    uint8_t ff_payload[] = { 0x10U, 0x0AU, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U };
+    uds_can_frame_t ff = make_can_frame(0x7DFU, ff_payload, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL),
+                  UDS_STATUS_OK, "FF with a successful FC must succeed");
+
+    zassert_true(g_mock_fc_observed, "FC transmit must have been observed");
+    zassert_equal(g_mock_ar_timer_during_fc, (uint32_t)ISOTP_TIMEOUT_AR_MS,
+                  "N_Ar must be armed for the duration of the FC transmit");
+    zassert_equal(ctx.rx_ar_timer_ms, 0U,
+                  "N_Ar must stop on the FC transmission confirmation");
+
+    /* The window that follows is N_Cr, not N_Ar -- ticking must not fire N_Ar. */
+    zassert_equal(isotp_tick_1ms(&ctx), UDS_STATUS_OK,
+                  "Tick in RX_WAIT_CF must not report an N_Ar timeout");
+    zassert_equal(ctx.rx_ar_timer_ms, 0U, "N_Ar must stay stopped in RX_WAIT_CF");
+}
+
+/**
+ * TC-ISTP-RX-MF-007 [#121 x #122 reconciliation]: the periodic block-boundary
+ * FC that BlockSize handling (#121) sends from the CF branch is a THIRD
+ * isotp_send_fc() call site, alongside the two the FF handler already covers
+ * (TC-ISTP-RX-MF-005/006 above). It must be held to the same standard: a
+ * rejected transmit must not be silently absorbed.
+ *
+ * Uses the BS=2 fixture from the block-size regression tests: FF, CF1 (no FC
+ * -- block not yet full), then CF2, which crosses the BS=2 boundary and must
+ * trigger a fresh FC CTS. Only THAT FC is made to fail -- the FF's initial
+ * CTS must still succeed, or this test would not isolate the third call site.
+ */
+ZTEST(test_isotp_rx_multi, test_periodic_block_boundary_fc_tx_failure_is_reported)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    uint8_t     payload[ISOTP_BS_TEST_PDU_LEN];
+    memset(&ctx, 0, sizeof(ctx));
+    bs_test_make_payload(payload);
+    zassert_equal(init_isotp_bs(&ctx, 2U, 0U), UDS_STATUS_OK, "init failed");
+
+    zassert_equal(bs_test_send_ff(&ctx, payload), UDS_STATUS_OK,
+                  "FF with a successful FC must succeed");
+    zassert_equal(g_mock_tx_count, 1U, "FF's FC must be the only frame sent so far");
+
+    zassert_equal(bs_test_send_cf(&ctx, payload, 1U), UDS_STATUS_OK,
+                  "CF1 must be accepted; block not yet full at BS=2");
+    zassert_equal(g_mock_tx_count, 1U, "CF1 alone must not yet trigger a block FC");
+
+    /* Reject only the FC that CF2 is about to trigger. */
+    g_mock_fail_on_fc = true;
+
+    uds_status_t rc = bs_test_send_cf(&ctx, payload, 2U);
+
+    zassert_equal(g_mock_tx_count, 2U,
+                  "The block-boundary FC must genuinely have been attempted");
+    zassert_equal((g_mock_tx_frames[1].data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_FC,
+                  "The second attempted frame must be of FC type");
+
+    zassert_not_equal(rc, UDS_STATUS_OK,
+                      "A rejected block-boundary FC must not be reported as success");
+    zassert_equal(rc, UDS_STATUS_ERR_TP_TX_FAILED,
+                  "Block-boundary FC transmit failure must surface as ERR_TP_TX_FAILED");
+
+    isotp_state_t state;
+    zassert_equal(isotp_get_state(&ctx, &state), UDS_STATUS_OK, "get_state failed");
+    zassert_equal(state, ISOTP_STATE_ERROR,
+                  "RX channel must go to ERROR after a failed block-boundary FC transmit");
+    zassert_false(g_rx_cb_called, "No callback for an aborted reassembly");
+}
+
 #if ISOTP_ENABLE_CAN_FD
 /**
  * TC-ISTP-RX-MF-004: CAN FD FF escape sequence with FF_DL > ISOTP_RX_BUF_LEN
@@ -673,6 +872,48 @@ ZTEST(test_isotp_rx_multi, test_ff_overflow)
                   "Transmitted frame must be FC type");
     zassert_equal((g_mock_tx_frames[0].data[0] & 0x0FU), (uint8_t)ISOTP_FC_STATUS_OVERFLOW,
                   "FC status must be OVERFLOW");
+}
+
+/**
+ * TC-ISTP-RX-MF-008 [#122]: FF_DL overflow whose FC OVFLW transmit is itself
+ *                            rejected must report the transmit failure.
+ *
+ * Reachable only under CAN FD: on Classic CAN the 12-bit FF_DL cannot exceed
+ * ISOTP_RX_BUF_LEN (4095), so the OVERFLOW branch is dead there.
+ *
+ * A rejected FC transmit means the local CAN link is down (bus-off / mailbox
+ * full), which invalidates the channel -- not merely this one PDU. Returning
+ * ERR_TP_OVERFLOW would report the peer's protocol condition while hiding our
+ * own hardware fault, which is the exact inversion #122 is about.
+ */
+ZTEST(test_isotp_rx_multi, test_ff_overflow_fc_tx_failure_is_reported)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd(&ctx), UDS_STATUS_OK, "init failed");
+
+    g_mock_fail_on_fc = true;
+
+    uint8_t ff_payload[] = {
+        0x10U, 0x00U,               /* FF type, escape sequence trigger */
+        0x00U, 0x00U, 0x13U, 0x88U, /* FF_DL = 5000 (big-endian) */
+        0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U
+    };
+    uds_can_frame_t ff = make_fd_frame(0x7DFU, ff_payload, 12U);
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL);
+
+    zassert_true(g_mock_tx_count >= 1U, "FC OVFLW must be attempted");
+    zassert_equal((g_mock_tx_frames[0].data[0] & 0x0FU), (uint8_t)ISOTP_FC_STATUS_OVERFLOW,
+                  "Attempted FC must carry OVFLW");
+    zassert_equal(rc, UDS_STATUS_ERR_TP_TX_FAILED,
+                  "A rejected FC OVFLW transmit must surface as ERR_TP_TX_FAILED");
+
+    isotp_state_t state;
+    zassert_equal(isotp_get_state(&ctx, &state), UDS_STATUS_OK, "get_state failed");
+    zassert_equal(state, ISOTP_STATE_ERROR,
+                  "RX channel must go to ERROR after a failed FC transmit");
 }
 #endif /* ISOTP_ENABLE_CAN_FD — test_ff_overflow */
 
@@ -1411,8 +1652,13 @@ extern void test_isotp_rx_multi__test_ff_cf_complete(void);
 extern void test_isotp_rx_multi__test_cf_without_ff(void);
 extern void test_isotp_rx_multi__test_rx_block_size_periodic_fc(void);
 extern void test_isotp_rx_multi__test_rx_block_size_zero_single_fc(void);
+extern void test_isotp_rx_multi__test_ff_fc_cts_tx_failure_is_reported(void);
+extern void test_isotp_rx_multi__test_fc_tx_failure_injection_is_fc_specific(void);
+extern void test_isotp_rx_multi__test_n_ar_armed_across_fc_transmit_only(void);
+extern void test_isotp_rx_multi__test_periodic_block_boundary_fc_tx_failure_is_reported(void);
 #if ISOTP_ENABLE_CAN_FD
 extern void test_isotp_rx_multi__test_ff_overflow(void);
+extern void test_isotp_rx_multi__test_ff_overflow_fc_tx_failure_is_reported(void);
 extern void test_isotp_canfd__test_fd_sf_rx_10_bytes(void);
 extern void test_isotp_canfd__test_fd_sf_rx_62_bytes(void);
 extern void test_isotp_canfd__test_fd_sf_rx_zero_dl(void);
@@ -1464,8 +1710,13 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_rx_multi__test_cf_without_ff);
     RUN_TEST(test_isotp_rx_multi__test_rx_block_size_periodic_fc);
     RUN_TEST(test_isotp_rx_multi__test_rx_block_size_zero_single_fc);
+    RUN_TEST(test_isotp_rx_multi__test_ff_fc_cts_tx_failure_is_reported);
+    RUN_TEST(test_isotp_rx_multi__test_fc_tx_failure_injection_is_fc_specific);
+    RUN_TEST(test_isotp_rx_multi__test_n_ar_armed_across_fc_transmit_only);
+    RUN_TEST(test_isotp_rx_multi__test_periodic_block_boundary_fc_tx_failure_is_reported);
 #if ISOTP_ENABLE_CAN_FD
     RUN_TEST(test_isotp_rx_multi__test_ff_overflow);
+    RUN_TEST(test_isotp_rx_multi__test_ff_overflow_fc_tx_failure_is_reported);
     RUN_TEST(test_isotp_canfd__test_fd_sf_rx_10_bytes);
     RUN_TEST(test_isotp_canfd__test_fd_sf_rx_62_bytes);
     RUN_TEST(test_isotp_canfd__test_fd_sf_rx_zero_dl);

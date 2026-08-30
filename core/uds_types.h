@@ -127,6 +127,7 @@ typedef enum uds_status {
     UDS_STATUS_ERR_TP_TX_FAILED          = 0x35, /**< ISO-TP frame transmission failed. */
     UDS_STATUS_ERR_TP_UNEXPECTED_PDU     = 0x36, /**< Unexpected PDU type in current state. */
     UDS_STATUS_ERR_TP_TIMEOUT_BS         = 0x37, /**< ISO-TP Bs timeout expired (no FC received). */
+    UDS_STATUS_ERR_TP_TIMEOUT_AR         = 0x38, /**< ISO-TP Ar timeout expired (FC transmission confirmation). */
 
     /* --- CAN layer errors --- */
     UDS_STATUS_ERR_CAN_TX_FAILED         = 0x40, /**< CAN frame transmission failed. */
