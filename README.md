@@ -2,7 +2,7 @@
 # Xaloqi Embedded Diagnostics Suite
 
 [![CI](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml/badge.svg)](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v1.11.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.11.0)
+[![Version](https://img.shields.io/badge/version-v1.12.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.12.0)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Zephyr](https://img.shields.io/badge/Zephyr-v3.7%2B-brightgreen)](https://zephyrproject.org)
 
@@ -157,7 +157,7 @@ manifest:
   projects:
     - name: EDS
       remote: xaloqi
-      revision: v1.10.1
+      revision: v1.12.0
       path: modules/eds
 ```
 
@@ -181,7 +181,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.10.1 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.12.0 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 ```
@@ -233,7 +233,7 @@ For the full FreeRTOS integration guide (callbacks, NVM, reset, production porti
 ### Run the test suite
 
 ```bash
-# 43 Unity unit tests (host-native, no Zephyr SDK needed)
+# 44 Unity unit tests (host-native, no Zephyr SDK needed)
 bash build_tests.sh
 
 # 68 harness integration tests (Professional tier — requires harness/ sources)
@@ -308,7 +308,7 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command *(Developer/Professional tier)* |
 | `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · safeboot\_freertos\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard *(Developer/Professional tier)* |
-| `tests/` | 43 Unity unit tests, harness, Python integration tests |
+| `tests/` | 44 Unity unit tests, harness, Python integration tests |
 
 ---
 
