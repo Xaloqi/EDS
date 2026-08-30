@@ -4,7 +4,7 @@
 #
 # ECU       : RobotJointController
 # Version   : 1.0.0
-# Generated : 2026-05-20T07:21:48Z
+# Generated : 2026-08-30T11:15:04Z
 #
 # DID       : 0xA002  (Axis0Torque)
 # Access    : read

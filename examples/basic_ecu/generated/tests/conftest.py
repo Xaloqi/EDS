@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-05-19T17:30:37Z
+# Generated : 2026-08-30T11:15:03Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #

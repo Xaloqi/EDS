@@ -38,6 +38,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A corrupted DTC mirror no longer aborts `uds_stack_init()` — boot now
+  soft-degrades instead.** (#124) `dtc_mirror_load()`'s
+  `UDS_STATUS_ERR_NVM_DATA_CORRUPT` return (added in #114/#118 for a
+  persisted record that fails its integrity check) was not on the generated
+  Step 5.5 non-fatal allowlist, so on all 12 bundled examples a corrupted DTC
+  mirror propagated as a fatal `uds_stack_init()` failure, taking down the
+  entire diagnostic stack's boot. `UDS_STATUS_ERR_NVM_DATA_CORRUPT` is now
+  treated the same as an absent/unreadable mirror (`UDS_STATUS_ERR_NOT_INITIALIZED`
+  / `UDS_STATUS_ERR_PLATFORM`): the corrupt record is discarded and boot
+  continues with all DTC status bytes at 0x00 — the same blast radius as the
+  original DTC-history-loss bug #114 fixed, not a new, larger one. Fixed in
+  the private EDS-toolchain template
+  ([EDS-toolchain#57](https://github.com/Xaloqi/EDS-toolchain/pull/57)); all
+  12 `examples/*/generated/uds_init.c` regenerated here.
+
 - **Stale counts and dead script paths across the prose docs, now guarded in
   CI.** (#119) Six places in `docs/` told the reader to run
   `scripts/build_tests.sh` or `scripts/build_harness.sh`; neither has ever

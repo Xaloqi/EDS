@@ -4,7 +4,7 @@
 #
 # ECU       : ARDEP_IOController
 # Version   : 1.0.0
-# Generated : 2026-05-20T07:21:48Z
+# Generated : 2026-08-30T11:15:03Z
 #
 # DID       : 0x2303  (ECU_UptimeSeconds)
 # Access    : read

@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU
  * Version   : 0.1.0
- * Generated : 2026-08-29T11:04:45Z
+ * Generated : 2026-08-30T11:15:04Z
  *
  * PURPOSE: Declarations for all generated DID read/write handler functions
  *          and the generated DID registration entry point.
