@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP
  * Version   : 1.6.0
- * Generated : 2026-08-29T11:04:45Z
+ * Generated : 2026-08-30T11:15:03Z
  *
  * PURPOSE: Compile-time constants derived from diagnostics_config.yaml.
  *          Provides all protocol timing parameters, CAN addressing, and
@@ -102,6 +102,6 @@
 
 #define GEN_ECU_NAME            "BasicECU_DoIP"
 #define GEN_ECU_VERSION         "1.6.0"
-#define GEN_GENERATED_TIMESTAMP "2026-08-29T11:04:45Z"
+#define GEN_GENERATED_TIMESTAMP "2026-08-30T11:15:03Z"
 
 #endif /* GENERATED_CONFIG_H */

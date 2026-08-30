@@ -5,7 +5,7 @@
  *
  * ECU       : MotorController_Inverter
  * Version   : 1.0.0
- * Generated : 2026-08-29T11:04:45Z
+ * Generated : 2026-08-30T11:15:04Z
  * ASIL Level: B
  *
  * PURPOSE: Declarations for per-DID safe accessor wrapper functions.

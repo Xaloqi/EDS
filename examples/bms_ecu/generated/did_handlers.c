@@ -5,7 +5,7 @@
  *
  * ECU       : BMS_MainController
  * Version   : 1.0.0
- * Generated : 2026-08-29T11:04:45Z
+ * Generated : 2026-08-30T11:15:04Z
  *
  * PURPOSE: DID read/write handler stubs and static DID registration table.
  *          Each handler returns deterministic stub data (zeros) until the

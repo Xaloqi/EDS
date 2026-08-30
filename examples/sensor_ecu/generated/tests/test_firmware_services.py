@@ -4,7 +4,7 @@
 #
 # ECU       : SensorECU
 # Version   : 1.0.0
-# Generated : 2026-05-20T07:21:49Z
+# Generated : 2026-08-30T11:15:05Z
 #
 # PURPOSE: Integration tests running against REAL COMPILED FIRMWARE.
 #

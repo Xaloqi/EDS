@@ -1,6 +1,6 @@
 // File: generated/routine_handlers.h
 // GENERATED — do NOT edit manually.
-// ECU: BasicECU_DoIP  v1.6.0  Generated: 2026-08-29T11:04:45Z
+// ECU: BasicECU_DoIP  v1.6.0  Generated: 2026-08-30T11:15:03Z
 
 #ifndef ROUTINE_HANDLERS_H
 #define ROUTINE_HANDLERS_H

@@ -5,7 +5,7 @@
  *
  * ECU       : SensorECU
  * Version   : 1.0.0
- * Generated : 2026-08-29T11:04:46Z
+ * Generated : 2026-08-30T11:15:05Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -296,11 +296,22 @@ uds_status_t uds_generated_init(
      * DTC codes without corrupting the mirror.
      *
      * Soft-degrade behaviour:
-     *   UDS_STATUS_ERR_NOT_INITIALIZED → NVM not ready (first boot or NVM
+     *   UDS_STATUS_ERR_NOT_INITIALIZED  → NVM not ready (first boot or NVM
      *     subsystem failure). Treated as non-fatal: stack continues with all
      *     DTC status bytes at 0x00.
-     *   UDS_STATUS_ERR_PLATFORM        → NVM read error. Non-fatal: same
+     *   UDS_STATUS_ERR_PLATFORM         → NVM read error. Non-fatal: same
      *     degraded behaviour as first boot.
+     *   UDS_STATUS_ERR_NVM_DATA_CORRUPT → the persisted mirror record failed
+     *     an integrity check (bad tag/length/checksum — see dtc_mirror_load()).
+     *     Deliberately treated the same as "mirror absent" rather than as a
+     *     fatal boot error: the blast radius of trusting nothing from a
+     *     corrupt record is identical to the NOT_INITIALIZED case (DTC
+     *     history is lost, all status bytes stay at 0x00), which is the same
+     *     blast radius the original DTC-history-loss defect had. Aborting
+     *     uds_stack_init() over it would let a corrupted NVM record take down
+     *     the entire diagnostic stack, a materially larger failure than the
+     *     data loss it is guarding against. This is an explicit decision,
+     *     not an oversight — see Xaloqi/EDS#124.
      *
      * TRACEABILITY: REQ-DTC-NVM-01
      */
@@ -308,11 +319,14 @@ uds_status_t uds_generated_init(
         uds_status_t mirror_rc = dtc_mirror_load();
         if ((mirror_rc != UDS_STATUS_OK) &&
             (mirror_rc != UDS_STATUS_ERR_NOT_INITIALIZED) &&
-            (mirror_rc != UDS_STATUS_ERR_PLATFORM)) {
+            (mirror_rc != UDS_STATUS_ERR_PLATFORM) &&
+            (mirror_rc != UDS_STATUS_ERR_NVM_DATA_CORRUPT)) {
             /* Unexpected error — propagate to caller. */
             return mirror_rc;
         }
-        /* Soft-degrade: NOT_INITIALIZED and PLATFORM errors are non-fatal. */
+        /* Soft-degrade: NOT_INITIALIZED, PLATFORM, and NVM_DATA_CORRUPT
+         * errors are all non-fatal — the corrupted/unavailable mirror is
+         * discarded and boot continues with default (0x00) DTC status. */
     }
 
     /* ── Step 5.6: Register generated routine handlers ──────────────────────

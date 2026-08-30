@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP_FreeRTOS
  * Version   : 1.6.0
- * Generated : 2026-08-29T11:04:45Z
+ * Generated : 2026-08-30T11:15:04Z
  *
  * PURPOSE: Public interface for the generated UDS stack initialisation module.
  *
