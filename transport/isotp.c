@@ -737,23 +737,39 @@ uds_status_t isotp_tick_1ms(isotp_ctx_t *ctx)
 
     /* --- RX Ar timer (FC transmission confirmation) ---
      *
-     * [#122] N_Ar mirrors N_As on the receiver side. isotp_send_fc() arms it
-     * immediately before can_transport_transmit() and stops it on that call's
-     * return, so under the single diagnostics-task model used by every
-     * reference integration it is never still armed when a tick lands and this
-     * branch cannot fire. It is the enforcement point should an FC confirmation
-     * ever be left outstanding across a tick boundary — can_transport_transmit()
-     * is permitted to block (the Zephyr port blocks in can_send() for up to
-     * K_MSEC(25)), so an integration that drives isotp_tick_1ms() from an
-     * independent timer context can observe the window and must not be left
-     * without a bound on it.
+     * [#122][#135] N_Ar mirrors N_As on the receiver side. isotp_send_fc()
+     * arms it immediately before can_transport_transmit() and stops it on
+     * that call's return, so under the single diagnostics-task model used by
+     * every reference integration it is never still armed when a tick lands
+     * and this branch cannot fire. It is the enforcement point should an FC
+     * confirmation ever be left outstanding across a tick boundary —
+     * can_transport_transmit() is permitted to block (the Zephyr port blocks
+     * in can_send() for up to K_MSEC(25)), so an integration that drives
+     * isotp_tick_1ms() from an independent timer context can observe the
+     * window and must not be left without a bound on it.
+     *
+     * [#135] Guarded exactly like N_As below: rx_state == RX_WAIT_CF is the
+     * only state in which an FC confirmation can be outstanding (rx_state is
+     * only ever IDLE, RX_WAIT_CF or ERROR). Two of isotp_send_fc()'s three
+     * call sites — the FF handler's CTS path and the CF handler's
+     * block-boundary FC — run with rx_state already RX_WAIT_CF. The third,
+     * the FF handler's overflow-reject FC, arms the timer before rx_state is
+     * touched for the new frame, so it can be entered with rx_state IDLE —
+     * the exact same trade-off isotp_transmit()'s own FF frame accepts on the
+     * As side below (also armed before tx_state leaves IDLE). The state
+     * guard keeps a stale timer from corrupting rx_state once RX is complete
+     * (IDLE) or already in ERROR.
      */
-    if (ctx->rx_ar_timer_ms > 0U) {
+    if ((ctx->rx_ar_timer_ms > 0U) &&
+        (ctx->rx_state == ISOTP_STATE_RX_WAIT_CF)) {
         ctx->rx_ar_timer_ms--;
         if (ctx->rx_ar_timer_ms == 0U) {
             ctx->rx_state = ISOTP_STATE_ERROR;
             return UDS_STATUS_ERR_TP_TIMEOUT_AR;
         }
+    } else if (ctx->rx_state == ISOTP_STATE_IDLE) {
+        /* RX finished — disarm the Ar timer so it doesn't fire late. */
+        ctx->rx_ar_timer_ms = 0U;
     }
 
     /* --- TX As timer (single-frame transmission confirmation) ---
