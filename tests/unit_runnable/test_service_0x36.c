@@ -24,8 +24,14 @@
  *   TC-0x36-013  Write failure → ERR_PLATFORM, transfer reset to IDLE
  *   TC-0x36-014  CRC accumulator updated over payload bytes
  *   TC-0x36-015  No flash ops after 0x34 → ERR_CONDITIONS_NOT_MET
- *   TC-0x36-016  Payload capped at bytes_remaining (oversized last block)
+ *   TC-0x36-016  Oversized block (payload > bytes_remaining) rejected with
+ *                NRC 0x31 and aborts the transfer (issue #112)
  *   TC-0x36-017  Second block accepted with correct incremented counter
+ *   TC-0x36-018  Issue #112 regression: size=100 download, 98-byte block 1
+ *                accepted, then a 20-byte block 2 (only 2 bytes remaining)
+ *                is rejected + aborted, not silently clamped to 2 bytes
+ *   TC-0x36-019  A 0x36/0x37 sent after an oversized-block abort operates
+ *                on a clean IDLE context (NRC 0x24), not a half-torn-down one
  *
  * Coverage (upload direction — SID 0x35 active):
  *   TC-0x36-UL-001  Upload: [0x36, 0x01] → response [0x76, 0x01, data[0..N]]
@@ -404,19 +410,26 @@ ZTEST(svc_0x36, test_flash_ops_null_after_active_transfer)
                   uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
 }
 
-/* TC-0x36-016  Payload capped at bytes_remaining (oversized last block) */
-ZTEST(svc_0x36, test_payload_capped_at_bytes_remaining)
+/* TC-0x36-016  Oversized block (payload > bytes_remaining) is rejected with
+ * NRC 0x31 (requestOutOfRange) and the transfer is aborted (issue #112).
+ *
+ * Formerly this handler silently clamped payload_len down to
+ * bytes_remaining, discarded the excess bytes, fed the truncated data into
+ * the running CRC, and advanced the block sequence as if the block were
+ * well-formed. That behaviour was itself the bug — see TC-0x36-018 for the
+ * exact scenario from the issue report. */
+ZTEST(svc_0x36, test_oversized_block_rejected_and_aborted)
 {
     /* Set bytes_remaining to just 4 bytes, but send 16. */
     prime_active_transfer(4U);
 
     build_req(0x01U, 0xCCU, 16U);
-    zassert_equal(UDS_STATUS_OK,
-                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
-    /* bytes_remaining must be exactly 0 after capping to 4. */
-    zassert_equal((uint32_t)0U,
-                  uds_transfer_ctx_get()->bytes_remaining,
-                  "bytes_remaining must be 0 after last block");
+    zassert_equal(UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "oversized block must be rejected with NRC 0x31, not clamped");
+    zassert_equal(UDS_TRANSFER_IDLE,
+                  uds_transfer_ctx_get()->state,
+                  "REQ-DL-003: transfer must be aborted (IDLE) after oversized block");
 }
 
 /* TC-0x36-017  Second block accepted with correctly incremented counter */
@@ -438,6 +451,79 @@ ZTEST(svc_0x36, test_second_block_accepted)
     zassert_equal(0x03U,
                   uds_transfer_ctx_get()->next_expected_block_seq,
                   "counter must advance to 0x03 after second block");
+}
+
+/* TC-0x36-018  Issue #112 regression scenario, verbatim:
+ *   RequestDownload size=100 -> TransferData block 1 (98 bytes, accepted,
+ *   bytes_remaining now 2) -> TransferData block 2 (20 bytes, only 2
+ *   remaining) -> must be rejected with NRC 0x31 and the transfer must be
+ *   aborted, NOT silently clamped to the remaining 2 bytes and continued. */
+ZTEST(svc_0x36, test_issue_112_oversized_final_block_rejected)
+{
+    prime_active_transfer(100U);
+
+    /* Block 1: 98 bytes, accepted. bytes_remaining -> 2. */
+    build_req(0x01U, 0x11U, 98U);
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "block 1 (98 bytes) must be accepted");
+    zassert_equal((uint32_t)2U,
+                  uds_transfer_ctx_get()->bytes_remaining,
+                  "bytes_remaining must be 2 after block 1");
+    zassert_equal(0x02U,
+                  uds_transfer_ctx_get()->next_expected_block_seq,
+                  "counter must advance to 0x02 after block 1");
+
+    /* Block 2: 20 bytes sent, only 2 remaining -> reject + abort. */
+    memset(&s_resp, 0, sizeof(s_resp));
+    build_req(0x02U, 0x22U, 20U);
+    zassert_equal(UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "oversized final block must be rejected with NRC 0x31");
+    zassert_equal(UDS_TRANSFER_IDLE,
+                  uds_transfer_ctx_get()->state,
+                  "transfer must be aborted (IDLE), not clamped and continued");
+    /* Positive response must NOT have been produced for the rejected block
+     * (s_resp is zeroed above; the handler must return before writing it). */
+    zassert_equal((uint8_t)0U, s_resp.data[0],
+                  "no positive response bytes may be written for a rejected block");
+}
+
+/* TC-0x36-019  A 0x36 sent after an oversized-block abort must operate on a
+ * clean IDLE context, not a half-torn-down one: it is rejected with
+ * requestSequenceError (NRC 0x24), exactly like any other 0x36 with no
+ * active transfer, and the context's fields read back as the IDLE reset
+ * defaults rather than stale in-progress values. */
+ZTEST(svc_0x36, test_post_abort_transfer_state_is_clean_idle)
+{
+    prime_active_transfer(100U);
+
+    build_req(0x01U, 0x11U, 98U);
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
+
+    memset(&s_resp, 0, sizeof(s_resp));
+    build_req(0x02U, 0x22U, 20U);
+    zassert_equal(UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
+
+    /* Context must read back as a clean, fully-reset IDLE context. */
+    zassert_equal(UDS_TRANSFER_IDLE, uds_transfer_ctx_get()->state, "");
+    zassert_equal((uint32_t)0U, uds_transfer_ctx_get()->bytes_remaining,
+                  "bytes_remaining must be reset, not left at the pre-abort value");
+    zassert_equal((uint8_t)0U, uds_transfer_ctx_get()->next_expected_block_seq,
+                  "next_expected_block_seq must be reset, not left mid-sequence");
+    zassert_equal((uint16_t)0U, uds_transfer_ctx_get()->write_buf_fill,
+                  "write_buf_fill must be reset, not left holding stale bytes");
+
+    /* A subsequent 0x36 must be rejected as "no active transfer" (NRC 0x24),
+     * proving it is not still operating on the aborted context. */
+    memset(&s_resp, 0, sizeof(s_resp));
+    build_req(0x01U, 0x33U, 4U);
+    zassert_equal(UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "0x36 after abort must see no active transfer (NRC 0x24), "
+                  "not resume a half-torn-down transfer");
 }
 
 /* ==========================================================================
@@ -559,8 +645,10 @@ void run_all_tests(void)
     RUN_TEST(svc_0x36__test_write_failure_resets_transfer);
     RUN_TEST(svc_0x36__test_crc_accumulator_updated);
     RUN_TEST(svc_0x36__test_flash_ops_null_after_active_transfer);
-    RUN_TEST(svc_0x36__test_payload_capped_at_bytes_remaining);
+    RUN_TEST(svc_0x36__test_oversized_block_rejected_and_aborted);
     RUN_TEST(svc_0x36__test_second_block_accepted);
+    RUN_TEST(svc_0x36__test_issue_112_oversized_final_block_rejected);
+    RUN_TEST(svc_0x36__test_post_abort_transfer_state_is_clean_idle);
     RUN_TEST(svc_0x36__test_upload_block_accepted);
     RUN_TEST(svc_0x36__test_upload_read_cb_failure);
     RUN_TEST(svc_0x36__test_upload_bytes_remaining_decremented);

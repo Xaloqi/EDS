@@ -30,6 +30,9 @@
  *   NRC 0x13 (incorrectMessageLengthOrInvalidFormat) — request < 3 bytes
  *   NRC 0x24 (requestSequenceError)                  — no active transfer
  *   NRC 0x73 (wrongBlockSequenceCounter)              — counter mismatch
+ *   NRC 0x31 (requestOutOfRange)                      — payload exceeds
+ *                                                        bytes_remaining;
+ *                                                        transfer is aborted
  *   NRC 0x72 (generalProgrammingFailure)              — flash write failed
  *
  * BLOCK COUNTER WRAP LOGIC (REQ-DL-001):
@@ -53,6 +56,9 @@
  * SAFETY:
  *   REQ-DL-001: Block counter wrap enforced.
  *   REQ-DL-002: bytes_remaining decremented per payload byte written.
+ *               A block whose payload exceeds bytes_remaining is rejected
+ *               (NRC 0x31) and the transfer context is aborted rather than
+ *               being silently truncated to fit.
  *   REQ-FLASH-003: CRC accumulator updated for every payload byte.
  *
  * STANDARD: MISRA C:2012 alignment intended.
@@ -222,9 +228,14 @@ uds_status_t uds_service_0x36_handler(
     payload     = &req->data[SVC_0x36_DATA_OFFSET];
     payload_len = (uint16_t)(req->length - (uint16_t)SVC_0x36_DATA_OFFSET);
 
-    /* Do not accept more data than bytes_remaining. */
+    /* REQ-DL-002: A block must not carry more data than bytes_remaining.
+     * Silently truncating and continuing would discard tester bytes while
+     * still advancing the block sequence and CRC as if the block were
+     * well-formed. Reject and abort instead (mirrors the 0x37 handling of
+     * REQ-DL-002 for the "too few bytes" case). */
     if ((uint32_t)payload_len > tctx->bytes_remaining) {
-        payload_len = (uint16_t)tctx->bytes_remaining;
+        uds_transfer_ctx_reset(tctx); /* abort — REQ-DL-003 */
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE; /* NRC 0x31 */
     }
 
     /* --- Update running CRC-32 (REQ-FLASH-003) --- */
