@@ -12,7 +12,7 @@
  *   [P2-TP-02] FF reception and FC transmission — fully implemented.
  *   [P2-TP-03] CF reception and reassembly — fully implemented.
  *   [P2-TP-04] FC reception and segmented TX state machine — fully implemented.
- *   [P2-TP-05] As/Bs/Cr timeout enforcement in isotp_tick_1ms.
+ *   [P2-TP-05] As/Ar/Bs/Cr timeout enforcement in isotp_tick_1ms.
  *   [P2-TP-06] STmin inter-frame delay for TX consecutive frames.
  *   [P2-TP-07] CAN FD SF and FF encoding added (ISO 15765-2 §9.8):
  *              SF RX/TX: byte 0 = 0x00, byte 1 = SF_DL (1-62) when frame->is_fd.
@@ -221,9 +221,10 @@ uds_status_t isotp_process_rx_frame(
          *            bytes 2-5 = 32-bit big-endian FF_DL.
          * ---------------------------------------------------------------- */
         case (uint8_t)ISOTP_FRAME_TYPE_FF: {
-            uint32_t ff_dl;
-            uint8_t  ff_data_bytes;
-            uint8_t  ff_data_offset;
+            uint32_t     ff_dl;
+            uint8_t      ff_data_bytes;
+            uint8_t      ff_data_offset;
+            uds_status_t fc_rc;
 
             /* FF_DL: 12 bits from (byte0 & 0x0F) << 8 | byte1. */
             ff_dl = (uint32_t)(((uint32_t)(frame->data[0] & (uint8_t)0x0FU) << 8U)
@@ -263,10 +264,23 @@ uds_status_t isotp_process_rx_frame(
 
             /* Reject if assembled PDU exceeds the static RX buffer. */
             if (ff_dl > (uint32_t)ISOTP_RX_BUF_LEN) {
-                (void)isotp_send_fc(ctx,
-                                    (uint8_t)ISOTP_FC_STATUS_OVERFLOW,
-                                    (uint8_t)0U,
-                                    (uint8_t)0U);
+                fc_rc = isotp_send_fc(ctx,
+                                      (uint8_t)ISOTP_FC_STATUS_OVERFLOW,
+                                      (uint8_t)0U,
+                                      (uint8_t)0U);
+                /*
+                 * [#122] A rejected FC transmit is a local data link fault
+                 * (bus-off, full TX mailbox, arbitration loss past the
+                 * driver's own timeout) that invalidates the whole RX channel,
+                 * not just this PDU. Reporting ERR_TP_OVERFLOW here would
+                 * surface the peer's protocol condition while hiding our own
+                 * hardware fault, which is the more severe and the more
+                 * actionable of the two.
+                 */
+                if (fc_rc != UDS_STATUS_OK) {
+                    ctx->rx_state = ISOTP_STATE_ERROR;
+                    return UDS_STATUS_ERR_TP_TX_FAILED;
+                }
                 return UDS_STATUS_ERR_TP_OVERFLOW;
             }
 
@@ -289,11 +303,30 @@ uds_status_t isotp_process_rx_frame(
             ctx->rx_cr_timer_ms     = (uint32_t)ISOTP_TIMEOUT_CR_MS;
             ctx->rx_state           = ISOTP_STATE_RX_WAIT_CF;
 
-            /* Send FC CTS — best-effort; ignore transmit errors. */
-            (void)isotp_send_fc(ctx,
-                                (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND,
-                                ctx->local_block_size,
-                                ctx->local_stmin_ms);
+            /*
+             * [#122] Send FC CTS. The status is NOT best-effort: if the data
+             * link layer rejects the FC, flow control was never granted. The
+             * sender never saw an FC, so no consecutive frame can ever arrive,
+             * and staying in ISOTP_STATE_RX_WAIT_CF would silently burn the
+             * full N_Cr (150 ms) on a transfer that cannot progress while the
+             * genuine fault — a local transmit failure the platform layer DID
+             * report — went unreported.
+             *
+             * ISOTP_STATE_ERROR + the returned status matches how this file
+             * already handles an RX fault that has mutated context (see the CF
+             * handler's SN, DLC and overflow paths) and how the TX path handles
+             * a failed can_transport_transmit() in isotp_tx_pump(). Recovery is
+             * via isotp_reset(), as for every other RX error.
+             */
+            fc_rc = isotp_send_fc(ctx,
+                                  (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND,
+                                  ctx->local_block_size,
+                                  ctx->local_stmin_ms);
+            if (fc_rc != UDS_STATUS_OK) {
+                ctx->rx_state       = ISOTP_STATE_ERROR;
+                ctx->rx_cr_timer_ms = 0U;  /* no CF can arrive — disarm N_Cr */
+                return UDS_STATUS_ERR_TP_TX_FAILED;
+            }
 
             return UDS_STATUS_OK;
         }
@@ -302,10 +335,11 @@ uds_status_t isotp_process_rx_frame(
          * [P2-TP-03] Consecutive Frame (CF) reception
          * ---------------------------------------------------------------- */
         case (uint8_t)ISOTP_FRAME_TYPE_CF: {
-            uint8_t  sn;
-            uint32_t remaining;
-            uint8_t  cf_data;
-            uint32_t copy_len;
+            uint8_t      sn;
+            uint32_t     remaining;
+            uint8_t      cf_data;
+            uint32_t     copy_len;
+            uds_status_t fc_rc;
 
             if (ctx->rx_state != ISOTP_STATE_RX_WAIT_CF) {
                 return UDS_STATUS_ERR_TP_UNEXPECTED_PDU;
@@ -373,11 +407,24 @@ uds_status_t isotp_process_rx_frame(
 
                     if (ctx->rx_blocks_received >= ctx->local_block_size) {
                         ctx->rx_blocks_received = (uint8_t)0U;
-                        /* Best-effort, mirroring the FF handler's CTS. */
-                        (void)isotp_send_fc(ctx,
-                                            (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND,
-                                            ctx->local_block_size,
-                                            ctx->local_stmin_ms);
+                        /*
+                         * [#122] NOT best-effort — same reasoning as the FF
+                         * handler's CTS just below in this same file: a
+                         * rejected FC here means the sender never sees
+                         * permission to continue and no further CF can
+                         * arrive, so silently proceeding would burn the full
+                         * N_Cr on a transfer that cannot progress while the
+                         * genuine local transmit fault goes unreported.
+                         */
+                        fc_rc = isotp_send_fc(ctx,
+                                              (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND,
+                                              ctx->local_block_size,
+                                              ctx->local_stmin_ms);
+                        if (fc_rc != UDS_STATUS_OK) {
+                            ctx->rx_state       = ISOTP_STATE_ERROR;
+                            ctx->rx_cr_timer_ms = 0U;  /* no CF can arrive */
+                            return UDS_STATUS_ERR_TP_TX_FAILED;
+                        }
                     }
                 }
             }
@@ -670,6 +717,27 @@ uds_status_t isotp_tick_1ms(isotp_ctx_t *ctx)
         }
     }
 
+    /* --- RX Ar timer (FC transmission confirmation) ---
+     *
+     * [#122] N_Ar mirrors N_As on the receiver side. isotp_send_fc() arms it
+     * immediately before can_transport_transmit() and stops it on that call's
+     * return, so under the single diagnostics-task model used by every
+     * reference integration it is never still armed when a tick lands and this
+     * branch cannot fire. It is the enforcement point should an FC confirmation
+     * ever be left outstanding across a tick boundary — can_transport_transmit()
+     * is permitted to block (the Zephyr port blocks in can_send() for up to
+     * K_MSEC(25)), so an integration that drives isotp_tick_1ms() from an
+     * independent timer context can observe the window and must not be left
+     * without a bound on it.
+     */
+    if (ctx->rx_ar_timer_ms > 0U) {
+        ctx->rx_ar_timer_ms--;
+        if (ctx->rx_ar_timer_ms == 0U) {
+            ctx->rx_state = ISOTP_STATE_ERROR;
+            return UDS_STATUS_ERR_TP_TIMEOUT_AR;
+        }
+    }
+
     /* --- TX As timer (single-frame transmission confirmation) ---
      *
      * [#111] N_As guards ONE frame's request-to-confirmation window, not the
@@ -736,6 +804,7 @@ uds_status_t isotp_reset(isotp_ctx_t *ctx)
     ctx->rx_expected_sn     = (uint8_t)0U;
     ctx->rx_blocks_received = (uint8_t)0U;
     ctx->rx_cr_timer_ms     = 0U;
+    ctx->rx_ar_timer_ms     = 0U;
     ctx->tx_data            = NULL;
     ctx->tx_total_len       = (uint32_t)0U;
     ctx->tx_sent_len        = (uint32_t)0U;
@@ -787,6 +856,7 @@ static uds_status_t isotp_send_fc(
     uint8_t      stmin)
 {
     uds_can_frame_t fc_frame;
+    uds_status_t    tx_rc;
 
     if (ctx == NULL) {
         return UDS_STATUS_ERR_NULL_PTR;
@@ -806,7 +876,23 @@ static uds_status_t isotp_send_fc(
     isotp_pad_frame(fc_frame.data, (uint8_t)3U, (uint8_t)8U);
 #endif
 
-    return can_transport_transmit(ctx->can, &fc_frame);
+    /*
+     * [#122] N_Ar (ISO 15765-2 Table 5) is the receiver-side mirror of N_As:
+     * the confirmation window of the ONE frame the receiver transmits, the FC.
+     * It is armed immediately before the N_PDU is handed to the data link
+     * layer and stopped on that frame's transmission confirmation, which at
+     * this layer is can_transport_transmit()'s return — exactly as the TX path
+     * scopes N_As since #111. The window that follows the FC is N_Cr, never
+     * N_Ar, so the timer must not stay armed past this call.
+     *
+     * The status is returned, never discarded: a rejected FC means flow
+     * control was not granted and the reassembly cannot proceed.
+     */
+    ctx->rx_ar_timer_ms = (uint32_t)ISOTP_TIMEOUT_AR_MS;
+    tx_rc               = can_transport_transmit(ctx->can, &fc_frame);
+    ctx->rx_ar_timer_ms = 0U;
+
+    return tx_rc;
 }
 
 #if ISOTP_TX_PADDING
