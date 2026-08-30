@@ -28,12 +28,22 @@
  *   Each entry: [dtc_code:3 big-endian][status_byte:1]
  *   magic   = 0x44,0x4D ("DM"). Identifies a v1-or-later record.
  *   version = DTC_MIRROR_FORMAT_VERSION. Bump on any layout change.
- *   count   = number of entries, big-endian.
+ *   count   = number of entries, big-endian. Bounded by
+ *             DTC_MIRROR_MAX_PERSISTED_DTCS (issue #123), NOT by
+ *             UDS_MAX_DTC_COUNT — see that constant's comment below.
  *   crc32   = CRC-32 (same polynomial/algorithm as the transfer-service
  *             helper in core/uds_transfer_ctx.c) computed over
  *             [version..last entry byte] (i.e. everything except the
  *             magic and the CRC field itself), big-endian.
- *   Maximum payload: 5 + 128 × 4 + 4 = 521 bytes.
+ *   Maximum payload: 5 + DTC_MIRROR_MAX_PERSISTED_DTCS(125) × 4 + 4 = 509 bytes.
+ *   This is DTC_MIRROR_MAX_BYTES, held by a build-time _Static_assert in
+ *   dtc_mirror.c to be <= platform/nvm_store.h's NVM_MAX_RECORD_BYTES (512).
+ *   Sizing this from UDS_MAX_DTC_COUNT (128) instead — 5+128×4+4 = 521 —
+ *   was the issue #123 bug: 9 bytes over the NVM cap, so nvm_store_write()
+ *   silently rejected the mirror write once the live DTC table grew past
+ *   125 entries. dtc_database itself still holds up to UDS_MAX_DTC_COUNT
+ *   (128) DTCs; entries at index >= DTC_MIRROR_MAX_PERSISTED_DTCS simply
+ *   are not persisted — a documented limitation, not a truncated write.
  *
  * INTEGRITY (issue #114 fix):
  *   Before this fix, the mirror was [count:2][entries...] with no way to
@@ -84,9 +94,36 @@ extern "C" {
 /** CRC-32 trailer appended after the last entry. */
 #define DTC_MIRROR_CRC_BYTES     (4U)
 
-/** Maximum mirror payload: header + max_entries × entry_size + CRC trailer. */
+/**
+ * Maximum number of DTC status entries the mirror will ever persist to NVM
+ * in a single record (issue #123).
+ *
+ * This is deliberately NOT UDS_MAX_DTC_COUNT (128): platform/nvm_store.h's
+ * NVM_MAX_RECORD_BYTES (512) is a hard per-record cap shared with unrelated
+ * NVM consumers (security counters, session stats), so widening it is out
+ * of scope for this module. Instead the mirror caps what IT promises to
+ * persist at the largest entry count that provably fits the existing
+ * 512-byte budget alongside the 5-byte header and 4-byte CRC trailer:
+ *
+ *     DTC_MIRROR_HEADER_BYTES + N * DTC_MIRROR_ENTRY_BYTES + DTC_MIRROR_CRC_BYTES
+ *         <= NVM_MAX_RECORD_BYTES
+ *     5 + N*4 + 4 <= 512  =>  N <= 125.75  =>  N = 125
+ *
+ * At N=125: 5 + 125*4 + 4 = 509 bytes (fits). At N=126: 513 bytes (does not).
+ * dtc_database can still register up to UDS_MAX_DTC_COUNT (128) DTCs — any
+ * entries at index >= DTC_MIRROR_MAX_PERSISTED_DTCS are simply not written
+ * to the NVM mirror (documented limitation, not a truncated/corrupt write).
+ *
+ * A build-time _Static_assert in dtc_mirror.c ties DTC_MIRROR_MAX_BYTES
+ * (derived from this constant, below) to NVM_MAX_RECORD_BYTES, so any
+ * future change to these sizing constants that breaks the inequality
+ * fails the build instead of failing silently at runtime.
+ */
+#define DTC_MIRROR_MAX_PERSISTED_DTCS ((uint16_t)125U)
+
+/** Maximum mirror payload: header + max_persisted_entries × entry_size + CRC trailer. */
 #define DTC_MIRROR_MAX_BYTES     ((uint16_t)(DTC_MIRROR_HEADER_BYTES + \
-                                  (UDS_MAX_DTC_COUNT * DTC_MIRROR_ENTRY_BYTES) + \
+                                  (DTC_MIRROR_MAX_PERSISTED_DTCS * DTC_MIRROR_ENTRY_BYTES) + \
                                   DTC_MIRROR_CRC_BYTES))
 
 /* --------------------------------------------------------------------------
