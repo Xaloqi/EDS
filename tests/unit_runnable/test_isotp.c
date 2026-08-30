@@ -22,6 +22,9 @@
  *     - isotp_tick_1ms: Cr timeout detection
  *     - isotp_reset: clears state back to IDLE
  *     - isotp_get_state: NULL guard, state reporting
+ *     - [#132] isotp_get_rx_state / isotp_get_tx_state / isotp_reset_rx /
+ *       isotp_reset_tx: per-direction state reporting and recovery while
+ *       the other direction has a transfer in flight
  *
  * DID constant cross-references:
  *   0x0C00 Engine Speed  → 2 bytes  (single frame)
@@ -1421,6 +1424,419 @@ ZTEST(test_isotp_get_state, test_null_state_ptr)
 }
 
 /* =========================================================================
+ * Test suite: [#132] directional state accessors and per-direction reset
+ *
+ * isotp_ctx_t runs two independent state machines. isotp_get_state()
+ * collapses them (it reports tx_state whenever a TX is in progress), so an
+ * RX channel in ISOTP_STATE_ERROR is invisible for the whole duration of a
+ * concurrent transmit; and isotp_reset() clears BOTH directions, so
+ * recovering the failed one destroyed the healthy one.
+ *
+ * These tests build a genuine concurrent scenario — a real multi-frame TX
+ * parked in TX_WAIT_FC / TX_SEND_CF while the RX side is driven to ERROR by
+ * the [#122] rejected-Flow-Control path — and assert that:
+ *   - the new per-direction accessors report each direction faithfully,
+ *   - isotp_get_state()'s aliasing is UNCHANGED (source compatibility),
+ *   - each directional reset recovers its own direction and leaves the other
+ *     not merely field-intact but functionally able to finish its transfer.
+ * ========================================================================= */
+
+ZTEST_SUITE(test_isotp_directional, NULL, NULL, NULL, NULL, NULL);
+
+/** 20-byte multi-frame TX payload: FF carries 6 bytes, then 2 CFs of 7. */
+static void fill_tx_payload(uint8_t *buf)
+{
+    buf[0] = 0x62U; buf[1] = 0xF1U; buf[2] = 0x90U;
+    memset(&buf[3], 0x41U, 17U);  /* 'A' x 17 */
+}
+
+/** Inbound FF announcing a 20-byte PDU, carrying the first 6 bytes. */
+static uds_can_frame_t make_rx_ff_20(void)
+{
+    uint8_t ff_payload[8] = { 0x10U, 0x14U, 0x11U, 0x12U, 0x13U, 0x14U, 0x15U, 0x16U };
+    return make_can_frame(0x7DFU, ff_payload, 8U);
+}
+
+/** Flow Control frame with the given flow status (BS = 0, STmin = 0). */
+static uds_can_frame_t make_fc(uint8_t flow_status)
+{
+    uint8_t fc_payload[3];
+    fc_payload[0] = (uint8_t)((uint8_t)(ISOTP_FRAME_TYPE_FC << 4U) | flow_status);
+    fc_payload[1] = 0x00U;  /* BS    = unlimited */
+    fc_payload[2] = 0x00U;  /* STmin = 0 ms */
+    return make_can_frame(0x7E8U, fc_payload, 3U);
+}
+
+/**
+ * TC-ISTP-DIR-001: RX error during TX_WAIT_FC.
+ *
+ * The blind spot itself: with a real multi-frame TX awaiting Flow Control,
+ * drive the RX direction into ISOTP_STATE_ERROR via a rejected FC transmit
+ * ([#122]).  isotp_get_state() must STILL report the TX state — that is the
+ * behaviour being preserved — while isotp_get_rx_state() exposes the error
+ * that was previously unreachable.
+ */
+ZTEST(test_isotp_directional, test_rx_error_hidden_behind_tx_wait_fc)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    /* --- A genuine TX in flight: FF sent, parked awaiting FC. --- */
+    uint8_t tx_payload[20];
+    fill_tx_payload(tx_payload);
+    zassert_equal(isotp_transmit(&ctx, tx_payload, 20U), UDS_STATUS_OK,
+                  "Multi-frame TX initiation must succeed");
+
+    isotp_state_t tx_state;
+    zassert_equal(isotp_get_tx_state(&ctx, &tx_state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(tx_state, ISOTP_STATE_TX_WAIT_FC,
+                  "TX must genuinely be awaiting Flow Control");
+
+    /* --- Concurrently, an inbound FF whose FC CTS the data link rejects. --- */
+    g_mock_fail_on_fc = true;
+    uds_can_frame_t ff = make_rx_ff_20();
+    uds_status_t rc = isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL);
+    zassert_equal(rc, UDS_STATUS_ERR_TP_TX_FAILED,
+                  "Rejected FC must surface as ERR_TP_TX_FAILED");
+
+    /* --- The defect: the old accessor cannot see the RX error. --- */
+    isotp_state_t collapsed;
+    zassert_equal(isotp_get_state(&ctx, &collapsed), UDS_STATUS_OK, "get_state failed");
+    zassert_equal(collapsed, ISOTP_STATE_TX_WAIT_FC,
+                  "isotp_get_state() must keep its documented aliasing unchanged");
+    zassert_not_equal(collapsed, ISOTP_STATE_ERROR,
+                      "The RX error is invisible through the collapsing accessor");
+
+    /* --- The fix: each direction is now reportable on its own. --- */
+    isotp_state_t rx_state;
+    zassert_equal(isotp_get_rx_state(&ctx, &rx_state), UDS_STATUS_OK, "get_rx_state failed");
+    zassert_equal(rx_state, ISOTP_STATE_ERROR,
+                  "RX direction must report ERROR despite the concurrent TX");
+
+    zassert_equal(isotp_get_tx_state(&ctx, &tx_state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(tx_state, ISOTP_STATE_TX_WAIT_FC,
+                  "TX direction must be unaffected by the RX failure");
+}
+
+/**
+ * TC-ISTP-DIR-002: RX error during TX_SEND_CF.
+ *
+ * Same blind spot in the other in-progress TX state — the FC CTS has been
+ * received, so the TX state machine is actively pumping consecutive frames.
+ */
+ZTEST(test_isotp_directional, test_rx_error_hidden_behind_tx_send_cf)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t tx_payload[20];
+    fill_tx_payload(tx_payload);
+    zassert_equal(isotp_transmit(&ctx, tx_payload, 20U), UDS_STATUS_OK, "TX init failed");
+
+    /* Peer grants CTS -> TX enters TX_SEND_CF (no tick yet, so it stays there). */
+    uds_can_frame_t fc = make_fc((uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND);
+    zassert_equal(isotp_process_rx_frame(&ctx, &fc, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "FC CTS must be accepted");
+
+    isotp_state_t tx_state;
+    zassert_equal(isotp_get_tx_state(&ctx, &tx_state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(tx_state, ISOTP_STATE_TX_SEND_CF, "TX must be pumping CFs");
+
+    g_mock_fail_on_fc = true;
+    uds_can_frame_t ff = make_rx_ff_20();
+    zassert_equal(isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_TX_FAILED, "Rejected FC must be reported");
+
+    isotp_state_t collapsed;
+    zassert_equal(isotp_get_state(&ctx, &collapsed), UDS_STATUS_OK, "get_state failed");
+    zassert_equal(collapsed, ISOTP_STATE_TX_SEND_CF,
+                  "Old accessor still reports the TX state, unchanged");
+
+    isotp_state_t rx_state;
+    zassert_equal(isotp_get_rx_state(&ctx, &rx_state), UDS_STATUS_OK, "get_rx_state failed");
+    zassert_equal(rx_state, ISOTP_STATE_ERROR, "RX error must be visible");
+}
+
+/**
+ * TC-ISTP-DIR-003: isotp_reset_rx() recovers RX without destroying the TX.
+ *
+ * The TX is not merely checked field-by-field: after the partial reset it is
+ * driven to completion and every consecutive frame is verified, proving the
+ * transmit remained functional and not just superficially intact.
+ */
+ZTEST(test_isotp_directional, test_reset_rx_preserves_inflight_tx)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t tx_payload[20];
+    fill_tx_payload(tx_payload);
+    zassert_equal(isotp_transmit(&ctx, tx_payload, 20U), UDS_STATUS_OK, "TX init failed");
+
+    uds_can_frame_t fc = make_fc((uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND);
+    zassert_equal(isotp_process_rx_frame(&ctx, &fc, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "FC CTS must be accepted");
+
+    /* Break the RX direction while that TX is mid-flight. */
+    g_mock_fail_on_fc = true;
+    uds_can_frame_t ff = make_rx_ff_20();
+    zassert_equal(isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_TX_FAILED, "Rejected FC must be reported");
+    g_mock_fail_on_fc = false;
+
+    /* Recover ONLY the receive direction. */
+    zassert_equal(isotp_reset_rx(&ctx), UDS_STATUS_OK, "isotp_reset_rx must return OK");
+
+    isotp_state_t rx_state;
+    isotp_state_t tx_state;
+    zassert_equal(isotp_get_rx_state(&ctx, &rx_state), UDS_STATUS_OK, "get_rx_state failed");
+    zassert_equal(rx_state, ISOTP_STATE_IDLE, "RX must be recovered to IDLE");
+    zassert_equal(isotp_get_tx_state(&ctx, &tx_state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(tx_state, ISOTP_STATE_TX_SEND_CF,
+                  "isotp_reset_rx() must NOT tear down the in-flight TX");
+
+    /* The TX must still be able to finish: pump it to completion. */
+    uint8_t cf_before = g_mock_tx_count;
+    for (uint32_t i = 0U; i < 8U; i++) {
+        zassert_equal(isotp_tick_1ms(&ctx), UDS_STATUS_OK,
+                      "Ticks after a partial reset must not report a timeout");
+    }
+
+    zassert_equal(isotp_get_tx_state(&ctx, &tx_state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(tx_state, ISOTP_STATE_IDLE, "TX must run to completion after reset_rx");
+
+    /* Exactly two consecutive frames, carrying bytes 6..12 and 13..19. */
+    zassert_equal((uint32_t)(g_mock_tx_count - cf_before), 2U,
+                  "Remaining payload must be sent as exactly 2 consecutive frames");
+
+    const uds_can_frame_t *cf1 = &g_mock_tx_frames[cf_before];
+    const uds_can_frame_t *cf2 = &g_mock_tx_frames[cf_before + 1U];
+
+    zassert_equal((cf1->data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_CF, "CF1 PCI type");
+    zassert_equal((cf1->data[0] & 0x0FU), 1U, "CF1 sequence number must be 1");
+    zassert_mem_equal(&cf1->data[1], &tx_payload[6], 7U, "CF1 payload bytes 6..12");
+
+    zassert_equal((cf2->data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_CF, "CF2 PCI type");
+    zassert_equal((cf2->data[0] & 0x0FU), 2U, "CF2 sequence number must be 2");
+    zassert_mem_equal(&cf2->data[1], &tx_payload[13], 7U, "CF2 payload bytes 13..19");
+}
+
+/**
+ * TC-ISTP-DIR-004: isotp_reset_tx() recovers TX without destroying the RX.
+ *
+ * Mirror of DIR-003. The reassembly is completed after the partial reset and
+ * its payload verified end to end.
+ */
+ZTEST(test_isotp_directional, test_reset_tx_preserves_inflight_rx)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    /* A genuine reassembly in progress: 6 of 20 bytes received. */
+    uds_can_frame_t ff = make_rx_ff_20();
+    zassert_equal(isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "FF must be accepted");
+
+    isotp_state_t rx_state;
+    zassert_equal(isotp_get_rx_state(&ctx, &rx_state), UDS_STATUS_OK, "get_rx_state failed");
+    zassert_equal(rx_state, ISOTP_STATE_RX_WAIT_CF, "RX must be awaiting CFs");
+
+    /* Concurrently start a TX and have the peer abort it with FC OVERFLOW. */
+    uint8_t tx_payload[20];
+    fill_tx_payload(tx_payload);
+    zassert_equal(isotp_transmit(&ctx, tx_payload, 20U), UDS_STATUS_OK, "TX init failed");
+
+    uds_can_frame_t fc_ovflw = make_fc((uint8_t)ISOTP_FC_STATUS_OVERFLOW);
+    zassert_equal(isotp_process_rx_frame(&ctx, &fc_ovflw, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_OVERFLOW, "FC OVERFLOW must abort the TX");
+
+    isotp_state_t tx_state;
+    zassert_equal(isotp_get_tx_state(&ctx, &tx_state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(tx_state, ISOTP_STATE_ERROR, "TX must be in ERROR");
+    zassert_equal(isotp_get_rx_state(&ctx, &rx_state), UDS_STATUS_OK, "get_rx_state failed");
+    zassert_equal(rx_state, ISOTP_STATE_RX_WAIT_CF, "RX reassembly must be unaffected");
+
+    /* Recover ONLY the transmit direction. */
+    zassert_equal(isotp_reset_tx(&ctx), UDS_STATUS_OK, "isotp_reset_tx must return OK");
+    zassert_equal(isotp_get_tx_state(&ctx, &tx_state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(tx_state, ISOTP_STATE_IDLE, "TX must be recovered to IDLE");
+    zassert_equal(isotp_get_rx_state(&ctx, &rx_state), UDS_STATUS_OK, "get_rx_state failed");
+    zassert_equal(rx_state, ISOTP_STATE_RX_WAIT_CF,
+                  "isotp_reset_tx() must NOT tear down the in-flight reassembly");
+
+    /* The reassembly must still complete correctly. */
+    uint8_t cf1_payload[8] = { 0x21U, 0x17U, 0x18U, 0x19U, 0x1AU, 0x1BU, 0x1CU, 0x1DU };
+    uds_can_frame_t cf1 = make_can_frame(0x7DFU, cf1_payload, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &cf1, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "CF1 must be accepted after isotp_reset_tx()");
+
+    uint8_t cf2_payload[8] = { 0x22U, 0x1EU, 0x1FU, 0x20U, 0x21U, 0x22U, 0x23U, 0x24U };
+    uds_can_frame_t cf2 = make_can_frame(0x7DFU, cf2_payload, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &cf2, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "CF2 must be accepted after isotp_reset_tx()");
+
+    zassert_true(g_rx_cb_called, "Reassembly must complete after a TX-only reset");
+    zassert_equal(g_rx_cb_len, 20U, "Full 20-byte PDU must be delivered");
+
+    uint8_t expected[20];
+    for (uint8_t i = 0U; i < 20U; i++) {
+        expected[i] = (uint8_t)(0x11U + i);
+    }
+    zassert_mem_equal(g_rx_cb_data, expected, 20U,
+                      "Reassembled payload must be byte-exact across the TX reset");
+}
+
+/**
+ * TC-ISTP-DIR-005: a partial RX reset leaves the context valid, not merely
+ * idle-looking.
+ *
+ * The risk of resetting one direction alone is that rx_state == IDLE becomes
+ * a false "safe to start" signal that corrupts something the live TX depends
+ * on.  It does not: an unsolicited CF is still rejected as an unexpected PDU,
+ * a fresh FF starts a clean reassembly, and neither disturbs the transmit,
+ * which still runs to completion.
+ */
+ZTEST(test_isotp_directional, test_reset_rx_leaves_context_valid_for_new_rx)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t tx_payload[20];
+    fill_tx_payload(tx_payload);
+    zassert_equal(isotp_transmit(&ctx, tx_payload, 20U), UDS_STATUS_OK, "TX init failed");
+    uds_can_frame_t fc = make_fc((uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND);
+    zassert_equal(isotp_process_rx_frame(&ctx, &fc, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "FC CTS must be accepted");
+
+    g_mock_fail_on_fc = true;
+    uds_can_frame_t bad_ff = make_rx_ff_20();
+    zassert_equal(isotp_process_rx_frame(&ctx, &bad_ff, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_TX_FAILED, "Rejected FC must be reported");
+    g_mock_fail_on_fc = false;
+
+    zassert_equal(isotp_reset_rx(&ctx), UDS_STATUS_OK, "isotp_reset_rx must return OK");
+
+    /* A stray CF from the abandoned transfer must be rejected, not absorbed. */
+    uint8_t stray_payload[8] = { 0x21U, 0x17U, 0x18U, 0x19U, 0x1AU, 0x1BU, 0x1CU, 0x1DU };
+    uds_can_frame_t stray = make_can_frame(0x7DFU, stray_payload, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &stray, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_UNEXPECTED_PDU,
+                  "A CF with no FF must be rejected after a partial RX reset");
+    zassert_false(g_rx_cb_called, "No callback for a stray CF");
+
+    /* A fresh reassembly must start cleanly, with the TX still in flight. */
+    uds_can_frame_t ff2 = make_rx_ff_20();
+    zassert_equal(isotp_process_rx_frame(&ctx, &ff2, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "A new FF must be accepted after a partial RX reset");
+
+    isotp_state_t rx_state;
+    isotp_state_t tx_state;
+    zassert_equal(isotp_get_rx_state(&ctx, &rx_state), UDS_STATUS_OK, "get_rx_state failed");
+    zassert_equal(rx_state, ISOTP_STATE_RX_WAIT_CF, "New reassembly must be underway");
+    zassert_equal(isotp_get_tx_state(&ctx, &tx_state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(tx_state, ISOTP_STATE_TX_SEND_CF, "The TX must still be in flight");
+
+    for (uint32_t i = 0U; i < 8U; i++) {
+        (void)isotp_tick_1ms(&ctx);
+    }
+    zassert_equal(isotp_get_tx_state(&ctx, &tx_state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(tx_state, ISOTP_STATE_IDLE,
+                  "The TX must still complete alongside the restarted reassembly");
+}
+
+/**
+ * TC-ISTP-DIR-006: isotp_reset() remains exactly isotp_reset_rx() +
+ * isotp_reset_tx().
+ *
+ * isotp_reset() is now composed from the two directional clears; this pins
+ * that refactor by comparing a fully-dirty context reset both ways, so the
+ * full reset can never silently stop clearing a field.
+ */
+ZTEST(test_isotp_directional, test_full_reset_equals_both_directional_resets)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    /* Dirty BOTH directions: reassembly underway, segmented TX underway. */
+    uds_can_frame_t ff = make_rx_ff_20();
+    zassert_equal(isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "FF must be accepted");
+    uint8_t tx_payload[20];
+    fill_tx_payload(tx_payload);
+    zassert_equal(isotp_transmit(&ctx, tx_payload, 20U), UDS_STATUS_OK, "TX init failed");
+    uds_can_frame_t fc = make_fc((uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND);
+    zassert_equal(isotp_process_rx_frame(&ctx, &fc, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "FC CTS must be accepted");
+
+    isotp_ctx_t via_full = ctx;
+    isotp_ctx_t via_pair = ctx;
+
+    zassert_equal(isotp_reset(&via_full), UDS_STATUS_OK, "isotp_reset must return OK");
+    zassert_equal(isotp_reset_rx(&via_pair), UDS_STATUS_OK, "isotp_reset_rx must return OK");
+    zassert_equal(isotp_reset_tx(&via_pair), UDS_STATUS_OK, "isotp_reset_tx must return OK");
+
+    zassert_mem_equal(&via_full, &via_pair, sizeof(isotp_ctx_t),
+                      "isotp_reset() must equal isotp_reset_rx() + isotp_reset_tx()");
+
+    isotp_state_t state;
+    zassert_equal(isotp_get_rx_state(&via_full, &state), UDS_STATUS_OK, "get_rx_state failed");
+    zassert_equal(state, ISOTP_STATE_IDLE, "Full reset must idle the RX direction");
+    zassert_equal(isotp_get_tx_state(&via_full, &state), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(state, ISOTP_STATE_IDLE, "Full reset must idle the TX direction");
+}
+
+/**
+ * TC-ISTP-DIR-007: NULL and not-initialised guards on the four new entry
+ * points, matching isotp_get_state() / isotp_reset().
+ */
+ZTEST(test_isotp_directional, test_new_api_null_and_init_guards)
+{
+    mock_can_reset();
+    isotp_state_t state;
+
+    zassert_equal(isotp_get_rx_state(NULL, &state), UDS_STATUS_ERR_NULL_PTR, "NULL ctx");
+    zassert_equal(isotp_get_tx_state(NULL, &state), UDS_STATUS_ERR_NULL_PTR, "NULL ctx");
+    zassert_equal(isotp_reset_rx(NULL), UDS_STATUS_ERR_NULL_PTR, "NULL ctx");
+    zassert_equal(isotp_reset_tx(NULL), UDS_STATUS_ERR_NULL_PTR, "NULL ctx");
+
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    zassert_equal(isotp_get_rx_state(&ctx, NULL), UDS_STATUS_ERR_NULL_PTR, "NULL out_state");
+    zassert_equal(isotp_get_tx_state(&ctx, NULL), UDS_STATUS_ERR_NULL_PTR, "NULL out_state");
+
+    isotp_ctx_t uninit;
+    memset(&uninit, 0, sizeof(uninit));
+    zassert_equal(isotp_get_rx_state(&uninit, &state), UDS_STATUS_ERR_NOT_INITIALIZED,
+                  "Uninitialised ctx must be rejected");
+    zassert_equal(isotp_get_tx_state(&uninit, &state), UDS_STATUS_ERR_NOT_INITIALIZED,
+                  "Uninitialised ctx must be rejected");
+    zassert_equal(isotp_reset_rx(&uninit), UDS_STATUS_ERR_NOT_INITIALIZED,
+                  "Uninitialised ctx must be rejected");
+    zassert_equal(isotp_reset_tx(&uninit), UDS_STATUS_ERR_NOT_INITIALIZED,
+                  "Uninitialised ctx must be rejected");
+}
+
+/* =========================================================================
  * Test suite: TX frame padding (ISOTP_TX_PADDING)
  * Tests only compiled and wired when ISOTP_TX_PADDING=1.
  * REQ-TP-PAD-001: unused frame bytes filled with ISOTP_TX_PADDING_BYTE.
@@ -1682,6 +2098,13 @@ extern void test_isotp_reset__test_null_ctx(void);
 extern void test_isotp_reset__test_reset_from_error(void);
 extern void test_isotp_get_state__test_null_ctx(void);
 extern void test_isotp_get_state__test_null_state_ptr(void);
+extern void test_isotp_directional__test_rx_error_hidden_behind_tx_wait_fc(void);
+extern void test_isotp_directional__test_rx_error_hidden_behind_tx_send_cf(void);
+extern void test_isotp_directional__test_reset_rx_preserves_inflight_tx(void);
+extern void test_isotp_directional__test_reset_tx_preserves_inflight_rx(void);
+extern void test_isotp_directional__test_reset_rx_leaves_context_valid_for_new_rx(void);
+extern void test_isotp_directional__test_full_reset_equals_both_directional_resets(void);
+extern void test_isotp_directional__test_new_api_null_and_init_guards(void);
 #if ISOTP_TX_PADDING
 extern void test_isotp_padding__test_classic_sf_padded(void);
 extern void test_isotp_padding__test_classic_sf_max_payload_no_tail(void);
@@ -1740,6 +2163,13 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_reset__test_reset_from_error);
     RUN_TEST(test_isotp_get_state__test_null_ctx);
     RUN_TEST(test_isotp_get_state__test_null_state_ptr);
+    RUN_TEST(test_isotp_directional__test_rx_error_hidden_behind_tx_wait_fc);
+    RUN_TEST(test_isotp_directional__test_rx_error_hidden_behind_tx_send_cf);
+    RUN_TEST(test_isotp_directional__test_reset_rx_preserves_inflight_tx);
+    RUN_TEST(test_isotp_directional__test_reset_tx_preserves_inflight_rx);
+    RUN_TEST(test_isotp_directional__test_reset_rx_leaves_context_valid_for_new_rx);
+    RUN_TEST(test_isotp_directional__test_full_reset_equals_both_directional_resets);
+    RUN_TEST(test_isotp_directional__test_new_api_null_and_init_guards);
 #if ISOTP_TX_PADDING
     RUN_TEST(test_isotp_padding__test_classic_sf_padded);
     RUN_TEST(test_isotp_padding__test_classic_sf_max_payload_no_tail);

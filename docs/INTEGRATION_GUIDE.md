@@ -78,6 +78,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | Mixed addressing | **Out of scope** | — |
 | CAN FD (ISO 15765-2 §9.8) | **Implemented** (v1.7.1+) | Enable with `ISOTP_ENABLE_CAN_FD=1` (`CONFIG_CAN_FD_MODE=y` on Zephyr). Adds SF escape sequence (up to 62-byte SF), FF escape sequence (32-bit FF_DL for PDU > 4095 bytes). Set `isotp_cfg_t.use_fd = true` to activate. Platform HAL wired in `zephyr_can.c` and `freertos_can.c` since v1.7.2. |
 | Max PDU length | **4095 bytes** | Defined by `UDS_MAX_PAYLOAD_LEN` in `core/uds_types.h`. Reducible at compile time to save RAM (see §2). |
+| Per-direction state and recovery | **Implemented** (unreleased) | RX and TX are independent state machines. `isotp_get_rx_state()` / `isotp_get_tx_state()` report each direction faithfully; `isotp_reset_rx()` / `isotp_reset_tx()` recover one direction without disturbing a transfer in flight in the other. `isotp_get_state()` is retained unchanged for source compatibility, but it collapses both directions — it reports the TX state whenever a transmit is in progress, so an RX error is invisible through it for the duration of that transmit. Prefer the directional accessors in new code. |
 
 ---
 
@@ -672,12 +673,12 @@ isotp_transmit(tp, resp.data, resp.length);
 /* 2. Wait for the ISO-TP TX state machine to return to IDLE.
  *    This confirms the last CAN frame has left the TX mailbox
  *    and the N_As timer has not expired. */
-isotp_state_t rx_st, tx_st;
+isotp_state_t tx_st;
 uint32_t wait_ms = 0U;
 do {
     vTaskDelay(1);
     isotp_tick_1ms(tp);
-    isotp_get_state(tp, &rx_st, &tx_st);
+    isotp_get_tx_state(tp, &tx_st);   /* [#132] TX direction only */
     wait_ms++;
 } while ((tx_st != ISOTP_STATE_IDLE) && (wait_ms < 50U));  /* 50ms max */
 

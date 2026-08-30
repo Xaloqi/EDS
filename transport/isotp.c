@@ -89,6 +89,23 @@ static uint8_t isotp_decode_stmin_ms(uint8_t stmin_raw);
  */
 static void isotp_tx_pump(isotp_ctx_t *ctx);
 
+/**
+ * [#132] Clear every RX-direction field of the context.
+ *
+ * Guard-free: every caller (isotp_reset_rx(), isotp_reset()) has already
+ * validated ctx. Sole definition of "what the RX direction owns" — see the
+ * DIRECTIONAL STATE OWNERSHIP audit above isotp_reset().
+ */
+static void isotp_clear_rx(isotp_ctx_t *ctx);
+
+/**
+ * [#132] Clear every TX-direction field of the context.
+ *
+ * Guard-free: every caller (isotp_reset_tx(), isotp_reset()) has already
+ * validated ctx. Sole definition of "what the TX direction owns".
+ */
+static void isotp_clear_tx(isotp_ctx_t *ctx);
+
 /* --------------------------------------------------------------------------
  * Public API implementations
  * -------------------------------------------------------------------------- */
@@ -316,7 +333,8 @@ uds_status_t isotp_process_rx_frame(
              * already handles an RX fault that has mutated context (see the CF
              * handler's SN, DLC and overflow paths) and how the TX path handles
              * a failed can_transport_transmit() in isotp_tx_pump(). Recovery is
-             * via isotp_reset(), as for every other RX error.
+             * via isotp_reset_rx() ([#132] — or isotp_reset(), which also
+             * tears down any concurrent TX), as for every other RX error.
              */
             fc_rc = isotp_send_fc(ctx,
                                   (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND,
@@ -787,6 +805,49 @@ uds_status_t isotp_tick_1ms(isotp_ctx_t *ctx)
     return UDS_STATUS_OK;
 }
 
+/*
+ * [#132] DIRECTIONAL STATE OWNERSHIP
+ *
+ * isotp_ctx_t runs two independent state machines. The audit below is what
+ * makes a per-direction reset safe, and it is the contract isotp_clear_rx()
+ * and isotp_clear_tx() encode. Any new context field must be added to exactly
+ * one of these two lists (or to the read-only group).
+ *
+ *   RX-owned (written only by the SF/FF/CF handlers, isotp_send_fc()'s N_Ar
+ *   arming, and the Cr/Ar branches of isotp_tick_1ms()):
+ *     rx_state, rx_buf, rx_expected_len, rx_received_len, rx_expected_sn,
+ *     rx_blocks_received, rx_cr_timer_ms, rx_ar_timer_ms
+ *
+ *   TX-owned (written only by isotp_transmit(), the FC handler, the As/Bs/
+ *   STmin branches of isotp_tick_1ms(), and isotp_tx_pump()):
+ *     tx_state, tx_data, tx_total_len, tx_sent_len, tx_sn, tx_block_size,
+ *     tx_stmin_ms, tx_blocks_sent, tx_stmin_timer_ms, tx_bs_timer_ms,
+ *     tx_as_timer_ms
+ *
+ *   Shared but READ-ONLY after isotp_init(), so neither reset touches them:
+ *     initialized, rx_can_id, tx_can_id, local_block_size, local_stmin_ms,
+ *     use_fd, can
+ *
+ * The two lists are disjoint and their union is exactly the set isotp_reset()
+ * has always cleared. Neither direction reads a field the other writes: the
+ * RX handlers never inspect tx_state, and isotp_tx_pump() never inspects
+ * rx_state. The only object both touch is the bound can_transport_t, which
+ * they use through can_transport_transmit() without holding any cross-call
+ * state. Resetting one direction mid-transfer in the other is therefore
+ * sound: no half-updated invariant is left behind, and no buffer either side
+ * depends on is freed or reused.
+ *
+ * Note in particular that clearing rx_state to IDLE does NOT hand the RX path
+ * a false "safe to start" signal that could disturb the TX side. The FF
+ * handler never consults rx_state at all (an FF always restarts a
+ * reassembly), the CF handler requires RX_WAIT_CF and so rejects a stray CF
+ * with ERR_TP_UNEXPECTED_PDU, and the FC handler — the only RX-path branch
+ * that writes TX fields — is gated on tx_state, which isotp_clear_rx() does
+ * not touch. Symmetrically, clearing tx_state to IDLE only makes a late FC
+ * be ignored (the FC handler's existing "outside expected window" branch),
+ * which is already the behaviour after a full isotp_reset().
+ */
+
 uds_status_t isotp_reset(isotp_ctx_t *ctx)
 {
     if (ctx == NULL) {
@@ -797,24 +858,44 @@ uds_status_t isotp_reset(isotp_ctx_t *ctx)
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
-    ctx->rx_state           = ISOTP_STATE_IDLE;
-    ctx->tx_state           = ISOTP_STATE_IDLE;
-    ctx->rx_expected_len    = (uint32_t)0U;
-    ctx->rx_received_len    = (uint32_t)0U;
-    ctx->rx_expected_sn     = (uint8_t)0U;
-    ctx->rx_blocks_received = (uint8_t)0U;
-    ctx->rx_cr_timer_ms     = 0U;
-    ctx->rx_ar_timer_ms     = 0U;
-    ctx->tx_data            = NULL;
-    ctx->tx_total_len       = (uint32_t)0U;
-    ctx->tx_sent_len        = (uint32_t)0U;
-    ctx->tx_sn              = (uint8_t)0U;
-    ctx->tx_block_size      = (uint8_t)0U;
-    ctx->tx_stmin_ms        = (uint8_t)0U;
-    ctx->tx_stmin_timer_ms  = 0U;
-    ctx->tx_bs_timer_ms     = 0U;
-    ctx->tx_as_timer_ms     = 0U;
-    ctx->tx_blocks_sent     = (uint8_t)0U;
+    /*
+     * [#132] Composed from the two directional clears rather than repeating
+     * their field lists, so the full reset cannot drift out of step with the
+     * narrow ones when a context field is added. Behaviour is byte-identical
+     * to the previous open-coded body.
+     */
+    isotp_clear_rx(ctx);
+    isotp_clear_tx(ctx);
+
+    return UDS_STATUS_OK;
+}
+
+uds_status_t isotp_reset_rx(isotp_ctx_t *ctx)
+{
+    if (ctx == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    if (!ctx->initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    isotp_clear_rx(ctx);
+
+    return UDS_STATUS_OK;
+}
+
+uds_status_t isotp_reset_tx(isotp_ctx_t *ctx)
+{
+    if (ctx == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    if (!ctx->initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    isotp_clear_tx(ctx);
 
     return UDS_STATUS_OK;
 }
@@ -831,11 +912,53 @@ uds_status_t isotp_get_state(
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
+    /*
+     * [#132] Aliasing preserved verbatim for source compatibility: this
+     * reports tx_state whenever a transmit is in progress, which hides an
+     * rx_state of ISOTP_STATE_ERROR for the whole duration of that transmit.
+     * The blind spot is documented on the declaration in isotp.h and is
+     * addressed by isotp_get_rx_state() / isotp_get_tx_state() below, not by
+     * changing what this function returns.
+     */
     if (ctx->tx_state != ISOTP_STATE_IDLE) {
         *out_state = ctx->tx_state;
     } else {
         *out_state = ctx->rx_state;
     }
+
+    return UDS_STATUS_OK;
+}
+
+uds_status_t isotp_get_rx_state(
+    const isotp_ctx_t *ctx,
+    isotp_state_t     *out_state)
+{
+    if ((ctx == NULL) || (out_state == NULL)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    if (!ctx->initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    *out_state = ctx->rx_state;
+
+    return UDS_STATUS_OK;
+}
+
+uds_status_t isotp_get_tx_state(
+    const isotp_ctx_t *ctx,
+    isotp_state_t     *out_state)
+{
+    if ((ctx == NULL) || (out_state == NULL)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    if (!ctx->initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    *out_state = ctx->tx_state;
 
     return UDS_STATUS_OK;
 }
@@ -942,6 +1065,47 @@ static uint8_t isotp_decode_stmin_ms(uint8_t stmin_raw)
 
     /* 0x80–0xF0 and 0xFA–0xFF: reserved — treat as 0 ms. */
     return (uint8_t)0U;
+}
+
+/*
+ * [#132] Directional clears. The field lists below are the single
+ * definition of what each direction owns; isotp_reset(),
+ * isotp_reset_rx() and isotp_reset_tx() are all built from them. See the
+ * DIRECTIONAL STATE OWNERSHIP audit above isotp_reset() for why the split
+ * is sound. Field assignment order is preserved exactly as the original
+ * open-coded isotp_reset() had it — deliberately, so this refactor
+ * introduces no new behaviour of any kind.
+ */
+static void isotp_clear_rx(isotp_ctx_t *ctx)
+{
+    /*
+     * rx_buf is deliberately not scrubbed — isotp_reset() never scrubbed it
+     * either, and zeroing up to ISOTP_RX_BUF_LEN (4095 B by default) in what
+     * may be an error path is not free. rx_received_len is zeroed, so no
+     * stale byte is reachable through the API.
+     */
+    ctx->rx_state           = ISOTP_STATE_IDLE;
+    ctx->rx_expected_len    = (uint32_t)0U;
+    ctx->rx_received_len    = (uint32_t)0U;
+    ctx->rx_expected_sn     = (uint8_t)0U;
+    ctx->rx_blocks_received = (uint8_t)0U;
+    ctx->rx_cr_timer_ms     = 0U;
+    ctx->rx_ar_timer_ms     = 0U;
+}
+
+static void isotp_clear_tx(isotp_ctx_t *ctx)
+{
+    ctx->tx_state           = ISOTP_STATE_IDLE;
+    ctx->tx_data            = NULL;
+    ctx->tx_total_len       = (uint32_t)0U;
+    ctx->tx_sent_len        = (uint32_t)0U;
+    ctx->tx_sn              = (uint8_t)0U;
+    ctx->tx_block_size      = (uint8_t)0U;
+    ctx->tx_stmin_ms        = (uint8_t)0U;
+    ctx->tx_stmin_timer_ms  = 0U;
+    ctx->tx_bs_timer_ms     = 0U;
+    ctx->tx_as_timer_ms     = 0U;
+    ctx->tx_blocks_sent     = (uint8_t)0U;
 }
 
 /* [P2-TP-04] [P2-TP-06] Consecutive Frame TX pump — sends one CF per call. */

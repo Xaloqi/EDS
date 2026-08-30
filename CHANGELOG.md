@@ -38,6 +38,36 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **ISO-TP: `isotp_get_state()` hid an RX error behind any concurrent transmit,
+  and `isotp_reset()` could not recover one direction alone.** (#132)
+  `isotp_ctx_t` runs two independent state machines, `rx_state` and `tx_state`,
+  but the only public read path collapsed them: `isotp_get_state()` reported
+  `tx_state` whenever it was not `ISOTP_STATE_IDLE` and `rx_state` only
+  otherwise. An RX channel sitting in `ISOTP_STATE_ERROR` was therefore
+  invisible to a polling caller for the entire duration of a transmit — and on
+  a UDS server the transmit direction is busy for exactly as long as a
+  segmented response is going out, which is precisely when an inbound request
+  is being reassembled. Compounding it, `isotp_reset()` — the documented
+  recovery from `ISOTP_STATE_ERROR` — cleared both directions unconditionally,
+  so a caller that did observe an RX error and reset destroyed any in-flight
+  TX with it. Per-direction error handling was not expressible at all. #122
+  made this materially more reachable by adding a new way for `rx_state` to
+  become `ERROR` (a rejected Flow Control transmit) while a TX is active.
+  Added `isotp_get_rx_state()` / `isotp_get_tx_state()`, which report each
+  direction faithfully, and `isotp_reset_rx()` / `isotp_reset_tx()`, which
+  recover one direction while leaving the other's state, buffers and timers
+  untouched — verified safe by a field-ownership audit showing the two
+  directions share nothing mutable, only the read-only configuration and the
+  bound `can_transport_t`. `isotp_get_state()` and `isotp_reset()` keep their
+  exact previous behaviour for source compatibility; `isotp_get_state()`'s
+  aliasing is now documented as a warning on its declaration, and
+  `isotp_reset()` is composed from the two directional clears so a full reset
+  can never drift out of step with the narrow ones. Also fixed the FreeRTOS
+  ECU-reset snippet in `docs/INTEGRATION_GUIDE.md` §4.3, which called
+  `isotp_get_state(tp, &rx_st, &tx_st)` — a three-argument form that has never
+  existed in any released header, so the documented sequence could not compile;
+  it now calls `isotp_get_tx_state()`, which is what it always meant.
+
 - **11 examples' `generated/tests/test_services.py` was missing ReadDTCInformation
   sub `0x0B`/`0x19` coverage that the template gained months ago.** (#127)
   `EDS-toolchain` commit `2efba87` added `test_report_fault_detection_counter_sub0b`
