@@ -1,6 +1,6 @@
 # Testing Strategy — Xaloqi EDS
 
-**Version:** v1.10.1  
+**Version:** v1.12.0  
 **Status:** 44/44 unit test modules passing. 68/68 harness tests passing. 21/21 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
 
 ---
@@ -10,7 +10,7 @@
 EDS uses a four-layer testing strategy: unit tests, harness tests, integration tests, and system
 tests. All four layers run automatically in CI on every push and pull request.
 
-**Current test counts (v1.10.1):**
+**Current test counts (v1.12.0):**
 
 | Layer | Count | Framework | Status |
 |---|---|---|---|

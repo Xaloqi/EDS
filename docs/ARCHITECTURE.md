@@ -1,6 +1,6 @@
 # Architecture — Xaloqi EDS
 
-**Version:** v1.10.1  
+**Version:** v1.12.0  
 **Status:** Production-ready. All CI jobs passing.
 
 ---
@@ -301,7 +301,7 @@ expect fixed-length frames. See [docs/ISOTP_PADDING.md](ISOTP_PADDING.md).
 
 Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protocol over TCP.
 
-#### DoIP Feature Matrix (current as of v1.10.1, ISO 13400-2:2019)
+#### DoIP Feature Matrix (current as of v1.12.0, ISO 13400-2:2019)
 
 | Feature | Payload type | Status | Notes |
 |---|---|---|---|
@@ -315,10 +315,10 @@ Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protoc
 | Diagnostic Message Positive Ack | 0x8002 | ✅ Implemented | Sent before UDS dispatch per ISO 13400-2 §9.5 |
 | Diagnostic Message Negative Ack | 0x8003 | ✅ Implemented | NACK codes: 0x03 (invalid src), 0x04 (unknown tgt), 0x05 (too large), 0x07 (not routed) |
 | Single active TCP connection | — | ✅ Implemented | Sequential accept; routing state reset on new connection |
-| UDP Vehicle Identification Request | 0x0001 | ❌ Not implemented | Out of scope as of v1.10.1 |
-| UDP Vehicle Identification w/ EID | 0x0002 | ❌ Not implemented | Out of scope as of v1.10.1 |
-| Vehicle Announcement | 0x0004 | ❌ Not implemented | Out of scope as of v1.10.1 |
-| Entity Status Request/Response | 0x4001/0x4002 | ❌ Not implemented | Out of scope as of v1.10.1 |
+| UDP Vehicle Identification Request | 0x0001 | ❌ Not implemented | Out of scope as of v1.12.0 |
+| UDP Vehicle Identification w/ EID | 0x0002 | ❌ Not implemented | Out of scope as of v1.12.0 |
+| Vehicle Announcement | 0x0004 | ❌ Not implemented | Out of scope as of v1.12.0 |
+| Entity Status Request/Response | 0x4001/0x4002 | ❌ Not implemented | Out of scope as of v1.12.0 |
 | Activation type 0x01 (OEM-specific) | 0x0005 | ❌ Not implemented | Only Default (0x00) supported |
 | Multiple simultaneous TCP clients | — | ❌ Not implemented | One client per server instance; clients queue sequentially |
 | TLS transport | — | ❌ Not implemented | Plain TCP only |

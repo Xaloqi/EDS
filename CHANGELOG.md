@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.12.0] — 2026-08-30
+
 ### Changed
 
 - **The `unit-tests` CI job no longer carries the module count in its display
