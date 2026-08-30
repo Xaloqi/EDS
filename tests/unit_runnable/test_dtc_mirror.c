@@ -55,6 +55,17 @@
  *                    the uds_generated_init() pattern (does not block init chain)
  *     TC-MIRROR-023  Status bytes survive: set → flush → power-cycle → load
  *
+ *   Integrity checking (issue #114 — DTC mirror header/CRC fix):
+ *     TC-MIRROR-024  Bit-flip in a flushed entry → load() reports
+ *                    ERR_NVM_DATA_CORRUPT and applies nothing (not partial)
+ *     TC-MIRROR-025  Record truncated below what its own header declares →
+ *                    load() reports ERR_NVM_DATA_CORRUPT (was the original
+ *                    bug: silently applied whatever fit and returned OK)
+ *     TC-MIRROR-026  Legacy pre-header record (no magic) → load() returns
+ *                    OK and discards it (deliberate migration decision)
+ *     TC-MIRROR-027  Valid magic + unsupported version → load() reports
+ *                    ERR_NVM_DATA_CORRUPT
+ *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h for host compilation)
  * NVM:       NVM_STORE_HOST_MOCK (RAM-backed mock, controlled via nvm_mock_reset /
  *            nvm_mock_deinit)
@@ -335,18 +346,22 @@ ZTEST(dtc_mirror, test_flush_all_writes_correct_header)
 
     zassert_equal(UDS_STATUS_OK, dtc_mirror_flush_all(), "flush_all must return OK");
 
-    /* Verify NVM record exists and has correct layout. */
+    /* Verify NVM record exists and has the v1 integrity-checked layout:
+     * [magic:2][version:1][count:2][entry×2][crc32:4] = 5 + 8 + 4 = 17 bytes. */
     uint8_t buf[64];
     size_t  len = 0U;
     zassert_equal(UDS_STATUS_OK,
                   nvm_store_read(NVM_KEY_DTC_MIRROR, buf, sizeof(buf), &len),
                   "NVM record must exist after flush");
 
-    /* Minimum size: 2-byte header + 2 × 4-byte entries = 10 bytes. */
-    zassert_true(len >= 10U, "NVM record too short");
+    zassert_equal((size_t)17U, len,
+                  "record length must be header(5) + 2 entries(8) + crc(4) = 17");
+    zassert_equal(DTC_MIRROR_MAGIC_0, buf[0], "magic byte 0 must match");
+    zassert_equal(DTC_MIRROR_MAGIC_1, buf[1], "magic byte 1 must match");
+    zassert_equal((uint8_t)DTC_MIRROR_FORMAT_VERSION, buf[2], "version must match");
 
-    /* Header bytes: count big-endian.  2 DTCs registered → count == 2. */
-    uint16_t count = (uint16_t)(((uint16_t)buf[0] << 8U) | (uint16_t)buf[1]);
+    /* Count bytes: big-endian.  2 DTCs registered → count == 2. */
+    uint16_t count = (uint16_t)(((uint16_t)buf[3] << 8U) | (uint16_t)buf[4]);
     zassert_equal(2U, count, "NVM mirror count must be 2");
 }
 
@@ -359,16 +374,19 @@ ZTEST(dtc_mirror, test_flush_all_empty_table_writes_zero_count)
     zassert_equal(UDS_STATUS_OK, dtc_mirror_flush_all(),
                   "flush_all on empty table must return OK");
 
-    uint8_t buf[8];
+    uint8_t buf[16];
     size_t  len = 0U;
     zassert_equal(UDS_STATUS_OK,
                   nvm_store_read(NVM_KEY_DTC_MIRROR, buf, sizeof(buf), &len),
                   "NVM record must exist");
 
-    /* Header only: 2 bytes, count = 0. */
-    zassert_equal(2U,    (uint16_t)len, "empty flush must produce 2-byte record");
-    zassert_equal(0x00U, buf[0], "count high byte must be 0");
-    zassert_equal(0x00U, buf[1], "count low byte must be 0");
+    /* Header + crc only, no entries: 5 + 0 + 4 = 9 bytes, count = 0. */
+    zassert_equal((size_t)9U, len, "empty flush must produce a 9-byte record");
+    zassert_equal(DTC_MIRROR_MAGIC_0, buf[0], "magic byte 0 must match");
+    zassert_equal(DTC_MIRROR_MAGIC_1, buf[1], "magic byte 1 must match");
+    zassert_equal((uint8_t)DTC_MIRROR_FORMAT_VERSION, buf[2], "version must match");
+    zassert_equal(0x00U, buf[3], "count high byte must be 0");
+    zassert_equal(0x00U, buf[4], "count low byte must be 0");
 }
 
 /* ==========================================================================
@@ -623,6 +641,155 @@ ZTEST(dtc_mirror, test_h3_fix_full_persistence_scenario)
 }
 
 /* ==========================================================================
+ * Integrity checking tests (issue #114)
+ *
+ * These craft raw NVM bytes directly (bypassing dtc_mirror's own writer) to
+ * simulate flash corruption / a truncated write / a pre-fix legacy record,
+ * then assert dtc_mirror_load()'s response distinguishes them per the
+ * DELIBERATE cases documented in dtc_mirror.h:
+ *   (1) no/legacy record → OK, nothing applied
+ *   (2) valid record     → OK, restored (covered by TC-MIRROR-008 etc.)
+ *   (3) corrupt record   → ERR_NVM_DATA_CORRUPT, nothing applied
+ * ========================================================================== */
+
+/* TC-MIRROR-024  Bit-flip in a flushed entry (CRC no longer matches) →
+ * load() reports ERR_NVM_DATA_CORRUPT and applies NOTHING (all-or-nothing,
+ * not a partial apply). */
+ZTEST(dtc_mirror, test_load_reports_corrupt_on_bad_crc)
+{
+    uint8_t raw[32];
+    size_t  raw_len = 0U;
+
+    (void)dtc_mirror_init();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+    (void)dtc_database_set_status(DTC_1, 0x09U);
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_flush_all(), "flush must succeed");
+
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_read(NVM_KEY_DTC_MIRROR, raw, sizeof(raw), &raw_len),
+                  "must read back the flushed record");
+    zassert_equal((size_t)13U, raw_len, "1-entry record must be 5+4+4=13 bytes");
+
+    /* Flip the entry's status byte (offset 5+3=8) without touching the CRC
+     * trailer — simulates a flash bit-flip after a valid write. */
+    raw[8] ^= 0xFFU;
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_write(NVM_KEY_DTC_MIRROR, raw, raw_len),
+                  "must be able to write back the corrupted record");
+
+    /* Power-cycle: fresh database, DTC_1 defaults back to 0x00. */
+    simulate_power_cycle();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+
+    uds_status_t rc = dtc_mirror_load();
+
+    zassert_equal(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc,
+                  "CRC-mismatched record must be reported as a distinct corrupt condition");
+    zassert_equal(0x00U, dtc_database_find(DTC_1)->status_byte,
+                  "corrupt record must not be applied at all, not even partially");
+}
+
+/* TC-MIRROR-025  Record truncated below what its own header declares →
+ * load() reports ERR_NVM_DATA_CORRUPT. This is the exact original bug
+ * shape: a short read mid-loop used to `break` and still return OK with
+ * whatever entries had been parsed so far. */
+ZTEST(dtc_mirror, test_load_reports_corrupt_on_truncated_record)
+{
+    uint8_t raw[32];
+    size_t  raw_len = 0U;
+
+    (void)dtc_mirror_init();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+    (void)dtc_database_register(DTC_2, 0x00U, "DTC_2");
+    (void)dtc_database_set_status(DTC_1, 0x09U);
+    (void)dtc_database_set_status(DTC_2, 0x04U);
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_flush_all(), "flush must succeed");
+
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_read(NVM_KEY_DTC_MIRROR, raw, sizeof(raw), &raw_len),
+                  "must read back the flushed record");
+    zassert_equal((size_t)17U, raw_len, "2-entry record must be 5+8+4=17 bytes");
+
+    /* Header still declares count=2 (bytes[3..5) unchanged), but write back
+     * only header + first entry — second entry and CRC trailer missing. */
+    size_t truncated_len = (size_t)9U; /* 5-byte header + 1 entry, no CRC */
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_write(NVM_KEY_DTC_MIRROR, raw, truncated_len),
+                  "must be able to write back the truncated record");
+
+    simulate_power_cycle();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+    (void)dtc_database_register(DTC_2, 0x00U, "DTC_2");
+
+    uds_status_t rc = dtc_mirror_load();
+
+    zassert_equal(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc,
+                  "truncated record must be reported as corrupt, not silently accepted");
+    zassert_equal(0x00U, dtc_database_find(DTC_1)->status_byte,
+                  "truncated record must not partially apply DTC_1 (issue #114)");
+    zassert_equal(0x00U, dtc_database_find(DTC_2)->status_byte,
+                  "truncated record must not partially apply DTC_2 (issue #114)");
+}
+
+/* TC-MIRROR-026  A legacy pre-header record (the old [count:2][entries...]
+ * format, no magic, as left on flash by firmware built before issue #114)
+ * is discarded like "no mirror yet" — OK, nothing applied. This is the
+ * deliberate, documented migration decision (see dtc_mirror.h). */
+ZTEST(dtc_mirror, test_load_treats_legacy_record_as_no_mirror)
+{
+    uint8_t legacy[6];
+    size_t  pos = 0U;
+
+    /* Old wire format: [count_hi][count_lo][code_b2][code_b1][code_b0][status] */
+    legacy[pos++] = 0x00U;                                  /* count hi */
+    legacy[pos++] = 0x01U;                                  /* count lo -> 1 */
+    legacy[pos++] = (uint8_t)((DTC_1 >> 16U) & 0xFFU);
+    legacy[pos++] = (uint8_t)((DTC_1 >>  8U) & 0xFFU);
+    legacy[pos++] = (uint8_t)( DTC_1         & 0xFFU);
+    legacy[pos++] = 0x09U;                                  /* legacy status byte */
+
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_write(NVM_KEY_DTC_MIRROR, legacy, pos),
+                  "must be able to write a legacy-format record directly");
+
+    (void)dtc_mirror_init();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+
+    uds_status_t rc = dtc_mirror_load();
+
+    zassert_equal(UDS_STATUS_OK, rc,
+                  "MIGRATION: a legacy (pre-#114) record must load as OK, not corrupt");
+    zassert_equal(0x00U, dtc_database_find(DTC_1)->status_byte,
+                  "MIGRATION: legacy record content must be discarded, not reinterpreted");
+}
+
+/* TC-MIRROR-027  Valid magic but an unsupported/foreign version byte →
+ * load() reports ERR_NVM_DATA_CORRUPT (cannot safely reinterpret a layout
+ * from a version this build does not know). */
+ZTEST(dtc_mirror, test_load_reports_corrupt_on_bad_version)
+{
+    uint8_t raw[DTC_MIRROR_HEADER_BYTES];
+
+    raw[0] = DTC_MIRROR_MAGIC_0;
+    raw[1] = DTC_MIRROR_MAGIC_1;
+    raw[2] = (uint8_t)0xFFU; /* unsupported version */
+    raw[3] = 0x00U;
+    raw[4] = 0x00U;
+
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_write(NVM_KEY_DTC_MIRROR, raw, sizeof(raw)),
+                  "must be able to write the record");
+
+    (void)dtc_mirror_init();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+
+    uds_status_t rc = dtc_mirror_load();
+
+    zassert_equal(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc,
+                  "unsupported version under a valid magic must be reported as corrupt");
+}
+
+/* ==========================================================================
  * run_all_tests
  * ========================================================================== */
 
@@ -662,4 +829,10 @@ void run_all_tests(void)
     RUN_TEST(dtc_mirror__test_h3_fix_correct_call_order);
     RUN_TEST(dtc_mirror__test_h3_fix_soft_degrade_nvm_not_ready);
     RUN_TEST(dtc_mirror__test_h3_fix_full_persistence_scenario);
+
+    /* Integrity checking (issue #114) */
+    RUN_TEST(dtc_mirror__test_load_reports_corrupt_on_bad_crc);
+    RUN_TEST(dtc_mirror__test_load_reports_corrupt_on_truncated_record);
+    RUN_TEST(dtc_mirror__test_load_treats_legacy_record_as_no_mirror);
+    RUN_TEST(dtc_mirror__test_load_reports_corrupt_on_bad_version);
 }
