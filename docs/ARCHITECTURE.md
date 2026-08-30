@@ -220,7 +220,7 @@ embedded-diagnostics-suite/
 │   └── mocks/                  # Zephyr port mock + NVM mock for host builds
 │
 └── scripts/
-    ├── build_tests.sh          # Runs all 43 unit test modules
+    ├── build_tests.sh          # Runs all 44 unit test modules
     └── build_harness.sh        # Runs all 68 harness tests
 ```
 

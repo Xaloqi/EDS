@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.10.1  
-**Status:** 43/43 unit test modules passing. 68/68 harness tests passing. 21/21 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
+**Status:** 44/44 unit test modules passing. 68/68 harness tests passing. 21/21 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
 
 ---
 
@@ -105,7 +105,7 @@ bash scripts/build_tests.sh
 # Expected: 42 tests, 0 failures
 ```
 
-### Coverage — 43 unit test modules
+### Coverage — 44 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -173,12 +173,18 @@ bash scripts/build_tests.sh
 |---|---|
 | `test_did_safety_wrappers.c` | All 5 steps exercised individually; each produces the correct NRC |
 
-**Phase-specific test modules (10 modules in `unit_runnable/`)**
+**Phase-specific test modules (11 modules in `unit_runnable/`)**
 
 Additional tests added in Phases 2–5 covering: suppress-bit handling, STmin boundary
 conditions, session transition matrix, NVM DTC persistence, security algorithm correctness,
 DID access table validation, and replay-protection logic — plus the DoIP module (counted
 separately above) and the periodic scheduler (counted above under Generated Code).
+
+`test_uds_acl_permissive_opt_in.c` covers the `UDS_ACL_ALLOW_UNLISTED_SERVICES`
+opt-in added by [#113](https://github.com/Xaloqi/EDS/issues/113): with the
+fail-closed default a service ID absent from the access table is denied in every
+session, and with the opt-in compiled in the pre-#113 permissive behaviour is
+restored.
 
 ---
 
@@ -424,7 +430,7 @@ All 8 jobs must pass before a PR can be merged.
 
 Added in v1.3.0. Builds `examples/basic_ecu_freertos` with `-DEDS_PLATFORM=freertos`
 targeting QEMU ARM Cortex-M4. Downloads FreeRTOS-Kernel from GitHub, runs codegen,
-builds the ELF, and verifies it exists. The same 43 unit tests run against the FreeRTOS
+builds the ELF, and verifies it exists. The same 44 unit tests run against the FreeRTOS
 platform HAL (they mock the platform layer and are platform-independent).
 
 ### SafeBoot CI job (within `unit-tests`)
