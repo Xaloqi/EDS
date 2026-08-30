@@ -314,7 +314,11 @@ uds_status_t isotp_init(isotp_ctx_t *ctx, const isotp_cfg_t *cfg);
  * @return UDS_STATUS_ERR_TP_UNEXPECTED_PDU if frame received in invalid state.
  * @return UDS_STATUS_ERR_TP_TX_FAILED if the Flow Control frame this function
  *         had to transmit was rejected by the data link layer. The RX channel
- *         is left in ISOTP_STATE_ERROR and requires isotp_reset().
+ *         is left in ISOTP_STATE_ERROR and requires isotp_reset_rx() (or
+ *         isotp_reset(), if tearing down both directions is acceptable).
+ *         [#132] Note that this error is NOT observable through
+ *         isotp_get_state() while a transmit is in progress — use
+ *         isotp_get_rx_state(), or this return value.
  *
  * @note TIMING: Must complete within CAN frame inter-arrival time.
  */
@@ -380,27 +384,151 @@ uds_status_t isotp_transmit(
 uds_status_t isotp_tick_1ms(isotp_ctx_t *ctx);
 
 /**
- * @brief Reset the ISO-TP channel to IDLE state.
+ * @brief Reset BOTH directions of the ISO-TP channel to IDLE state.
  *
  * Clears all RX and TX state. May be called after error recovery.
+ *
+ * Exactly equivalent to isotp_reset_rx() followed by isotp_reset_tx(); it is
+ * implemented as such so the two never drift apart.
+ *
+ * @warning [#132] This tears down BOTH directions. Recovering an RX error
+ *          with it aborts any transmit still in flight (and vice versa). To
+ *          recover one direction only, use isotp_reset_rx() /
+ *          isotp_reset_tx().
  *
  * @param[in] ctx  Initialized ISO-TP context.
  *
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NULL_PTR if ctx is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
  */
 uds_status_t isotp_reset(isotp_ctx_t *ctx);
 
 /**
- * @brief Query the current channel state.
+ * @brief [#132] Reset ONLY the receive direction to IDLE state.
+ *
+ * Clears rx_state, the reassembly length/sequence counters, the RX block
+ * counter and the Cr/Ar timers. An in-flight transmit — tx_state, tx_data,
+ * the CF sequence number, the negotiated BS/STmin and the As/Bs/STmin timers
+ * — is left completely untouched and continues normally.
+ *
+ * This is the targeted recovery from an RX-side ISOTP_STATE_ERROR (a Cr or Ar
+ * timeout, a sequence-number or DLC fault, a buffer overflow, or the
+ * UDS_STATUS_ERR_TP_TX_FAILED reported by isotp_process_rx_frame() when a
+ * Flow Control frame is rejected by the data link layer).
+ *
+ * SAFETY: the two directions share no mutable state — only the read-only
+ * configuration and the bound can_transport_t — so this leaves the context
+ * fully valid for every other API function. Afterwards a new First Frame is
+ * accepted normally and a stray Consecutive Frame is rejected with
+ * UDS_STATUS_ERR_TP_UNEXPECTED_PDU, exactly as from a freshly initialized
+ * channel.
+ *
+ * @note The reassembly buffer contents are not scrubbed (neither does
+ *       isotp_reset()); rx_received_len is zeroed, so no stale byte is
+ *       reachable.
+ * @note This is a local teardown only. It does not signal the peer, which
+ *       may still be sending consecutive frames for the abandoned PDU; those
+ *       are rejected as unexpected PDUs. Same semantics as isotp_reset().
+ *
+ * @param[in] ctx  Initialized ISO-TP context.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NULL_PTR if ctx is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
+ */
+uds_status_t isotp_reset_rx(isotp_ctx_t *ctx);
+
+/**
+ * @brief [#132] Reset ONLY the transmit direction to IDLE state.
+ *
+ * Clears tx_state, the borrowed tx_data pointer, the length/sequence
+ * counters, the negotiated block size and STmin, and the As/Bs/STmin timers.
+ * An in-progress reassembly — rx_state, the RX buffer and its counters, and
+ * the Cr/Ar timers — is left completely untouched and continues normally.
+ *
+ * This is the targeted recovery from a TX-side ISOTP_STATE_ERROR (a Bs or As
+ * timeout, a Flow Control OVERFLOW or reserved flow-status abort, or a
+ * consecutive frame rejected by the data link layer).
+ *
+ * SAFETY: see isotp_reset_rx(). Dropping the tx_data pointer here also
+ * releases the caller's obligation to keep that buffer alive.
+ *
+ * @note This is a local teardown only. It does not signal the peer, which may
+ *       still be awaiting the remainder of the aborted PDU. Same semantics as
+ *       isotp_reset().
+ *
+ * @param[in] ctx  Initialized ISO-TP context.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NULL_PTR if ctx is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
+ */
+uds_status_t isotp_reset_tx(isotp_ctx_t *ctx);
+
+/**
+ * @brief Query the current channel state (direction-collapsing).
+ *
+ * @warning [#132] This accessor reports ONE state for a context that runs TWO
+ *          independent state machines. It returns tx_state whenever a
+ *          transmit is in progress and rx_state only otherwise, so an RX
+ *          channel sitting in ISOTP_STATE_ERROR is invisible here for the
+ *          entire duration of any concurrent transmit. On a UDS server the
+ *          transmit direction is busy for exactly as long as a segmented
+ *          response is going out, which is precisely when an inbound request
+ *          is being reassembled.
+ *
+ *          Retained unchanged for source compatibility. New code should use
+ *          isotp_get_rx_state() and isotp_get_tx_state(), which report each
+ *          direction faithfully.
  *
  * @param[in]  ctx        Initialized ISO-TP context.
- * @param[out] out_state  Pointer to receive current channel state.
+ * @param[out] out_state  Receives tx_state if it is not ISOTP_STATE_IDLE,
+ *                        otherwise rx_state.
  *
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NULL_PTR if any pointer is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
  */
 uds_status_t isotp_get_state(
+    const isotp_ctx_t *ctx,
+    isotp_state_t     *out_state
+);
+
+/**
+ * @brief [#132] Query the receive-direction state, unaliased.
+ *
+ * Reports rx_state exactly, whether or not a transmit is in progress. This is
+ * the only way to observe an RX-side ISOTP_STATE_ERROR concurrently with a
+ * transmit; isotp_get_state() hides it.
+ *
+ * @param[in]  ctx        Initialized ISO-TP context.
+ * @param[out] out_state  Pointer to receive the current RX state.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NULL_PTR if any pointer is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
+ */
+uds_status_t isotp_get_rx_state(
+    const isotp_ctx_t *ctx,
+    isotp_state_t     *out_state
+);
+
+/**
+ * @brief [#132] Query the transmit-direction state, unaliased.
+ *
+ * Reports tx_state exactly. Unlike isotp_get_state(), an ISOTP_STATE_IDLE
+ * result here unambiguously means "no transmit in progress" rather than
+ * "no transmit in progress AND the receiver is also idle".
+ *
+ * @param[in]  ctx        Initialized ISO-TP context.
+ * @param[out] out_state  Pointer to receive the current TX state.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NULL_PTR if any pointer is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
+ */
+uds_status_t isotp_get_tx_state(
     const isotp_ctx_t *ctx,
     isotp_state_t     *out_state
 );
