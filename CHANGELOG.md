@@ -76,6 +76,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   128 calls; and a truly stalled peer is bounded and reported as a failure
   the caller must close the connection over.
 
+- **TransferData (0x36): an oversized block was silently clamped to
+  `bytes_remaining` instead of being rejected.** (#112) When a tester sent
+  more payload than the remaining declared transfer size (e.g. a
+  `RequestDownload` size=100, 98 bytes already received via one block, then
+  a 20-byte block with only 2 bytes remaining), `service_0x36.c` truncated
+  `payload_len` down to `bytes_remaining`, fed the truncated data into the
+  running CRC-32, wrote it to flash, and advanced the block sequence
+  counter as if the block were well-formed — silently discarding the
+  excess bytes rather than treating the malformed block as an error. Now
+  the handler rejects the block with NRC 0x31 (`requestOutOfRange`) and
+  aborts the transfer context via `uds_transfer_ctx_reset()`, mirroring how
+  `service_0x37.c` already handles the symmetric REQ-DL-002 case (too few
+  bytes at `RequestTransferExit`). A subsequent 0x36 after the abort now
+  correctly sees no active transfer (NRC 0x24) instead of resuming a
+  half-torn-down context. Added regression tests reproducing the exact
+  issue scenario and asserting the post-abort context is a clean reset,
+  not a partially-updated one; the pre-existing test that encoded the old
+  clamp-and-continue behavior as correct has been rewritten to assert the
+  reject-and-abort behavior instead.
+
 ### Changed
 
 - **README and COMMERCIAL_NOTICE spell out the proprietary-firmware linking
