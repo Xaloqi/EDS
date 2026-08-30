@@ -176,7 +176,9 @@ here have caused real CI failures and customer-visible linker errors.
   also add any new support module the handler depends on (e.g. `uds_periodic.c` for 0x2A,
   `uds_io_control.c` for 0x2F if one exists). Omitting this causes undefined-reference linker
   errors that only surface when running the 68 harness tests, not the unit tests.
-- [ ] `ci.yml` — bump unit test count in job comment/display name
+- [ ] `.github/workflows/ci.yml` — bump the expected count in the `Verify test
+  count` step (the `unit-tests` job's display name is deliberately count-free,
+  so it never needs touching — see #119)
 - [ ] `misra_analysis.py` — add `core/uds_services/service_0xNN.c` to **DEV-MULT-01**
   `files` list (Rule 15.5 — early-return guard pattern used by all handlers)
 

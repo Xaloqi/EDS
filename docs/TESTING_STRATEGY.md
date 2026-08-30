@@ -94,15 +94,15 @@ tests/unit_runnable/
 ```
 
 > **Note:** `tests/unit/` also exists and is referenced by `tests/CMakeLists.txt` for the Zephyr
-> native `ztest` build path. The canonical source for the 42-module CI run is `tests/unit_runnable/`,
-> executed by `scripts/build_tests.sh`. Consolidation of these two directories is tracked as a
+> native `ztest` build path. The canonical source for the CI unit-test run is `tests/unit_runnable/`,
+> executed by `build_tests.sh`. Consolidation of these two directories is tracked as a
 > future clean-up task.
 
 ### Running unit tests
 
 ```bash
-bash scripts/build_tests.sh
-# Expected: 42 tests, 0 failures
+bash build_tests.sh
+# Expected: 44 passed, 0 failed
 ```
 
 ### Coverage — 44 unit test modules
@@ -194,8 +194,8 @@ Added in v1.6.0. 24 tests covering the `transport/doip/doip_server.c` module on 
 via the ZTEST shim (same build path as all other unit test modules).
 
 ```bash
-bash scripts/build_tests.sh
-# test_doip_server is included in the standard 42-module run
+bash build_tests.sh
+# test_doip_server is included in the standard unit-test run
 ```
 
 **Test coverage — 24 ZTEST cases:**
@@ -232,10 +232,10 @@ bash scripts/build_tests.sh
 ## 6. Harness Tests
 
 68 build-and-run tests exercising the compiled stack against specific input sequences.
-Run by `scripts/build_harness.sh` using GCC on the host.
+Run by `build_harness.sh` using GCC on the host.
 
 ```bash
-bash scripts/build_harness.sh
+bash build_harness.sh
 # Expected: 68 tests, 0 failures
 ```
 
@@ -403,7 +403,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          42 Unity modules via build_tests.sh
+   ├── unit-tests          44 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── integration-tests   Generated pytest suite, simulator mode

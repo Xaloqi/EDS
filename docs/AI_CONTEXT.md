@@ -54,13 +54,14 @@ EDS/
 │   └── vscode-extension/   # VS Code extension (YAML validation, hover docs, Run Codegen)
 ├── gui/                    # React/TypeScript live dashboard + WebSocket ECU bridge
 ├── tests/
-│   ├── unit_runnable/      # 39 Unity C unit test modules
-│   ├── integration/        # Python ISO-TP/UDS flow tests
-│   └── harness/            # 68 build harness tests
-├── scripts/
-│   ├── build_tests.sh
-│   └── build_harness.sh
-└── .github/workflows/ci.yml   # 13-job public CI pipeline (unit-tests, integration-tests, static-analysis, zephyr-native, zephyr-stm32, zephyr-nxp, zephyr-nxp-s32k, freertos-qemu, freertos-safeboot, doip-integration, sovd-codegen, robustness-tests, harness-tests)
+│   ├── unit_runnable/      # 44 Unity C unit test modules
+│   ├── mocks/              # Test doubles shared by the unit modules
+│   ├── runner/             # ZTEST shim + test runner
+│   └── test_*.py           # Python DoIP-integration and license tests
+├── build_tests.sh          # Runs the unit test modules (repo root)
+├── build_harness.sh        # Runs the 68 harness tests (repo root)
+└── .github/workflows/ci.yml   # Public CI pipeline — see its `jobs:` block for the
+                                # authoritative job list; deliberately not counted here (#119)
 ```
 
 **Golden rule:** Never hand-edit files in `generated/`. They are overwritten on every codegen run.
@@ -620,10 +621,10 @@ cmake -B build_freertos \
 ninja -C build_freertos
 
 # ── Unit Tests ────────────────────────────────────────────────────────────────
-bash scripts/build_tests.sh          # 35 Unity modules
+bash build_tests.sh                  # 44 Unity modules
 
 # ── Harness Tests ─────────────────────────────────────────────────────────────
-bash scripts/build_harness.sh        # 68 harness tests
+bash build_harness.sh                # 68 harness tests
 
 # ── GUI ───────────────────────────────────────────────────────────────────────
 cd gui && npm ci && npm start        # Dev mode (WebSocket bridge + demo mode)
@@ -807,7 +808,7 @@ both comply. (v1.7.0 fixed compliance for 0x11, 0x28, 0x31, 0x85 in the simulato
 5. Call `uds_generated_init()` at startup; `uds_server_process()` in your task loop
 6. `python3 tools/testgen.py --config examples/my_ecu/diagnostics_config.yaml --out examples/my_ecu/generated/`
 7. `cd examples/my_ecu/generated/tests && pytest . -v`
-8. `bash scripts/build_tests.sh`
+8. `bash build_tests.sh`
 9. `west build -b native_sim examples/my_ecu -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay`
 
 ## Checklist for a New ECU (FreeRTOS — CAN transport)
@@ -1000,9 +1001,10 @@ All four tools available on Developer and Professional tiers — no tier gating.
 
 ### CI
 
-Job 18 (`mcp-server-tests`) in `.github/workflows/ci.yml` runs
-`tools/ci_mcp_test.py` with `XALOQI_LICENSE_SKIP=1`. 50 protocol and
-tool-level assertions. Requires `pyyaml` only.
+The `validate-mcp` job in the **EDS-toolchain** repo's `.github/workflows/ci.yml`
+runs `tools/ci_mcp_test.py` with `XALOQI_LICENSE_SKIP=1`. 50 protocol and
+tool-level assertions. Requires `pyyaml` only. (The MCP server is commercial
+tooling and lives in EDS-toolchain — it is not part of this repo's public CI.)
 
 ---
 

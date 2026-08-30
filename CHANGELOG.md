@@ -8,6 +8,48 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **The `unit-tests` CI job no longer carries the module count in its display
+  name, and the stale root-level `ci.yml` duplicate is gone.** (#119) The job
+  was named `Unit Tests (43 modules)` and that exact string was a required
+  status check in the repo ruleset. Bumping the count to 44 for #113 renamed
+  the job, so nothing ever reported the required context again and the PR sat
+  at "Expected — Waiting for status to be reported" with all 21 jobs green.
+  The count lived in three places that had to move together — the job name,
+  the `Verify test count` assertion, and repo settings — and only two of them
+  are in version control. The job is now plain `Unit Tests`; the count is
+  asserted inside the `Verify test count` step, where it belongs and where
+  drift already fails CI loudly. Also deleted the repo-root `ci.yml`, an inert
+  copy last touched in #50 that GitHub never read: it claimed "6 jobs", parsed
+  to 7, and named its unit-test job `Unit Tests (39 modules)`, while
+  CONTRIBUTING.md's new-service checklist said to update "`ci.yml`" without
+  saying which of the two files it meant.
+
+### Fixed
+
+- **Stale counts and dead script paths across the prose docs, now guarded in
+  CI.** (#119) Six places in `docs/` told the reader to run
+  `scripts/build_tests.sh` or `scripts/build_harness.sh`; neither has ever
+  existed — both scripts live at the repo root, and one of those instructions
+  sits in the getting-started path, i.e. the first command a new user runs.
+  Unit-test counts were stated as 42, 39 and 35 against an actual 44.
+  `docs/ARCHITECTURE.md`'s CI section claimed 16 jobs and tabulated 18, ten of
+  which (`firmware-integration-tests`, `gui-build`, `ardep-example`,
+  `bms-example`, `bms-zephyr-native`, `mc-example`, `mc-zephyr-native`,
+  `sensor-example`, `robotics-example`, `safeboot-example`) no longer exist,
+  while omitting eight that do; that table is now generated from the live
+  workflow and states no job count, following the precedent set in
+  `.github/workflows/ci.yml` itself after #91. `docs/AI_CONTEXT.md` attributed
+  the MCP server tests to a `mcp-server-tests` job in this repo's CI — they
+  actually run as `validate-mcp` in the private EDS-toolchain repo, since the
+  MCP server is commercial tooling not present here. New
+  `scripts/verify_doc_counts.py`, wired into the `unit-tests` job, now fails CI
+  if any doc states a unit-test count that disagrees with
+  `tests/unit_runnable/test_*.c` or references a `scripts/build_*.sh` path.
+  `CHANGELOG.md` and `docs/PHASE1_SECURITY_CHANGES.md` are exempt — both are
+  historical records of what was true at the time.
+
 ### Security
 
 - **BREAKING: UDS access-control table now fails CLOSED for any service_id
