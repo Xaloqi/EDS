@@ -32,7 +32,15 @@ extern "C" {
  * ISO 15765-2:2016 Table 5
  * -------------------------------------------------------------------------- */
 
-/** As: Sender side timeout for CAN frame transmission confirmation. */
+/**
+ * As: Sender side timeout for the transmission confirmation of a SINGLE
+ * CAN frame (ISO 15765-2:2016 §6.7.2, Table 5).
+ *
+ * N_As starts when one N_PDU is passed to the data link layer and stops on
+ * that frame's transmission confirmation. It is NOT a whole-transfer
+ * watchdog: the wait for a Flow Control frame is bounded by
+ * ISOTP_TIMEOUT_BS_MS and the consecutive-frame cadence by STmin.
+ */
 #ifndef ISOTP_TIMEOUT_AS_MS
 #define ISOTP_TIMEOUT_AS_MS   (25U)
 #endif
@@ -200,7 +208,7 @@ typedef struct isotp_ctx {
     uint8_t          tx_blocks_sent;                    /**< [P2-TP-05] CFs sent in current block. */
     uint32_t         tx_stmin_timer_ms;                 /**< STmin countdown timer (ms). */
     uint32_t         tx_bs_timer_ms;                    /**< Bs timeout countdown (ms). */
-    uint32_t         tx_as_timer_ms;                    /**< As timeout countdown (ms). */
+    uint32_t         tx_as_timer_ms;                    /**< As timeout countdown (ms) — armed only across a single frame's transmission confirmation. */
 
     /* Configuration */
     uint32_t         rx_can_id;                         /**< CAN ID to receive on. */
@@ -328,6 +336,10 @@ uds_status_t isotp_transmit(
  *
  * Drives Cr, Bs, and As timeout timers. Transitions channel to
  * ISOTP_STATE_ERROR on timeout expiry.
+ *
+ * @note As is scoped to one frame's transmission confirmation and is stopped
+ *       by the TX path as soon as can_transport_transmit() returns, so it does
+ *       not bound the FC wait (Bs) or a multi-frame CF sequence (STmin).
  *
  * @param[in] ctx  Initialized ISO-TP context.
  *
