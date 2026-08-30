@@ -38,6 +38,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **ISO-TP RX: the receiver advertised a BlockSize it never honoured — any
+  `isotp_cfg_t.block_size > 0` stalled every inbound multi-frame transfer.**
+  (#121) `isotp_init()` stored `cfg->block_size` into `ctx->local_block_size`
+  and the First Frame handler sent exactly one FC CTS carrying it, but the
+  Consecutive Frame branch never called `isotp_send_fc()` at all — both call
+  sites were inside the FF handler (the initial CTS and the OVERFLOW
+  rejection). ISO 15765-2 §9.6.5 requires the receiver to send a *further* FC
+  after every BS consecutive frames before the sender may continue, so a
+  tester that honoured the advertised BS sent BS frames, stopped, and waited
+  for an FC the ECU would never transmit: the transfer stalled until the
+  tester's own N_Bs expired while the ECU sat in `ISOTP_STATE_RX_WAIT_CF`
+  until N_Cr (150 ms) fired. Latent only because `ISOTP_DEFAULT_BLOCK_SIZE` is
+  0 (unlimited) and every bundled example leaves it there — it became a hard
+  interop failure the moment an integrator set a non-zero block size, which is
+  the normal configuration for flow-controlled bulk transfers (e.g. 0x36
+  TransferData over a constrained RX path), precisely the case BlockSize
+  exists to serve. The CF branch now tracks CFs per block in a new
+  `rx_blocks_received` context field and emits a fresh FC CTS through the
+  existing `isotp_send_fc()` once the count reaches `local_block_size`,
+  mirroring the TX side's `tx_block_size`/`tx_blocks_sent` handling in
+  `isotp_tx_pump()`. No FC follows the final CF — the PDU is already complete
+  and the sender has nothing left to send. `block_size == 0` (unlimited)
+  remains a no-op path, so the default configuration's emitted frame sequence
+  is byte-for-byte unchanged; a dedicated non-regression test asserts exactly
+  one FC frame for a five-CF transfer at BS=0, alongside a BS=2 test that
+  byte-checks each follow-up FC (FS=CTS, BS and STmin echoed) and the
+  reassembled payload.
+
 - **A corrupted DTC mirror no longer aborts `uds_stack_init()` — boot now
   soft-degrades instead.** (#124) `dtc_mirror_load()`'s
   `UDS_STATUS_ERR_NVM_DATA_CORRUPT` return (added in #114/#118 for a
