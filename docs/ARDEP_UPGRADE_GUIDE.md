@@ -89,6 +89,11 @@ west update
 
 ## Step 2 — Generate the ARDEP Diagnostic Sources
 
+> **Licensed step.** Producing generated output requires the commercial
+> `tools/templates/` Jinja2 templates (Developer/Professional tier, not part of this
+> public repo) — see [COMMERCIAL_NOTICE.md](../COMMERCIAL_NOTICE.md). No license?
+> `examples/ardep_ecu/generated/` is already committed; skip to the build step.
+
 From the EDS repository root:
 
 ```bash

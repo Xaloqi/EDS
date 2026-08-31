@@ -76,7 +76,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | Physical addressing | **Partial** | The Zephyr CAN RX filter in `zephyr_can.c` installs one filter for 0x7DF. Adding a second filter for a physical address (e.g. 0x7E0) requires one additional `can_add_rx_filter_msgq()` call — see `platform/zephyr/zephyr_can.c` line 271 for the comment. |
 | Extended addressing (29-bit) | **Out of scope** | `is_extended_id` field exists in `uds_can_frame_t` but 29-bit addressing is not tested and not officially supported. |
 | Mixed addressing | **Out of scope** | — |
-| CAN FD (ISO 15765-2 §9.8) | **Implemented** (v1.7.1+) | Enable with `ISOTP_ENABLE_CAN_FD=1` (`CONFIG_CAN_FD_MODE=y` on Zephyr). Adds SF escape sequence (up to 62-byte SF), FF escape sequence (32-bit FF_DL for PDU > 4095 bytes). Set `isotp_cfg_t.use_fd = true` to activate. Platform HAL wired in `zephyr_can.c` and `freertos_can.c` since v1.7.2. |
+| CAN FD (ISO 15765-2 §9.8) | **Implemented** (v1.7.1+) | Enable with `ISOTP_ENABLE_CAN_FD=1` (`CONFIG_CAN_FD_MODE=y` on Zephyr). Adds SF escape sequence (up to 62-byte SF), FF escape sequence (32-bit FF_DL for PDU > 4095 bytes). Set `isotp_cfg_t.use_fd = true` to activate. Platform HAL wired in `zephyr_can.c` and `freertos_can.c` since v1.7.2. **This is a transport-layer limit only** — the UDS application-layer buffer (`uds_msg_buf_t` in `core/uds_types.h`, `data[UDS_MAX_PAYLOAD_LEN]` + `uint16_t length`) is still capped at 4095 data bytes regardless of what CAN FD ISO-TP can reassemble underneath; see "Max PDU length" below. |
 | Max PDU length | **4095 bytes** | Defined by `UDS_MAX_PAYLOAD_LEN` in `core/uds_types.h`. Reducible at compile time to save RAM (see §2). |
 | Per-direction state and recovery | **Implemented** (unreleased) | RX and TX are independent state machines. `isotp_get_rx_state()` / `isotp_get_tx_state()` report each direction faithfully; `isotp_reset_rx()` / `isotp_reset_tx()` recover one direction without disturbing a transfer in flight in the other. `isotp_get_state()` is retained unchanged for source compatibility, but it collapses both directions — it reports the TX state whenever a transmit is in progress, so an RX error is invisible through it for the duration of that transmit. Prefer the directional accessors in new code. |
 
@@ -102,8 +102,10 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 
 - **Functional addressing only by default**: 0x7DF RX filter installed. Physical addressing requires one additional `can_add_rx_filter_msgq()` call — not a code change, only a configuration extension.
 - **Single-ECU only**: no gateway routing. Multi-ECU addressing (ISO 15765-3 normal fixed addressing to 0x7Ex/0x18DAxxxx) is not implemented.
-- **CAN FD available but opt-in**: `ISOTP_ENABLE_CAN_FD=1` enables CAN FD ISO-TP (SF escape up to 62 bytes, FF escape for PDU > 4095 bytes). Disabled by default — classic CAN remains the tested default transport. See §1.2 above for details.
-- **DoIP available** (ISO 13400-2): see Section 5 (DoIP Integration) below. CAN and DoIP
+- **CAN FD available but opt-in**: `ISOTP_ENABLE_CAN_FD=1` enables CAN FD ISO-TP (SF escape up to 62 bytes, FF escape for PDU > 4095 bytes). Disabled by default — classic CAN remains the tested default transport. See §1.2 above for details. **This raises the transport's own ceiling, not the application-layer one**: `uds_msg_buf_t` (`core/uds_types.h`) is a fixed `data[4095]` + `uint16_t length`, so a single diagnostic PDU is still capped at 4095 bytes at the UDS/service layer no matter how large a PDU CAN FD ISO-TP can carry. Anything larger than that (e.g. large-payload OTA) needs a streaming transfer-manager layered on top of the UDS download services (0x34/0x36/0x37) — CAN FD alone does not make single-PDU large-payload transfers work end-to-end through the UDS service layer as-is.
+- **DoIP available** — a DoIP diagnostic server subset (ISO 13400-2 routing activation +
+  diagnostic messaging; vehicle identification, vehicle announcement, and entity status
+  are out of scope): see Section 5b (DoIP Integration) below. CAN and DoIP
   use the same UDS core — `ecu.transport: doip` in YAML selects the DoIP path.
 - **Strict programming session gate (optional, v1.7.2)**: some OEM toolchains (BMW, VAG) require Extended session before Programming. Enable after init:
   ```c
@@ -772,6 +774,16 @@ SafeBoot integrates platform flash storage with UDS download services
 (0x34 RequestDownload / 0x36 TransferData / 0x37 RequestTransferExit) via
 a single YAML flag. Codegen handles the wiring automatically.
 
+**Scope boundary.** EDS + SafeBoot provide the diagnostic transfer plumbing and
+boot-integration hooks: the 0x34/0x36/0x37 wiring, CRC-32 verification before image
+acceptance, and the MCUboot secondary-slot / STM32H743 dual-bank flash backend. SafeBoot
+is **not** a complete secure-update platform. Image **signing**, **anti-rollback policy**,
+**A/B or transactional apply with power-loss recovery**, and **HSM integration** are out
+of scope and must be supplied by the integrator — typically via MCUboot's own
+image-signing tooling (for the `zephyr` platform path) or a dedicated update-management
+stack layered on top. Treat SafeBoot as the UDS-to-flash bridge, not a turnkey OTA
+security solution.
+
 Two platform paths are available:
 
 | `safeboot.platform` | Flash driver | MCUboot | Reference example |
@@ -911,7 +923,12 @@ See `examples/safeboot_ecu/README.md` for the complete annotated script.
 
 ## 5b. DoIP Integration — Ethernet/TCP transport {#doip-integration}
 
-DoIP (ISO 13400-2) was added in EDS v1.6.0. It uses the same UDS server core and ASIL-B
+DoIP (ISO 13400-2) was added in EDS v1.6.0. EDS implements a **DoIP diagnostic server
+subset** — routing activation and diagnostic messaging (the entity/server side that a
+tester talks to) — not the full ISO 13400-2 surface: UDP vehicle identification, vehicle
+announcement, and entity status requests are out of scope (see the DoIP Feature Matrix
+in [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) §6.2 for the complete implemented/not-implemented
+list). It uses the same UDS server core and ASIL-B
 safety chain as the CAN/ISO-TP transport. Selecting DoIP is a YAML field change — no
 C code differences.
 

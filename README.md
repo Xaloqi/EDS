@@ -122,7 +122,7 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 |---|---|
 | **UDS stack** | 19 services: 0x10 0x11 0x14 0x19 0x22 **0x23** 0x27 0x28 **0x2A** 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 **0x3D** 0x3E 0x85 · SID 0x23: direct memory read · SID 0x2A: periodic push (SLOW/MEDIUM/FAST) · SID 0x3D: direct memory write · SID 0x19 sub-functions: 0x01 0x02 0x03 0x04 0x06 0x0A 0x0B 0x19 |
 | **ISO-TP transport** | SF / FF / CF / FC · N_As / N_Bs / N_Cr timing · STmin sub-ms range |
-| **DoIP transport** | ISO 13400-2 server — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes |
+| **DoIP transport** | DoIP diagnostic server subset (ISO 13400-2 routing activation + diagnostic messaging) — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes. Vehicle identification, vehicle announcement, and entity status are out of scope — see the DoIP Feature Matrix in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.2. |
 | **ASIL-B safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
 | **Security** | AES-128-CMAC seed / 4-byte key response ([threat model](SECURITY.md#security-architecture-notes)) · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
 | **DTC persistence** | NVM mirror survives power cycles · 0x14 ClearDTC · 0x19 ReadDTCInformation |
@@ -239,8 +239,13 @@ bash build_tests.sh
 # 68 harness integration tests (Professional tier — requires harness/ sources)
 # bash build_harness.sh
 
-# Generated pytest suite (simulator mode)
-cd examples/basic_ecu/generated/tests && pytest test_services.py test_did_*.py -v --can-interface=simulator
+# Generated pytest suite (simulator mode) — requires the commercial xaloqi-tester
+# (TestLab) package for the simulator/live-transport tests below; see
+# docs/TESTING_STRATEGY.md for what pytest --collect-only's full count breaks down into
+# and which subset runs with only tools/requirements.txt installed.
+cd examples/basic_ecu/generated/tests
+pip install -r requirements_testgen.txt   # xaloqi-tester — separate from tools/requirements.txt
+pytest test_services.py test_did_*.py -v --can-interface=simulator
 ```
 
 ### GUI configurator
