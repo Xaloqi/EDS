@@ -45,6 +45,17 @@
  *     Response: [0x59, 0x0A, availabilityMask, {dtc3B, statusByte}...]
  *     Returns all registered DTCs regardless of status.
  *
+ *   0x14 — reportDTCFaultDetectionCounter (ISO 14229-1 §11.3.20)
+ *     Request : [0x19, 0x14]
+ *     Response: [0x59, 0x14, {dtc3B, faultDetectionCounter}...]
+ *     Returns pre-confirmed (testFailed==0) DTCs with counter < 0xFF.
+ *     No DTCStatusAvailabilityMask byte in this response.
+ *
+ *   0x15 — reportDTCWithPermanentStatus (ISO 14229-1 §11.3.25)
+ *     Request : [0x19, 0x15]
+ *     Response: [0x59, 0x15, availabilityMask, {dtc3B, statusByte}...]
+ *     Returns DTCs marked permanent (is_permanent == true).
+ *
  * DTC FORMAT IN RESPONSES (ISO 14229-1 §D.2):
  *   [DTC_HB, DTC_MB, DTC_LB, statusByte] — 4 bytes per DTC
  *   DTC bytes are the 3 most-significant bytes of the 24-bit DTC code.
@@ -80,8 +91,8 @@
 #define SVC_0x19_SUBFN_REPORT_DTC_SNAPSHOT_BY_DTC    (0x04U)
 #define SVC_0x19_SUBFN_REPORT_DTC_EXT_DATA_BY_DTC    (0x06U)
 #define SVC_0x19_SUBFN_REPORT_SUPPORTED_DTCS         (0x0AU)
-#define SVC_0x19_SUBFN_REPORT_FAULT_DETECTION_CTR    (0x0BU)
-#define SVC_0x19_SUBFN_REPORT_DTC_PERMANENT_STATUS   (0x19U)
+#define SVC_0x19_SUBFN_REPORT_FAULT_DETECTION_CTR    (0x14U)
+#define SVC_0x19_SUBFN_REPORT_DTC_PERMANENT_STATUS   (0x15U)
 
 /** suppressPosRspMsgIndicationBit mask for sub-function byte. */
 #define SVC_0x19_SUPPRESS_BIT                         (0x80U)
@@ -110,8 +121,8 @@
 /**
  * @brief Fault detection counter value that indicates a confirmed DTC.
  *
- * ISO 14229-1 §11.3.11: counter value 0xFF is reserved for DTCs that are
- * already confirmed. Such DTCs are excluded from the 0x0B response.
+ * ISO 14229-1 §11.3.20: counter value 0xFF is reserved for DTCs that are
+ * already confirmed. Such DTCs are excluded from the 0x14 response.
  */
 #define SVC_0x19_FDC_CONFIRMED                        (0xFFU)
 
@@ -417,16 +428,18 @@ static uds_status_t handle_report_supported_dtcs(
 }
 
 /**
- * 0x0B — reportDTCFaultDetectionCounter
+ * 0x14 — reportDTCFaultDetectionCounter
  *
- * Request : [0x19, 0x0B]
- * Response: [0x59, 0x0B, {dtcHB, dtcMB, dtcLB, faultDetectionCounter}...]
+ * Request : [0x19, 0x14]
+ * Response: [0x59, 0x14, {dtcHB, dtcMB, dtcLB, faultDetectionCounter}...]
+ *
+ * ISO 14229-1 §11.3.20.
  *
  * Returns a 4-byte record for each DTC where testFailed == 0 (not yet
  * confirmed) and whose fault_detection_counter < 0xFF.
  *
  * NOTE: No DTCStatusAvailabilityMask byte in this response — ISO 14229-1
- *       §11.3.11 response format differs from 0x01/0x02/0x0A.
+ *       §11.3.20 response format differs from 0x01/0x02/0x0A.
  */
 static uds_status_t handle_report_fault_detection_counter(
     const uds_msg_buf_t *req,
@@ -466,7 +479,7 @@ static uds_status_t handle_report_fault_detection_counter(
             continue;
         }
 
-        /* 0xFF is reserved (confirmed) — exclude per ISO 14229-1 §11.3.11 */
+        /* 0xFF is reserved (confirmed) — exclude per ISO 14229-1 §11.3.20 */
         if (entry->fault_detection_counter == (uint8_t)SVC_0x19_FDC_CONFIRMED) {
             continue;
         }
@@ -482,10 +495,12 @@ static uds_status_t handle_report_fault_detection_counter(
 }
 
 /**
- * 0x19 — reportDTCWithPermanentStatus
+ * 0x15 — reportDTCWithPermanentStatus
  *
- * Request : [0x19, 0x19]
- * Response: [0x59, 0x19, availabilityMask, {dtcHB, dtcMB, dtcLB, statusByte}...]
+ * Request : [0x19, 0x15]
+ * Response: [0x59, 0x15, availabilityMask, {dtcHB, dtcMB, dtcLB, statusByte}...]
+ *
+ * ISO 14229-1 §11.3.25.
  *
  * Returns all DTCs marked permanent (is_permanent == true). These DTCs
  * are not clearable by SID 0x14 — only by application-driven drive-cycle
