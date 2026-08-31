@@ -290,6 +290,15 @@ typedef struct uds_msg_buf {
  * The enforcement of "no stack allocation of this type" is a code-review
  * and MISRA-C Rule 18.8 concern; this check catches the common case of the
  * type being sized beyond any reasonable stack budget.
+ *
+ * [#152] "A code-review concern" now also has an automated backstop: CI runs
+ * scripts/verify_no_stack_uds_msg_buf.sh, a grep-based gate over core/,
+ * transport/, platform/, and config/ that fails the build on any non-static
+ * function-scope declaration of uds_msg_buf_t — exactly the case an
+ * integrator raising EDS_MSG_BUF_MAX_STACK_BYTES (above) would otherwise get
+ * zero protection against from this _Static_assert alone. It is, like this
+ * assert, necessary-but-not-sufficient (a plain grep, not a real parser) —
+ * see that script's header comment for its exact scope and limitations.
  */
 #ifndef EDS_MSG_BUF_MAX_STACK_BYTES
 #define EDS_MSG_BUF_MAX_STACK_BYTES  (256U)
