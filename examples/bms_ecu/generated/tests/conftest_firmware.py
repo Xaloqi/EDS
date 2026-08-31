@@ -293,23 +293,34 @@ def derive_firmware_key(seed: bytes, level: int = 1, aes_keys: Optional[dict] = 
 # Root of the repository (two levels up from generated/tests/)
 _REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
+# This example's own name, e.g. "sensor_ecu" for
+# examples/sensor_ecu/generated/tests/conftest_firmware.py. Derived from our
+# own location rather than hardcoded, so the harness is always built against
+# *this* example's generated/ sources instead of a fixed example (#144).
+_EXAMPLE_NAME: str = Path(__file__).resolve().parent.parent.parent.name
 
-def build_harness(repo_root: Path = _REPO_ROOT) -> Path:
+
+def build_harness(repo_root: Path = _REPO_ROOT, example: str = _EXAMPLE_NAME) -> Path:
     """
-    Build the harness binary using build_harness.sh.
+    Build the harness binary using build_harness.sh, against `example`'s own
+    generated/ sources (see #144 — this used to always build basic_ecu's
+    sources regardless of which example's tests were running).
 
     Returns the path to the compiled binary.
     Raises RuntimeError if the build fails.
     """
-    binary = Path("/tmp/harness_ecu_test")
+    # Per-example binary name/path: builds for different examples (e.g. run
+    # in parallel, or leftover from a previous run) never collide or clobber
+    # each other's cached binary.
+    binary = Path(f"/tmp/harness_ecu_test_{example}")
     build_script = repo_root / "build_harness.sh"
 
     if not build_script.exists():
         raise RuntimeError(f"build_harness.sh not found at {build_script}")
 
-    log.info("Building harness binary...")
+    log.info("Building harness binary for example '%s'...", example)
     result = subprocess.run(
-        ["bash", str(build_script), "--fast"],
+        ["bash", str(build_script), "--fast", "--example", example],
         capture_output=True,
         text=True,
         cwd=str(repo_root),
@@ -317,7 +328,7 @@ def build_harness(repo_root: Path = _REPO_ROOT) -> Path:
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"Harness build failed (rc={result.returncode}):\n"
+            f"Harness build failed for example '{example}' (rc={result.returncode}):\n"
             f"STDOUT:\n{result.stdout}\n"
             f"STDERR:\n{result.stderr}"
         )
@@ -548,7 +559,7 @@ class FirmwareIsoTpTransport:
 def harness_binary() -> Path:
     """Build the harness binary once per session. Skips if build fails."""
     try:
-        binary = build_harness(_REPO_ROOT)
+        binary = build_harness(_REPO_ROOT, _EXAMPLE_NAME)
         assert binary.exists(), f"Harness binary not found after build: {binary}"
         return binary
     except Exception as exc:

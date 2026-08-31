@@ -81,7 +81,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   than a "fixture not found" — is tracked as
   [#144](https://github.com/Xaloqi/EDS/issues/144), not fixed here.)
 
-All four found and fixed during the 2026-08-31 validation campaign; see
+- **`build_harness.sh` only ever built one generic harness, hardcoded to
+  `basic_ecu`'s generated sources — every other example's firmware-backed
+  tests failed on protocol mismatch, not a real defect.** (#144) Once #143
+  made `firmware_bus` reachable, running `test_firmware_services.py
+  --firmware` for any example besides the `basic_ecu` family compiled and
+  launched a harness binary built from `examples/basic_ecu/generated/{did_
+  handlers,did_safety_wrappers,routine_handlers}.c` regardless of which
+  example's tests were actually running — e.g. `sensor_ecu` failed 20 of 60
+  tests with wrong DID content, wrong routine IDs, and a wrong DTC set,
+  because it was really talking to basic_ecu's firmware. `build_harness.sh`
+  now takes a `--example <name>` flag (or `EXAMPLE` env var, default
+  `basic_ecu`) and builds against that example's own `generated/` sources
+  and include path; the default output binary is now
+  `/tmp/harness_ecu_test_<example>` so builds for different examples never
+  collide or clobber each other's cached binary. `conftest_firmware.py`'s
+  `harness_binary()` / `build_harness()` derive their own example name from
+  `Path(__file__)` (they already live inside
+  `examples/<name>/generated/tests/`) rather than requiring a caller to
+  specify it, and stay session-scoped — one build per example's own test
+  session is still correct. Verified by building and running
+  `--firmware` for `basic_ecu` (56 passed, 1 skipped, unchanged) and all 10
+  other examples with a `tests/` dir: every DID/routine protocol-mismatch
+  failure is gone. `sensor_ecu`, `motor_controller_ecu`, `ardep_ecu`,
+  `bms_ecu`, `robot_joint_controller_ecu`, and `safeboot_ecu` each now
+  fail only on DTC-registration assertions, traced to a separate,
+  narrower pre-existing bug — `harness/harness_ecu.c` hardcodes DTC
+  registration to `basic_ecu`'s two DTCs regardless of example — tracked as
+  [#158](https://github.com/Xaloqi/EDS/issues/158); `sensor_ecu` and
+  `sensor_ecu_freertos` additionally hit a hardcoded byte-count in a
+  generated WriteDID test, tracked as
+  [#160](https://github.com/Xaloqi/EDS/issues/160). Neither is fixed here.
+
+All five found and fixed during the 2026-08-31 validation campaign; see
 `xaloqi-knowledge/campaigns/2026-08-31-validation-campaign.md`.
 
 - **Version identity was broken: several files still claimed old
