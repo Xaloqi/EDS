@@ -33,8 +33,8 @@ It installs by extracting into the public EDS repo you already cloned.
   - Safety Manual EDS-SM-001 Rev 1.3 (PDF)
   - Hazard Analysis and Risk Assessment (EDS-HARA-001)
   - Tool Qualification Argument (EDS-TQA-001)
-  - Requirements Traceability Matrix — 30 ASIL-B requirements, all COVERED
-  - MISRA C:2012 Deviation Log — 38 deviations, 0 open violations
+  - Requirements Traceability Matrix — 30 requirements (16 ASIL-B, 14 QM), all COVERED
+  - MISRA C:2012 Deviation Log — 39 deviations, 0 open violations
   - Security Integration Guide
   - Customer Notice (integration responsibilities, ASIL-B candidate status)
 
@@ -496,8 +496,8 @@ The `safety_docs/` directory contains the complete ISO 26262-aligned documentati
 | Safety Manual Rev 1.3 | `EDS_Safety_Manual_EDS-SM-001_Rev1.3.pdf` | Component safety manual — integration responsibilities, safety boundaries |
 | HARA | `EDS-HARA-001.md` | 6 hazard events, ASIL decomposition argument |
 | TQA | `EDS-TQA-001.md` | Tool qualification argument (TCL1 per ISO 26262-8 §11) |
-| RTM | `EDS_Requirements_Traceability_Matrix.csv` | 30 ASIL-B requirements, all COVERED |
-| MISRA log | `MISRA_DEVIATION_LOG.md` | 38 documented deviations, 0 open violations |
+| RTM | `EDS_Requirements_Traceability_Matrix.csv` | 30 requirements (16 ASIL-B, 14 QM), all COVERED |
+| MISRA log | `MISRA_DEVIATION_LOG.md` | 39 documented deviations, 0 open violations |
 | Security guide | `SECURITY_INTEGRATION.md` | OEM key provisioning for AES-128-CMAC |
 | Customer notice | `CUSTOMER_NOTICE.md` | ASIL-B candidate status, integrator responsibilities |
 
