@@ -4,7 +4,7 @@
 #
 # ECU       : BMS_MainController
 # Version   : 1.0.0
-# Generated : 2026-08-30T13:15:22Z
+# Generated : 2026-08-31T12:02:06Z
 #
 # Routine   : 0xBB10  (BMS_ResetSoCToFullCharge)
 # Session   : programming (ordinal 2)
