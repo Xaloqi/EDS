@@ -84,6 +84,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 All four found and fixed during the 2026-08-31 validation campaign; see
 `xaloqi-knowledge/campaigns/2026-08-31-validation-campaign.md`.
 
+- **Version identity was broken: several files still claimed old
+  versions instead of the current 1.12.0.** (#149) `core/uds_types.h`'s
+  `UDS_SUITE_VERSION_MAJOR/MINOR/PATCH` and `UDS_SUITE_VERSION_STRING`
+  still read 1.10.0; `CMakeLists.txt`'s `project(... VERSION 1.10.0)`
+  (and its header comment) likewise; `SECURITY.md`'s supported-versions
+  table still listed "1.7.x (current)"; and all 12
+  `examples/*/generated/safety_config.h` files still defined
+  `UDS_STACK_VERSION "1.7.0"`. None of these matched README.md's version
+  badge, CHANGELOG.md's top entry, or `tools/codegen.py`'s `__version__`
+  (all 1.12.0), so a build, a security report, or a generated ECU could
+  each report a different EDS version depending on which file was
+  consulted. All now read 1.12.0.
+
 ### Documentation
 
 - **The Requirements Traceability Matrix and MISRA Deviation Log counts in
