@@ -597,6 +597,7 @@ on a pull request:
 |---|---|
 | `unit-tests` | Unit Tests |
 | `cmake-ctest-build` | CMake/CTest Build (parity with build_tests.sh) |
+| `sanitizers` | Sanitizers — ASan + UBSan (host unit tests) |
 | `integration-tests` | Integration Tests (generated, simulator mode) |
 | `static-analysis` | Static Analysis + MISRA C:2012 (zero open violations) |
 | `zephyr-native` | Zephyr Build — native_sim |

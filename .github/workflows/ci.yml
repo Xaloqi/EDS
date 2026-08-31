@@ -478,6 +478,100 @@ jobs:
       - name: Run CTest
         run: ctest --test-dir build --output-on-failure
 
+      # [#151 / run-013] ctest exits 0 on "all registered tests passed", which
+      # says nothing about how many were registered. If tests/CMakeLists.txt
+      # ever drifts from build_tests.sh's TESTS array again — the exact O-26
+      # failure this job exists to prevent — ctest would happily report 100%
+      # on a subset. Assert the real count instead, derived from the module
+      # sources so it cannot go stale, with a floor so a wiped directory
+      # cannot make the assertion vacuous.
+      - name: Assert CTest registered and ran every module
+        shell: bash
+        run: |
+          expected=$(find tests/unit_runnable -maxdepth 1 -name 'test_*.c' | wc -l)
+          echo "modules in tests/unit_runnable/: $expected"
+          [ "$expected" -ge 40 ] \
+            || (echo "FAIL: only $expected module source(s) found — expectation unusable" && exit 1)
+          registered=$(ctest --test-dir build -N | grep -cE '^ *Test +#[0-9]+:')
+          echo "tests registered with CTest: $registered"
+          [ "$registered" -eq "$expected" ] \
+            || (echo "FAIL: CTest registered $registered test(s), expected $expected —" \
+                     "tests/CMakeLists.txt has drifted from build_tests.sh (see O-26/#92)" \
+                && exit 1)
+          result=$(ctest --test-dir build 2>&1 | tail -5)
+          echo "$result"
+          echo "$result" | grep -q "100% tests passed, 0 tests failed out of $expected" \
+            || (echo "FAIL: expected '100% tests passed, 0 tests failed out of $expected'" && exit 1)
+          echo "PASS: CTest ran all $expected modules, 0 failed"
+
+  # ── Job 1c: ASan + UBSan on the host unit tests ────────────────────────────
+  #
+  # [#151] core/, transport/, config/ and platform/ are hand-managed C under a
+  # strict no-malloc/no-recursion policy. Until this job existed there was no
+  # sanitizer build anywhere in this repo's CI — `grep -rn "fsanitize"` over
+  # .github/workflows/ and build_tests.sh returned nothing — so memory-safety
+  # and undefined-behaviour defects had no automated detector at all. On its
+  # very first run this job found a real one that had been silently corrupting
+  # a test stack frame on every CI run: EDS#168.
+  #
+  # It is affordable only because of #151's other half: the shared stack
+  # archive means this second, fully instrumented build of the whole suite
+  # compiles ~150 translation units rather than ~1,900.
+  #
+  # The pass/fail decision lives in scripts/verify_sanitizer_gate.sh rather
+  # than in this YAML, so it can be run and tested locally, and so the
+  # reasoning behind each assertion has somewhere to live. Read that file's
+  # header for why an exit-code check would not have been enough.
+  sanitizers:
+    name: "Sanitizers — ASan + UBSan (host unit tests)"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc python3 python3-pip binutils
+
+      - name: Install Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Verify pre-committed generated files are present
+        run: |
+          for f in examples/basic_ecu/generated/uds_init.c \
+                   examples/basic_ecu/generated/did_handlers.c \
+                   examples/basic_ecu/generated/safety_config.h \
+                   examples/basic_ecu/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
+
+      # halt_on_error/abort_on_error harden from the runtime side what
+      # -fno-sanitize-recover=all does at compile time: a diagnostic must
+      # take the process down, never just print and continue.
+      # detect_leaks stays on deliberately — the host build substitutes a
+      # malloc-backed NVM store for the Zephyr flash driver, which is exactly
+      # the kind of test-only allocation that can leak unnoticed.
+      - name: Build and run all unit tests under ASan + UBSan
+        shell: bash
+        env:
+          ASAN_OPTIONS: "detect_leaks=1:detect_stack_use_after_return=1:strict_string_checks=1:abort_on_error=0"
+          UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
+        run: bash build_tests.sh --sanitize --keep-bin 2>&1 | tee sanitizer_run.log
+
+      # THE gate. Asserts positively that the suite really ran, on really
+      # instrumented binaries, with a live sanitizer that is still able to
+      # fail — see scripts/verify_sanitizer_gate.sh.
+      - name: Verify the sanitizer run (positive assertions, see run-013)
+        shell: bash
+        run: bash scripts/verify_sanitizer_gate.sh sanitizer_run.log build_test_host
+
+      - name: Upload sanitizer log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-run-log
+          path: sanitizer_run.log
+
   # ── Job 5: Generated integration tests (simulator mode) ───────────────────
   #
   # Runs the auto-generated pytest suite produced by --test-gen.
