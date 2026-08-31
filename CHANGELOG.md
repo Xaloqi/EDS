@@ -8,6 +8,96 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Security
+
+- **SecurityAccess stayed unlocked across an S3 inactivity timeout.** (#140)
+  `uds_security_reset()` was only ever called from one site —
+  `service_0x10.c`, when an explicit 0x10 DiagnosticSessionControl(default)
+  request transitions the session to DEFAULT. The S3 timeout drives that
+  exact same transition (`uds_session_tick_1ms()` forces the session back to
+  DEFAULT on expiry), but through a path that never touched security. A
+  level unlocked before S3 expiry stayed unlocked after the forced return to
+  DEFAULT — any tester, not necessarily the one that performed the seed/key
+  exchange, could re-enter a non-default session with a bare
+  DiagnosticSessionControl request and inherit the previous unlock, no
+  seed/key exchange of its own. `uds_server_tick_1ms()` now calls
+  `uds_security_reset()` whenever `uds_session_tick_1ms()` reports the S3
+  timeout, mirroring the explicit path exactly. Found by the 2026-08-31
+  validation campaign; new unit test
+  `test_s3_timeout_resets_security_unlock` in `test_uds_server.c`.
+
+### Fixed
+
+- **CI's "Integration Tests (generated, simulator mode)" job has executed
+  zero tests since the initial public release.** (#141, #142) `conftest.py`'s
+  `from xaloqi.tester import ...` failed at import time because the job
+  never installed `xaloqi-tester`, so every generated test hit the
+  `_XALOQI_AVAILABLE` skip guard — confirmed on the actual v1.12.0 release
+  run's log: `136 skipped in 0.28s`. The pass/fail gate,
+  `grep -q "failed" && exit 1 || true`, passed trivially on that all-skipped
+  output. #142 installs `xaloqi-tester` from real PyPI and replaces the gate
+  with an explicit passed/failed count (zero failed, at least 134 passed).
+  Installing it for the first time surfaced two real, independent bugs,
+  fixed in #141:
+  - `test_request_results()`'s own docstring claimed "requestRoutineResults
+    after start", but the generated test never called Start — the real UDS
+    stack correctly rejects an un-started RequestResults with NRC 0x22
+    (`conditionsNotCorrect`) via `service_0x31.c`'s `routine_started` gate.
+    28 generated `test_routine_*.py` files across all 12 examples asserted a
+    positive response instead. Template fix in
+    [EDS-toolchain#66](https://github.com/Xaloqi/EDS-toolchain/pull/66);
+    regenerated here.
+  - `examples/basic_ecu/generated/tests/test_phase1_protocol_edge_cases.py`
+    (hand-written, not template-generated) called ClearDiagnosticInformation
+    (SID 0x14) directly in the default session, in three of its four tests.
+    `core/uds_access_table.c` deliberately restricts 0x14 to non-default
+    sessions, so two tests asserted `pdu[0] == 0x54` and got NRC 0x7F
+    instead; a third discarded ClearDTC's response entirely and only
+    happened to pass because there were never any DTCs to clear in the
+    first place. All three now enter EXTENDED session first, and the third
+    asserts ClearDTC actually succeeded before checking the post-clear DTC
+    list.
+
+- **`test_firmware_services.py`'s `firmware_bus` fixture was unreachable,
+  and once reachable, pointed at the wrong repo root — INSTALL.md Step 6's
+  "All tests should pass" was false for every firmware-backed test.** (#143)
+  pytest only auto-loads `conftest.py`, never a sibling
+  `conftest_firmware.py`, so `firmware_bus` errored with `fixture
+  'firmware_bus' not found` in every example (104 setup errors per example).
+  Fixing that (`pytest_plugins = ["conftest_firmware"]`, template fix in
+  [EDS-toolchain#67](https://github.com/Xaloqi/EDS-toolchain/pull/67))
+  surfaced a second, previously-unreachable bug: `_REPO_ROOT` was computed
+  with too few parent hops from
+  `examples/<ecu>/generated/tests/conftest_firmware.py`, landing on
+  `examples/<ecu>` instead of the actual repo root — `build_harness()` never
+  found `build_harness.sh`, so every firmware test cleanly skipped instead
+  of erroring, and zero firmware tests could ever actually run, in any
+  example, ever, until now. `pytest test_firmware_services.py --firmware`
+  now builds the real C harness and runs 56 passed, 1 skipped for
+  `basic_ecu` — the first genuine pass/fail signal this file has ever
+  produced. (A separate, larger gap — `build_harness.sh` only ever builds
+  one generic harness hardcoded to `basic_ecu`'s DIDs/routines/DTCs, so the
+  other 11 examples' firmware tests still fail on protocol mismatch rather
+  than a "fixture not found" — is tracked as
+  [#144](https://github.com/Xaloqi/EDS/issues/144), not fixed here.)
+
+All four found and fixed during the 2026-08-31 validation campaign; see
+`xaloqi-knowledge/campaigns/2026-08-31-validation-campaign.md`.
+
+### Documentation
+
+- **The Requirements Traceability Matrix and MISRA Deviation Log counts in
+  INSTALL.md were both wrong.** (#146) "X ASIL-B requirements, all COVERED"
+  — of the RTM's 30 total rows, 16 are ASIL-B and 14 are QM. "38
+  deviations" / "38 documented deviations" — the log actually contains 39
+  records (10 in Rev 1.0, 28 in Rev 1.1, 1 — `DEV-MEM-01` — in Rev 1.2,
+  whose revision-history entry was never reflected in the summary count).
+  Fixed in both places INSTALL.md states each. Companion fix at the source:
+  [EDS-Safety#4](https://github.com/Xaloqi/EDS-Safety/pull/4), which also
+  fixes an unquoted comma in the RTM CSV's `REQ-FLASH-003` row that shifted
+  every following column for any standard CSV parser. Found by the
+  2026-08-31 validation campaign.
+
 ## [1.12.0] — 2026-08-30
 
 ### Changed
