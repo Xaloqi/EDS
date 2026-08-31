@@ -62,7 +62,7 @@ import pytest
 # ---------------------------------------------------------------------------
 xaloqi = pytest.importorskip(
     "xaloqi",
-    reason="xaloqi-tester not installed — skipping DoIP integration tests"
+    reason="[ENV] xaloqi-tester not installed — skipping DoIP integration tests"
 )
 from xaloqi.tester import DoipBus, Session, UdsTester
 
@@ -89,7 +89,7 @@ def doip_ecu() -> Generator[subprocess.Popen, None, None]:
     """Build (if needed) and launch basic_ecu_doip on native_sim."""
     if not os.path.exists(_ECU_BINARY):
         pytest.skip(
-            f"ECU binary not found: {_ECU_BINARY}\n"
+            f"[ENV] ECU binary not found: {_ECU_BINARY}\n"
             f"Build first with:\n"
             f"  west build -b native_sim examples/basic_ecu_doip -- \\\n"
             f"      -DEXTRA_CONF_FILE=boards/native_sim/native_sim_doip.conf"
