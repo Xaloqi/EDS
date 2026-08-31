@@ -84,6 +84,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 All four found and fixed during the 2026-08-31 validation campaign; see
 `xaloqi-knowledge/campaigns/2026-08-31-validation-campaign.md`.
 
+- **`test_robustness_D_customer_journey.py`'s per-example nested pytest
+  subprocess had no `timeout=`, so how long it could hang was whatever the
+  outer test runner happened to impose rather than anything deterministic.**
+  (#153) `TestAllECUExamplesPytest.test_ecu_pytest_simulator_all_pass`
+  spawns a nested `pytest ... --can-interface=simulator` per example via the
+  `_run()` helper (a thin `subprocess.run(..., capture_output=True,
+  text=True)` wrapper) with no bound at all — an external qualification
+  evaluator's environment hung on this for the FreeRTOS sensor example even
+  though that example's suite completed cleanly (`109 skipped`) when run
+  directly. Measured real per-example runtime (`basic_ecu`'s suite driving
+  all 11 examples sequentially: 98.71s / 11 ≈ 9s/example, individual runs
+  5–9s) and added an explicit `timeout=90` (~10x the slowest observed
+  example) to that call, catching `subprocess.TimeoutExpired` and failing
+  with `"nested pytest timed out after 90s for {ecu}"` — a message that
+  reads as a timeout, not a generic subprocess or assertion error.
+
 ### Documentation
 
 - **The Requirements Traceability Matrix and MISRA Deviation Log counts in
