@@ -513,7 +513,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends python3 python3-pip
 
       - name: Install Python dependencies
-        run: pip install pyyaml jinja2 pytest pycryptodome
+        # xaloqi-tester was missing here (found #3, 2026-08-31 campaign):
+        # conftest.py's `from xaloqi.tester import ...` failed at import
+        # time, every generated test hit the `_XALOQI_AVAILABLE` skip guard,
+        # and this job has been "green" on 0 executed tests since the
+        # initial public release. Installing it from real PyPI is also the
+        # most representative choice: it's exactly what INSTALL.md Step 6
+        # and a real customer's environment already require.
+        run: pip install pyyaml jinja2 pytest pycryptodome xaloqi-tester
 
       - name: Verify pre-committed generated test files exist
         run: |
@@ -553,6 +560,14 @@ jobs:
             -q
 
       - name: Verify integration test pass count
+        # Found #3, 2026-08-31 campaign: `grep -q "failed" && exit 1 || true`
+        # passes trivially on all-skipped output ("136 skipped" has no
+        # "failed" substring) — which is exactly what this job produced,
+        # undetected, since the initial public release (xaloqi-tester was
+        # never installed; see the previous step). Require a real minimum
+        # passed count (134, basic_ecu's actual total minus its 2 expected
+        # xaloqi-tester-optional skips) in addition to zero failures, so an
+        # all-skipped or mostly-skipped run fails loudly instead of passing.
         run: |
           cd examples/basic_ecu/generated/tests
           result=$(python3 -m pytest . -q \
@@ -571,7 +586,16 @@ jobs:
             --ignore=test_robustness_L_codegen_output_fidelity.py \
             --can-interface=simulator --tb=no 2>&1 | tail -1)
           echo "Result: $result"
-          echo "$result" | grep -q "failed" && exit 1 || true
+          failed=$(echo "$result" | grep -oE '[0-9]+ failed' | grep -oE '^[0-9]+' || echo 0)
+          passed=$(echo "$result" | grep -oE '[0-9]+ passed' | grep -oE '^[0-9]+' || echo 0)
+          echo "passed=$passed failed=$failed"
+          [ "$failed" -eq 0 ] \
+            || (echo "FAIL: $failed test(s) failed" && exit 1)
+          [ "$passed" -ge 134 ] \
+            || (echo "FAIL: only $passed passed (expected >= 134) — xaloqi-tester" \
+                     "may not be installed, or tests are being silently skipped" \
+                && exit 1)
+          echo "PASS: $passed passed, 0 failed"
 
       - name: Upload test results
         if: always()
