@@ -4,7 +4,7 @@
 #
 # ECU       : ARDEP_IOController
 # Version   : 1.0.0
-# Generated : 2026-08-30T13:12:17Z
+# Generated : 2026-08-31T12:02:05Z
 #
 # Routine   : 0xFF00  (ECU_SelfTest)
 # Session   : extended (ordinal 3)
@@ -187,6 +187,8 @@ class TestResultsEcuselftest:
         Expected: [0x71, 0x03, 0xFF, 0x00]
         """
         _setup(uds_bus, aes_keys)
+        start_pdu = _rc(uds_bus, _SUBFN_START)
+        _assert_positive(start_pdu, _SUBFN_START)
         pdu = _rc(uds_bus, _SUBFN_RESULTS)
         _assert_positive(pdu, _SUBFN_RESULTS)
 

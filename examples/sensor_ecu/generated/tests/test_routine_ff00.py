@@ -4,7 +4,7 @@
 #
 # ECU       : SensorECU
 # Version   : 1.0.0
-# Generated : 2026-08-30T13:16:03Z
+# Generated : 2026-08-31T12:02:07Z
 #
 # Routine   : 0xFF00  (ResetSensorCalibration)
 # Session   : extended (ordinal 3)
@@ -187,6 +187,8 @@ class TestResultsResetsensorcalibration:
         Expected: [0x71, 0x03, 0xFF, 0x00]
         """
         _setup(uds_bus, aes_keys)
+        start_pdu = _rc(uds_bus, _SUBFN_START)
+        _assert_positive(start_pdu, _SUBFN_START)
         pdu = _rc(uds_bus, _SUBFN_RESULTS)
         _assert_positive(pdu, _SUBFN_RESULTS)
 

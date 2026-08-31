@@ -604,7 +604,14 @@ class TestClearDiagnosticInformation:
     def test_clear_dtc_returns_positive_response(
         self, uds_bus: IsoTpTransport
     ) -> None:
-        """[0x14, 0xFF, 0xFF, 0xFF] → [0x54]."""
+        """[0x14, 0xFF, 0xFF, 0xFF] → [0x54].
+
+        ClearDiagnosticInformation is a non-default-session-only service
+        (core/uds_access_table.c) — must enter a non-default session first,
+        or the ECU correctly rejects it with NRC 0x7F
+        (serviceNotSupportedInActiveSession), which this test was not
+        checking for."""
+        _session(uds_bus, SESSION_EXTENDED)
         pdu = uds_bus.request(bytes([0x14, 0xFF, 0xFF, 0xFF]))
         assert pdu is not None
         assert pdu[0] == 0x54, (
@@ -613,6 +620,7 @@ class TestClearDiagnosticInformation:
 
     def test_clear_dtc_idempotent(self, uds_bus: IsoTpTransport) -> None:
         """Calling ClearDTC twice must return [0x54] both times."""
+        _session(uds_bus, SESSION_EXTENDED)
         pdu1 = uds_bus.request(bytes([0x14, 0xFF, 0xFF, 0xFF]))
         pdu2 = uds_bus.request(bytes([0x14, 0xFF, 0xFF, 0xFF]))
         assert pdu1 is not None and pdu1[0] == 0x54
@@ -640,7 +648,12 @@ class TestClearDiagnosticInformation:
         This test mirrors TestDTCStatusMaskFiltering.test_sub02_mask_0xff but
         explicitly runs ClearDTC first to make the state explicit.
         """
-        uds_bus.request(bytes([0x14, 0xFF, 0xFF, 0xFF]))
+        _session(uds_bus, SESSION_EXTENDED)
+        clear_pdu = uds_bus.request(bytes([0x14, 0xFF, 0xFF, 0xFF]))
+        assert clear_pdu is not None and clear_pdu[0] == 0x54, (
+            f"ClearDTC must succeed for this test to prove anything about "
+            f"post-clear state, got {clear_pdu.hex(' ') if clear_pdu else None}"
+        )
         pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x02, 0xFF]))
         assert pdu is not None
         assert pdu[0] == (SID_READ_DTC_INFO + POSITIVE_RESPONSE_OFFSET)

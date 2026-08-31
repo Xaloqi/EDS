@@ -4,7 +4,7 @@
 #
 # ECU       : MotorController_Inverter
 # Version   : 1.0.0
-# Generated : 2026-08-30T13:15:27Z
+# Generated : 2026-08-31T12:02:06Z
 #
 # Routine   : 0xCC02  (MC_GateDriverFunctionalTest)
 # Session   : extended (ordinal 3)
@@ -187,6 +187,8 @@ class TestResultsMcgatedriverfunctionaltest:
         Expected: [0x71, 0x03, 0xCC, 0x02]
         """
         _setup(uds_bus, aes_keys)
+        start_pdu = _rc(uds_bus, _SUBFN_START)
+        _assert_positive(start_pdu, _SUBFN_START)
         pdu = _rc(uds_bus, _SUBFN_RESULTS)
         _assert_positive(pdu, _SUBFN_RESULTS)
 
