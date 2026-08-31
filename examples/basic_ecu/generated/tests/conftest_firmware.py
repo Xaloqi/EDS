@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-08-30T13:12:55Z
+# Generated : 2026-08-31T12:18:59Z
 #
 # PURPOSE: pytest conftest for firmware-backed integration tests.
 #
@@ -291,7 +291,7 @@ def derive_firmware_key(seed: bytes, level: int = 1, aes_keys: Optional[dict] = 
 # ---------------------------------------------------------------------------
 
 # Root of the repository (two levels up from generated/tests/)
-_REPO_ROOT = Path(__file__).parent.parent.parent
+_REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 
 def build_harness(repo_root: Path = _REPO_ROOT) -> Path:

@@ -4,7 +4,7 @@
 #
 # ECU       : SafeBootECU
 # Version   : 1.0.0
-# Generated : 2026-08-30T13:15:59Z
+# Generated : 2026-08-31T12:21:25Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -33,6 +33,15 @@ from __future__ import annotations
 import asyncio, os, logging
 from typing import Optional
 import pytest
+
+# [SEC-FIRMWARE-CONFTEST-01, 2026-08-31 campaign] pytest only auto-loads
+# conftest.py, never a sibling conftest_firmware.py — so the firmware_bus
+# fixture that test_firmware_services.py.j2 depends on was never available
+# ("fixture 'firmware_bus' not found"), producing a setup error for every
+# firmware-backed test in every example. Declaring it as a plugin here
+# makes conftest_firmware.py's fixtures and --firmware/--firmware-sec-key-*
+# options available the same way pytest would treat a second conftest.py.
+pytest_plugins = ["conftest_firmware"]
 
 try:
     from xaloqi.tester import (
