@@ -4,7 +4,7 @@
 #
 # ECU       : RobotJointController
 # Version   : 1.0.0
-# Generated : 2026-08-30T13:15:31Z
+# Generated : 2026-08-31T12:02:06Z
 #
 # Routine   : 0xFF01  (ApplyCalibration)
 # Session   : extended (ordinal 3)
@@ -187,6 +187,8 @@ class TestResultsApplycalibration:
         Expected: [0x71, 0x03, 0xFF, 0x01]
         """
         _setup(uds_bus, aes_keys)
+        start_pdu = _rc(uds_bus, _SUBFN_START)
+        _assert_positive(start_pdu, _SUBFN_START)
         pdu = _rc(uds_bus, _SUBFN_RESULTS)
         _assert_positive(pdu, _SUBFN_RESULTS)
 

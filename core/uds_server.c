@@ -195,11 +195,25 @@ uds_status_t uds_server_tick_1ms(uds_server_ctx_t *ctx)
     status = uds_session_tick_1ms(ctx->cfg.session_ctx);
     if (status != UDS_STATUS_OK) {
         /*
-         * Session timeout is meaningful to the caller — propagate it.
+         * [SEC-S3-RESET-01] An S3 timeout forces the session back to
+         * DEFAULT exactly like an explicit 0x10 DiagnosticSessionControl
+         * (default) request does — and that explicit path always resets
+         * SecurityAccess (see uds_services/service_0x10.c). This path must
+         * do the same. Without it, SecurityAccess stayed unlocked across
+         * the forced return to DEFAULT: a tester that went silent long
+         * enough for S3 to expire, followed by ANY tester (not necessarily
+         * the same one) re-entering a non-default session with a bare
+         * DiagnosticSessionControl request, inherited the previous
+         * unlock — no seed/key exchange required.
+         *
+         * Session timeout is still meaningful to the caller — propagate it.
          * The caller (integration task) uses ERR_SESSION_TIMEOUT to know
          * that any in-progress operation must be aborted cleanly.
          * Security tick still runs even on timeout (lockout must expire).
          */
+        if (status == UDS_STATUS_ERR_SESSION_TIMEOUT) {
+            (void)uds_security_reset(ctx->cfg.security_ctx);
+        }
         (void)uds_security_tick_1ms(ctx->cfg.security_ctx);
         return status;
     }

@@ -616,6 +616,91 @@ ZTEST(test_uds_server_tick, test_s3_timeout_propagated)
                   "S3 timeout must propagate through server tick");
 }
 
+/**
+ * TC-SRV-TICK-004: [SEC-S3-RESET-01] S3 timeout must reset SecurityAccess.
+ *
+ * Regression test for the 2026-08-31 validation campaign finding #2:
+ * an S3 timeout forces the session back to DEFAULT exactly like an explicit
+ * 0x10 DiagnosticSessionControl(default) request does — and that explicit
+ * path always resets SecurityAccess (service_0x10.c). Before this fix,
+ * uds_server_tick_1ms()'s S3-timeout branch did not, so a security level
+ * unlocked before S3 expiry stayed unlocked after the forced return to
+ * DEFAULT — recoverable by ANY tester (not necessarily the one that
+ * unlocked it) simply re-entering a non-default session, no seed/key
+ * exchange required.
+ *
+ * Uses 5-ms S3 timeout so the test runs quickly.
+ */
+ZTEST(test_uds_server_tick, test_s3_timeout_resets_security_unlock)
+{
+    uds_session_ctx_t sess;
+    uds_security_ctx_t sec;
+    uds_server_ctx_t srv;
+    memset(&sess, 0, sizeof(sess));
+    memset(&sec,  0, sizeof(sec));
+    memset(&srv,  0, sizeof(srv));
+
+    /* 5-ms S3 timeout */
+    uds_session_init(&sess, 5U);
+    static const uds_security_cfg_t sec_cfg = {
+        .max_attempts     = 3U,
+        .lockout_ms       = 100U,
+        .key_validate_cb  = stub_key_validate,
+        .seed_generate_cb = stub_seed_gen,
+    };
+    uds_security_init(&sec, &sec_cfg);
+
+    uds_server_cfg_t cfg = {
+        .p2_server_max_ms      = 25U,
+        .p2_star_server_max_ms = 5000U,
+        .session_ctx           = &sess,
+        .security_ctx          = &sec,
+        .service_table         = g_test_service_table,
+        .service_table_count   = (uint8_t)TEST_SVC_TABLE_COUNT,
+    };
+    zassert_equal(uds_server_init(&srv, &cfg), UDS_STATUS_OK, "init failed");
+
+    /* A real tester: enter EXTENDED, then complete a full seed/key exchange
+     * at security level 1 (mirrors what service_0x27 does on the wire). */
+    uds_session_transition(&sess, UDS_SESSION_EXTENDED);
+
+    uint8_t seed[8] = {0};
+    uint8_t seed_len = 0U;
+    zassert_equal(uds_security_request_seed(&sec, 1U, seed, (uint8_t)sizeof(seed), &seed_len),
+                  UDS_STATUS_OK, "request_seed failed");
+
+    uint8_t key[4];
+    for (uint8_t i = 0U; i < seed_len; i++) { key[i] = (uint8_t)(seed[i] ^ 0xAAU); }
+    zassert_equal(uds_security_send_key(&sec, 2U, key, seed_len),
+                  UDS_STATUS_OK, "send_key failed");
+
+    bool unlocked = false;
+    uds_security_is_unlocked(&sec, 1U, &unlocked);
+    zassert_true(unlocked, "precondition: level 1 must be unlocked before S3 expiry");
+
+    /* Tester goes silent. Tick the real server loop until S3 fires. */
+    uds_status_t tick_rc = UDS_STATUS_OK;
+    for (int i = 0; i <= 7; i++) {
+        tick_rc = uds_server_tick_1ms(&srv);
+        if (tick_rc != UDS_STATUS_OK) break;
+    }
+    zassert_equal(tick_rc, UDS_STATUS_ERR_SESSION_TIMEOUT, "S3 must have expired");
+    zassert_true(uds_session_is_default(&sess), "session must be back to DEFAULT");
+
+    uds_security_is_unlocked(&sec, 1U, &unlocked);
+    zassert_false(unlocked,
+                  "[SEC-S3-RESET-01] SecurityAccess must be relocked when S3 "
+                  "forces the session back to DEFAULT");
+
+    /* A second, unauthenticated tester re-enters EXTENDED with no seed/key
+     * exchange at all — must not inherit the first tester's unlock. */
+    uds_session_transition(&sess, UDS_SESSION_EXTENDED);
+    uds_security_is_unlocked(&sec, 1U, &unlocked);
+    zassert_false(unlocked,
+                  "a new tester re-entering a non-default session must not "
+                  "inherit a security unlock that predates an S3 timeout");
+}
+
 /* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
@@ -875,6 +960,7 @@ extern void test_uds_server_get_counters__test_fresh_counters_zero(void);
 extern void test_uds_server_tick__test_null_ctx(void);
 extern void test_uds_server_tick__test_not_initialized(void);
 extern void test_uds_server_tick__test_s3_timeout_propagated(void);
+extern void test_uds_server_tick__test_s3_timeout_resets_security_unlock(void);
 
 extern void test_uds_server_timing__test_p2_server_max_stored(void);
 extern void test_uds_server_timing__test_p2_star_server_max_stored(void);
@@ -915,6 +1001,7 @@ void run_all_tests(void)
     RUN_TEST(test_uds_server_tick__test_null_ctx);
     RUN_TEST(test_uds_server_tick__test_not_initialized);
     RUN_TEST(test_uds_server_tick__test_s3_timeout_propagated);
+    RUN_TEST(test_uds_server_tick__test_s3_timeout_resets_security_unlock);
     RUN_TEST(test_uds_server_timing__test_p2_server_max_stored);
     RUN_TEST(test_uds_server_timing__test_p2_star_server_max_stored);
     RUN_TEST(test_uds_server_timing__test_p2_iso_default_values_stored);
