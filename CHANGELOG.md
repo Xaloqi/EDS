@@ -8,6 +8,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **CI guard: `uds_msg_buf_t` can no longer be silently stack-allocated
+  without a build failure.** (#152) `core/uds_types.h`'s
+  `EDS_MSG_BUF_MAX_STACK_BYTES` `_Static_assert` documents its own
+  limitation — it checks `sizeof(uds_msg_buf_t)` against a configured
+  threshold, which is necessary but not sufficient: an integrator who
+  raises the threshold for a host build (e.g.
+  `-DEDS_MSG_BUF_MAX_STACK_BYTES=8192`) got zero protection from it. New
+  `scripts/verify_no_stack_uds_msg_buf.sh`, wired into the
+  `integration-tests` CI job, greps `core/`, `transport/`, `platform/`, and
+  `config/` for non-static, non-comment `uds_msg_buf_t <name>;`
+  declarations — the shape of a stack (automatic-storage) local — and fails
+  the build if it finds one. Verified against a real positive case: a fake
+  stack-declared `uds_msg_buf_t` was temporarily added to
+  `platform/zephyr/zephyr_can.c`, confirmed to make the script fail with
+  the exact line flagged, then removed and confirmed clean again.
+
+### Documentation
+
+- **`can_transport_transmit()`'s CONFIRMED-vs-queued contract was
+  undocumented, even though ISO-TP's N_As/N_Ar timers depend entirely on
+  it.** (#152) `transport/can_transport.h` said only that a successful
+  return meant the frame "was accepted for transmission" — never whether
+  that meant queued into the driver or physically confirmed on the bus.
+  `transport/isotp.h`/`isotp.c` already treat `can_transport_transmit()`'s
+  return as the N_As/N_Ar transmission-confirmation event, so the actual
+  timing semantics depended on an unstated contract. Audited both platform
+  HALs: `platform/zephyr/zephyr_can.c` satisfies a CONFIRMED contract today
+  (`can_send()` with `callback=NULL` blocks until the controller confirms
+  the frame or a `K_MSEC(25)` timeout elapses); `platform/freertos/freertos_can.c`
+  is a thin, timing-agnostic pass-through to a customer-supplied
+  `eds_can_send_fn_t`, so its actual behavior depends on that customer
+  implementation — and `docs/INTEGRATION_GUIDE.md`'s own reference example
+  used a bare `HAL_CAN_AddTxMessage()` call, which returns as soon as the
+  frame is queued into a TX mailbox, silently defeating N_As/N_Ar for
+  anyone who copied it as-is. No shipped runtime-stack behavior needed to
+  change (the FreeRTOS shim itself is agnostic, not wrong), but the
+  documented contract and the guide's example did. Now: `can_transport.h`'s
+  `can_transmit_fn`/`can_transport_ops_t.transmit`/`can_transport_transmit()`
+  doc comments state the CONFIRMED contract explicitly, `isotp.h`'s N_As/N_Ar
+  notes cross-reference it, `platform_api.h`'s `eds_can_send_fn_t` doc states
+  the same requirement for customer FreeRTOS implementations, and
+  `INTEGRATION_GUIDE.md`'s example now polls for mailbox completion instead
+  of returning on enqueue, with a prominent contract callout above it.
+
 ### Security
 
 - **SecurityAccess stayed unlocked across an S3 inactivity timeout.** (#140)

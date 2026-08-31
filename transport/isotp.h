@@ -40,6 +40,12 @@ extern "C" {
  * that frame's transmission confirmation. It is NOT a whole-transfer
  * watchdog: the wait for a Flow Control frame is bounded by
  * ISOTP_TIMEOUT_BS_MS and the consecutive-frame cadence by STmin.
+ *
+ * "Transmission confirmation" is, at this layer, can_transport_transmit()
+ * returning UDS_STATUS_OK — see the CONFIRMED contract documented on
+ * transport/can_transport.h's can_transmit_fn typedef. Every platform CAN
+ * HAL (can_transport_ops_t.transmit) must satisfy that contract for this
+ * timer to mean what its name says.
  */
 #ifndef ISOTP_TIMEOUT_AS_MS
 #define ISOTP_TIMEOUT_AS_MS   (25U)
@@ -55,6 +61,10 @@ extern "C" {
  * when the FC N_PDU is passed to the data link layer and stops on that
  * frame's transmission confirmation. It is NOT the wait for consecutive
  * frames — that window is ISOTP_TIMEOUT_CR_MS.
+ *
+ * As with N_As above, "transmission confirmation" means
+ * can_transport_transmit() returning UDS_STATUS_OK under the CONFIRMED
+ * contract in transport/can_transport.h.
  */
 #ifndef ISOTP_TIMEOUT_AR_MS
 #define ISOTP_TIMEOUT_AR_MS   (25U)
@@ -363,7 +373,9 @@ uds_status_t isotp_transmit(
  *
  * @note As is scoped to one frame's transmission confirmation and is stopped
  *       by the TX path as soon as can_transport_transmit() returns, so it does
- *       not bound the FC wait (Bs) or a multi-frame CF sequence (STmin).
+ *       not bound the FC wait (Bs) or a multi-frame CF sequence (STmin). This
+ *       is only meaningful because can_transport_transmit() is CONFIRMED, not
+ *       queued — see transport/can_transport.h's can_transmit_fn contract.
  * @note Ar is the receiver-side mirror of As, scoped to the Flow Control
  *       frame's transmission confirmation and stopped by isotp_send_fc() as
  *       soon as can_transport_transmit() returns. It does not bound the wait
