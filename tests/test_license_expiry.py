@@ -22,7 +22,29 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
-import _license
+
+# [ENV] tools/_license.py is a commercial, gitignored deliverable (CLAUDE.md /
+# issue #67) — it is never present in a bare public checkout. Without this
+# guard, pytest's collection of tests/ (issue #150) hard-errors here with a
+# bare ModuleNotFoundError, indistinguishable at a glance from a real test
+# failure. The "[ENV] " prefix lets `pytest`/run_python_tests.sh output tell
+# "this environment is missing an optional/commercial component" apart from
+# an actual regression.
+_ENV_SKIP_REASON = (
+    "[ENV] tools/_license.py not present (commercial gitignored deliverable, "
+    "not part of the public repo checkout)"
+)
+try:
+    import _license
+except ImportError:
+    if __name__ == "__main__":
+        # `python3 tests/test_license_expiry.py` direct invocation.
+        print(_ENV_SKIP_REASON)
+        sys.exit(0)
+    # Collected by pytest — turn the import error into a proper SKIP report
+    # instead of a collection error.
+    import pytest
+    pytest.skip(_ENV_SKIP_REASON, allow_module_level=True)
 
 
 def _real_expires_at() -> int:

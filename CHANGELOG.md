@@ -28,6 +28,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The Python test suite had no canonical entrypoint — root-level `pytest`
+  collection failed outright.** (#150) Every `examples/*/generated/tests/`
+  directory's `conftest.py` declares `pytest_plugins = ["conftest_firmware"]`
+  (added by #143), which pytest only allows in a conftest.py sitting at its
+  own session rootdir; a bare `pytest` from the repo root tried to walk all
+  12 example trees in one session and hard-errored on every one of them
+  ("Defining 'pytest_plugins' in a non-top-level conftest is no longer
+  supported"), collecting only 11 stray tests. A new root-level `pytest.ini`
+  (`testpaths = tests`) scopes a bare root `pytest` run to this repo's own
+  hand-written `tests/` suite — each example's `generated/tests/` already
+  ships its own committed `pytest.ini`/`conftest.py` and is self-contained
+  exactly as README.md and CI already document
+  (`cd examples/<name>/generated/tests && pytest ...`); regenerating those
+  12 generated trees to share a root conftest was not an option here — they
+  are produced by `tools/testgen.py`, a commercial gitignored deliverable
+  not present in a bare public checkout, and must never be hand-edited. New
+  `run_python_tests.sh` (mirrors `build_tests.sh`'s role for the C suite) is
+  the canonical "run everything" command: `tests/` plus every example, each
+  scoped to its own directory, with a pass/`[ENV]`/fail summary per suite.
+  Also fixed: `tests/test_license_expiry.py` hard-errored at collection
+  (`ModuleNotFoundError: No module named '_license'`) in any checkout
+  without the commercial `tools/_license.py` module — it now degrades to a
+  `[ENV]`-tagged skip under pytest (and to a plain printed message, exit 0,
+  when run standalone). Skip reasons for known environment gaps (missing
+  `xaloqi-tester`, missing DoIP ECU binary, missing `_license` module) now
+  carry a `[ENV]` prefix so they're greppable and visibly distinct from a
+  real test failure, per the issue's second ask.
+
 - **CI's "Integration Tests (generated, simulator mode)" job has executed
   zero tests since the initial public release.** (#141, #142) `conftest.py`'s
   `from xaloqi.tester import ...` failed at import time because the job
