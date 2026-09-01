@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.13.1] — 2026-09-01
+
 ### Added
 
 - **`platform/freertos/freertos_rng_example.c`** — a reference implementation
