@@ -93,8 +93,13 @@ uds_status_t uds_security_init(
      * count and lockout residual that were saved before the last power-down.
      * This prevents an attacker from bypassing lockout by power-cycling the ECU.
      *
-     * ERR_DID_NOT_FOUND is expected on first boot — treat as zero counter.
-     * Any other error: log and proceed with zero counter (safe degradation).
+     * ERR_DID_NOT_FOUND is expected on first boot — always treated as a
+     * safe, normal zero counter, regardless of nvm_load_fail_closed below;
+     * "no data yet" is not a fault.
+     *
+     * [EDS#196] Any OTHER error is a genuine NVM fault (corrupt record,
+     * platform read failure) and is where cfg->nvm_load_fail_closed
+     * decides the posture — see its doc comment in uds_security.h.
      */
     if (cfg->nvm_load_cb != NULL) {
         uint8_t  loaded_attempts  = (uint8_t)0U;
@@ -111,8 +116,19 @@ uds_status_t uds_security_init(
                 ctx->locked_out       = true;
                 ctx->lockout_timer_ms = loaded_lockout;
             }
+        } else if ((load_rc != UDS_STATUS_ERR_DID_NOT_FOUND) &&
+                   cfg->nvm_load_fail_closed) {
+            /* [EDS#196] Fail closed: cannot trust that persisted
+             * lockout/attempt state wasn't lost or tampered with — block
+             * SecurityAccess for this power cycle rather than risk an
+             * unlimited-attempt window. UINT32_MAX ms (~49.7 days) at the
+             * 1ms tick rate is, for any realistic ECU uptime, permanent
+             * for this boot; a healthy re-init (NVM read succeeds) is the
+             * only way out, not a timer expiring. */
+            ctx->locked_out       = true;
+            ctx->lockout_timer_ms = UINT32_MAX;
         }
-        /* ERR_DID_NOT_FOUND (first boot) and other errors: start from zero. */
+        /* Else (fail-open, the default): start from zero, as before. */
     }
 
     ctx->initialized = true;

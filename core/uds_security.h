@@ -171,6 +171,30 @@ typedef struct uds_security_cfg {
      */
     uds_status_t (*nvm_save_cb)(uint8_t attempts, uint32_t lockout_ms);
 
+    /**
+     * @brief [EDS#196] Posture when nvm_load_cb reports a genuine fault
+     *        (anything other than UDS_STATUS_OK or the expected
+     *        first-boot UDS_STATUS_ERR_DID_NOT_FOUND — a real read
+     *        error, not "no data yet").
+     *
+     * false (default — matches every generated product's behavior before
+     *   this field existed, since a zero-initialized struct leaves it
+     *   false): fail open. uds_security_init() proceeds with a zero
+     *   attempt counter and no lockout, prioritizing diagnostic
+     *   availability over brute-force resistance when NVM is unhealthy.
+     *
+     * true: fail closed. uds_security_init() locks SecurityAccess out
+     *   for the remainder of this power cycle rather than risk trusting
+     *   an unreadable/corrupt persisted state — see
+     *   docs/SECURITY_NOTICE.md's "Failed Attempt Lockout Policy"
+     *   section for the full trade-off and how to opt in.
+     *
+     * Not consulted when nvm_load_cb is NULL (no persistence configured
+     * at all — a separate, unrelated posture) or when the load succeeds
+     * or correctly reports first-boot.
+     */
+    bool nvm_load_fail_closed;
+
 } uds_security_cfg_t;
 
 /* --------------------------------------------------------------------------
