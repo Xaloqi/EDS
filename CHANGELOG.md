@@ -21,6 +21,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   mocked HAL: correct 2-draw/4-byte-each fill for the 8-byte seed, correct
   `UDS_STATUS_ERR_NULL_PTR` on a NULL buffer.
 
+### Fixed
+
+- **`sbom.json` was hand-maintained and stale since inception — six
+  releases behind** (#179): `version`/`bom-ref` said `1.7.4`, `timestamp`
+  said 2026-06-21, while the repo has been at v1.13.0 since 2026-09-01. No
+  tooling in either repo touched this file. One-time corrective fix here;
+  `scripts/bump_release_version.py` (xaloqi-knowledge) is now extended to
+  update `metadata.component.version`/`bom-ref`/`timestamp` on every future
+  release, so this can't silently drift again. Deliberately does not touch
+  `components[]` (zephyr@3.7.0 and dependency entries) — those are real
+  third-party versions, not EDS's own, and must not shift with an EDS
+  release.
+
 ### Documentation
 
 - **Documented the dual-transport concurrency contract and the DID-callback
