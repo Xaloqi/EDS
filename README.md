@@ -157,7 +157,7 @@ manifest:
   projects:
     - name: EDS
       remote: xaloqi
-      revision: v1.12.0
+      revision: v1.13.0
       path: modules/eds
 ```
 
@@ -181,7 +181,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.12.0 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.0 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 ```

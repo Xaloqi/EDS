@@ -1033,5 +1033,5 @@ tooling and lives in EDS-toolchain — it is not part of this repo's public CI.)
 
 ---
 
-*EDS v1.12.0 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
+*EDS v1.13.0 — Developer €690/yr · Professional €1,990/yr — xaloqi.com*
 *Runtime: GPL v2 · Examples: Apache 2.0 · Tools + IDE + GUI: Commercial*
