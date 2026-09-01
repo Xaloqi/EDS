@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.13.0] — 2026-09-01
+
 ### Added
 
 - **`tools/templates/dtc_config.h.j2` (Professional-tier, in EDS-toolchain)

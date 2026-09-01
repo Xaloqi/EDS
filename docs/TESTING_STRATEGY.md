@@ -62,7 +62,7 @@ The test suite verifies:
 - Correct ISO-TP transport: SF/FF/CF/FC framing, timing, multi-frame reassembly
 - Correct DoIP transport: header encode/decode, routing activation, diagnostic message dispatch, negative acknowledgement generation, alive check (v1.6.0)
 - Enforcement of the ASIL-B 5-step DID access safety chain
-- Correct diagnostics code generation from YAML (all 17 templates)
+- Correct diagnostics code generation from YAML (all 18 templates)
 - Correct test generation from YAML (`testgen.py`) — verified for all examples
 - NVM DTC mirror persistence across simulated resets
 - Zero dynamic memory allocation anywhere in the stack

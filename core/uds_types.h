@@ -35,11 +35,11 @@ extern "C" {
  * Bumped to 1.12.0 for the v1.12.0 release.
  * -------------------------------------------------------------------------- */
 #define UDS_SUITE_VERSION_MAJOR  (1U)
-#define UDS_SUITE_VERSION_MINOR  (12U)
+#define UDS_SUITE_VERSION_MINOR  (13U)
 #define UDS_SUITE_VERSION_PATCH  (0U)
 
 /** Compile-time version string — matches UDS_STACK_VERSION in safety_config.h. */
-#define UDS_SUITE_VERSION_STRING "1.12.0"
+#define UDS_SUITE_VERSION_STRING "1.13.0"
 
 /* --------------------------------------------------------------------------
  * Buffer and protocol sizing constants

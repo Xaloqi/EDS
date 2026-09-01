@@ -142,7 +142,7 @@ Produces the pytest test suite when `--test-gen` is active. One test file per DI
 
 ### Template System (`tools/templates/`)
 
-17 Jinja2 templates produce all generated output. Templates have access to the full enriched configuration object and use Jinja2 filters, loops, and conditionals to produce well-structured, commented C and Python output.
+18 Jinja2 templates produce all generated output. Templates have access to the full enriched configuration object and use Jinja2 filters, loops, and conditionals to produce well-structured, commented C and Python output.
 
 ---
 
@@ -232,7 +232,7 @@ routines:
 
 ## 6. Template Catalogue
 
-All 17 templates in `tools/templates/`:
+All 18 templates in `tools/templates/`:
 
 Note: the SOVD CDA output (`--sovd`) is generated directly by `build_sovd_cda()` in
 `codegen.py` — it uses no Jinja2 template. `json.dumps(indent=2)` is used instead to
