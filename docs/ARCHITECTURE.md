@@ -14,7 +14,10 @@ ECUs. It implements a complete UDS (ISO 14229) server over two transports:
 - **DoIP (ISO 13400-2)** over Ethernet/TCP — added in v1.6.0, Zephyr and FreeRTOS+LwIP bindings
 
 Both transports use the same UDS server core, ASIL-B safety wrappers, and YAML-driven code
-generation. Transport selection is a one-line change in `diagnostics_config.yaml`.
+generation. Transport selection is a one-line change in `diagnostics_config.yaml`. Both can be
+active in the same build, but nothing inside the UDS server core serializes concurrent access
+to it if you do — see [`docs/threading_guide.md`](threading_guide.md)'s "Dual-Transport
+Concurrency" section before combining CAN and DoIP in one ECU.
 
 The system is structured to support:
 

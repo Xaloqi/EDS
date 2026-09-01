@@ -34,6 +34,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   pulled directly from the actual config struct and reset logic, not
   invented defaults.
 
+- **Documented the dual-transport concurrency contract and the DID-callback
+  execution context** (#181). `uds_server_ctx_t` is a single shared struct
+  and `core/uds_server.c` does not lock around `uds_server_process_request()`
+  internally — `docs/threading_guide.md` already had an `s_session_lock` /
+  `s_security_lock` pair for `diag_task`, but never mentioned that DoIP runs
+  in its own thread (`doip_thread`) with its own unguarded call path into
+  the same shared context, or what an integrator combining both transports
+  (as `basic_ecu_doip`'s own `main.c` comment invites) is responsible for
+  locking. Added a "Dual-Transport Concurrency" and a "Callback Execution
+  Context" section to `docs/threading_guide.md`, cross-referenced from
+  `docs/ARCHITECTURE.md` and `docs/INTEGRATION_GUIDE.md`. Docs-only — no
+  code defect found; the shipped single-transport examples are correctly
+  unaffected either way.
+
 - **8 more stale v1.12.0 references, none of them the `**Version:**` header
   pattern #178 already fixed.** (#180) Found by the Tier-1 architect's
   round-2 re-review plus a broader manual sweep once the pattern was
