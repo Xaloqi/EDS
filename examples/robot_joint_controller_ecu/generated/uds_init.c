@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-08-30T13:15:31Z
+ * Generated : 2026-09-01T16:48:22Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -55,6 +55,7 @@
 #include "uds_session.h"
 #include "uds_security.h"
 #include "uds_security_algo.h"
+#include "uds_security_nvm.h"
 #include "uds_safety.h"
 #include "uds_comm_control.h"
 #include "uds_types.h"
@@ -433,6 +434,19 @@ uds_status_t uds_generated_init(
      *   2. Inject OTP keys:  uds_security_algo_set_level_key(0x01U, key1)
      *                        uds_security_algo_set_level_key(0x03U, key2)
      *
+     * [EDS#190] NVM-backed attempt-counter/lockout persistence.
+     * uds_security_nvm_load/save are the platform-neutral callbacks
+     * core/uds_security_nvm.h itself documents wiring here (see that
+     * header's own USAGE example) — without them, a failed-attempt
+     * counter and any in-progress lockout reset to zero on every reboot,
+     * silently defeating the brute-force protection docs/SECURITY_NOTICE.md
+     * describes. Sits on top of nvm_store — on FreeRTOS this activates
+     * immediately (eds_platform_init() already calls nvm_store_init());
+     * on Zephyr it degrades gracefully to the pre-#190 behaviour (zero
+     * counter every boot) until EDS#200 (nvm_store_init() never called in
+     * the real Zephyr platform init — a separate, pre-existing gap found
+     * while wiring this) is fixed.
+     *
      * TRACEABILITY: REQ-SEC-ALGO-01
      */
     {
@@ -442,6 +456,9 @@ uds_status_t uds_generated_init(
             /* [P1-SEC-01] Production AES-CMAC + TRNG algorithm callbacks. */
             .key_validate_cb  = uds_security_algo_validate_key,
             .seed_generate_cb = uds_security_algo_generate_seed,
+            /* [EDS#190] NVM-backed persistence — see comment above. */
+            .nvm_load_cb      = uds_security_nvm_load,
+            .nvm_save_cb      = uds_security_nvm_save,
         };
 
         status = uds_security_init(&s_security_ctx, &k_sec_cfg);
