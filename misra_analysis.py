@@ -1557,7 +1557,18 @@ def run_gcc_analysis(
                 continue
 
             flag      = m.group("flag") or ""
-            rel_file  = str(src)
+            # [EDS#206] Use the diagnostic's own reported file, not the
+            # top-level .c file being compiled. GCC correctly reports the
+            # file:line where a warning actually originates, including
+            # inside an #included header -- hardcoding str(src) here
+            # misattributed every header-originated finding (e.g. a
+            # -Wcomment hit inside platform/nvm_store.h) to whichever .c
+            # file happened to include that header and get compiled,
+            # once per such .c file. That looked like the same finding
+            # non-deterministically appearing in different, unrelated
+            # files across runs -- it was one real, fully deterministic
+            # finding, just reported under the wrong file every time.
+            rel_file  = m.group("file") or str(src)
             line_no   = int(m.group("line"))
             message   = m.group("message").strip()
 

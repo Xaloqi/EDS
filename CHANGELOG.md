@@ -10,6 +10,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **"Static Analysis + MISRA C:2012" CI job failing: a `-Wcomment` GCC
+  warning inside `platform/nvm_store.h`, misattributed to whichever `.c`
+  file happened to `#include` it** (#206). Root cause was two separate
+  things, both fixed:
+  1. `sector_size`'s doc comment (added for #200) referenced
+     `boards/nucleo_h743zi/*.overlay` and `boards/frdm_mcxn947/*.overlay`
+     — the `/*` immediately after each path's `/` reads to GCC as a
+     nested-comment start inside the enclosing `/** ... */` doc comment.
+     Reworded to avoid the glob syntax.
+  2. `misra_analysis.py`'s GCC-based pass hardcoded every finding's
+     reported file to the top-level `.c` file being compiled
+     (`rel_file = str(src)`), discarding GCC's own correctly-reported
+     `file:line` when a warning actually originates inside an
+     `#include`d header. This made the one real, fully deterministic
+     header issue above look like 6 separate findings scattered across
+     3 unrelated `.c` files that merely happen to include
+     `nvm_store.h` (`config/dtc_mirror.c`, `core/uds_security_nvm.c`,
+     `core/uds_session_stats.c`) — misdiagnosed in #206's original
+     filing as cppcheck non-determinism. Fixed to use GCC's own
+     reported file; the existing `(file, line, rule)` dedup key now also
+     correctly collapses a shared header finding into one entry instead
+     of one per including translation unit, rather than inflating the
+     open-violation count.
+
+  Verified locally via `python3 misra_analysis.py --gcc-only`
+  (cppcheck unavailable in this environment): 0 open violations, down
+  from 7 GCC findings (6 open) before the fix; `bash build_tests.sh`
+  unaffected (comment-only + tooling change, 45 passed, 915 cases).
+
 - **`nvm_store_init()` never called anywhere in the real Zephyr platform
   init — NVM persistence (DTC mirror, and security counter/lockout
   persistence once wired) silently non-functional** (#200; found while
