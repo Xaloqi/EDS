@@ -52,11 +52,39 @@ typedef struct can_transport can_transport_t;
  * @param[in] self   Pointer to the CAN transport instance.
  * @param[in] frame  CAN frame to transmit.
  *
- * @return UDS_STATUS_OK if frame was accepted for transmission.
- * @return UDS_STATUS_ERR_CAN_TX_FAILED if transmission failed.
+ * @return UDS_STATUS_OK once transmission of this frame is CONFIRMED —
+ *         accepted by the CAN controller / physically placed on the bus —
+ *         not merely enqueued into a driver queue or TX mailbox.
+ * @return UDS_STATUS_ERR_CAN_TX_FAILED if transmission failed or the
+ *         confirmation wait exceeded the timeout below.
  * @return UDS_STATUS_ERR_CAN_BUS_OFF if controller is in bus-off state.
  *
- * @note TIMING: Must not block indefinitely. Non-blocking preferred.
+ * @note CONTRACT: This is the CONFIRMED contract, not a "queued" one.
+ *       transport/isotp.c arms ISO 15765-2 N_As/N_Ar (the sender/receiver
+ *       "transmission confirmation" timers, ISO 15765-2:2016 Table 5)
+ *       immediately before calling this function and disarms them the
+ *       instant it returns — so a return of UDS_STATUS_OK IS, at this
+ *       layer, the transmission-confirmation event the ISO-TP timers exist
+ *       to bound. An implementation that returns as soon as the frame is
+ *       merely queued (e.g. handed to a TX mailbox without waiting for the
+ *       controller to actually place it on the bus) silently defeats N_As/
+ *       N_Ar: the timer is armed and disarmed before the real transmission
+ *       has happened or failed, so it can never catch a stuck or lost frame.
+ *       See transport/isotp.h's N_As/N_Ar notes on isotp_tick_1ms() for how
+ *       the timers consume this return.
+ * @note TIMING: Must not block indefinitely — bound the confirmation wait
+ *       to (at most) the ISO_TP N_As/N_Ar budget (ISOTP_TIMEOUT_AS_MS /
+ *       ISOTP_TIMEOUT_AR_MS in transport/isotp.h, 25 ms by default) and
+ *       return UDS_STATUS_ERR_CAN_TX_FAILED on expiry. Bounded blocking is
+ *       expected and is how the reference Zephyr port satisfies this
+ *       contract (platform/zephyr/zephyr_can.c calls can_send() with a
+ *       K_MSEC(25) timeout and no async callback, which blocks the caller
+ *       until the controller confirms the frame or the timeout elapses).
+ *       A platform that instead reports success on enqueue only (e.g. a
+ *       bare "add to TX mailbox" HAL call with no wait for the completion
+ *       event) does NOT satisfy this contract even though it never blocks
+ *       indefinitely — see docs/INTEGRATION_GUIDE.md's FreeRTOS CAN send
+ *       example for the corrected pattern.
  * @note SAFETY: ASIL-B relevant — transmission failure must be reported.
  */
 typedef uds_status_t (*can_transmit_fn)(
@@ -101,7 +129,12 @@ typedef uds_status_t (*can_get_status_fn)(
  * the ISO-TP layer at initialization time.
  */
 typedef struct can_transport_ops {
-    can_transmit_fn    transmit;    /**< Required: frame transmission function. */
+    can_transmit_fn    transmit;    /**< Required: frame transmission function.
+                                      *   CONFIRMED contract — must not return
+                                      *   UDS_STATUS_OK until the frame is
+                                      *   confirmed transmitted, not merely
+                                      *   queued. See can_transmit_fn's doc
+                                      *   comment above. */
     can_receive_fn     receive;     /**< Required: frame reception poll function. */
     can_get_status_fn  get_status;  /**< Required: controller status query. */
 } can_transport_ops_t;
@@ -132,10 +165,17 @@ struct can_transport {
  * @param[in] can    Initialized CAN transport instance.
  * @param[in] frame  CAN frame to transmit.
  *
- * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_OK once the frame's transmission is CONFIRMED (not
+ *         merely queued) — this call forwards directly to ops->transmit(),
+ *         which defines and must satisfy the CONFIRMED contract documented
+ *         on the can_transmit_fn typedef above. Callers (transport/isotp.c)
+ *         rely on this: ISO-TP's N_As/N_Ar timers are armed immediately
+ *         before this call and disarmed the instant it returns, treating
+ *         that return as the transmission-confirmation event.
  * @return UDS_STATUS_ERR_NULL_PTR if any pointer is NULL.
  * @return UDS_STATUS_ERR_CAN_NOT_READY if transport not ready.
- * @return Return value of ops->transmit() otherwise.
+ * @return Return value of ops->transmit() otherwise (e.g.
+ *         UDS_STATUS_ERR_CAN_TX_FAILED, UDS_STATUS_ERR_CAN_BUS_OFF).
  */
 uds_status_t can_transport_transmit(
     can_transport_t       *can,

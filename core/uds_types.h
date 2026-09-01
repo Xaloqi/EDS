@@ -32,14 +32,14 @@ extern "C" {
  *   - #define UDS_STACK_VERSION in generated/safety_config.h (template)
  *   - "Stack version" field in docs/INTEGRATION_GUIDE.md
  *
- * Bumped to 1.10.0 for the v1.10.0 release.
+ * Bumped to 1.12.0 for the v1.12.0 release.
  * -------------------------------------------------------------------------- */
 #define UDS_SUITE_VERSION_MAJOR  (1U)
-#define UDS_SUITE_VERSION_MINOR  (10U)
+#define UDS_SUITE_VERSION_MINOR  (12U)
 #define UDS_SUITE_VERSION_PATCH  (0U)
 
 /** Compile-time version string — matches UDS_STACK_VERSION in safety_config.h. */
-#define UDS_SUITE_VERSION_STRING "1.10.0"
+#define UDS_SUITE_VERSION_STRING "1.12.0"
 
 /* --------------------------------------------------------------------------
  * Buffer and protocol sizing constants
@@ -290,6 +290,15 @@ typedef struct uds_msg_buf {
  * The enforcement of "no stack allocation of this type" is a code-review
  * and MISRA-C Rule 18.8 concern; this check catches the common case of the
  * type being sized beyond any reasonable stack budget.
+ *
+ * [#152] "A code-review concern" now also has an automated backstop: CI runs
+ * scripts/verify_no_stack_uds_msg_buf.sh, a grep-based gate over core/,
+ * transport/, platform/, and config/ that fails the build on any non-static
+ * function-scope declaration of uds_msg_buf_t — exactly the case an
+ * integrator raising EDS_MSG_BUF_MAX_STACK_BYTES (above) would otherwise get
+ * zero protection against from this _Static_assert alone. It is, like this
+ * assert, necessary-but-not-sufficient (a plain grep, not a real parser) —
+ * see that script's header comment for its exact scope and limitations.
  */
 #ifndef EDS_MSG_BUF_MAX_STACK_BYTES
 #define EDS_MSG_BUF_MAX_STACK_BYTES  (256U)

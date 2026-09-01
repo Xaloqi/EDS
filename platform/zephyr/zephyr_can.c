@@ -180,7 +180,12 @@ static uds_status_t zephyr_can_transmit(
 #endif
     (void)memcpy(zf.data, frame->data, (size_t)frame->dlc);
 
-    /* Timeout = 25 ms = ISO 15765-2 N_As. */
+    /* CONFIRMED contract (transport/can_transport.h's can_transmit_fn):
+     * passing callback=NULL to can_send() makes this call synchronous — it
+     * blocks the caller until the controller confirms the frame was placed
+     * on the bus, or until the timeout elapses. That confirmation is what
+     * ISO-TP's N_As/N_Ar timers actually bound, so the timeout below is set
+     * to the N_As/N_Ar budget itself (25 ms = ISO 15765-2 N_As). */
     rc = can_send(plat->can_dev, &zf, K_MSEC(25), NULL, NULL);
 
     if (rc == -ENETDOWN) {
