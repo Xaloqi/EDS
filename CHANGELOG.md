@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Documentation
 
+- **Documented the dual-transport concurrency contract and the DID-callback
+  execution context** (#181). `uds_server_ctx_t` is a single shared struct
+  and `core/uds_server.c` does not lock around `uds_server_process_request()`
+  internally — `docs/threading_guide.md` already had an `s_session_lock` /
+  `s_security_lock` pair for `diag_task`, but never mentioned that DoIP runs
+  in its own thread (`doip_thread`) with its own unguarded call path into
+  the same shared context, or what an integrator combining both transports
+  (as `basic_ecu_doip`'s own `main.c` comment invites) is responsible for
+  locking. Added a "Dual-Transport Concurrency" and a "Callback Execution
+  Context" section to `docs/threading_guide.md`, cross-referenced from
+  `docs/ARCHITECTURE.md` and `docs/INTEGRATION_GUIDE.md`. Docs-only — no
+  code defect found; the shipped single-transport examples are correctly
+  unaffected either way.
+
 - **`docs/ARCHITECTURE.md`, `docs/AI_CONTEXT.md`, and `docs/TESTING_STRATEGY.md`'s own `**Version:**` headers still said v1.12.0 after v1.13.0 was tagged.** Found by `check_release_docs.py` immediately after tagging — the new `bump_release_version.py` (xaloqi-knowledge) only touched `README.md`/`INSTALL.md` at the repo root, not `docs/*.md`, the exact drift class this repo's own release runbook already names ("docs/ went unswept for three releases"). Fixed here; the bump script itself was extended (same day, xaloqi-knowledge) to sweep `docs/*.md` for this header pattern automatically going forward, rather than shipped as a hardcoded per-file list.
 
 ## [1.13.0] — 2026-09-01
