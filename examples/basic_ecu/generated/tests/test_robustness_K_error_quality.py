@@ -25,6 +25,18 @@ import pytest
 EDS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 CODEGEN  = os.path.join(EDS_ROOT, "tools", "codegen.py")
 
+# Jinja2 templates (and the commercial _license.py module bundled with them)
+# live in EDS-toolchain (commercial-only). On the public CI runner neither is
+# present, so codegen.py exits early with a "Commercial License Required"
+# message before it ever reaches config load/validation — the code path these
+# tests are trying to exercise. Skip cleanly instead of asserting on the
+# wrong output. See test_robustness_L_codegen_output_fidelity.py.
+_TEMPLATES_OK = os.path.isdir(os.path.join(EDS_ROOT, "tools", "templates"))
+_skip_no_tpl  = pytest.mark.skipif(
+    not _TEMPLATES_OK,
+    reason="Jinja2 templates not present (commercial-only, not in public repo)"
+)
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _VALID_BASE = textwrap.dedent("""\
@@ -94,6 +106,7 @@ def _assert_rejected(yaml_content: str, *keywords: str):
 
 # ── Sanity: good YAML exits 0 ─────────────────────────────────────────────────
 
+@_skip_no_tpl
 class TestSanity:
     def test_valid_yaml_exits_0(self):
         rc, out = _run_codegen(_VALID_BASE)
@@ -107,6 +120,7 @@ class TestSanity:
 
 # ── Class 1: Metadata errors ──────────────────────────────────────────────────
 
+@_skip_no_tpl
 class TestMetadataErrors:
     """Missing or malformed metadata fields."""
 
@@ -133,6 +147,7 @@ class TestMetadataErrors:
 
 # ── Class 2: DID errors ───────────────────────────────────────────────────────
 
+@_skip_no_tpl
 class TestDIDErrors:
     """Bad DID id format, missing fields, duplicate, invalid access, session, security."""
 
@@ -232,14 +247,17 @@ class TestDIDErrors:
 class TestDTCErrors:
     """Bad DTC code format, duplicate, missing fields."""
 
+    @_skip_no_tpl
     def test_dtc_code_wrong_hex_length(self):
         yaml = _VALID_BASE.replace('code:        "0xC00100"', 'code:        "0xC001"')
         _assert_rejected(yaml, "0xC001", "6-digit")
 
+    @_skip_no_tpl
     def test_dtc_code_missing_0x_prefix(self):
         yaml = _VALID_BASE.replace('code:        "0xC00100"', 'code:        "C00100"')
         _assert_rejected(yaml, "C00100")
 
+    @_skip_no_tpl
     def test_dtc_code_invalid_chars(self):
         yaml = _VALID_BASE.replace('code:        "0xC00100"', 'code:        "0xZZZZZZ"')
         _assert_rejected(yaml, "0xZZZZZZ")
@@ -251,6 +269,7 @@ class TestDTCErrors:
         )
         _assert_rejected(yaml, "code")
 
+    @_skip_no_tpl
     def test_duplicate_dtc_codes(self):
         extra = (
             "  - code:        \"0xC00100\"\n"
@@ -263,6 +282,7 @@ class TestDTCErrors:
 
 # ── Class 4: Timing errors ────────────────────────────────────────────────────
 
+@_skip_no_tpl
 class TestTimingErrors:
     """p2 > p2*, non-positive values."""
 
@@ -284,6 +304,7 @@ class TestTimingErrors:
 
 # ── Class 5: Routine errors ───────────────────────────────────────────────────
 
+@_skip_no_tpl
 class TestRoutineErrors:
     """Bad routine id format, duplicate."""
 
@@ -309,6 +330,7 @@ class TestRoutineErrors:
 
 # ── Class 6: YAML parse and structural errors ─────────────────────────────────
 
+@_skip_no_tpl
 class TestParseErrors:
     """Broken YAML syntax, empty file, non-mapping root."""
 
