@@ -9,41 +9,90 @@
 # -Wduplicated-cond -Wimplicit-fallthrough=5 (zero warnings on all sources).
 #
 # Usage:
-#   ./build_harness.sh              # Build only (MISRA-clean flags)
-#   ./build_harness.sh --run        # Build and run all 68 integration tests
-#   ./build_harness.sh --run --hw   # Build for AF_CAN hardware (vcan0)
-#   ./build_harness.sh --fast       # Build without Wpedantic (faster CI)
+#   ./build_harness.sh                        # Build only (MISRA-clean flags)
+#   ./build_harness.sh --run                  # Build and run all 68 integration tests
+#   ./build_harness.sh --run --hw             # Build for AF_CAN hardware (vcan0)
+#   ./build_harness.sh --fast                 # Build without Wpedantic (faster CI)
+#   ./build_harness.sh --example sensor_ecu   # Build against examples/sensor_ecu/generated
+#                                              # instead of the default (basic_ecu). The
+#                                              # EXAMPLE env var works the same way.
 #
 # Requirements:
 #   gcc, pthreads (standard Linux development toolchain, gcc >= 8 recommended)
 #   For --hw mode: Linux with SocketCAN + vcan module loaded
 #
 # Output:
-#   /tmp/harness_ecu_test  (override with OUTPUT=/path/to/binary)
+#   /tmp/harness_ecu_test_<example>  (override with OUTPUT=/path/to/binary)
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${SCRIPT_DIR}"
-OUTPUT="${OUTPUT:-/tmp/harness_ecu_test}"
+EXAMPLE="${EXAMPLE:-basic_ecu}"
 HW_MODE=0
 RUN_MODE=0
 FAST_MODE=0
 
-for arg in "$@"; do
-    case "$arg" in
-        --run)  RUN_MODE=1  ;;
-        --hw)   HW_MODE=1   ;;
-        --fast) FAST_MODE=1 ;;
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --run)  RUN_MODE=1;  shift ;;
+        --hw)   HW_MODE=1;   shift ;;
+        --fast) FAST_MODE=1; shift ;;
+        --example)
+            if [[ $# -lt 2 ]]; then
+                echo "ERROR: --example requires a value, e.g. --example sensor_ecu" >&2
+                exit 1
+            fi
+            EXAMPLE="$2"
+            shift 2
+            ;;
+        --example=*)
+            EXAMPLE="${1#--example=}"
+            shift
+            ;;
         --help)
-            echo "Usage: $0 [--run] [--hw] [--fast]"
-            echo "  --run   Build then execute all 68 integration tests"
-            echo "  --hw    Build with AF_CAN hardware support (Linux+SocketCAN)"
-            echo "  --fast  Omit -Wpedantic for faster incremental CI builds"
+            echo "Usage: $0 [--run] [--hw] [--fast] [--example <name>]"
+            echo "  --run             Build then execute all integration tests"
+            echo "  --hw              Build with AF_CAN hardware support (Linux+SocketCAN)"
+            echo "  --fast            Omit -Wpedantic for faster incremental CI builds"
+            echo "  --example <name>  Build against examples/<name>/generated instead of"
+            echo "                    the default (basic_ecu). EXAMPLE env var also works."
             exit 0
+            ;;
+        *)
+            shift
             ;;
     esac
 done
+
+# ---------------------------------------------------------------------------
+# Resolve which example's generated/ sources to build against (issue #144:
+# this used to be hardcoded to basic_ecu for every example, so any other
+# example's firmware-backed tests silently ran against basic_ecu's binary).
+# ---------------------------------------------------------------------------
+EXAMPLE_GENERATED="${ROOT}/examples/${EXAMPLE}/generated"
+
+if [[ ! -d "${EXAMPLE_GENERATED}" ]]; then
+    echo "ERROR: examples/${EXAMPLE}/generated not found." >&2
+    echo "" >&2
+    echo "Available examples:" >&2
+    for d in "${ROOT}"/examples/*/; do
+        [[ -d "${d}generated" ]] && echo "  - $(basename "${d%/}")" >&2
+    done
+    exit 1
+fi
+
+if [[ ! -f "${EXAMPLE_GENERATED}/did_handlers.c" ]]; then
+    echo "ERROR: ${EXAMPLE_GENERATED}/did_handlers.c not found." >&2
+    echo "" >&2
+    echo "Regenerate it with:" >&2
+    echo "  python3 tools/codegen.py \\" >&2
+    echo "             --config examples/${EXAMPLE}/diagnostics_config.yaml \\" >&2
+    echo "             --out examples/${EXAMPLE}/generated/ --safety-wrappers --asil-level B --no-manifest" >&2
+    exit 1
+fi
+
+OUTPUT="${OUTPUT:-/tmp/harness_ecu_test_${EXAMPLE}}"
 
 # ---------------------------------------------------------------------------
 # Harness sources are a Professional-tier deliverable (issue #68).
@@ -112,9 +161,9 @@ STACK_SRCS=(
     "$ROOT/config/dtc_database.c"
     "$ROOT/config/dtc_mirror.c"
     "$ROOT/config/routine_database.c"
-    "$ROOT/examples/basic_ecu/generated/did_handlers.c"
-    "$ROOT/examples/basic_ecu/generated/did_safety_wrappers.c"
-    "$ROOT/examples/basic_ecu/generated/routine_handlers.c"
+    "$ROOT/examples/${EXAMPLE}/generated/did_handlers.c"
+    "$ROOT/examples/${EXAMPLE}/generated/did_safety_wrappers.c"
+    "$ROOT/examples/${EXAMPLE}/generated/routine_handlers.c"
     "$ROOT/platform/zephyr/nvm_store_mock.c"
     "$ROOT/platform/uds_flash_ops.c"
     "$ROOT/platform/zephyr/harness_flash_mock.c"
@@ -131,7 +180,7 @@ INCLUDES=(
     "-I$ROOT/config"
     "-I$ROOT/platform"
     "-I$ROOT/platform/zephyr"
-    "-I$ROOT/examples/basic_ecu/generated"
+    "-I$ROOT/examples/${EXAMPLE}/generated"
     "-I$ROOT/harness"
     "-I$ROOT/tests/mocks"
     "-I$ROOT/tests/runner"
@@ -180,7 +229,7 @@ fi
 # ---------------------------------------------------------------------------
 ALL_SRCS=("${HARNESS_SRCS[@]}" "${STACK_SRCS[@]}")
 
-echo "[build_harness] Phase 7 MISRA-clean build..."
+echo "[build_harness] Phase 7 MISRA-clean build (example: ${EXAMPLE})..."
 gcc "${CFLAGS[@]}" "${INCLUDES[@]}" "${ALL_SRCS[@]}" \
     -lpthread \
     -o "$OUTPUT"

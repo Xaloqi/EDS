@@ -507,6 +507,17 @@ jobs:
           fi
           echo "PASS: zero dynamic allocation in core/ transport/ config/ examples/basic_ecu/generated/"
 
+      # [#152] core/uds_types.h's EDS_MSG_BUF_MAX_STACK_BYTES _Static_assert
+      # documents its own limitation: it only checks sizeof(uds_msg_buf_t)
+      # against a configured threshold, which does not by itself catch a
+      # stack-declared uds_msg_buf_t (an integrator who raises the threshold,
+      # e.g. -DEDS_MSG_BUF_MAX_STACK_BYTES=8192 for a host build, gets zero
+      # protection from that check alone). This grep-based gate closes that
+      # gap for the runtime stack — see scripts/verify_no_stack_uds_msg_buf.sh
+      # for the exact pattern and its exclusions (comments, 'static' storage).
+      - name: Assert no stack-scoped uds_msg_buf_t declarations (#152)
+        run: bash scripts/verify_no_stack_uds_msg_buf.sh
+
       - name: Install build tools
         run: |
           sudo apt-get update -qq

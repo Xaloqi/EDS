@@ -239,9 +239,19 @@ bash build_tests.sh
 # 68 harness integration tests (Professional tier — requires harness/ sources)
 # bash build_harness.sh
 
-# Generated pytest suite (simulator mode)
+# Generated pytest suite (simulator mode) — one example
 cd examples/basic_ecu/generated/tests && pytest test_services.py test_did_*.py -v --can-interface=simulator
+
+# Whole Python suite (repo tests/ + every example, each correctly scoped) —
+# the canonical entrypoint; prints a pass/skip/fail summary per suite
+bash run_python_tests.sh
 ```
+
+> A bare `pytest` from the repo root only collects `tests/` (see
+> `pytest.ini`) — every example's `generated/tests/` is its own
+> self-contained pytest project and must be run scoped to its own
+> directory, exactly as shown above. `run_python_tests.sh` runs all of them
+> for you.
 
 ### GUI configurator
 
