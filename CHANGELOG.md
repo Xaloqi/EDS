@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Documentation
 
+- **Documented the SecurityAccess failed-attempt lockout policy** (#183).
+  The mechanism was already implemented in `core/uds_security.c`
+  (`max_attempts` default 3, `lockout_ms` default 10s, NVM-persistable
+  counter) but `docs/SECURITY_NOTICE.md` never described the semantics
+  an integrator needs: the lockout duration is flat, not progressive
+  (no built-in exponential backoff); the counter resets only on a
+  successful unlock, not on lockout expiry; and NVM persistence across
+  power cycles is optional — off by default — not automatic. Docs-only,
+  pulled directly from the actual config struct and reset logic, not
+  invented defaults.
+
 - **`docs/ARCHITECTURE.md`, `docs/AI_CONTEXT.md`, and `docs/TESTING_STRATEGY.md`'s own `**Version:**` headers still said v1.12.0 after v1.13.0 was tagged.** Found by `check_release_docs.py` immediately after tagging — the new `bump_release_version.py` (xaloqi-knowledge) only touched `README.md`/`INSTALL.md` at the repo root, not `docs/*.md`, the exact drift class this repo's own release runbook already names ("docs/ went unswept for three releases"). Fixed here; the bump script itself was extended (same day, xaloqi-knowledge) to sweep `docs/*.md` for this header pattern automatically going forward, rather than shipped as a hardcoded per-file list.
 
 ## [1.13.0] — 2026-09-01

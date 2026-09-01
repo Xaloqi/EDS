@@ -194,6 +194,42 @@ void eds_entropy_sanity_check(void)
 
 ---
 
+## Failed Attempt Lockout Policy
+
+SecurityAccess (0x27) implements a failed-attempt counter and lockout, per
+ISO 14229-1's `requiredTimeDelay` mechanism. This section documents the
+actual implemented semantics (`core/uds_security.c`, `core/uds_security.h`)
+so you can decide whether the defaults fit your product before shipping.
+
+| Parameter | Default | Configurable via |
+|---|---|---|
+| Max consecutive failed attempts before lockout | 3 | `uds_security_cfg_t.max_attempts` (`UDS_SECURITY_MAX_ATTEMPTS` if left at 0) |
+| Lockout duration | 10,000 ms (10 s) | `uds_security_cfg_t.lockout_ms` (`UDS_SECURITY_LOCKOUT_MS` if left at 0) |
+
+**The lockout duration is flat, not progressive.** Every time the counter
+reaches `max_attempts`, the *same* configured duration applies — there is no
+built-in exponential backoff (1s, 2s, 4s, 8s...). If your product needs
+escalating delays, you must implement that yourself around the seed/key
+exchange calls; EDS applies one fixed duration per lockout event.
+
+**Counter reset:** the failed-attempt counter resets to 0 only on a
+*successful* key validation. It does **not** reset when a lockout period
+naturally expires — the counter stays at `max_attempts`, so the very next
+failed attempt re-triggers lockout immediately with no partial credit. Only
+a correct key clears it.
+
+**Persistence is optional, not automatic.** By default (`nvm_load_cb` /
+`nvm_save_cb` left `NULL` in `uds_security_cfg_t`) the counter and any
+in-progress lockout live in RAM only and reset to zero on any reboot —
+power-cycling the ECU is a full bypass. Wiring both callbacks makes the
+counter and lockout residual survive a power cycle (loaded back in by
+`uds_security_init()` on the next boot); this is the only way to close
+the power-cycle bypass. If your product's threat model includes an
+attacker with physical access to power, wire NVM persistence — the stack
+does not require it, but it does not protect you without it either.
+
+---
+
 ## Questions
 
 Contact **contact@xaloqi.com** for questions about entropy source validation,
