@@ -51,6 +51,7 @@
 #include "zephyr_mutex.h"
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
+#include "nvm_store.h"
 #include "uds_init.h"
 #include "uds_security_algo.h"
 #include "generated_config.h"
@@ -296,6 +297,21 @@ int main(void)
     rc = zephyr_port_init(&port_cfg, &can);
     if (rc != UDS_STATUS_OK) {
         LOG_ERR("Platform init failed: 0x%02X", (unsigned)rc); return -1;
+    }
+
+    /* NVM store */
+    /*
+     * [EDS#200] Must run before uds_generated_init() (dtc_mirror_init() at
+     * Step 3.5 sits on top of nvm_store and silently no-ops until this
+     * succeeds). This example only targets native_sim, where
+     * platform/zephyr/nvm_store_mock.c (RAM-backed) is linked instead of
+     * the real NVS backend — its nvm_store_init() ignores cfg entirely, so
+     * NULL is correct here (see nvm_store.h: "may be NULL on host").
+     */
+    rc = nvm_store_init(NULL);
+    if (rc != UDS_STATUS_OK) {
+        LOG_ERR("NVM store init failed: 0x%02X — DTC mirror will not "
+                "survive reset this run.", (unsigned)rc);
     }
 
     /* Security */

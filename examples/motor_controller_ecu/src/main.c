@@ -79,6 +79,7 @@
 #include "zephyr_mutex.h"
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
+#include "nvm_store.h"
 
 /* --------------------------------------------------------------------------
  * Generated headers (from diagnostics_config.yaml via codegen.py)
@@ -748,6 +749,21 @@ static void diag_task_fn(void *p1, void *p2, void *p3)
     if (status != UDS_STATUS_OK) {
         LOG_ERR("[MC] zephyr_port_init failed: 0x%02X", (unsigned)status);
         return;
+    }
+
+    /* ── NVM store initialization ────────────────────────────────────────── */
+    /*
+     * [EDS#200] Must run before uds_generated_init() (dtc_mirror_init() at
+     * Step 3.5 sits on top of nvm_store and silently no-ops until this
+     * succeeds). This example only targets native_sim, where
+     * platform/zephyr/nvm_store_mock.c (RAM-backed) is linked instead of
+     * the real NVS backend — its nvm_store_init() ignores cfg entirely, so
+     * NULL is correct here (see nvm_store.h: "may be NULL on host").
+     */
+    status = nvm_store_init(NULL);
+    if (status != UDS_STATUS_OK) {
+        LOG_ERR("[MC] NVM store init failed: 0x%02X — DTC mirror will not "
+                "survive reset this run.", (unsigned)status);
     }
 
     /* ── UDS stack init ────────────────────────────────────────────────────── */

@@ -10,6 +10,59 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`nvm_store_init()` never called anywhere in the real Zephyr platform
+  init — NVM persistence (DTC mirror, and security counter/lockout
+  persistence once wired) silently non-functional** (#200; found while
+  implementing #190). `nvm_store_is_ready()` returned `false` forever on
+  every Zephyr build, degrading gracefully rather than crashing (which is
+  exactly why this went unnoticed) but never actually activating.
+  FreeRTOS was unaffected — `eds_platform_init()` already called
+  `nvm_store_init()`.
+
+  Wired the missing call into `main()` for every Zephyr example, before
+  `uds_generated_init()` (which calls `dtc_mirror_init()` at Step 3.5):
+  - `basic_ecu` — cross-compiled by CI against 4 different board targets
+    (native_sim + 3 real boards, each with its own `diag_nvs` DTS
+    partition and physical erase-page size). Resolves
+    `FIXED_PARTITION_DEVICE`/`OFFSET`/`SIZE(eds_nvs_slot)` — the DTS
+    *node label*, not the partition's string `"diag_nvs"` `label`
+    property; the string form compiles but fails to link — and queries
+    the real page size at runtime via `flash_get_page_info_by_offs()`
+    rather than hardcoding a sector size — one hardcoded value cannot be
+    correct across boards with 128 KB and 8 KB physical sectors.
+    Uncovered a real latent bug in the process: `nvm_store_cfg_t.sector_size`
+    was `uint16_t`, silently truncating 128 KB (`0x20000`) to 0 on two of
+    the three real boards — widened to `uint32_t` (`platform/nvm_store.h`).
+  - `safeboot_ecu` — its board's `diag_nvs` partition and sector geometry
+    are already fully documented in
+    `boards/nucleo_h743zi/nucleo_h743zi.overlay`; wired directly from
+    that.
+  - `basic_ecu_doip`, `bms_ecu`, `motor_controller_ecu`,
+    `robot_joint_controller_ecu`, `sensor_ecu` — native_sim-only targets,
+    where `platform/zephyr/nvm_store_mock.c` (RAM-backed) is always
+    linked regardless; `nvm_store_init(NULL)` is correct there (mock
+    ignores `cfg` — see `nvm_store.h`: "may be NULL on host").
+
+  Two real boards are deliberate, documented exceptions, left unfixed
+  rather than guessed at:
+  - `ardep_ecu` — its board overlay enables `CONFIG_NVS=y` but defines no
+    `diag_nvs` partition at all, and the ARDEP board DTS itself lives in
+    an external, non-vendored module — guessing at a flash layout for
+    hardware this repo has no visibility into is exactly the risk this
+    issue originally flagged. Not compiled by CI either way
+    (`example-ardep` only validates generated files, no `west build`).
+  - `mr_canhubk3` (NXP S32K344, one of `basic_ecu`'s 4 CI board targets)
+    — its `diag_nvs` partition resolves correctly with the node-label fix
+    above, but the build still fails to *link*:
+    `'__device_dts_ord_199' undeclared` inside `FIXED_PARTITION_DEVICE`'s
+    expansion, meaning `&flash0` has a devicetree node on this SoC but no
+    instantiated Zephyr `struct device` behind it in Zephyr v3.7.0 —
+    unlike the other two real boards, where the identical pattern links
+    cleanly. `nvm_store_init(NULL)` on this board only (compiles, and
+    correctly, honestly reports `UDS_STATUS_ERR_NULL_PTR` every boot
+    rather than silently succeeding) until someone with real S32K3
+    hardware or HAL knowledge can root-cause the flash driver gap.
+
 - **Periodic DID frame silently dropped when ISO-TP transmit is busy**
   (#194; Tier-1 round-3 due diligence). `uds_periodic_pop_due()` cleared
   a subscription's due flag before the caller attempted transmit — a
