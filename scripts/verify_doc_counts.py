@@ -8,10 +8,19 @@ number where it appears in prose — docs drifted to 42 and 35 against an actual
 43, and pointed at a `scripts/build_tests.sh` that has never existed (the
 script lives at the repo root).
 
+Widened by #170: both checks were blind to ASCII tree diagrams, which is
+exactly where a path/count claim is most likely to be copied and left to rot.
+`docs/ARCHITECTURE.md` had `└── scripts/` on one line and `build_tests.sh` as
+its own leaf line below — the same dead path as `scripts/build_tests.sh`, but
+never on one line, so the substring check never fired. It also had
+`Canonical Unity unit tests (36 modules)`, a phrasing the original
+COUNT_PATTERNS list didn't cover.
+
 This script is the prose-side counterpart of that CI step:
 
   1. No tracked doc may reference `scripts/build_tests.sh` /
-     `scripts/build_harness.sh`.
+     `scripts/build_harness.sh` — inline, or split across a tree diagram's
+     `scripts/` node and a `build_tests.sh`/`build_harness.sh` leaf line.
   2. Any unit-test module count stated in prose must equal the real count,
      derived from `tests/unit_runnable/test_*.c`.
 
@@ -40,7 +49,16 @@ COUNT_PATTERNS = (
     r"Coverage\s+—\s+(\d+)\s+unit",
     r"unit\s+tests?\s+must\s+pass\s+\(currently\s+(\d+)\)",
     r"unit\s+test\s+to\s+fail\s+\(currently\s+(\d+)\s",
+    # Tree-diagram annotation style, e.g. "unit tests (36 modules)" (#170).
+    r"unit\s+tests?\s*\((\d+)\s+modules?\)",
 )
+
+# A tree-diagram leaf naming one of these under a `scripts/` node is the same
+# dead path as DEAD_PATHS below, just split across two lines (#170). Matched
+# as a bare leaf (optional tree-drawing prefix, nothing else on the line)
+# so real prose sentences that merely mention the filename aren't flagged.
+TREE_LEAF_RE = re.compile(r"^[\s│├└─]*(build_tests\.sh|build_harness\.sh)\b")
+TREE_SCRIPTS_NODE_RE = re.compile(r"^[\s│├└─]*scripts/\s*$")
 
 
 def real_module_count() -> int:
@@ -53,7 +71,12 @@ def real_module_count() -> int:
 def docs():
     for p in sorted(ROOT.rglob("*.md")):
         rel = p.relative_to(ROOT)
-        if rel.name in EXEMPT or ".git" in rel.parts or "node_modules" in rel.parts:
+        if (
+            rel.name in EXEMPT
+            or ".git" in rel.parts
+            or "node_modules" in rel.parts
+            or ".claude" in rel.parts  # gitignored local agent-worktree scratch space
+        ):
             continue
         yield rel, p.read_text(encoding="utf-8")
 
@@ -63,13 +86,35 @@ def main() -> int:
     problems = []
 
     for rel, text in docs():
+        in_fence = False
+        saw_scripts_node_at = None  # lineno of the most recent `scripts/` tree node, or None
         for lineno, line in enumerate(text.splitlines(), 1):
+            if line.strip().startswith("```"):
+                in_fence = not in_fence
+                if not in_fence:
+                    saw_scripts_node_at = None
+                continue
+
             for dead in DEAD_PATHS:
                 if dead in line:
                     problems.append(
                         f"{rel}:{lineno}: references `{dead}`, which does not exist "
                         f"— the script lives at the repo root"
                     )
+
+            if in_fence:
+                if TREE_SCRIPTS_NODE_RE.match(line):
+                    saw_scripts_node_at = lineno
+                elif saw_scripts_node_at is not None:
+                    m = TREE_LEAF_RE.match(line)
+                    if m:
+                        problems.append(
+                            f"{rel}:{lineno}: tree diagram shows `{m.group(1)}` "
+                            f"under the `scripts/` node opened at line "
+                            f"{saw_scripts_node_at}, which does not exist "
+                            f"— the script lives at the repo root"
+                        )
+
             # Several patterns can match the same phrase; report each
             # (file, line, stated count) once, with the longest match as
             # the most descriptive quote.

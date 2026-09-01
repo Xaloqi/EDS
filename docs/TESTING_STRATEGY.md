@@ -275,20 +275,25 @@ handler call chain.
 Python tests using `pytest` that simulate a real diagnostic tester sending ISO-TP framed
 UDS requests to a running `native_sim` ECU process.
 
+> **No `tests/integration/` directory exists** — the tree below is the real
+> layout. Each example's generated suite is a self-contained pytest project;
+> there is no single hand-written `tests/integration/` tree to point at.
+
 ```
-tests/integration/
-├── test_isotp_transport_flow.py
-├── test_uds_read_did_flow.py
-├── test_uds_write_did_flow.py
-├── test_security_access_flow.py
-├── test_diagnostic_session_flow.py
-├── test_dtc_report_flow.py
-└── test_codegen_output.py
+examples/<name>/generated/tests/
+├── test_services.py          # Per-service protocol tests
+├── test_did_<xxxx>.py        # Per-DID read/write tests (one file per DID)
+├── test_firmware_services.py # Same assertions, against the real compiled
+│                              # harness instead of the simulator (--firmware)
+└── test_robustness_*.py      # 12-phase robustness campaign (A–L)
 ```
 
 ```bash
-# Requires native_sim ECU running in another terminal
-pytest tests/integration/ -v
+# One example, simulator mode (no hardware/harness needed)
+cd examples/basic_ecu/generated/tests && pytest test_services.py test_did_*.py -v --can-interface=simulator
+
+# Whole repo — this dir's own tests/ + every example, each correctly scoped
+bash run_python_tests.sh
 ```
 
 ### Example flow — SecurityAccess denial
@@ -400,14 +405,21 @@ Output in `examples/basic_ecu/generated/tests/capl/`:
 End-to-end tests running the complete Zephyr firmware on `native_sim`. These validate the
 full stack from Zephyr thread scheduling through ISO-TP framing down to DID handler response.
 
+> This describes target end-to-end coverage; there is no `--system` pytest
+> flag or `tests/integration/` suite implementing it today. The closest real
+> equivalent is `test_firmware_services.py --firmware` (§7 above) — the same
+> service/DID assertions run against a real compiled harness binary instead
+> of the simulator, though that's a host GCC build, not a `native_sim` Zephyr
+> process.
+
 ```bash
 # Build and run native_sim in background
 west build -b native_sim examples/basic_ecu \
     -- -DDTC_OVERLAY_FILE=boards/native_sim.overlay
 west build -t run &
 
-# Run system test suite against the running process
-pytest tests/integration/ -v --system
+# Target: a system-test suite exercising the running native_sim process
+# (not yet implemented — see note above)
 ```
 
 System test scenarios:
@@ -425,6 +437,15 @@ System test scenarios:
 
 All test layers run automatically in GitHub Actions on every push and pull request.
 
+> **This tree is a representative walkthrough, not an exhaustive list** —
+> `.github/workflows/ci.yml`'s `jobs:` block is the sole authoritative list
+> (22 jobs as of this writing), because a hand-maintained count here has
+> already drifted twice (#91, #119). Omitted below on purpose: 7 per-example
+> build-verification smoke jobs (`example-ardep`, `example-bms`,
+> `example-motor`, `example-sensor`, `example-sensor-frtos`, `example-robot`,
+> `example-safeboot` — one per specialist ECU, same shape each time) and
+> `zephyr-nxp-s32k` (a second NXP board variant of `zephyr-nxp` below).
+
 ```
 push / PR
    │
@@ -441,11 +462,20 @@ push / PR
    ├── integration-tests   Generated pytest suite, simulator mode
    │                       + zero dynamic allocation grep gate
    │
+   ├── robustness-tests    Robustness Campaign — 439 tests, 12 phases (A–L)
+   │
+   ├── harness-tests       68 C harness integration tests, MISRA-clean build
+   │                       (skips cleanly — Professional tier, sources gitignored)
+   │
+   ├── sovd-codegen        OpenSOVD CDA generation smoke check (no templates needed)
+   │
    ├── static-analysis     GCC -fanalyzer
    │
    ├── zephyr-native       Full Zephyr build, native_sim (basic_ecu)
    │
    ├── zephyr-stm32        Cross-compile for STM32 Nucleo-H743ZI2
+   │
+   ├── zephyr-nxp          Cross-compile for NXP FRDM-MCXN947
    │
    ├── freertos-qemu       FreeRTOS build — QEMU ARM Cortex-M4 (basic_ecu_freertos)
    │

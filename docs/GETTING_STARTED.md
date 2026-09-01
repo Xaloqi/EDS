@@ -211,21 +211,24 @@ Press **Ctrl+C** to stop.
 
 ## Step 8 — Send a UDS Request (2 min)
 
-With the simulator running, open a second terminal and run the Python integration test
-to send a real UDS `ReadDataByIdentifier` (0x22) request:
+You can stop the Step 7 process now — the generated pytest suite below runs
+against its own self-contained virtual CAN bus (`--can-interface=simulator`),
+a separate mechanism from `native_sim`'s CAN loopback, so it doesn't need
+Step 7 left running. In a new terminal, run it to send a real UDS
+`ReadDataByIdentifier` (0x22) request for the VIN (DID 0xF190):
 
 ```bash
-# In a second terminal, from the eds repo root
-pytest tests/integration/test_uds_read_did.py -v
+# From the eds repo root
+cd examples/basic_ecu/generated/tests && pytest test_did_f190.py -v --can-interface=simulator
 ```
 
 Expected output:
 
 ```
-tests/integration/test_uds_read_did.py::test_read_vin PASSED
-tests/integration/test_uds_read_did.py::test_read_odometer PASSED
-tests/integration/test_uds_read_did.py::test_read_invalid_did_returns_nrc_31 PASSED
-tests/integration/test_uds_read_did.py::test_read_did_wrong_session_returns_nrc_7f PASSED
+test_did_f190.py::TestReadVehicleidentificationnumber::test_happy_path_returns_correct_length PASSED
+test_did_f190.py::TestReadVehicleidentificationnumber::test_response_data_not_all_zero PASSED
+test_did_f190.py::TestReadVehicleidentificationnumber::test_request_with_one_did_byte_rejected PASSED
+test_did_f190.py::TestReadVehicleidentificationnumber::test_request_with_only_sid_rejected PASSED
 ```
 
 You just sent ISO-TP framed UDS requests to a running Zephyr ECU and validated the responses.
@@ -526,7 +529,7 @@ Run the integration tests in a second terminal to send traffic while it's runnin
 | `west build -b mr_canhubk3 examples/basic_ecu -- -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay` | Cross-compile for NXP MR-CANHUBK3 (S32K344) |
 | `west flash` | Flash to connected hardware |
 | `bash build_tests.sh` | Run 44 unit tests |
-| `pytest tests/integration/ -v` | Run Python integration tests |
+| `bash run_python_tests.sh` | Run the whole Python suite (repo `tests/` + every example, each correctly scoped) |
 | `cd gui && npm ci && npm start` | Start GUI configurator |
 | `python3 tools/testgen.py --config CONFIG --out OUT` | Generate pytest test suite |
 | `python3 tools/testgen.py --capl --config CONFIG --out OUT` | Generate pytest + CANoe CAPL |
