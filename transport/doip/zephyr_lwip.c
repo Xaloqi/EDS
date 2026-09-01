@@ -76,6 +76,12 @@ static doip_server_state_t s_doip_state;
 static uds_server_ctx_t   *s_uds_ctx    = NULL;
 static uint16_t             s_port       = DOIP_PORT;
 
+/* [EDS#192] doip_thread blocks on this instead of assuming a fixed startup
+ * delay. Given by zephyr_doip_platform_init() once s_uds_ctx is set and
+ * platform ops are registered — a real synchronization point, not a
+ * timing budget that a slower init path could silently exceed. */
+static K_SEM_DEFINE(s_doip_ready_sem, 0, 1);
+
 /* ---------------------------------------------------------------------------
  * Platform ops — zsock_* implementations
  * ------------------------------------------------------------------------ */
@@ -222,6 +228,12 @@ static void doip_thread_entry(void *p1, void *p2, void *p3)
 {
     (void)p1; (void)p2; (void)p3;
 
+    /* [EDS#192] Block until zephyr_doip_platform_init() has set s_uds_ctx
+     * and registered platform ops, rather than assuming a fixed delay is
+     * always enough. A slower init path (more DIDs, a different NVM
+     * backend, a debug build) no longer silently races this thread. */
+    k_sem_take(&s_doip_ready_sem, K_FOREVER);
+
     LOG_INF("DoIP server thread starting (logical_addr=0x%04X port=%u)",
             (unsigned)s_doip_state.logical_address, (unsigned)s_port);
 
@@ -231,17 +243,17 @@ static void doip_thread_entry(void *p1, void *p2, void *p3)
     LOG_ERR("DoIP server exited unexpectedly: 0x%02X", (unsigned)rc);
 }
 
-/* Thread defined at link time — started by the Zephyr kernel once
- * all static initialisers have run.  The thread body blocks in
- * eds_doip_server_run() → tcp_listen() until zephyr_doip_platform_init()
- * has been called and s_uds_ctx is non-NULL. */
+/* Thread defined at link time — started by the Zephyr kernel once all
+ * static initialisers have run. Its body immediately blocks on
+ * s_doip_ready_sem (see above) until zephyr_doip_platform_init() signals
+ * it — no artificial startup delay. */
 K_THREAD_DEFINE(doip_thread,
                 CONFIG_DOIP_STACK_SIZE,
                 doip_thread_entry,
                 NULL, NULL, NULL,
                 K_PRIO_PREEMPT(CONFIG_DOIP_THREAD_PRIORITY),
                 0,
-                /* delay_ms = */ 500);  /* 500 ms head-start for UDS init */
+                0);
 
 /* ---------------------------------------------------------------------------
  * Public: zephyr_doip_platform_init
@@ -261,7 +273,13 @@ uds_status_t zephyr_doip_platform_init(uint16_t          logical_address,
     }
 
     s_port    = port;
-    s_uds_ctx = uds_ctx;   /* thread reads this after 500 ms delay */
+    s_uds_ctx = uds_ctx;
 
-    return eds_doip_register_platform(&s_zephyr_doip_ops);
+    rc = eds_doip_register_platform(&s_zephyr_doip_ops);
+    if (rc == UDS_STATUS_OK) {
+        /* [EDS#192] s_uds_ctx and platform ops are both ready — release
+         * doip_thread now instead of leaving it to a fixed delay. */
+        k_sem_give(&s_doip_ready_sem);
+    }
+    return rc;
 }

@@ -12,11 +12,16 @@
  *          The UDS stack, DoIP server logic, and platform abstraction layer
  *          are identical. Only the OS primitives and IP stack differ.
  *
- *          INTEGRATION SEQUENCE (4 steps):
+ *          INTEGRATION SEQUENCE (5 steps):
  *
  *            1. eds_platform_init()                     — CAN transport + NVM
  *            2. uds_generated_init(NULL, 0, 0)          — UDS stack (DoIP-only,
  *                                                         no CAN transport)
+ *            2.5. uds_tick_task (xTaskCreate)            — [EDS#191] 1ms
+ *                                                         uds_server_tick_1ms()
+ *                                                         + uds_periodic_tick_1ms();
+ *                                                         without this, S3/lockout
+ *                                                         timing never progresses
  *            3. eds_doip_platform_start_freertos(...)   — DoIP server task
  *            4. vTaskStartScheduler()
  *
@@ -63,6 +68,19 @@
 #define DOIP_ECU_LOGICAL_ADDR   (0xE400U)  /**< Standard xaloqi-tester ECU addr */
 #define DOIP_TASK_STACK_BYTES   (4096U)
 #define DOIP_TASK_PRIORITY      (6U)
+
+/*
+ * [EDS#191] UDS tick task — drives uds_server_tick_1ms() and
+ * uds_periodic_tick_1ms() every 1ms. This example never calls
+ * eds_freertos_start() (its poll task is CAN/ISO-TP-specific — it would
+ * call can_transport_receive()/isotp_tick_1ms() against the NULL
+ * transport this DoIP-only build passes to uds_generated_init(), which
+ * this build has no CAN context for), so without a dedicated tick task
+ * here, S3 session timeout and SecurityAccess lockout countdown never
+ * progress at all.
+ */
+#define UDS_TICK_TASK_STACK_WORDS  (256U)
+#define UDS_TICK_TASK_PRIORITY     (5U)
 
 /* =============================================================================
  * Application state — same stub DIDs as basic_ecu_doip
@@ -148,6 +166,21 @@ static void s_on_session_change(uds_session_type_t old_sess,
 }
 
 /* =============================================================================
+ * UDS tick task [EDS#191]
+ * ============================================================================= */
+
+static void uds_tick_task(void *pvParameters)
+{
+    uds_server_ctx_t *srv = (uds_server_ctx_t *)pvParameters;
+
+    for (;;) {
+        vTaskDelay((TickType_t)1U);
+        (void)uds_server_tick_1ms(srv);
+        (void)uds_periodic_tick_1ms();
+    }
+}
+
+/* =============================================================================
  * main() — four-step integration
  * ============================================================================= */
 
@@ -197,6 +230,22 @@ int main(void)
     (void)uds_periodic_init();
     (void)uds_session_register_change_cb(srv->cfg.session_ctx,
                                           s_on_session_change);
+
+    /*
+     * Step 2.5: Start the 1 ms UDS tick task [EDS#191] — before the DoIP
+     * server task so S3/lockout timing is live from the moment a
+     * connection can arrive. xTaskCreate (not xTaskCreateStatic) is fine
+     * here: this task's own footprint is tiny and one-time at boot,
+     * unlike the CAN poll task's stack-budget concerns noted above.
+     */
+    (void)xTaskCreate(
+        uds_tick_task,
+        "uds_tick",
+        (configSTACK_DEPTH_TYPE)UDS_TICK_TASK_STACK_WORDS,
+        (void *)srv,
+        (UBaseType_t)UDS_TICK_TASK_PRIORITY,
+        NULL
+    );
 
     /*
      * Step 3: Start DoIP server task.

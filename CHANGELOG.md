@@ -31,6 +31,69 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   mirror persistence, already documented as surviving power cycles and
   currently doesn't on Zephyr either).
 
+- **DoIP transport hardening — 3 bundled fixes** (#191, #192, #193; Tier-1
+  round-3 due diligence). All three live in `transport/doip/` + the two
+  DoIP example `main.c` files, bundled into one PR per that campaign's
+  CI-cost-consolidation guidance rather than three separate ones.
+
+  - **DoIP-only examples never ticked UDS timers** (#191a): neither
+    `examples/basic_ecu_doip/src/main.c` (Zephyr) nor
+    `examples/basic_ecu_doip_freertos/src/main.c` (FreeRTOS) called
+    `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` anywhere — with no
+    CAN `diag_task` in a DoIP-only build, the S3 session timeout and
+    SecurityAccess lockout countdown never progressed at all. Added a
+    dedicated 1ms tick task/thread to both examples (not a reuse of
+    FreeRTOS's `eds_freertos_start()` poll task, which is CAN/ISO-TP-
+    specific and would call `can_transport_receive()`/`isotp_tick_1ms()`
+    against the NULL transport a DoIP-only build has no context for).
+
+  - **DoIP disconnect didn't reset UDS session/security state** (#191b):
+    `doip_server.c`'s `connection_closed` path only reset DoIP-layer
+    `routing_active`/`tester_address`, never the UDS session or security
+    context — a new connection inherited whatever session/security state
+    the previous one left behind. Same lesson as `[SEC-S3-RESET-01]`
+    (`core/uds_server.c`) recurring in a different code path: a forced
+    return to a fresh state must reset SecurityAccess too. Added
+    `uds_session_transition(..., UDS_SESSION_DEFAULT)` +
+    `uds_security_reset(...)` to `connection_closed`, mirroring
+    SEC-S3-RESET-01's own pairing exactly. New regression test
+    `test_doip_disconnect_resets_security_and_session`
+    (`tests/test_doip_integration.py`) — unlocks on connection 1, proves
+    it with a write, reconnects without re-unlocking, confirms the same
+    write now correctly fails NRC 0x33.
+
+  - **DoIP Zephyr thread startup used a fixed 500ms delay** (#192):
+    `K_THREAD_DEFINE(doip_thread, ..., delay_ms = 500)` assumed
+    application init always completes within 500ms — a timing budget, not
+    a guarantee. Replaced with a semaphore (`s_doip_ready_sem`) that
+    `zephyr_doip_platform_init()` gives once `s_uds_ctx` is set and
+    platform ops are registered; `doip_thread` blocks on it instead of
+    sleeping a fixed duration. (FreeRTOS's analogous
+    `vTaskDelay(pdMS_TO_TICKS(500U))` in `freertos_lwip.c` is justified
+    differently — network-interface bring-up time, not a `s_uds_ctx` race,
+    since FreeRTOS's task is created dynamically *after* `s_uds_ctx` is
+    already set — left alone, out of scope here.)
+
+  - **DoIP had no absolute frame-assembly deadline** (#193): each
+    `tcp_recv()` call in the header/payload read loops had its own
+    150ms-silence timeout, but a client sending 1 byte per window never
+    triggered it, holding the single connection slot indefinitely.
+    `doip_server.c` cannot call an RTOS clock directly (platform
+    interaction is ops-only), so added a read-*attempt* bound instead of
+    a true wall-clock deadline — `DOIP_MAX_FRAME_READ_ATTEMPTS` (256,
+    tuneable) — generous enough for any legitimate fragmentation pattern
+    while still bounding the worst case.
+
+  Verified: `bash build_tests.sh` — 44 passed, 894 cases, 0 failed
+  (including `test_doip_server`, 30/30). The new Python integration test
+  targets a real compiled `basic_ecu_doip` binary (Zephyr SDK + native_sim
+  + `xaloqi-tester`), not available in this environment — logic verified
+  by tracing `service_0x10.c`'s security-reset condition (only fires on
+  transition *to* `UDS_SESSION_DEFAULT`, confirming the test's premise
+  that an Extended-session reconnect without the fix would NOT have reset
+  security on its own) rather than a local run; CI's DoIP Integration job
+  will execute it for real.
+
 ## [1.13.1] — 2026-09-01
 
 ### Added

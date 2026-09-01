@@ -112,6 +112,21 @@ extern "C" {
 #define DOIP_ALIVE_CHECK_PERIOD_MS (500U)
 #endif
 
+/**
+ * [EDS#193] Maximum partial tcp_recv() attempts allowed while assembling
+ * one header or one payload. DOIP_TCP_RECV_TIMEOUT_MS bounds each
+ * individual read's *silence*, but a client sending 1 byte per window
+ * makes "progress" on every read and never trips that timeout — this
+ * bounds the total attempts instead, so frame assembly always terminates
+ * even against a client trickling data indefinitely. Generous enough
+ * that no legitimate fragmentation pattern should hit it (256 reads at a
+ * 1-byte minimum still covers the full DOIP_MAX_PDU_SIZE payload with
+ * margin); tune down if a tighter bound is wanted for a given deployment.
+ */
+#ifndef DOIP_MAX_FRAME_READ_ATTEMPTS
+#define DOIP_MAX_FRAME_READ_ATTEMPTS (256U)
+#endif
+
 /* ============================================================================
  * Platform operations — implement one set per RTOS/IP-stack combination.
  *

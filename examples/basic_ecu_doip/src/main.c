@@ -18,8 +18,14 @@
  *          add the CAN thread from basic_ecu alongside the DoIP init.
  *
  * THREAD MODEL:
- *   main()        — init → uds_generated_init → eds_doip_platform_start → return
- *   doip_thread   — K_THREAD_DEFINE in zephyr_lwip.c; runs eds_doip_server_run()
+ *   main()        — init → uds_generated_init → start tick + DoIP → return
+ *   uds_tick_task — 1 ms poll loop: uds_server_tick_1ms() + uds_periodic_tick_1ms().
+ *                   [EDS#191] A DoIP-only build has no CAN diag_task, so
+ *                   without this thread the S3 session timeout and the
+ *                   SecurityAccess lockout countdown never progress — a
+ *                   session/unlock, once entered, never expires on its own.
+ *   doip_thread   — started via a semaphore (zephyr_lwip.c), not a fixed
+ *                   delay [EDS#192]; runs eds_doip_server_run()
  *
  * TARGET: native_sim (CI — loopback networking) and any Ethernet-capable
  *         Zephyr board (e.g. FRDM-K64F, STM32H7 with ETH).
@@ -89,6 +95,28 @@ LOG_MODULE_REGISTER(basic_ecu_doip, LOG_LEVEL_INF);
  * ============================================================================= */
 
 #define DOIP_ECU_LOGICAL_ADDR   (0xE400U)
+
+/* =============================================================================
+ * UDS tick task configuration [EDS#191]
+ *
+ * Drives uds_server_tick_1ms() and uds_periodic_tick_1ms() every 1 ms —
+ * the only thing progressing the S3 session timeout and SecurityAccess
+ * lockout countdown in a DoIP-only build (no isotp_tick_1ms(): there is
+ * no ISO-TP/CAN transport here). Priority matches basic_ecu's diag_task
+ * (5) — higher priority than doip_thread's default (7,
+ * zephyr_lwip.c) so UDS timer progression is never starved by DoIP
+ * request handling, same rationale as the CAN example's own priority split.
+ * ============================================================================= */
+
+#ifndef CONFIG_DIAG_TICK_TASK_STACK_SIZE
+#define CONFIG_DIAG_TICK_TASK_STACK_SIZE   (1024U)
+#endif
+#ifndef CONFIG_DIAG_TICK_TASK_PRIORITY
+#define CONFIG_DIAG_TICK_TASK_PRIORITY     (5)
+#endif
+
+K_THREAD_STACK_DEFINE(s_tick_stack, CONFIG_DIAG_TICK_TASK_STACK_SIZE);
+static struct k_thread s_tick_thread;
 
 /* =============================================================================
  * Application state — same stub DIDs as basic_ecu
@@ -174,6 +202,25 @@ static void s_on_session_change(uds_session_type_t old_sess,
 }
 
 /* =============================================================================
+ * UDS tick task [EDS#191]
+ * ============================================================================= */
+
+static void uds_tick_task_entry(void *p1, void *p2, void *p3)
+{
+    uds_server_ctx_t *srv = (uds_server_ctx_t *)p1;
+    (void)p2;
+    (void)p3;
+
+    LOG_INF("UDS tick task started");
+
+    while (true) {
+        k_msleep(1);
+        (void)uds_server_tick_1ms(srv);
+        (void)uds_periodic_tick_1ms();
+    }
+}
+
+/* =============================================================================
  * main()
  * ============================================================================= */
 
@@ -223,11 +270,24 @@ int main(void)
             (unsigned)GEN_DID_COUNT, (unsigned)GEN_DTC_COUNT);
 
     /*
+     * [EDS#191] Start the 1 ms UDS tick task before the DoIP server so
+     * S3/lockout timing is live from the moment a connection can arrive.
+     */
+    (void)k_thread_create(
+        &s_tick_thread, s_tick_stack,
+        K_THREAD_STACK_SIZEOF(s_tick_stack),
+        uds_tick_task_entry,
+        (void *)srv, NULL, NULL,
+        CONFIG_DIAG_TICK_TASK_PRIORITY, 0U, K_NO_WAIT
+    );
+    k_thread_name_set(&s_tick_thread, "uds_tick_task");
+
+    /*
      * Start DoIP server.
      * This registers the Zephyr BSD-socket platform ops with doip_server.c
-     * and activates the pre-defined doip_thread (K_THREAD_DEFINE in
-     * zephyr_lwip.c). The thread starts accepting TCP connections on
-     * DOIP_ECU_LOGICAL_ADDR / DOIP_PORT after a 500 ms startup delay.
+     * and signals doip_thread (zephyr_lwip.c) to start — a semaphore, not
+     * a fixed delay [EDS#192]. The thread then accepts TCP connections on
+     * DOIP_ECU_LOGICAL_ADDR / DOIP_PORT.
      */
     status = eds_doip_platform_start(DOIP_ECU_LOGICAL_ADDR, DOIP_PORT, srv);
     if (status != UDS_STATUS_OK) {
