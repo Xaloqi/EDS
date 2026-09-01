@@ -13,7 +13,7 @@ ISO 15765-2 (ISO-TP) diagnostics stack for embedded RTOS targets. It is YAML-dri
 describe your DIDs, DTCs, and routines in YAML, run the code generator, and receive
 ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 
-**Version:** v1.12.0
+**Version:** v1.13.0
 **Target RTOS:** Zephyr v3.7+ · FreeRTOS (any version with static allocation support)
 **Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 (Cortex-M7) · NXP FRDM-MCX-N947 (MCX N947, Cortex-M33) · NXP MR-CANHUBK3 (S32K344, Cortex-M7) · QEMU ARM Cortex-M4 (FreeRTOS CI)
 **Transport:** ISO-TP over CAN (default) · DoIP over Ethernet/TCP (v1.6.0+)

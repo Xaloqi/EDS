@@ -1,6 +1,6 @@
 # Testing Strategy — Xaloqi EDS
 
-**Version:** v1.12.0  
+**Version:** v1.13.0  
 **Status:** 44/44 unit test modules passing. 68/68 harness tests passing. 21/21 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
 
 ---
