@@ -59,6 +59,12 @@ Generators). Specifically:
 
 ### Concrete MCU examples
 
+A copy-and-adapt reference implementing the STM32 example below against the
+actual `uds_algo_rng_cb_t` contract (`uds_security_algo_set_rng_cb()`) lives
+at [`platform/freertos/freertos_rng_example.c`](../platform/freertos/freertos_rng_example.c)
+— it is not compiled by default; copy it into your application and adapt it
+to your MCU, same as every shipped FreeRTOS example expects you to.
+
 **STM32 (HAL):**
 ```c
 static uds_status_t my_seed_generate(
