@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`tools/templates/dtc_config.h.j2` (Professional-tier, in EDS-toolchain)
+  is now wired into `codegen.py`'s `RENDER_PLAN`.** (#175, companion to
+  #158) The template — a per-example DTC X-macro list `harness_ecu.c`
+  consumes so it can register each example's own DTCs instead of two
+  hardcoded `basic_ecu` literals — existed since #158/[EDS-toolchain#76](https://github.com/Xaloqi/EDS-toolchain/pull/76),
+  but `RENDER_PLAN` lives in this (public) repo, so a real `codegen.py`
+  run couldn't produce `dtc_config.h` yet; EDS-toolchain kept 8 examples'
+  copies in sync by hand as a stopgap. Added `build_dtc_config_context()`
+  (reuses the same `_build_dtc_list()` enrichment `uds_init.c.j2`'s Step 5
+  registration loop already relies on, so the two stay in lockstep by
+  construction) and added the template to `RENDER_PLAN` unconditionally —
+  `render_and_write()` already skips a missing template with a warning
+  rather than failing, so this is a no-op on a public checkout without the
+  commercial `tools/templates/`. Verified against the real EDS-toolchain
+  templates (`--template-dir`): regenerating `ardep_ecu` and `sensor_ecu`
+  matches their committed `dtc_config.h` on the timestamp line only.
 - **`build_safety_config_context()` now threads `tools/codegen.py`'s own
   `__version__` into the safety_config.h.j2 template context as
   `stack_version`.** (#163, follow-up to #149/#156 and
