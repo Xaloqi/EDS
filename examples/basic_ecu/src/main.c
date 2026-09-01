@@ -46,6 +46,7 @@
 #include "zephyr_mutex.h"
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
+#include "nvm_store.h"
 
 /* --------------------------------------------------------------------------
  * Generated headers (from diagnostics_config.yaml via codegen.py)
@@ -60,7 +61,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/can.h>
+#include <zephyr/drivers/flash.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/storage/flash_map.h>
 
 LOG_MODULE_REGISTER(basic_ecu, LOG_LEVEL_INF);
 
@@ -336,6 +339,84 @@ int main(void)
             LOG_ERR("Platform init failed: 0x%02X", (unsigned)status);
             return -1;
         }
+    }
+
+    /*
+     * [EDS#200] Must run before uds_generated_init() (dtc_mirror_init() at
+     * Step 3.5 sits on top of nvm_store and silently no-ops until this
+     * succeeds).
+     *
+     * Unlike every other example in this repo, basic_ecu is cross-compiled
+     * by CI against FOUR different board targets (see .github/workflows/
+     * ci.yml jobs "zephyr-native" and 5a/5b/5c): native_sim, nucleo_h743zi,
+     * frdm_mcxn947, and mr_canhubk3 — each supplying its own overlay/conf
+     * from the top-level boards/<name>/ directory rather than
+     * examples/basic_ecu/boards/. All four real-board overlays define a
+     * "diag_nvs" fixed partition, but with three DIFFERENT flash page
+     * (erase-sector) sizes (128 KB / 128 KB / 8 KB respectively — see each
+     * boards/<name>/<name>.overlay's own comment block). A single hardcoded
+     * sector_size, as used in safeboot_ecu/src/main.c for its one specific
+     * board, would be wrong for at least two of these three. Query the
+     * real page size at runtime via flash_get_page_info_by_offs() instead
+     * — the portable, board-agnostic way to populate nvm_store_cfg_t.
+     *
+     * On native_sim, platform/zephyr/nvm_store_mock.c (RAM-backed) is
+     * linked instead of the real NVS backend (see this file's CMakeLists.txt
+     * "NVM store: platform-conditional source selection") — its
+     * nvm_store_init() ignores cfg entirely, so NULL is correct there (see
+     * nvm_store.h: "may be NULL on host") and there is no "diag_nvs"
+     * partition to resolve.
+     *
+     * FIXED_PARTITION_DEVICE/OFFSET/SIZE below take the DTS *node label*
+     * (eds_nvs_slot), not the partition's string "label" property
+     * ("diag_nvs") — passing "diag_nvs" fails to compile with
+     * "'__device_dts_ord_DT_N_NODELABEL_diag_nvs...' undeclared" (caught
+     * in this PR's own CI on all three real boards). All four overlays
+     * name the partition node eds_nvs_slot even though its "label" string
+     * is "diag_nvs" — see e.g. boards/nucleo_h743zi/nucleo_h743zi.overlay.
+     *
+     * mr_canhubk3 (NXP S32K344) is a further, deliberate exception: with
+     * the node-label fix above it still fails to *link* --
+     * "'__device_dts_ord_199' undeclared" in FIXED_PARTITION_DEVICE's
+     * expansion (also caught in this PR's own CI) -- meaning &flash0 on
+     * this SoC has a devicetree node but no instantiated struct device
+     * behind it in this Zephyr version (v3.7.0), unlike STM32H743/MCXN947
+     * where the same pattern links cleanly. Root-causing an NXP S32K3
+     * flash driver gap needs real hardware or S32K3 HAL knowledge this
+     * repo doesn't have -- same category of risk as ardep_ecu below, so
+     * left as a documented gap here rather than guessed at a third time.
+     */
+#if defined(CONFIG_BOARD_NATIVE_SIM) || defined(CONFIG_BOARD_MR_CANHUBK3)
+    status = nvm_store_init(NULL);
+#else
+    {
+        const struct device    *nvs_dev = FIXED_PARTITION_DEVICE(eds_nvs_slot);
+        const off_t              nvs_off = FIXED_PARTITION_OFFSET(eds_nvs_slot);
+        const size_t              nvs_sz = FIXED_PARTITION_SIZE(eds_nvs_slot);
+        struct flash_pages_info  page_info;
+        int rc = flash_get_page_info_by_offs(nvs_dev, nvs_off, &page_info);
+
+        if (rc != 0) {
+            LOG_ERR("NVM store: flash_get_page_info_by_offs failed: %d", rc);
+            status = UDS_STATUS_ERR_PLATFORM;
+        } else {
+            const nvm_store_cfg_t nvm_cfg = {
+                .flash_dev    = (const void *)nvs_dev,
+                .flash_offset = (uint32_t)nvs_off,
+                .sector_size  = (uint32_t)page_info.size,
+                /* diag_nvs is sized as an exact multiple of the page size
+                 * on every board this targets; NVS requires >= 2 sectors
+                 * for wear levelling (see nvm_store.c). */
+                .sector_count = (uint8_t)(nvs_sz / page_info.size),
+            };
+
+            status = nvm_store_init(&nvm_cfg);
+        }
+    }
+#endif
+    if (status != UDS_STATUS_OK) {
+        LOG_ERR("NVM store init failed: 0x%02X — DTC mirror will not "
+                "survive reset this run.", (unsigned)status);
     }
 
     /*

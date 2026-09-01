@@ -68,6 +68,7 @@
 #include "zephyr_mutex.h"
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
+#include "nvm_store.h"
 
 /* --------------------------------------------------------------------------
  * Generated headers
@@ -83,6 +84,7 @@
 #include <zephyr/drivers/can.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/dfu/mcuboot.h>
+#include <zephyr/storage/flash_map.h>
 
 LOG_MODULE_REGISTER(safeboot_ecu, LOG_LEVEL_INF);
 
@@ -557,6 +559,50 @@ int main(void)
         }
     }
     LOG_INF("CAN transport ready.");
+
+    /* ── NVM store initialization ────────────────────────────────────────── */
+    /*
+     * [EDS#200] Must run before uds_generated_init(), which calls
+     * dtc_mirror_init() (Step 3.5) and, once security NVM persistence
+     * (#190) is wired for this product, uds_security_init() (Step 7) —
+     * both sit on top of nvm_store and silently no-op
+     * (nvm_store_is_ready() == false) until this call has succeeded.
+     *
+     * FIXED_PARTITION_DEVICE()/FIXED_PARTITION_OFFSET() take the DTS
+     * *node label* (eds_nvs_slot), not the partition's string "label"
+     * property ("diag_nvs") — passing the latter fails to compile with
+     * "'__device_dts_ord_DT_N_NODELABEL_diag_nvs...' undeclared" (caught
+     * in this PR's own CI, all three real-board Zephyr builds). The
+     * eds_nvs_slot node is defined in
+     * boards/nucleo_h743zi/nucleo_h743zi.overlay — see that overlay's
+     * "NVS flash partition for platform/nvm_store.c" comment block for the
+     * full STM32H743ZI flash layout. sector_size/sector_count below match
+     * that partition exactly (2 x 128 KB physical Bank-2 sectors — Zephyr
+     * NVS requires >= 2 sectors for wear levelling); if the partition
+     * geometry there ever changes, these two values must change with it.
+     */
+    {
+        const nvm_store_cfg_t nvm_cfg = {
+            .flash_dev    = (const void *)FIXED_PARTITION_DEVICE(eds_nvs_slot),
+            .flash_offset = (uint32_t)FIXED_PARTITION_OFFSET(eds_nvs_slot),
+            .sector_size  = (uint32_t)0x20000U, /* 128 KB */
+            .sector_count = (uint8_t)2U,
+        };
+
+        status = nvm_store_init(&nvm_cfg);
+        if (status != UDS_STATUS_OK) {
+            /* Non-fatal: DTC mirror / security persistence degrade
+             * gracefully (nvm_store_is_ready() == false) rather than
+             * crash — see docs/SECURITY_NOTICE.md and config/dtc_mirror.c.
+             * Diagnostics still start; persisted state is just unavailable
+             * for this power cycle. */
+            LOG_ERR("NVM store init failed: 0x%02X — DTC mirror and "
+                    "security persistence will not survive reset this "
+                    "power cycle.", (unsigned)status);
+        } else {
+            LOG_INF("NVM store ready (diag_nvs partition mounted).");
+        }
+    }
 
     /* ── Security algorithm init (TRNG + key injection) ─────────────────── */
     /* [P1-SEC] Must run before uds_generated_init() so the TRNG callback
