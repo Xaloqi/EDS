@@ -36,6 +36,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Documentation
 
+- **Documented the SecurityAccess failed-attempt lockout policy** (#183).
+  The mechanism was already implemented in `core/uds_security.c`
+  (`max_attempts` default 3, `lockout_ms` default 10s, NVM-persistable
+  counter) but `docs/SECURITY_NOTICE.md` never described the semantics
+  an integrator needs: the lockout duration is flat, not progressive
+  (no built-in exponential backoff); the counter resets only on a
+  successful unlock, not on lockout expiry; and NVM persistence across
+  power cycles is optional — off by default — not automatic. Docs-only,
+  pulled directly from the actual config struct and reset logic, not
+  invented defaults.
+
 - **Documented the dual-transport concurrency contract and the DID-callback
   execution context** (#181). `uds_server_ctx_t` is a single shared struct
   and `core/uds_server.c` does not lock around `uds_server_process_request()`
