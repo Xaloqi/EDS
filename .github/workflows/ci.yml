@@ -272,8 +272,8 @@ jobs:
         run: |
           result=$(bash build_tests.sh 2>&1 | tail -3)
           echo "$result"
-          echo "$result" | grep -q "44 passed, 0 failed" || \
-            (echo "ERROR: Expected '44 passed, 0 failed'" && exit 1)
+          echo "$result" | grep -q "45 passed, 0 failed" || \
+            (echo "ERROR: Expected '45 passed, 0 failed'" && exit 1)
 
       # [#119] Prose-side counterpart of the step above. The step above keeps
       # this workflow honest about the module count; nothing used to keep the

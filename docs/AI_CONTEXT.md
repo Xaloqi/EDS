@@ -67,7 +67,7 @@ EDS/
 │   └── vscode-extension/   # VS Code extension (YAML validation, hover docs, Run Codegen)
 ├── gui/                    # React/TypeScript live dashboard + WebSocket ECU bridge
 ├── tests/
-│   ├── unit_runnable/      # 44 Unity C unit test modules
+│   ├── unit_runnable/      # 45 Unity C unit test modules
 │   ├── mocks/              # Test doubles shared by the unit modules
 │   ├── runner/             # ZTEST shim + test runner
 │   └── test_*.py           # Python DoIP-integration and license tests
@@ -646,7 +646,7 @@ cmake -B build_freertos \
 ninja -C build_freertos
 
 # ── Unit Tests ────────────────────────────────────────────────────────────────
-bash build_tests.sh                  # 44 Unity modules
+bash build_tests.sh                  # 45 Unity modules
 
 # ── Harness Tests ─────────────────────────────────────────────────────────────
 bash build_harness.sh                # 68 harness tests

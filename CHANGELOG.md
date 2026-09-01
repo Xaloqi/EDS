@@ -10,6 +10,48 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Periodic DID frame silently dropped when ISO-TP transmit is busy**
+  (#194; Tier-1 round-3 due diligence). `uds_periodic_pop_due()` cleared
+  a subscription's due flag before the caller attempted transmit — a
+  `BUSY` return from `isotp_transmit()` (e.g. mid multi-frame send) lost
+  that period with no re-queue, no error surfaced, and no signal to the
+  application. Added `uds_periodic_requeue_last()`: re-arms the
+  most-recently-popped subscription for the next tick. Updated all 9
+  example `main.c` drain loops that call `uds_periodic_pop_due()` to
+  check `isotp_transmit()`'s return and requeue + stop draining on
+  failure, instead of discarding it. 4 new unit tests
+  (`test_uds_periodic.c`, TC-PERIODIC-015..018), including a positive
+  control: `tc016` genuinely fails if `uds_periodic_requeue_last()`'s
+  core re-arm line is disabled, confirmed by temporarily disabling it
+  before restoring.
+
+- **NULL-pointer crash in `service_0x2E.c` if a DID has `DID_ACCESS_WRITE`
+  set but `write_cb == NULL`** (#202, found while implementing #195).
+  `s_did_safe_write()`'s 5-step ASIL-B chain invoked the write callback
+  unconditionally — every other DID-callback dispatch in this codebase
+  (`service_0x2F.c`'s `io_control_cb`, `uds_periodic_pop_due()`'s
+  `read_cb`) checks for NULL first; this one didn't. Unreachable from a
+  correctly code-generated product, but a real crash from a malformed or
+  hand-edited DID table. Fixed to mirror `service_0x2F.c`'s exact
+  precedent: `ERR_REQUEST_OUT_OF_RANGE` (NRC 0x31) instead of a
+  dereference.
+
+### Added
+
+- **`tests/unit_runnable/test_service_0x2E.c`** (#195; Tier-1 round-3 due
+  diligence). No dedicated C unit test existed for WriteDataByIdentifier
+  despite 0x22/0x23/0x27/0x28/0x2A/0x2F all having one — the primary
+  write path, and the one `ASIL_B_REQUIRE_WRITE_SECURITY` exists to
+  protect, had none. 14 test cases covering the full 5-step chain (NULL,
+  DID-not-found, wrong session, wrong security, wrong data length short
+  and long, NULL callback, callback failure, valid writes at both
+  security levels, a 1-byte boundary case, response format, and
+  sequential-write isolation). Writing it immediately found the
+  NULL-`write_cb` crash above — added to `build_tests.sh`'s `TESTS`
+  array and `tests/CMakeLists.txt`.
+
+### Fixed
+
 - **Security NVM persistence never wired into any generated product**
   (#190; Tier-1 round-3 due diligence). `core/uds_security_nvm.c`
   implements the failed-attempt-counter/lockout persistence

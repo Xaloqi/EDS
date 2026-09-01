@@ -156,6 +156,25 @@ uds_status_t uds_periodic_tick_1ms(void);
  */
 uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame);
 
+/**
+ * @brief [EDS#194] Re-queue the subscription most recently popped by
+ *        uds_periodic_pop_due() for the next tick.
+ *
+ * Call this when a transmit of the frame uds_periodic_pop_due() just
+ * returned fails (e.g. isotp_transmit() returns BUSY mid multi-frame
+ * send) — without it, that period is silently lost rather than retried,
+ * since uds_periodic_pop_due() already cleared the due flag before
+ * returning. Consumes the "last popped" record: calling this twice in a
+ * row without an intervening successful pop is a no-op the second time
+ * (ERR_NOT_FOUND) — there is only ever one frame to re-queue.
+ *
+ * @return UDS_STATUS_OK if the subscription was found and re-armed.
+ * @return UDS_STATUS_ERR_NOT_FOUND if there is nothing to re-queue (no
+ *         prior pop, already consumed, or the subscription was cancelled
+ *         between the pop and this call).
+ */
+uds_status_t uds_periodic_requeue_last(void);
+
 #ifdef __cplusplus
 }
 #endif

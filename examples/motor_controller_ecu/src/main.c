@@ -796,8 +796,16 @@ static void diag_task_fn(void *p1, void *p2, void *p3)
             isotp_ctx_t *mc_tp = uds_generated_get_isotp();
             if (mc_tp != NULL) {
                 while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
-                    (void)isotp_transmit(mc_tp, s_periodic_frame.data,
-                                        (uint32_t)s_periodic_frame.length);
+                    /* [EDS#194] Re-queue on ISO-TP busy instead of silently dropping
+                     * this period -- isotp_transmit() can legitimately return BUSY
+                     * mid multi-frame send; retry on the next 1ms tick rather than
+                     * losing the period, and stop draining this tick (the same busy
+                     * channel would just fail the next pop too). */
+                    if (isotp_transmit(mc_tp, s_periodic_frame.data,
+                                       (uint32_t)s_periodic_frame.length) != UDS_STATUS_OK) {
+                        (void)uds_periodic_requeue_last();
+                        break;
+                    }
                 }
             }
         }
