@@ -1125,7 +1125,7 @@ class TestFirmwareSafetyWrappers:
     ) -> None:
         """Step 5 (write path): Length mismatch → NRC 0x13 from safety wrapper."""
         _setup_for_did(firmware_bus, DID_CATALOGUE[7], for_write=True)
-        short_data = bytes([0xAA] * max(1, 4 - 1))
+        short_data = bytes([0xAA] * max(0, DID_CATALOGUE[7]["data_length"] - 1))
         pdu = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 160, 16]) + short_data
         )
