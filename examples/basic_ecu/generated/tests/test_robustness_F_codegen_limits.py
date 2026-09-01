@@ -196,6 +196,7 @@ class TestDataLengthBoundaries:
 class TestDuplicateAndReservedIDs:
     """Codegen must detect duplicates and reserved IDs as hard errors."""
 
+    @_skip_no_tpl
     def test_duplicate_did_id_rejected(self):
         yaml = textwrap.dedent("""\
             schema_version: 1
@@ -293,12 +294,14 @@ class TestDuplicateAndReservedIDs:
         rc, out = _codegen(yaml)
         assert rc != 0, "Duplicate DTC code must be rejected"
 
+    @_skip_no_tpl
     def test_reserved_did_0x0000_rejected(self):
         yaml = _VALID_BASE.replace('"0xA001"', '"0x0000"')
         rc, out = _codegen(yaml)
         assert rc != 0, "Reserved DID 0x0000 must be rejected"
         assert "reserved" in out.lower() or "0x0000" in out.lower()
 
+    @_skip_no_tpl
     def test_reserved_did_0xFFFF_rejected(self):
         yaml = _VALID_BASE.replace('"0xA001"', '"0xFFFF"')
         rc, out = _codegen(yaml)

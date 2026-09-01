@@ -115,6 +115,7 @@ def _run_codegen(yaml_content: str, extra_args=None, out_dir=None) -> tuple[int,
 class TestCodegenInvalidInputs:
     """Codegen must reject malformed or invalid YAML with non-zero exit codes."""
 
+    @_skip_no_tpl
     def test_missing_yaml_file_exits_2(self):
         cmd = [sys.executable, CODEGEN,
                "--config", "/nonexistent/path/config.yaml",
@@ -123,10 +124,12 @@ class TestCodegenInvalidInputs:
         r = subprocess.run(cmd, capture_output=True, text=True)
         assert r.returncode == 2, f"Expected exit 2 for missing file, got {r.returncode}"
 
+    @_skip_no_tpl
     def test_invalid_yaml_syntax_exits_2(self):
         rc, out, _ = _run_codegen("dids: [: broken yaml !@#$\n  - id")
         assert rc == 2, f"Expected exit 2 for bad YAML syntax, got {rc}"
 
+    @_skip_no_tpl
     def test_asil_write_did_no_security_exits_1(self):
         yaml = textwrap.dedent("""\
             schema_version: 1

@@ -236,6 +236,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   write-capable DID in that configuration) and needed no change. Companion
   fix in the EDS-toolchain codegen template that produces this file tracked
   separately so future `--test-gen` runs emit the corrected expression.
+- **`basic_ecu` robustness tests failed instead of skipping cleanly when
+  `tools/templates/` is absent.** (#165) `codegen.py` runs its license check
+  (import `_license`, commercial-only) before it ever loads or validates the
+  config YAML, so on a clean public checkout — no `tools/templates/`, no
+  `_license.py` — every subprocess invocation exits 1 with a "Commercial
+  License Required" banner regardless of input. 40 tests across
+  `test_robustness_A_codegen.py`, `test_robustness_F_codegen_limits.py`, and
+  `test_robustness_K_error_quality.py` asserted on specific exit codes and
+  stdout/stderr text for invalid-input cases (bad YAML, duplicate IDs, ASIL
+  violations, etc.) and failed on the banner instead of the validation
+  message they were exercising —
+  `test_robustness_L_codegen_output_fidelity.py` already skipped cleanly in
+  this situation via a `_TEMPLATES_OK` / `pytest.mark.skipif` guard, but A/F/K
+  either didn't apply it consistently or (K) didn't have it at all. Applied
+  the same guard to exactly the affected tests: A and F already had the
+  `_TEMPLATES_OK` check defined but not used on every codegen-invoking test
+  in `TestCodegenInvalidInputs` / `TestDuplicateAndReservedIDs`; K gained the
+  guard from scratch. Left alone the tests in the same classes/files that
+  only assert a bare non-zero exit code (or otherwise incidentally read
+  correctly against the license banner) and were already passing, per-test
+  rather than a blanket per-file skip, so genuinely template-independent
+  coverage keeps running. Verified: reproduced the 40 FAILED on the pre-fix
+  tree, confirmed all 40 now report SKIPPED with
+  "Jinja2 templates not present (commercial-only, not in public repo)", and
+  diffed the full list of passing tests before/after (`basic_ecu`'s
+  `generated/tests/` suite: 17 passed → 17 passed, identical set) to confirm
+  no previously-passing test was accidentally swept into the guard.
 - **Stack-buffer-overflow in `test_uds_security.c`.** (#168, found by #151's
   new ASan job on its first run) `test_uds_security_send_key__test_null_key`
   declared `uint8_t seed[4]` but passed it to `do_seed_request()`, which
