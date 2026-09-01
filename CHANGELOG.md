@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **`platform/freertos/freertos_rng_example.c`** — a reference implementation
+  of the `uds_algo_rng_cb_t` contract (`uds_security_algo_set_rng_cb()`)
+  against a real STM32H7 HAL RNG peripheral (#182). `docs/SECURITY_NOTICE.md`
+  already documented the entropy requirement clearly, but every shipped
+  example — FreeRTOS **and** Zephyr — passes `NULL` for the RNG callback
+  ("no TRNG — CI/dev build") with no compilable reference to start from.
+  Deliberately not wired into any `CMakeLists.txt` — copy it into your own
+  application and adapt the peripheral calls to your MCU. Verified with a
+  mocked HAL: correct 2-draw/4-byte-each fill for the 8-byte seed, correct
+  `UDS_STATUS_ERR_NULL_PTR` on a NULL buffer.
+
 ### Fixed
 
 - **`sbom.json` was hand-maintained and stale since inception — six
