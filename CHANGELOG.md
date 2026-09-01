@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Security NVM persistence never wired into any generated product**
+  (#190; Tier-1 round-3 due diligence). `core/uds_security_nvm.c`
+  implements the failed-attempt-counter/lockout persistence
+  `uds_security_cfg_t.nvm_load_cb`/`.nvm_save_cb` expect — its own header
+  even documents wiring them into `k_sec_cfg` — but no shipped example
+  ever did, silently defeating the brute-force protection
+  `docs/SECURITY_NOTICE.md` describes. Fixed at the source
+  (`tools/templates/uds_init.c.j2`, EDS-toolchain) and regenerated all 12
+  committed `examples/*/generated/uds_init.c` copies here for real —
+  each diff is exactly the 4 intended lines (the include + 2 struct
+  fields), confirmed via `test_example_freshness.py` in EDS-toolchain
+  (8/8 passing, comparing a fresh regen against these exact files).
+
+  On FreeRTOS this activates immediately. On Zephyr it currently
+  degrades gracefully to the pre-fix behaviour (zero counter every
+  boot) — `nvm_store_init()` is never called anywhere in the real
+  Zephyr platform init, a separate, deeper, pre-existing gap found
+  while implementing this fix and filed as #200 (also affects DTC
+  mirror persistence, already documented as surviving power cycles and
+  currently doesn't on Zephyr either).
+
 - **DoIP transport hardening — 3 bundled fixes** (#191, #192, #193; Tier-1
   round-3 due diligence). All three live in `transport/doip/` + the two
   DoIP example `main.c` files, bundled into one PR per that campaign's
