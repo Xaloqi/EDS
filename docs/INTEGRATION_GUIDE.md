@@ -528,6 +528,18 @@ Everything else (ISO-TP assembly, UDS dispatch, session management, security, DT
 
 #### Step 1 — Implement your CAN send function
 
+> **Contract: this callback must be CONFIRMED, not queued.** Do not return
+> `UDS_STATUS_OK` as soon as the frame is handed to a TX mailbox/queue — wait
+> until the controller confirms the frame was actually placed on the bus (or
+> the transmission has definitively failed). EDS's ISO-TP layer arms its
+> N_As/N_Ar timers (ISO 15765-2 Table 5, 25 ms by default) immediately before
+> calling this function and disarms them the instant it returns, so a
+> queued-only implementation silently defeats those timers instead of
+> failing loudly — see the contract note on `eds_can_send_fn_t` in
+> `platform_api.h`. This mirrors what the reference Zephyr port does (it
+> blocks in `can_send()` until the controller confirms the frame, up to a
+> 25 ms timeout).
+
 ```c
 #include "platform_api.h"
 
@@ -543,9 +555,23 @@ static uds_status_t my_can_send(const eds_can_frame_t *frame)
         .RTR   = CAN_RTR_DATA,
     };
     uint32_t mailbox;
+    uint32_t start_ms = HAL_GetTick();
+
     if (HAL_CAN_AddTxMessage(&hcan1, &hdr, frame->data, &mailbox) != HAL_OK) {
         return UDS_STATUS_ERR_CAN_TX_FAILED;
     }
+
+    /* HAL_CAN_AddTxMessage() only enqueues the frame into a TX mailbox — it
+     * does not wait for the bus to carry it. Poll the mailbox until it
+     * clears (confirmed) or the N_As/N_Ar budget elapses (failed). A
+     * production, interrupt-driven implementation should instead wait on a
+     * semaphore signalled from HAL_CAN_TxMailboxCompleteCallback(). */
+    while (HAL_CAN_IsTxMessagePending(&hcan1, mailbox)) {
+        if ((HAL_GetTick() - start_ms) > 20U) {
+            return UDS_STATUS_ERR_CAN_TX_FAILED;
+        }
+    }
+
     return UDS_STATUS_OK;
 }
 ```

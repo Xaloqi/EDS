@@ -193,6 +193,25 @@ uint32_t eds_platform_uptime_ms(void);
  *
  * @param[in] frame  Frame to transmit.
  * @return UDS_STATUS_OK on success, UDS_STATUS_ERR_PLATFORM on failure.
+ *
+ * @note CONTRACT: This function sits directly behind can_transport_ops_t's
+ *       transmit member (platform/freertos/freertos_can.c's
+ *       freertos_can_transmit() is a thin, timing-agnostic pass-through to
+ *       whatever is registered here), so it must satisfy the same CONFIRMED
+ *       contract documented on transport/can_transport.h's can_transmit_fn
+ *       typedef: do not return UDS_STATUS_OK until the frame's transmission
+ *       is confirmed by the CAN controller, not merely handed to a TX
+ *       mailbox/queue. ISO-TP's N_As/N_Ar timers (transport/isotp.h) are
+ *       armed immediately before the call into this function and disarmed
+ *       the instant it returns, so a "queued-only" implementation (e.g. a
+ *       bare STM32 HAL_CAN_AddTxMessage() with no wait for the completion
+ *       event) silently defeats those timers instead of violating them
+ *       loudly. Bound the wait to the N_As/N_Ar budget (25 ms by default,
+ *       ISOTP_TIMEOUT_AS_MS / ISOTP_TIMEOUT_AR_MS) and return
+ *       UDS_STATUS_ERR_PLATFORM on expiry — mirroring how the reference
+ *       Zephyr port confirms transmission (platform/zephyr/zephyr_can.c
+ *       blocks in can_send() with a K_MSEC(25) timeout). See the corrected
+ *       FreeRTOS example in docs/INTEGRATION_GUIDE.md §4.2 Step 1.
  */
 typedef uds_status_t (*eds_can_send_fn_t)(const eds_can_frame_t *frame);
 

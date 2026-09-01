@@ -246,7 +246,17 @@ bash build_tests.sh
 cd examples/basic_ecu/generated/tests
 pip install -r requirements_testgen.txt   # xaloqi-tester — separate from tools/requirements.txt
 pytest test_services.py test_did_*.py -v --can-interface=simulator
+
+# Whole Python suite (repo tests/ + every example, each correctly scoped) —
+# the canonical entrypoint; prints a pass/skip/fail summary per suite
+bash run_python_tests.sh
 ```
+
+> A bare `pytest` from the repo root only collects `tests/` (see
+> `pytest.ini`) — every example's `generated/tests/` is its own
+> self-contained pytest project and must be run scoped to its own
+> directory, exactly as shown above. `run_python_tests.sh` runs all of them
+> for you.
 
 ### GUI configurator
 
