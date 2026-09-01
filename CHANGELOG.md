@@ -183,6 +183,43 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`test_step5_data_length_nrc_13_firmware`'s "too-short WriteDID" firmware
+  test hardcoded the short byte count instead of deriving it from the DID's
+  own `data_length`.** (#160, found while verifying #144) Every generated
+  `test_firmware_services.py` computed `short_data` as
+  `bytes([0xAA] * max(1, 1 - 1))` — a byte count that never referenced the
+  actual DID at all. For `sensor_ecu` / `sensor_ecu_freertos`,
+  `DID_CATALOGUE[5]` is DID 0xD010 with `data_length: 1`: the hardcoded
+  expression always produces 1 byte, which is the DID's *full* length, not a
+  short one, so the firmware accepted the write and returned a positive
+  response (0x6E) where the test asserted a negative one — confirmed via
+  `--firmware` against a locally built harness (`assert 110 == 127`). The
+  other 10 examples' `DID_CATALOGUE` index used by this test happens to have
+  `data_length >= 2` (e.g. `basic_ecu`'s DID 0xF187 is 11 bytes), so the same
+  wrong expression coincidentally still produced a genuinely-short write —
+  masking the bug everywhere except the two 1-byte-DID examples.
+  Fixed to `bytes([0xAA] * max(0, DID_CATALOGUE[N]["data_length"] - 1))`,
+  reading the DID's real length instead of a baked-in literal. Note the floor
+  had to change from 1 to 0, not just the literal: the issue's own suggested
+  `max(1, data_length - 1)` still evaluates to 1 for a `data_length=1` DID
+  (`max(1, 1 - 1) == max(1, 0) == 1`), which is exactly the bug being fixed —
+  writing "one byte short" of a 1-byte DID is a 0-byte write, and `max(0, …)`
+  is needed to let it through as 0 while still flooring longer DIDs at a
+  minimum of 0 bytes removed (never negative). Worked examples:
+  `data_length=1` → `max(0, 1 - 1) = 0` bytes (was 1, wrongly matching the
+  full length); `data_length=11` → `max(0, 11 - 1) = 10` bytes (was already
+  10 via the old hardcoded literal for that example, so no behavior change
+  there). Verified for both `sensor_ecu` and `sensor_ecu_freertos` against a
+  freshly built local harness (Professional-tier `harness/` extracted for
+  verification only, never committed — `harness/` stays gitignored per #67):
+  `test_step5_data_length_nrc_13_firmware` reproducibly fails on the
+  pre-fix code (`assert 110 == 127`) and passes after the fix; `basic_ecu`
+  (`data_length=11`) still passes unchanged. All 10 affected
+  `examples/*/generated/tests/test_firmware_services.py` files fixed here;
+  `safeboot_ecu`'s copy of this test already `pytest.skip()`s (no
+  write-capable DID in that configuration) and needed no change. Companion
+  fix in the EDS-toolchain codegen template that produces this file tracked
+  separately so future `--test-gen` runs emit the corrected expression.
 - **Stack-buffer-overflow in `test_uds_security.c`.** (#168, found by #151's
   new ASan job on its first run) `test_uds_security_send_key__test_null_key`
   declared `uint8_t seed[4]` but passed it to `do_seed_request()`, which
