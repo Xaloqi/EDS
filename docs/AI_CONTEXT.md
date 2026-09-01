@@ -19,6 +19,19 @@ ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 **Transport:** ISO-TP over CAN (default) · DoIP over Ethernet/TCP (v1.6.0+)
 **OpenSOVD CDA:** `--sovd` flag generates `sovd_cda.json` (v1.7.0+)
 
+**Licensing split (open-core) — read this before suggesting a `codegen.py` command:**
+- **OSS runtime** (`core/`, `transport/`, `config/`, `platform/`) is GPL v2 and fully
+  usable — builds and runs standalone, no license needed.
+- **OSS generator, validation only:** `tools/codegen.py` itself is public and its
+  YAML/schema/ASIL-B validation steps run standalone (`--dry-run` will report
+  config errors without a license).
+- **Commercial, required to actually generate code:** producing output needs
+  `tools/templates/` (the Jinja2 templates), a Developer/Professional-tier deliverable
+  that is gitignored and not part of this public repo. Without it, `codegen.py` exits
+  with "Commercial License Required." Every bundled example ships its `generated/`
+  output pre-committed, so `west build` works without running codegen at all — see
+  [COMMERCIAL_NOTICE.md](../COMMERCIAL_NOTICE.md).
+
 ---
 
 ## Repository Structure
@@ -331,7 +344,10 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 ## Integration Pattern — DoIP (ISO 13400-2)
 
 DoIP transport is an additive v1.6.0 feature. The UDS core, safety wrappers, and YAML schema
-are identical to CAN builds.
+are identical to CAN builds. EDS implements a **DoIP diagnostic server subset**
+(ISO 13400-2 routing activation + diagnostic messaging) — UDP vehicle identification,
+vehicle announcement, and entity status are out of scope; see `docs/ARCHITECTURE.md` §6.2
+for the full feature matrix.
 
 ### YAML change
 
@@ -486,6 +502,10 @@ FreeRTOS / bare-metal: `-DISOTP_ENABLE_CAN_FD=1`.
 
 When enabled: SF escape sequence carries up to 62-byte payloads; FF escape sequence
 encodes 32-bit FF_DL for PDU > 4095 bytes. Default is 0 (classic CAN, unchanged).
+That 4095-byte figure is the ISO-TP transport ceiling only — the UDS application-layer
+buffer (`uds_msg_buf_t` in `core/uds_types.h`) is a fixed `data[4095]` + `uint16_t length`,
+so a single diagnostic PDU is still capped at 4095 bytes at the UDS/service layer
+regardless of the CAN FD escape sequence's larger transport capacity.
 
 ---
 
@@ -556,6 +576,11 @@ demonstrate DTC behaviour without hardware.
 Setting `safeboot.enabled: true` causes codegen to generate a platform flash ops init
 call automatically in `uds_init.c`, wiring the flash driver into the UDS transfer
 services. No manual flash ops registration required.
+
+**Boundary:** SafeBoot is the diagnostic-transfer-to-flash bridge (0x34/0x36/0x37 wiring,
+CRC-32 check, secondary-slot / dual-bank write) — not a full secure-update platform.
+Image signing, anti-rollback policy, A/B/transactional apply with power-loss recovery,
+and HSM integration are integrator-supplied, out of scope.
 
 - `safeboot.platform: zephyr` (default) → generates `zephyr_flash_ops_init()` — MCUboot secondary-slot on Zephyr
 - `safeboot.platform: freertos` → generates `freertos_flash_ops_init()` — STM32H743 dual-bank, no MCUboot

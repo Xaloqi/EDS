@@ -33,6 +33,15 @@
 
 ## 1. Overview
 
+> **Licensing note:** this document describes the full generator pipeline, including the
+> Jinja2 templates in `tools/templates/`. `tools/codegen.py` itself is public, and its
+> YAML/schema/ASIL-B *validation* steps run standalone — but `tools/templates/` is a
+> commercial Developer/Professional-tier deliverable, gitignored and not part of this
+> public repo, and is required to actually render the C/pytest/GUI output described
+> below. Every bundled example ships its generated output pre-committed, so the OSS
+> runtime builds and runs without ever invoking the generator. See
+> [COMMERCIAL_NOTICE.md](../COMMERCIAL_NOTICE.md).
+
 The Xaloqi EDS uses a configuration-driven architecture where all diagnostic behaviour is defined in a single YAML file and automatically transformed into production C code, a pytest test suite, and a TypeScript GUI catalog.
 
 This approach delivers several compounding advantages:

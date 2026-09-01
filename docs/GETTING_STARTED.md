@@ -129,6 +129,13 @@ You should see the codegen help text. If you see a Python import error, re-run
 The code generator reads `diagnostics_config.yaml` and produces the C source files
 that implement your DID and DTC tables, safety wrappers, and init sequence.
 
+> **Licensed step.** `tools/codegen.py` is public and its YAML/schema validation runs
+> standalone, but actually *producing* the C output below requires the commercial
+> `tools/templates/` Jinja2 templates (a Developer/Professional-tier deliverable, not
+> part of this public repo) — see [COMMERCIAL_NOTICE.md](../COMMERCIAL_NOTICE.md).
+> **No license? Skip this step.** `basic_ecu`'s `generated/` output is already
+> committed to the repo, so Steps 6–8 (`west build` and run) work without it.
+
 ```bash
 # From the eds repo root
 python3 tools/codegen.py \
