@@ -78,6 +78,49 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `run_all_tests()` executes nothing still exits 0 and was reported as PASS;
   the summary now carries a `Unit Test Cases: N run, M failed` line and the
   script fails if any module executed zero cases.
+- **CI guard: `uds_msg_buf_t` can no longer be silently stack-allocated
+  without a build failure.** (#152) `core/uds_types.h`'s
+  `EDS_MSG_BUF_MAX_STACK_BYTES` `_Static_assert` documents its own
+  limitation — it checks `sizeof(uds_msg_buf_t)` against a configured
+  threshold, which is necessary but not sufficient: an integrator who
+  raises the threshold for a host build (e.g.
+  `-DEDS_MSG_BUF_MAX_STACK_BYTES=8192`) got zero protection from it. New
+  `scripts/verify_no_stack_uds_msg_buf.sh`, wired into the
+  `integration-tests` CI job, greps `core/`, `transport/`, `platform/`, and
+  `config/` for non-static, non-comment `uds_msg_buf_t <name>;`
+  declarations — the shape of a stack (automatic-storage) local — and fails
+  the build if it finds one. Verified against a real positive case: a fake
+  stack-declared `uds_msg_buf_t` was temporarily added to
+  `platform/zephyr/zephyr_can.c`, confirmed to make the script fail with
+  the exact line flagged, then removed and confirmed clean again.
+
+### Documentation
+
+- **`can_transport_transmit()`'s CONFIRMED-vs-queued contract was
+  undocumented, even though ISO-TP's N_As/N_Ar timers depend entirely on
+  it.** (#152) `transport/can_transport.h` said only that a successful
+  return meant the frame "was accepted for transmission" — never whether
+  that meant queued into the driver or physically confirmed on the bus.
+  `transport/isotp.h`/`isotp.c` already treat `can_transport_transmit()`'s
+  return as the N_As/N_Ar transmission-confirmation event, so the actual
+  timing semantics depended on an unstated contract. Audited both platform
+  HALs: `platform/zephyr/zephyr_can.c` satisfies a CONFIRMED contract today
+  (`can_send()` with `callback=NULL` blocks until the controller confirms
+  the frame or a `K_MSEC(25)` timeout elapses); `platform/freertos/freertos_can.c`
+  is a thin, timing-agnostic pass-through to a customer-supplied
+  `eds_can_send_fn_t`, so its actual behavior depends on that customer
+  implementation — and `docs/INTEGRATION_GUIDE.md`'s own reference example
+  used a bare `HAL_CAN_AddTxMessage()` call, which returns as soon as the
+  frame is queued into a TX mailbox, silently defeating N_As/N_Ar for
+  anyone who copied it as-is. No shipped runtime-stack behavior needed to
+  change (the FreeRTOS shim itself is agnostic, not wrong), but the
+  documented contract and the guide's example did. Now: `can_transport.h`'s
+  `can_transmit_fn`/`can_transport_ops_t.transmit`/`can_transport_transmit()`
+  doc comments state the CONFIRMED contract explicitly, `isotp.h`'s N_As/N_Ar
+  notes cross-reference it, `platform_api.h`'s `eds_can_send_fn_t` doc states
+  the same requirement for customer FreeRTOS implementations, and
+  `INTEGRATION_GUIDE.md`'s example now polls for mailbox completion instead
+  of returning on enqueue, with a prominent contract callout above it.
 
 ### Security
 
@@ -109,6 +152,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   an honestly-declared short buffer with `UDS_STATUS_ERR_BUFFER_OVERFLOW`.
   The test buffer now uses the macro, as every other seed buffer in the
   suite already did.
+- **The Python test suite had no canonical entrypoint — root-level `pytest`
+  collection failed outright.** (#150) Every `examples/*/generated/tests/`
+  directory's `conftest.py` declares `pytest_plugins = ["conftest_firmware"]`
+  (added by #143), which pytest only allows in a conftest.py sitting at its
+  own session rootdir; a bare `pytest` from the repo root tried to walk all
+  12 example trees in one session and hard-errored on every one of them
+  ("Defining 'pytest_plugins' in a non-top-level conftest is no longer
+  supported"), collecting only 11 stray tests. A new root-level `pytest.ini`
+  (`testpaths = tests`) scopes a bare root `pytest` run to this repo's own
+  hand-written `tests/` suite — each example's `generated/tests/` already
+  ships its own committed `pytest.ini`/`conftest.py` and is self-contained
+  exactly as README.md and CI already document
+  (`cd examples/<name>/generated/tests && pytest ...`); regenerating those
+  12 generated trees to share a root conftest was not an option here — they
+  are produced by `tools/testgen.py`, a commercial gitignored deliverable
+  not present in a bare public checkout, and must never be hand-edited. New
+  `run_python_tests.sh` (mirrors `build_tests.sh`'s role for the C suite) is
+  the canonical "run everything" command: `tests/` plus every example, each
+  scoped to its own directory, with a pass/`[ENV]`/fail summary per suite.
+  Also fixed: `tests/test_license_expiry.py` hard-errored at collection
+  (`ModuleNotFoundError: No module named '_license'`) in any checkout
+  without the commercial `tools/_license.py` module — it now degrades to a
+  `[ENV]`-tagged skip under pytest (and to a plain printed message, exit 0,
+  when run standalone). Skip reasons for known environment gaps (missing
+  `xaloqi-tester`, missing DoIP ECU binary, missing `_license` module) now
+  carry a `[ENV]` prefix so they're greppable and visibly distinct from a
+  real test failure, per the issue's second ask.
 
 - **CI's "Integration Tests (generated, simulator mode)" job has executed
   zero tests since the initial public release.** (#141, #142) `conftest.py`'s
@@ -163,8 +233,53 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   than a "fixture not found" — is tracked as
   [#144](https://github.com/Xaloqi/EDS/issues/144), not fixed here.)
 
-All four found and fixed during the 2026-08-31 validation campaign; see
+- **`build_harness.sh` only ever built one generic harness, hardcoded to
+  `basic_ecu`'s generated sources — every other example's firmware-backed
+  tests failed on protocol mismatch, not a real defect.** (#144) Once #143
+  made `firmware_bus` reachable, running `test_firmware_services.py
+  --firmware` for any example besides the `basic_ecu` family compiled and
+  launched a harness binary built from `examples/basic_ecu/generated/{did_
+  handlers,did_safety_wrappers,routine_handlers}.c` regardless of which
+  example's tests were actually running — e.g. `sensor_ecu` failed 20 of 60
+  tests with wrong DID content, wrong routine IDs, and a wrong DTC set,
+  because it was really talking to basic_ecu's firmware. `build_harness.sh`
+  now takes a `--example <name>` flag (or `EXAMPLE` env var, default
+  `basic_ecu`) and builds against that example's own `generated/` sources
+  and include path; the default output binary is now
+  `/tmp/harness_ecu_test_<example>` so builds for different examples never
+  collide or clobber each other's cached binary. `conftest_firmware.py`'s
+  `harness_binary()` / `build_harness()` derive their own example name from
+  `Path(__file__)` (they already live inside
+  `examples/<name>/generated/tests/`) rather than requiring a caller to
+  specify it, and stay session-scoped — one build per example's own test
+  session is still correct. Verified by building and running
+  `--firmware` for `basic_ecu` (56 passed, 1 skipped, unchanged) and all 10
+  other examples with a `tests/` dir: every DID/routine protocol-mismatch
+  failure is gone. `sensor_ecu`, `motor_controller_ecu`, `ardep_ecu`,
+  `bms_ecu`, `robot_joint_controller_ecu`, and `safeboot_ecu` each now
+  fail only on DTC-registration assertions, traced to a separate,
+  narrower pre-existing bug — `harness/harness_ecu.c` hardcodes DTC
+  registration to `basic_ecu`'s two DTCs regardless of example — tracked as
+  [#158](https://github.com/Xaloqi/EDS/issues/158); `sensor_ecu` and
+  `sensor_ecu_freertos` additionally hit a hardcoded byte-count in a
+  generated WriteDID test, tracked as
+  [#160](https://github.com/Xaloqi/EDS/issues/160). Neither is fixed here.
+
+All five found and fixed during the 2026-08-31 validation campaign; see
 `xaloqi-knowledge/campaigns/2026-08-31-validation-campaign.md`.
+
+- **Version identity was broken: several files still claimed old
+  versions instead of the current 1.12.0.** (#149) `core/uds_types.h`'s
+  `UDS_SUITE_VERSION_MAJOR/MINOR/PATCH` and `UDS_SUITE_VERSION_STRING`
+  still read 1.10.0; `CMakeLists.txt`'s `project(... VERSION 1.10.0)`
+  (and its header comment) likewise; `SECURITY.md`'s supported-versions
+  table still listed "1.7.x (current)"; and all 12
+  `examples/*/generated/safety_config.h` files still defined
+  `UDS_STACK_VERSION "1.7.0"`. None of these matched README.md's version
+  badge, CHANGELOG.md's top entry, or `tools/codegen.py`'s `__version__`
+  (all 1.12.0), so a build, a security report, or a generated ECU could
+  each report a different EDS version depending on which file was
+  consulted. All now read 1.12.0.
 
 ### Documentation
 

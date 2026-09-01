@@ -97,6 +97,16 @@ static bool s_initialized = false;
 
 /* --------------------------------------------------------------------------
  * can_transport_ops_t — transmit
+ *
+ * This shim is timing-agnostic: it forwards directly to the customer's
+ * s_can_send_fn() and returns whatever that function returns. It does NOT
+ * itself wait for or confirm transmission. Satisfying the CONFIRMED contract
+ * required by can_transport_transmit() (see transport/can_transport.h's
+ * can_transmit_fn doc) is therefore the responsibility of the registered
+ * eds_can_send_fn_t implementation — see its contract note in
+ * platform/platform_api.h. A customer callback that returns as soon as the
+ * frame is queued (not confirmed) silently defeats ISO-TP's N_As/N_Ar
+ * timers.
  * -------------------------------------------------------------------------- */
 
 static uds_status_t freertos_can_transmit(
