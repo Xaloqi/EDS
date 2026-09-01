@@ -431,6 +431,13 @@ push / PR
    ├── unit-tests          44 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
+   ├── cmake-ctest-build   The same modules via cmake -S tests + ctest
+   │                       + membership assertion vs tests/unit_runnable/
+   │
+   ├── sanitizers          The same modules via build_tests.sh --sanitize,
+   │                       built and run under ASan + UBSan
+   │                       + scripts/verify_sanitizer_gate.sh positive gate
+   │
    ├── integration-tests   Generated pytest suite, simulator mode
    │                       + zero dynamic allocation grep gate
    │
@@ -449,7 +456,10 @@ push / PR
                            + 10 pytest end-to-end tests (skipped when TestLab absent)
 ```
 
-All 8 jobs must pass before a PR can be merged.
+Every job must pass before a PR can be merged. The tree above names the
+test-bearing jobs; the `jobs:` block in `.github/workflows/ci.yml` is the
+authoritative list, because a hand-maintained job count here has already
+drifted twice (#91, #119) — this line claimed 8.
 
 ### FreeRTOS CI job (`freertos-qemu`)
 

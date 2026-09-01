@@ -2,25 +2,49 @@
 # Xaloqi EDS
 # FILE: tests/CMakeLists.txt
 #
-# PURPOSE: Host-native CMake build for all 43 unit test modules.
-#          Compiles each test_*.c file together with the FULL diagnostics
-#          stack (mirroring build_tests.sh's STACK_SRCS) and the Unity
-#          framework into a standalone executable. CTest then runs each
-#          executable and reports pass/fail based on exit code.
+# PURPOSE: Host-native CMake build for every unit test module in
+#          tests/unit_runnable/. The FULL diagnostics stack (mirroring
+#          build_tests.sh's STACK_SRCS) is linked into every test executable
+#          alongside the Unity framework. CTest then runs each executable and
+#          reports pass/fail based on exit code.
 #
 #          Architecture:
 #            tests/CMakeLists.txt (this file)
 #              -> tests/runner/test_main.c         (Unity main + lifecycle)
 #              -> tests/runner/ztest_shim.h        (ZTEST-to-Unity macro map)
 #              -> project/unity/unity.c            (Unity assertion engine)
-#              -> tests/unit_runnable/test_<module>.c  (canonical test cases — 43 modules)
+#              -> tests/unit_runnable/test_<module>.c  (canonical test cases)
 #              -> <production sources>             (the entire diagnostics stack)
 #              -> examples/basic_ecu/generated/ did_handlers.c etc. (generated stubs)
 #
-#          This design allows all 43 modules to be tested on a CI runner
+#          This design allows every module to be tested on a CI runner
 #          without a Zephyr SDK or hardware target, using only GCC/Clang
-#          and CMake. Each test module compiles independently to avoid
-#          link-time symbol conflicts between test modules.
+#          and CMake.
+#
+#          [#151] BUILD ONCE, LINK N TIMES
+#          The stack used to be listed in every single add_diag_test() call,
+#          so CMake compiled all ~44 stack sources once per test target
+#          (~1,900 translation units). It is now compiled once into an
+#          OBJECT library whose objects are linked into every test
+#          executable; only each module's own driver .c is compiled
+#          per-target. This mirrors build_tests.sh's libeds_testable.a.
+#
+#          Why an OBJECT library and not a STATIC one: every object must end
+#          up in every test binary, exactly as when the sources were listed
+#          per-target. A plain static-archive link would extract only the
+#          members needed to resolve an already-undefined symbol and would
+#          silently drop the rest (measured on this codebase: 279 symbols,
+#          including g_uds_service_table and the whole DID handler set, with
+#          the affected module still reporting PASS). build_tests.sh gets
+#          that guarantee from GNU ld's --whole-archive; the portable CMake
+#          equivalent, on the 3.16 baseline this file targets, is an OBJECT
+#          library. Same semantics, expressed in each build system's idiom —
+#          what O-26 requires the two paths to keep in lockstep is the source
+#          list and the compile definitions, and those remain mirrored 1:1.
+#
+#          Two modules need the SHARED sources compiled in a different
+#          configuration and therefore get their own OBJECT library variant;
+#          see eds_stack_objects() and build_tests.sh's extra_flags_for_test().
 #
 #          [EDS#88 FIX] This file previously (a) pointed generated sources at
 #          <repo-root>/generated/, which does not exist — the real location
@@ -54,14 +78,15 @@
 #
 # SAFETY CONTEXT : Test infrastructure — not safety-assessed.
 # CODING STANDARD: MISRA C:2012 alignment intended (advisory for test code).
-# VERSION        : 1.8.0 (43 modules wired — parity with build_tests.sh; see EDS#88)
+# VERSION        : 1.9.0 (shared stack OBJECT library — see #151; module list
+#                  stays at parity with build_tests.sh's TESTS array, see EDS#88)
 # SPDX-License-Identifier: Apache-2.0
 # =============================================================================
 
 cmake_minimum_required(VERSION 3.16)
 
 project(diag_unit_tests
-    VERSION     1.8.0
+    VERSION     1.9.0
     LANGUAGES   C
     DESCRIPTION "Host-native Unity unit tests — Xaloqi EDS"
 )
@@ -105,7 +130,7 @@ set(DIAG_PLATFORM_ZEPHYR "${DIAG_ROOT}/platform/zephyr")
 # This matches build_tests.sh's STACK_SRCS / INCLUDES exactly.
 set(DIAG_GENERATED     "${DIAG_ROOT}/examples/basic_ecu/generated")
 set(DIAG_UNITY         "${DIAG_ROOT}/project/unity")
-# [M2] Canonical test directory is unit_runnable/ (43 modules).
+# [M2] Canonical test directory is unit_runnable/.
 # tests/legacy_unit/ has been removed — unit_runnable/ is the single source of truth.
 # build_tests.sh and this CMakeLists.txt both reference unit_runnable/.
 set(TEST_UNIT_DIR      "${CMAKE_CURRENT_SOURCE_DIR}/unit_runnable")
@@ -197,26 +222,79 @@ set(DIAG_TEST_COMPILE_OPTIONS
 )
 
 # ---------------------------------------------------------------------------
+# [#151] eds_stack_objects(OUT_VAR [<defines>...])
+#
+# Returns (in OUT_VAR) the name of the OBJECT library holding the whole
+# diagnostics stack compiled with the given extra compile definitions,
+# creating it on first use. One library per distinct definition set:
+#
+#   no defines                            -> eds_stack_default
+#   CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0   -> eds_stack_config_diag_placeholder_keys_only_0
+#   UDS_ACL_ALLOW_UNLISTED_SERVICES=1     -> eds_stack_uds_acl_allow_unlisted_services_1
+#
+# The library name is DERIVED FROM THE DEFINES, exactly as build_tests.sh
+# derives its archive variant id from extra_flags_for_test()'s output. That
+# is the point: a module that needs a third compile-time configuration of the
+# shared sources automatically gets a third library, instead of silently
+# linking the default one and "proving" a configuration it never compiled.
+#
+# test_main.c is part of the stack here (it is identical for every module and
+# carries the weak setUp/tearDown defaults each test_*.c overrides), matching
+# build_tests.sh's STACK_SRCS. unity.c is NOT: it is provided by the 'unity'
+# static library below, which is compiled once and shared by every target.
+# ---------------------------------------------------------------------------
+function(eds_stack_objects OUT_VAR)
+    set(_defs ${ARGN})
+
+    if(NOT _defs)
+        set(_objlib "eds_stack_default")
+    else()
+        string(REPLACE ";" "_" _slug "${_defs}")
+        string(REGEX REPLACE "[^A-Za-z0-9]+" "_" _slug "${_slug}")
+        string(REGEX REPLACE "^_+|_+$" "" _slug "${_slug}")
+        string(TOLOWER "${_slug}" _slug)
+        set(_objlib "eds_stack_${_slug}")
+    endif()
+
+    if(NOT TARGET ${_objlib})
+        add_library(${_objlib} OBJECT
+            "${TEST_RUNNER_DIR}/test_main.c"
+            ${DIAG_STACK_SRCS}
+        )
+        target_include_directories(${_objlib} PRIVATE ${DIAG_INCLUDE_DIRS})
+        target_compile_options(${_objlib} PRIVATE ${DIAG_TEST_COMPILE_OPTIONS})
+        if(_defs)
+            target_compile_definitions(${_objlib} PRIVATE ${_defs})
+        endif()
+    endif()
+
+    set(${OUT_VAR} ${_objlib} PARENT_SCOPE)
+endfunction()
+
+# ---------------------------------------------------------------------------
 # Helper function: add_diag_test(name SOURCES sources... [DEFINES ...])
 #
 # Creates a test executable named 'name' that:
-#   - Compiles the listed source files, plus tests/runner/test_main.c
+#   - Compiles the listed source files (just the module's own driver .c)
+#   - Links in every object of the shared stack OBJECT library built with
+#     this target's DEFINES  [#151]
 #   - Links against Unity
 #   - Includes all DIAG_INCLUDE_DIRS
 #   - Applies DIAG_TEST_COMPILE_OPTIONS
 #   - Registers with CTest via add_test()
 #
-# NOTE: test_main.c is added here unconditionally — do not also list it in
-# a call's SOURCES (CMake errors on a source file listed twice in one
-# add_executable). Likewise unity.c is provided via the 'unity' link
-# library, not as a direct source, to avoid linking its symbols twice.
+# NOTE: neither test_main.c nor unity.c may be listed in a call's SOURCES.
+# test_main.c comes from the stack OBJECT library and unity.c from the
+# 'unity' link library; listing either again would duplicate its symbols.
 # ---------------------------------------------------------------------------
 function(add_diag_test TEST_NAME)
     cmake_parse_arguments(ARG "" "" "SOURCES;DEFINES" ${ARGN})
 
+    eds_stack_objects(_stack_objlib ${ARG_DEFINES})
+
     add_executable(${TEST_NAME}
-        "${TEST_RUNNER_DIR}/test_main.c"
         ${ARG_SOURCES}
+        $<TARGET_OBJECTS:${_stack_objlib}>
     )
 
     target_include_directories(${TEST_NAME} PRIVATE
@@ -254,14 +332,17 @@ endfunction()
 # per-target hand-maintained SOURCES lists (previously the pattern in this
 # file) unnecessary and prone to drift: one dependency graph, one list.
 #
+# [#151] This list is now compiled ONCE per configuration, into the OBJECT
+# library that eds_stack_objects() creates, rather than once per test target.
+#
 # Two files from STACK_SRCS's bash array are deliberately NOT repeated here:
 #   - project/unity/unity.c   — provided via the 'unity' static library
 #                                (target_link_libraries), not as a direct
 #                                source; listing it again would double-link
 #                                its symbols.
-#   - tests/runner/test_main.c — added unconditionally inside add_diag_test()
-#                                 above; listing it again is a duplicate
-#                                 source file, which CMake rejects.
+#   - tests/runner/test_main.c — added inside eds_stack_objects() above, so
+#                                 it is compiled once with the stack rather
+#                                 than once per test target.
 # ===========================================================================
 set(DIAG_STACK_SRCS
     # UDS core
@@ -324,230 +405,195 @@ set(DIAG_STACK_SRCS
 )
 
 # ===========================================================================
-# Test targets — one per module under test (43 total, matching
-# build_tests.sh's TESTS array 1:1 — see EDS#88)
+# Test targets — one per module under test, matching build_tests.sh's
+# TESTS array 1:1 (see EDS#88). The count is deliberately not written down
+# here: ci.yml's "Verify test count" step and scripts/verify_doc_counts.py
+# are what keep it honest, and a number in a comment has drifted twice.
 # ===========================================================================
 
 add_diag_test(test_uds_session
     SOURCES
         "${TEST_UNIT_DIR}/test_uds_session.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_uds_security
     SOURCES
         "${TEST_UNIT_DIR}/test_uds_security.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_uds_safety
     SOURCES
         "${TEST_UNIT_DIR}/test_uds_safety.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_uds_server
     SOURCES
         "${TEST_UNIT_DIR}/test_uds_server.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_did_database
     SOURCES
         "${TEST_UNIT_DIR}/test_did_database.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_dtc_database
     SOURCES
         "${TEST_UNIT_DIR}/test_dtc_database.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_dtc_mirror
     SOURCES
         "${TEST_UNIT_DIR}/test_dtc_mirror.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_routine_database
     SOURCES
         "${TEST_UNIT_DIR}/test_routine_database.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_did_handlers
     SOURCES
         "${TEST_UNIT_DIR}/test_did_handlers.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_did_safety_wrappers
     SOURCES
         "${TEST_UNIT_DIR}/test_did_safety_wrappers.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_can_transport
     SOURCES
         "${TEST_UNIT_DIR}/test_can_transport.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_isotp
     SOURCES
         "${TEST_UNIT_DIR}/test_isotp.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_isotp_concurrent
     SOURCES
         "${TEST_UNIT_DIR}/test_isotp_concurrent.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x10
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x10.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x11
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x11.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x14
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x14.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x19
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x19.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x22
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x22.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x27
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x27.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x28
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x28.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_uds_periodic
     SOURCES
         "${TEST_UNIT_DIR}/test_uds_periodic.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x2A
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x2A.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x2F
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x2F.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x31
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x31.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x23_0x3D
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x23_0x3D.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x34
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x34.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x35
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x35.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x36
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x36.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x37
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x37.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x3E
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x3E.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_service_0x85
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x85.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_phase2_suppress_bit
     SOURCES
         "${TEST_UNIT_DIR}/test_phase2_suppress_bit.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_phase2_session_matrix
     SOURCES
         "${TEST_UNIT_DIR}/test_phase2_session_matrix.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_phase2_isotp_stmin
     SOURCES
         "${TEST_UNIT_DIR}/test_phase2_isotp_stmin.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_phase3_nvm_security
     SOURCES
         "${TEST_UNIT_DIR}/test_phase3_nvm_security.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_phase3_nvm_dtc
     SOURCES
         "${TEST_UNIT_DIR}/test_phase3_nvm_dtc.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_phase3_nvm_integration
     SOURCES
         "${TEST_UNIT_DIR}/test_phase3_nvm_integration.c"
-        ${DIAG_STACK_SRCS}
 )
 
 # ---------------------------------------------------------------------------
@@ -562,31 +608,26 @@ add_diag_test(test_phase3_nvm_integration
 add_diag_test(test_phase5_security_algo
     SOURCES
         "${TEST_UNIT_DIR}/test_phase5_security_algo.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_phase5_access_table
     SOURCES
         "${TEST_UNIT_DIR}/test_phase5_access_table.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_phase5_server_access
     SOURCES
         "${TEST_UNIT_DIR}/test_phase5_server_access.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_phase5_replay_protection
     SOURCES
         "${TEST_UNIT_DIR}/test_phase5_replay_protection.c"
-        ${DIAG_STACK_SRCS}
 )
 
 add_diag_test(test_doip_server
     SOURCES
         "${TEST_UNIT_DIR}/test_doip_server.c"
-        ${DIAG_STACK_SRCS}
 )
 
 # ---------------------------------------------------------------------------
@@ -601,7 +642,6 @@ add_diag_test(test_doip_server
 add_diag_test(test_trng_fail_closed
     SOURCES
         "${TEST_UNIT_DIR}/test_trng_fail_closed.c"
-        ${DIAG_STACK_SRCS}
     DEFINES
         CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0
 )
@@ -617,7 +657,6 @@ add_diag_test(test_trng_fail_closed
 add_diag_test(test_uds_acl_permissive_opt_in
     SOURCES
         "${TEST_UNIT_DIR}/test_uds_acl_permissive_opt_in.c"
-        ${DIAG_STACK_SRCS}
     DEFINES
         UDS_ACL_ALLOW_UNLISTED_SERVICES=1
 )
