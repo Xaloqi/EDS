@@ -655,7 +655,7 @@ ZTEST(test_service_0x19, tc025_null_req)
         "NULL req must return ERR_NULL_PTR");
 }
 
-/* ---- Sub-function 0x0B — reportDTCFaultDetectionCounter --------------- */
+/* ---- Sub-function 0x14 — reportDTCFaultDetectionCounter --------------- */
 
 /**
  * TC-0x19-026: All DTCs have testFailed=1 → nothing qualifies → 2-byte response.
@@ -672,7 +672,7 @@ ZTEST(test_service_0x19, tc026_fdc_all_test_failed_empty)
     uds_msg_buf_t req;
     memset(&req, 0, sizeof(req));
     req.data[0] = 0x19U;
-    req.data[1] = 0x0BU;
+    req.data[1] = 0x14U;
     req.length  = 2U;
 
     uds_msg_buf_t resp = {0};
@@ -680,7 +680,7 @@ ZTEST(test_service_0x19, tc026_fdc_all_test_failed_empty)
 
     zassert_equal(rc, UDS_STATUS_OK, "must return OK even with empty result");
     zassert_equal(resp.data[0], 0x59U, "response SID must be 0x59");
-    zassert_equal(resp.data[1], 0x0BU, "echo sub-function must be 0x0B");
+    zassert_equal(resp.data[1], 0x14U, "echo sub-function must be 0x14");
     zassert_equal(resp.length, 2U, "no qualifying DTCs → 2-byte header only");
 }
 
@@ -700,7 +700,7 @@ ZTEST(test_service_0x19, tc027_fdc_qualifying_dtc_returned)
     uds_msg_buf_t req;
     memset(&req, 0, sizeof(req));
     req.data[0] = 0x19U;
-    req.data[1] = 0x0BU;
+    req.data[1] = 0x14U;
     req.length  = 2U;
 
     uds_msg_buf_t resp = {0};
@@ -712,8 +712,8 @@ ZTEST(test_service_0x19, tc027_fdc_qualifying_dtc_returned)
 }
 
 /**
- * TC-0x19-028: Response header for 0x0B is [0x59, 0x0B] — NO availability mask.
- * ISO 14229-1 §11.3.11 response differs from 0x01/0x02/0x0A.
+ * TC-0x19-028: Response header for 0x14 is [0x59, 0x14] — NO availability mask.
+ * ISO 14229-1 §11.3.20 response differs from 0x01/0x02/0x0A.
  */
 ZTEST(test_service_0x19, tc028_fdc_no_availability_mask_in_header)
 {
@@ -722,14 +722,14 @@ ZTEST(test_service_0x19, tc028_fdc_no_availability_mask_in_header)
     uds_msg_buf_t req;
     memset(&req, 0, sizeof(req));
     req.data[0] = 0x19U;
-    req.data[1] = 0x0BU;
+    req.data[1] = 0x14U;
     req.length  = 2U;
 
     uds_msg_buf_t resp = {0};
     uds_service_0x19_handler(&g_srv, &req, &resp);
 
     zassert_equal(resp.data[0], 0x59U, "response SID must be 0x59");
-    zassert_equal(resp.data[1], 0x0BU, "echo sub-function must be 0x0B");
+    zassert_equal(resp.data[1], 0x14U, "echo sub-function must be 0x14");
     /* data[2] is first byte of first DTC record (or not present if empty list),
      * NOT an availability mask. Verify header length is exactly 2. */
     zassert_true(resp.length >= 2U, "response must be at least 2 bytes");
@@ -748,7 +748,7 @@ ZTEST(test_service_0x19, tc029_fdc_counter_ff_excluded)
     uds_msg_buf_t req;
     memset(&req, 0, sizeof(req));
     req.data[0] = 0x19U;
-    req.data[1] = 0x0BU;
+    req.data[1] = 0x14U;
     req.length  = 2U;
 
     uds_msg_buf_t resp = {0};
@@ -760,7 +760,7 @@ ZTEST(test_service_0x19, tc029_fdc_counter_ff_excluded)
 }
 
 /**
- * TC-0x19-030: Counter byte in 0x0B record matches value set via set_fault_counter.
+ * TC-0x19-030: Counter byte in 0x14 record matches value set via set_fault_counter.
  */
 ZTEST(test_service_0x19, tc030_fdc_counter_value_in_record)
 {
@@ -772,7 +772,7 @@ ZTEST(test_service_0x19, tc030_fdc_counter_value_in_record)
     uds_msg_buf_t req;
     memset(&req, 0, sizeof(req));
     req.data[0] = 0x19U;
-    req.data[1] = 0x0BU;
+    req.data[1] = 0x14U;
     req.length  = 2U;
 
     uds_msg_buf_t resp = {0};
@@ -786,7 +786,7 @@ ZTEST(test_service_0x19, tc030_fdc_counter_value_in_record)
 }
 
 /**
- * TC-0x19-031: Sub-function 0x0B with request length 1 → ERR_INVALID_PARAM.
+ * TC-0x19-031: Sub-function 0x14 with request length 1 → ERR_INVALID_PARAM.
  */
 ZTEST(test_service_0x19, tc031_fdc_short_request_rejected)
 {
@@ -804,7 +804,7 @@ ZTEST(test_service_0x19, tc031_fdc_short_request_rejected)
         "request with no sub-function byte must be rejected");
 }
 
-/* ---- Sub-function 0x19 — reportDTCWithPermanentStatus ----------------- */
+/* ---- Sub-function 0x15 — reportDTCWithPermanentStatus ----------------- */
 
 /**
  * TC-0x19-032: No permanent DTCs registered → 3-byte response only.
@@ -817,7 +817,7 @@ ZTEST(test_service_0x19, tc032_permanent_empty_list)
     uds_msg_buf_t req;
     memset(&req, 0, sizeof(req));
     req.data[0] = 0x19U;
-    req.data[1] = 0x19U;
+    req.data[1] = 0x15U;
     req.length  = 2U;
 
     uds_msg_buf_t resp = {0};
@@ -839,7 +839,7 @@ ZTEST(test_service_0x19, tc033_permanent_dtc_returned)
     uds_msg_buf_t req;
     memset(&req, 0, sizeof(req));
     req.data[0] = 0x19U;
-    req.data[1] = 0x19U;
+    req.data[1] = 0x15U;
     req.length  = 2U;
 
     uds_msg_buf_t resp = {0};
@@ -857,7 +857,7 @@ ZTEST(test_service_0x19, tc033_permanent_dtc_returned)
 }
 
 /**
- * TC-0x19-034: Response header for 0x19: [0x59, 0x19, 0xFF (availability mask)].
+ * TC-0x19-034: Response header for 0x15: [0x59, 0x15, 0xFF (availability mask)].
  */
 ZTEST(test_service_0x19, tc034_permanent_response_header)
 {
@@ -866,14 +866,14 @@ ZTEST(test_service_0x19, tc034_permanent_response_header)
     uds_msg_buf_t req;
     memset(&req, 0, sizeof(req));
     req.data[0] = 0x19U;
-    req.data[1] = 0x19U;
+    req.data[1] = 0x15U;
     req.length  = 2U;
 
     uds_msg_buf_t resp = {0};
     uds_service_0x19_handler(&g_srv, &req, &resp);
 
     zassert_equal(resp.data[0], 0x59U, "response SID must be 0x59");
-    zassert_equal(resp.data[1], 0x19U, "echo sub-function must be 0x19");
+    zassert_equal(resp.data[1], 0x15U, "echo sub-function must be 0x15");
     zassert_equal(resp.data[2], 0xFFU, "availability mask must be 0xFF");
 }
 

@@ -268,6 +268,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 All five found and fixed during the 2026-08-31 validation campaign; see
 `xaloqi-knowledge/campaigns/2026-08-31-validation-campaign.md`.
 
+- **SID 0x19 (ReadDTCInformation): sub-functions 0x0B and 0x19 implemented
+  the wrong ISO 14229-1 sub-function.** (#148) `core/uds_services/service_0x19.c`
+  defined `SVC_0x19_SUBFN_REPORT_FAULT_DETECTION_CTR` as `0x0BU` and
+  `SVC_0x19_SUBFN_REPORT_DTC_PERMANENT_STATUS` as `0x19U`. Per ISO 14229-1
+  Table 239, 0x0B is actually `reportFirstTestFailedDTC` (§11.3.11) and 0x19
+  is `reportUserDefMemoryDTCExtDataRecordByDTCNumber` — neither implemented
+  by this ECU; `reportDTCFaultDetectionCounter` is really sub-function 0x14
+  (§11.3.20) and `reportDTCWithPermanentStatus` is really 0x15 (§11.3.25). A
+  real UDS tester sending the standard 0x14/0x15 got "sub-function not
+  supported," while 0x0B/0x19 — which the standard defines as entirely
+  different services — got this ECU's reinterpretation of them. Fixed by
+  renumbering the two existing (behaviorally correct) handlers to their
+  ISO-correct codes 0x14 and 0x15; 0x0B and 0x19 now fall through to the
+  same "sub-function not supported" response as every other unimplemented
+  sub-function in the dispatch switch (reportFirstTestFailedDTC and
+  reportUserDefMemoryDTCExtDataRecordByDTCNumber remain unimplemented — out
+  of scope for this fix). Updated the hand-written
+  `tests/unit_runnable/test_service_0x19.c` regression suite and the
+  generated `test_report_fault_detection_counter_sub0b` /
+  `test_report_dtc_permanent_status_sub19` tests (renamed to `..._sub14` /
+  `..._sub15`) across all 11 `examples/*/generated/tests/test_services.py`
+  files that carry them. Found while triaging #145. The private
+  EDS-toolchain template that generates `test_services.py` needs the
+  equivalent fix so future codegen doesn't regenerate the wrong values;
+  filed as a follow-up note in the fix PR, not fixed here (different repo).
 - **`test_robustness_D_customer_journey.py`'s per-example nested pytest
   subprocess had no `timeout=`, so how long it could hang was whatever the
   outer test runner happened to impose rather than anything deterministic.**
