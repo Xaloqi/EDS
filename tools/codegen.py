@@ -947,6 +947,25 @@ def build_did_handlers_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def build_dtc_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build the template context for dtc_config.h (Professional-tier template,
+    tools/templates/dtc_config.h.j2 — this example's DTCs exposed as an
+    X-macro list so harness/harness_ecu.c can register them generically
+    instead of the two hardcoded basic_ecu literals it used before #158).
+    Reuses the same _build_dtc_list() enrichment uds_init.c.j2's Step 5
+    registration loop already relies on, so the two stay in lockstep by
+    construction rather than by convention.
+    """
+    meta = cfg["metadata"]
+    return {
+        "ecu_name":  meta["ecu_name"],
+        "version":   meta["version"],
+        "generated": _now_utc(),
+        "dtcs":      _build_dtc_list(cfg),
+    }
+
+
 def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Build the template context for uds_init.h and uds_init.c."""
     timing = cfg["timing"]
@@ -1209,6 +1228,10 @@ RENDER_PLAN: List[Tuple[str, Any, str]] = [
     ("did_handlers.c.j2",     build_did_handlers_context,     "did_handlers.c"),
     ("uds_init.h.j2",         build_uds_init_context,         "uds_init.h"),
     ("uds_init.c.j2",         build_uds_init_context,         "uds_init.c"),
+    # Professional-tier only (harness/ consumer) — render_and_write() already
+    # skips a missing template with a warning rather than failing, so this is
+    # a no-op on a public checkout without tools/templates/dtc_config.h.j2.
+    ("dtc_config.h.j2",       build_dtc_config_context,       "dtc_config.h"),
 ]
 
 
