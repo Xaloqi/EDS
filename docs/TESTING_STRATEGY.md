@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.13.1  
-**Status:** 44/44 unit test modules passing. 68/68 harness tests passing. 21/21 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
+**Status:** 45/45 unit test modules passing. 68/68 harness tests passing. 21/21 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
 
 ---
 
@@ -130,7 +130,7 @@ bash build_tests.sh
 # Expected: 44 passed, 0 failed
 ```
 
-### Coverage — 44 unit test modules
+### Coverage — 45 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -449,7 +449,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          44 Unity modules via build_tests.sh
+   ├── unit-tests          45 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── cmake-ctest-build   The same modules via cmake -S tests + ctest
@@ -495,7 +495,7 @@ drifted twice (#91, #119) — this line claimed 8.
 
 Added in v1.3.0. Builds `examples/basic_ecu_freertos` with `-DEDS_PLATFORM=freertos`
 targeting QEMU ARM Cortex-M4. Downloads FreeRTOS-Kernel from GitHub, runs codegen,
-builds the ELF, and verifies it exists. The same 44 unit tests run against the FreeRTOS
+builds the ELF, and verifies it exists. The same 45 unit tests run against the FreeRTOS
 platform HAL (they mock the platform layer and are platform-independent).
 
 ### SafeBoot CI job (within `unit-tests`)

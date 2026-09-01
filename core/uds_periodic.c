@@ -48,6 +48,13 @@ typedef struct {
 static uds_periodic_sub_t s_subs[UDS_PERIODIC_MAX_SUBSCRIPTIONS];
 static uint8_t            s_count;
 
+/* [EDS#194] periodic_id of the subscription most recently returned by
+ * uds_periodic_pop_due(), or 0 if none is currently outstanding (never
+ * popped yet, or already consumed by a prior uds_periodic_requeue_last()
+ * call). Single-slot by design: uds_periodic_pop_due() returns at most
+ * one frame per call, so there is never more than one "in flight". */
+static uint8_t s_last_popped_id;
+
 /* --------------------------------------------------------------------------
  * Internal helpers
  * -------------------------------------------------------------------------- */
@@ -231,8 +238,35 @@ uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame)
 
         out_frame->length = (uint16_t)2U + out_len;
 
+        /* [EDS#194] Record what was just popped so a failed transmit can
+         * ask for it back via uds_periodic_requeue_last(). */
+        s_last_popped_id = s_subs[i].periodic_id;
+
         return UDS_STATUS_OK;
     }
 
     return UDS_STATUS_ERR_NOT_FOUND;
+}
+
+uds_status_t uds_periodic_requeue_last(void)
+{
+    uds_periodic_sub_t *slot;
+    uint8_t              id;
+
+    id = s_last_popped_id;
+    s_last_popped_id = (uint8_t)0U;  /* consumed — one requeue per pop */
+
+    if (id == (uint8_t)0U) {
+        return UDS_STATUS_ERR_NOT_FOUND;
+    }
+
+    slot = s_find_slot(id);
+    if (slot == NULL) {
+        /* Subscription was cancelled between the pop and this call —
+         * nothing to re-arm, not an error the caller needs to react to. */
+        return UDS_STATUS_ERR_NOT_FOUND;
+    }
+
+    slot->due = true;
+    return UDS_STATUS_OK;
 }

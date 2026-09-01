@@ -32,6 +32,10 @@
  *   TC-PERIODIC-012  pop_due(NULL) → ERR_NULL_PTR
  *   TC-PERIODIC-013  pop_due with no subscriptions → ERR_NOT_FOUND
  *   TC-PERIODIC-014  frame format: data[0]=0x6A, data[1]=periodicId after FAST fires
+ *   TC-PERIODIC-015  [EDS#194] requeue_last() with nothing popped → ERR_NOT_FOUND
+ *   TC-PERIODIC-016  [EDS#194] pop_due + requeue_last() re-arms; next pop_due → OK
+ *   TC-PERIODIC-017  [EDS#194] requeue_last() twice in a row → 2nd is a no-op
+ *   TC-PERIODIC-018  [EDS#194] requeue_last() after unsubscribe → ERR_NOT_FOUND, safe
  *
  * FRAMEWORK: Zephyr Ztest (compiled as host Unity via ztest_shim.h)
  * =============================================================================
@@ -331,6 +335,110 @@ ZTEST(test_uds_periodic, tc014_frame_format)
                   "frame length must be 2 (header) + 2 (data) = 4");
 }
 
+/**
+ * TC-PERIODIC-015: [EDS#194] requeue_last() with nothing ever popped →
+ *                  ERR_NOT_FOUND, not a crash.
+ */
+ZTEST(test_uds_periodic, tc015_requeue_nothing_popped)
+{
+    setup();
+    uds_status_t rc = uds_periodic_requeue_last();
+    zassert_equal(rc, UDS_STATUS_ERR_NOT_FOUND,
+                  "requeue_last() with no prior pop must return ERR_NOT_FOUND");
+}
+
+/**
+ * TC-PERIODIC-016: [EDS#194] pop_due() then requeue_last() re-arms the
+ *                  subscription — the very next pop_due() (no further
+ *                  ticks needed) must return OK again. This is the actual
+ *                  regression this issue is about: without requeue_last()
+ *                  actually re-setting the due flag, a failed transmit's
+ *                  period would be lost until the next natural interval.
+ */
+ZTEST(test_uds_periodic, tc016_requeue_rearms_subscription)
+{
+    setup();
+    (void)uds_periodic_subscribe((uint8_t)0xABU, UDS_PERIODIC_MODE_FAST);
+
+    uint16_t t;
+    for (t = (uint16_t)0U; t < (uint16_t)UDS_PERIODIC_FAST_MS; t++) {
+        (void)uds_periodic_tick_1ms();
+    }
+
+    uds_msg_buf_t frame;
+    memset(&frame, 0, sizeof(frame));
+    uds_status_t rc = uds_periodic_pop_due(&frame);
+    zassert_equal(rc, UDS_STATUS_OK, "first pop_due must return OK");
+
+    /* Simulate a failed transmit: ask for it back, with NO further ticks. */
+    rc = uds_periodic_requeue_last();
+    zassert_equal(rc, UDS_STATUS_OK,
+                  "requeue_last() must succeed for the just-popped subscription");
+
+    memset(&frame, 0, sizeof(frame));
+    rc = uds_periodic_pop_due(&frame);
+    zassert_equal(rc, UDS_STATUS_OK,
+                  "pop_due() must return OK again immediately after requeue_last() "
+                  "— the period must not be lost");
+    zassert_equal(frame.data[1], (uint8_t)0xABU,
+                  "re-armed frame must still be for the same periodicId");
+}
+
+/**
+ * TC-PERIODIC-017: [EDS#194] requeue_last() consumes the "last popped"
+ *                  record — calling it a second time in a row (no
+ *                  intervening pop) must return ERR_NOT_FOUND, not
+ *                  re-arm the same subscription twice.
+ */
+ZTEST(test_uds_periodic, tc017_requeue_twice_second_is_noop)
+{
+    setup();
+    (void)uds_periodic_subscribe((uint8_t)0xABU, UDS_PERIODIC_MODE_FAST);
+
+    uint16_t t;
+    for (t = (uint16_t)0U; t < (uint16_t)UDS_PERIODIC_FAST_MS; t++) {
+        (void)uds_periodic_tick_1ms();
+    }
+
+    uds_msg_buf_t frame;
+    memset(&frame, 0, sizeof(frame));
+    (void)uds_periodic_pop_due(&frame);
+
+    uds_status_t rc1 = uds_periodic_requeue_last();
+    uds_status_t rc2 = uds_periodic_requeue_last();
+    zassert_equal(rc1, UDS_STATUS_OK, "first requeue_last() must succeed");
+    zassert_equal(rc2, UDS_STATUS_ERR_NOT_FOUND,
+                  "second requeue_last() with no intervening pop must be a no-op");
+}
+
+/**
+ * TC-PERIODIC-018: [EDS#194] requeue_last() after the subscription was
+ *                  cancelled between the pop and the requeue call must
+ *                  return ERR_NOT_FOUND, not crash or resurrect the
+ *                  cancelled subscription.
+ */
+ZTEST(test_uds_periodic, tc018_requeue_after_unsubscribe_is_safe)
+{
+    setup();
+    (void)uds_periodic_subscribe((uint8_t)0xABU, UDS_PERIODIC_MODE_FAST);
+
+    uint16_t t;
+    for (t = (uint16_t)0U; t < (uint16_t)UDS_PERIODIC_FAST_MS; t++) {
+        (void)uds_periodic_tick_1ms();
+    }
+
+    uds_msg_buf_t frame;
+    memset(&frame, 0, sizeof(frame));
+    (void)uds_periodic_pop_due(&frame);
+
+    (void)uds_periodic_unsubscribe((uint8_t)0xABU);
+
+    uds_status_t rc = uds_periodic_requeue_last();
+    zassert_equal(rc, UDS_STATUS_ERR_NOT_FOUND,
+                  "requeue_last() after unsubscribe must return ERR_NOT_FOUND, "
+                  "not resurrect the cancelled subscription");
+}
+
 /* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
@@ -349,6 +457,10 @@ extern void test_uds_periodic__tc011_fast_not_due_before_interval(void);
 extern void test_uds_periodic__tc012_pop_due_null_ptr(void);
 extern void test_uds_periodic__tc013_pop_due_empty_table(void);
 extern void test_uds_periodic__tc014_frame_format(void);
+extern void test_uds_periodic__tc015_requeue_nothing_popped(void);
+extern void test_uds_periodic__tc016_requeue_rearms_subscription(void);
+extern void test_uds_periodic__tc017_requeue_twice_second_is_noop(void);
+extern void test_uds_periodic__tc018_requeue_after_unsubscribe_is_safe(void);
 
 void run_all_tests(void)
 {
@@ -366,4 +478,8 @@ void run_all_tests(void)
     RUN_TEST(test_uds_periodic__tc012_pop_due_null_ptr);
     RUN_TEST(test_uds_periodic__tc013_pop_due_empty_table);
     RUN_TEST(test_uds_periodic__tc014_frame_format);
+    RUN_TEST(test_uds_periodic__tc015_requeue_nothing_popped);
+    RUN_TEST(test_uds_periodic__tc016_requeue_rearms_subscription);
+    RUN_TEST(test_uds_periodic__tc017_requeue_twice_second_is_noop);
+    RUN_TEST(test_uds_periodic__tc018_requeue_after_unsubscribe_is_safe);
 }

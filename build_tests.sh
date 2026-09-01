@@ -340,6 +340,7 @@ TESTS=(
     test_service_0x22
     test_service_0x27
     test_service_0x28
+    test_service_0x2E
     test_uds_periodic
     test_service_0x2A
     test_service_0x2F

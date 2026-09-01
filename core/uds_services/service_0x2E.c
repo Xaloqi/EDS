@@ -127,7 +127,21 @@ static uds_status_t s_did_safe_write(
     /* Step 4: Validate write data length == DID data_length (REQ-SAFE-006). */
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_data_length(entry, len));
 
-    /* Step 5: Invoke the DID write callback. */
+    /* Step 5: Invoke the DID write callback.
+     *
+     * [EDS#195] A DID with DID_ACCESS_WRITE set but write_cb == NULL
+     * (a codegen/configuration defect — real generated products always
+     * pair the two) previously reached this call unguarded, dereferencing
+     * a NULL function pointer. Every other DID-callback dispatch in this
+     * codebase (service_0x2F.c's io_control_cb, uds_periodic_pop_due()'s
+     * read_cb) checks for NULL before calling; this one didn't. Found by
+     * a new unit test (tc008_write_cb_null) written for this same issue.
+     * Mirrors service_0x2F.c's exact precedent: DID found but its
+     * required callback is NULL → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31). */
+    if (entry->write_cb == NULL) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+    }
+
     return entry->write_cb(buf, len);
 }
 

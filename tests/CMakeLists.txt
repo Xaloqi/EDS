@@ -511,6 +511,11 @@ add_diag_test(test_service_0x28
         "${TEST_UNIT_DIR}/test_service_0x28.c"
 )
 
+add_diag_test(test_service_0x2E
+    SOURCES
+        "${TEST_UNIT_DIR}/test_service_0x2E.c"
+)
+
 add_diag_test(test_uds_periodic
     SOURCES
         "${TEST_UNIT_DIR}/test_uds_periodic.c"
