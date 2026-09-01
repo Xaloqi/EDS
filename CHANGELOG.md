@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **`platform/freertos/freertos_rng_example.c`** — a reference implementation
+  of the `uds_algo_rng_cb_t` contract (`uds_security_algo_set_rng_cb()`)
+  against a real STM32H7 HAL RNG peripheral (#182). `docs/SECURITY_NOTICE.md`
+  already documented the entropy requirement clearly, but every shipped
+  example — FreeRTOS **and** Zephyr — passes `NULL` for the RNG callback
+  ("no TRNG — CI/dev build") with no compilable reference to start from.
+  Deliberately not wired into any `CMakeLists.txt` — copy it into your own
+  application and adapt the peripheral calls to your MCU. Verified with a
+  mocked HAL: correct 2-draw/4-byte-each fill for the 8-byte seed, correct
+  `UDS_STATUS_ERR_NULL_PTR` on a NULL buffer.
+
 ### Documentation
 
 - **Documented the SecurityAccess failed-attempt lockout policy** (#183).
@@ -20,6 +33,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   power cycles is optional — off by default — not automatic. Docs-only,
   pulled directly from the actual config struct and reset logic, not
   invented defaults.
+
+- **8 more stale v1.12.0 references, none of them the `**Version:**` header
+  pattern #178 already fixed.** (#180) Found by the Tier-1 architect's
+  round-2 re-review plus a broader manual sweep once the pattern was
+  known: `README.md`'s and `docs/GETTING_STARTED.md`'s `west init --mr
+  v1.12.0` quickstart commands (would clone the wrong tag), `README.md`'s
+  and `docs/INTEGRATION_GUIDE.md`'s example `revision: v1.12.0` west
+  manifest snippets, `docs/TESTING_STRATEGY.md`'s test-count header and
+  inline count claim, `docs/AI_CONTEXT.md`'s pricing footer, `docs/
+  INTEGRATION_GUIDE.md`'s title header, and `docs/COMMERCIAL_ONBOARDING.md`'s
+  two example ZIP filenames. Left untouched, deliberately: `docs/
+  ARCHITECTURE.md`'s DoIP feature matrix ("current as of v1.12.0" / "out
+  of scope as of v1.12.0") — a dated snapshot marker whose claim remains
+  literally true, not a current-version claim; and `docs/
+  INTEGRATION_GUIDE.md`'s SOVD CDA JSON worked example, whose
+  `generatedBy` version is paired with a fixed illustrative `generatedAt`
+  timestamp — bumping one without the other would make the example more
+  wrong, not less. `check_release_docs.py` (xaloqi-knowledge) extended
+  the same day to recognize the new phrasings so this class can't recur
+  silently.
 
 - **`docs/ARCHITECTURE.md`, `docs/AI_CONTEXT.md`, and `docs/TESTING_STRATEGY.md`'s own `**Version:**` headers still said v1.12.0 after v1.13.0 was tagged.** Found by `check_release_docs.py` immediately after tagging — the new `bump_release_version.py` (xaloqi-knowledge) only touched `README.md`/`INSTALL.md` at the repo root, not `docs/*.md`, the exact drift class this repo's own release runbook already names ("docs/ went unswept for three releases"). Fixed here; the bump script itself was extended (same day, xaloqi-knowledge) to sweep `docs/*.md` for this header pattern automatically going forward, rather than shipped as a hardcoded per-file list.
 
