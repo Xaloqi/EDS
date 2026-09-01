@@ -148,6 +148,23 @@ static uds_status_t do_full_unlock(uds_security_ctx_t *ctx)
 }
 
 /* =========================================================================
+ * [EDS#196] Mock nvm_load_cb — return value fully controlled by each test,
+ * independent of the real uds_security_nvm.c / nvm_store mock chain
+ * (test_phase3_nvm_security.c already covers that real integration; these
+ * tests are about uds_security_init()'s decision logic given *any*
+ * nvm_load_cb result, so a hand-controlled mock is the more direct fit).
+ * ========================================================================= */
+
+static uds_status_t s_nvm_load_rc;
+
+static uds_status_t mock_nvm_load(uint8_t *out_attempts, uint32_t *out_lockout_ms)
+{
+    *out_attempts   = 0U;
+    *out_lockout_ms = 0U;
+    return s_nvm_load_rc;
+}
+
+/* =========================================================================
  * Test suite: uds_security_init
  * ========================================================================= */
 
@@ -243,6 +260,98 @@ ZTEST(test_uds_security_init, test_double_init)
     };
     zassert_equal(uds_security_init(&ctx, &k_cfg), UDS_STATUS_ERR_ALREADY_INITIALIZED,
                   "double init must fail");
+}
+
+/**
+ * TC-SEC-INIT-007: [EDS#196] Genuine NVM load fault, nvm_load_fail_closed
+ *                  left at its default (false) → fail OPEN. Unchanged
+ *                  behavior from before this field existed: zero counter,
+ *                  not locked out, SecurityAccess usable.
+ */
+ZTEST(test_uds_security_init, test_nvm_load_error_default_fails_open)
+{
+    s_nvm_load_rc = UDS_STATUS_ERR_PLATFORM;  /* genuine fault, not first-boot */
+
+    uds_security_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    static const uds_security_cfg_t k_cfg = {
+        .max_attempts     = 3U,
+        .lockout_ms       = 100U,
+        .key_validate_cb  = test_key_validate,
+        .seed_generate_cb = test_seed_generate,
+        .nvm_load_cb      = mock_nvm_load,
+        /* .nvm_load_fail_closed left unset -> false (the default) */
+    };
+
+    zassert_equal(uds_security_init(&ctx, &k_cfg), UDS_STATUS_OK, "init must succeed");
+    zassert_false(ctx.locked_out,
+                  "default posture (fail-open) must NOT lock out on a genuine NVM fault");
+    zassert_equal(ctx.failed_attempts, 0U,
+                  "default posture must start the attempt counter at zero");
+}
+
+/**
+ * TC-SEC-INIT-008: [EDS#196] Genuine NVM load fault, nvm_load_fail_closed
+ *                  explicitly true → fail CLOSED. SecurityAccess locked
+ *                  out for the rest of this power cycle.
+ */
+ZTEST(test_uds_security_init, test_nvm_load_error_fail_closed_locks_out)
+{
+    s_nvm_load_rc = UDS_STATUS_ERR_PLATFORM;  /* genuine fault, not first-boot */
+
+    uds_security_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    static const uds_security_cfg_t k_cfg = {
+        .max_attempts          = 3U,
+        .lockout_ms             = 100U,
+        .key_validate_cb        = test_key_validate,
+        .seed_generate_cb       = test_seed_generate,
+        .nvm_load_cb            = mock_nvm_load,
+        .nvm_load_fail_closed   = true,
+    };
+
+    zassert_equal(uds_security_init(&ctx, &k_cfg), UDS_STATUS_OK,
+                  "init itself must still succeed -- fail-closed locks SecurityAccess, "
+                  "not the stack");
+    zassert_true(ctx.locked_out,
+                  "fail-closed posture must lock out on a genuine NVM fault");
+    zassert_equal(ctx.lockout_timer_ms, UINT32_MAX,
+                  "fail-closed lockout must be effectively permanent for this boot, "
+                  "not a short timer that quietly expires");
+
+    /* And SecurityAccess must actually be unusable, not just the flag set. */
+    uint8_t seed[UDS_SECURITY_SEED_LEN];
+    uint8_t seed_len = 0U;
+    zassert_equal(do_seed_request(&ctx, seed, &seed_len),
+                  UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED,
+                  "seed request must be rejected while fail-closed lockout is active");
+}
+
+/**
+ * TC-SEC-INIT-009: [EDS#196] First-boot (ERR_DID_NOT_FOUND) must NOT be
+ *                  treated as a fault by nvm_load_fail_closed, even when
+ *                  the flag is true -- "no data yet" is expected and safe,
+ *                  not a reason to lock a brand-new ECU out of diagnostics.
+ */
+ZTEST(test_uds_security_init, test_nvm_first_boot_unaffected_by_fail_closed)
+{
+    s_nvm_load_rc = UDS_STATUS_ERR_DID_NOT_FOUND;  /* first boot, no persisted data */
+
+    uds_security_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    static const uds_security_cfg_t k_cfg = {
+        .max_attempts          = 3U,
+        .lockout_ms             = 100U,
+        .key_validate_cb        = test_key_validate,
+        .seed_generate_cb       = test_seed_generate,
+        .nvm_load_cb            = mock_nvm_load,
+        .nvm_load_fail_closed   = true,
+    };
+
+    zassert_equal(uds_security_init(&ctx, &k_cfg), UDS_STATUS_OK, "init must succeed");
+    zassert_false(ctx.locked_out,
+                  "first boot must never lock out, even with fail_closed = true");
+    zassert_equal(ctx.failed_attempts, 0U, "first boot must start at zero attempts");
 }
 
 /* =========================================================================
@@ -676,6 +785,9 @@ extern void test_uds_security_init__test_null_key_cb(void);
 extern void test_uds_security_init__test_null_seed_cb(void);
 extern void test_uds_security_init__test_happy_path(void);
 extern void test_uds_security_init__test_double_init(void);
+extern void test_uds_security_init__test_nvm_load_error_default_fails_open(void);
+extern void test_uds_security_init__test_nvm_load_error_fail_closed_locks_out(void);
+extern void test_uds_security_init__test_nvm_first_boot_unaffected_by_fail_closed(void);
 extern void test_uds_security_seed__test_null_ctx(void);
 extern void test_uds_security_seed__test_null_seed_buf(void);
 extern void test_uds_security_seed__test_seed_generated(void);
@@ -705,6 +817,9 @@ void run_all_tests(void)
     RUN_TEST(test_uds_security_init__test_null_seed_cb);
     RUN_TEST(test_uds_security_init__test_happy_path);
     RUN_TEST(test_uds_security_init__test_double_init);
+    RUN_TEST(test_uds_security_init__test_nvm_load_error_default_fails_open);
+    RUN_TEST(test_uds_security_init__test_nvm_load_error_fail_closed_locks_out);
+    RUN_TEST(test_uds_security_init__test_nvm_first_boot_unaffected_by_fail_closed);
     RUN_TEST(test_uds_security_seed__test_null_ctx);
     RUN_TEST(test_uds_security_seed__test_null_seed_buf);
     RUN_TEST(test_uds_security_seed__test_seed_generated);

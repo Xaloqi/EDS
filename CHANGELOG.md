@@ -38,6 +38,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Opt-in fail-closed posture for SecurityAccess on a genuine NVM read
+  fault** (#196; Tier-1 round-3 due diligence). Previously,
+  `uds_security_init()` treated *any* non-OK `nvm_load_cb` result the same
+  as first-boot: proceed with a zero attempt counter, no lockout — masking
+  a real read error (corrupt record, platform fault) behind the same
+  behavior as "no data yet". Added `uds_security_cfg_t.nvm_load_fail_closed`
+  (default `false`, so every existing generated product is unaffected — a
+  zero-initialized struct leaves the new field `false`). When set `true`,
+  a genuine fault (anything other than success or the expected
+  `UDS_STATUS_ERR_DID_NOT_FOUND`) now locks SecurityAccess out for the
+  rest of the power cycle instead of silently resetting the counter. See
+  `docs/SECURITY_NOTICE.md`'s "Failed Attempt Lockout Policy" section for
+  the trade-off and how to opt in. 3 new unit tests in
+  `test_uds_security.c` (default fail-open, opt-in fail-closed, first-boot
+  unaffected by the flag either way); the fail-closed test was confirmed
+  to genuinely fail when the new branch is disabled, then restored.
+
 - **`tests/unit_runnable/test_service_0x2E.c`** (#195; Tier-1 round-3 due
   diligence). No dedicated C unit test existed for WriteDataByIdentifier
   despite 0x22/0x23/0x27/0x28/0x2A/0x2F all having one — the primary

@@ -234,6 +234,28 @@ the power-cycle bypass. If your product's threat model includes an
 attacker with physical access to power, wire NVM persistence — the stack
 does not require it, but it does not protect you without it either.
 
+**NVM read faults: fail-open by default, fail-closed opt-in.** With
+persistence wired, `uds_security_init()` calls `nvm_load_cb` at boot to
+restore the counter and any residual lockout. Two outcomes are expected and
+harmless: a successful load, and `UDS_STATUS_ERR_DID_NOT_FOUND` (first
+boot — no record has been written yet). Any *other* return is a genuine NVM
+fault: a corrupt record, or a platform-level read error. How EDS reacts to
+that fault is controlled by `uds_security_cfg_t.nvm_load_fail_closed`:
+
+| Setting | Behavior on a genuine NVM fault |
+|---|---|
+| `false` (default) | **Fail open.** `uds_security_init()` proceeds with the counter at zero and no lockout. Preserves diagnostic availability when NVM is unhealthy, at the cost of losing brute-force resistance across that one fault. Matches the stack's behavior before this flag existed — no change for any existing product. |
+| `true` | **Fail closed.** SecurityAccess is locked out for the remainder of the current power cycle (`lockout_timer_ms` set to `UINT32_MAX` — effectively permanent for one boot, not a short timer that quietly expires). The only way out is a healthy reboot where `nvm_load_cb` succeeds. Prioritizes brute-force resistance over availability: an attacker cannot exploit a broken/corrupted NVM path to force an always-fresh attempt counter. |
+
+Set `nvm_load_fail_closed = true` if your threat model treats "SecurityAccess
+briefly unavailable" as strictly preferable to "SecurityAccess silently
+un-throttled because storage is unhealthy" — e.g. products where an attacker
+could plausibly induce NVM faults (corrupted sectors, glitching a flash
+write) to reset the attempt counter. Leave it at the default if your product
+prioritizes keeping diagnostics reachable even when NVM itself is degraded.
+This flag is only consulted for a genuine fault; it never affects the
+first-boot (`UDS_STATUS_ERR_DID_NOT_FOUND`) or successful-load paths.
+
 ---
 
 ## Questions
