@@ -2255,8 +2255,17 @@ jobs:
           # missing xaloqi-tester install went unnoticed for months). The
           # bare `grep -q "failed"` this replaced had the same blind spot
           # and added nothing beyond what the floors below already cover.
-          # 332 is this job's real passed count on public CI today (no
+          # 292 is this job's real passed count on public CI today (no
           # commercial templates); a customer with the full ZIP sees 439/0.
+          # Was 332 until #165: 40 codegen-invoking tests in phases A/F/K
+          # were passing for the wrong reason (asserting on the commercial-
+          # license banner's exit code/text, not the validation behavior
+          # they were meant to exercise) rather than skipping cleanly when
+          # tools/templates/ is absent — the same false-pass shape the
+          # run-013 lesson above already names. Fixing that correctly moves
+          # those 40 from passed to skipped; total (439) and failed (0) are
+          # unchanged, so the invariant these floors protect still holds —
+          # only the passed/skipped split shifted, on purpose.
           failed=$(echo "$result" | grep -oE '[0-9]+ failed' | grep -oE '^[0-9]+' || echo 0)
           passed=$(echo "$result" | grep -oE '[0-9]+ passed' | grep -oE '^[0-9]+' || echo 0)
           skipped=$(echo "$result" | grep -oE '[0-9]+ skipped' | grep -oE '^[0-9]+' || echo 0)
@@ -2264,8 +2273,8 @@ jobs:
           echo "passed=$passed failed=$failed skipped=$skipped total=$total"
           [ "$failed" -eq 0 ] \
             || (echo "ERROR: $failed test(s) failed" && exit 1)
-          [ "$passed" -ge 332 ] \
-            || (echo "ERROR: only $passed passed (expected >= 332) — suite may be silently skipping" && exit 1)
+          [ "$passed" -ge 292 ] \
+            || (echo "ERROR: only $passed passed (expected >= 292) — suite may be silently skipping" && exit 1)
           [ "$total" -ge 439 ] \
             || (echo "ERROR: Expected passed+skipped >= 439, got $total — test count regression" && exit 1)
           echo "PASS: campaign integrity confirmed (439 tests accounted for, $passed genuinely executed)"

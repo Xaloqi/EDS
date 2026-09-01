@@ -263,6 +263,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   diffed the full list of passing tests before/after (`basic_ecu`'s
   `generated/tests/` suite: 17 passed → 17 passed, identical set) to confirm
   no previously-passing test was accidentally swept into the guard.
+  CI's "Robustness Campaign" job runs all 12 phases (A–L) together rather
+  than the single file checked above, and its own `passed >= 332` floor
+  (`.github/workflows/ci.yml`) is a *different* measurement — confirmed the
+  full campaign genuinely shifts from 332 passed / 107 skipped to 292
+  passed / 147 skipped (439 total, 0 failed, unchanged both ways) once this
+  fix is in the tree, run directly (not just inferred from the single-file
+  diff). Updated the floor to 292 with an explanatory comment rather than
+  leaving 40 tests' worth of headroom silently baked in.
 - **Stack-buffer-overflow in `test_uds_security.c`.** (#168, found by #151's
   new ASan job on its first run) `test_uds_security_send_key__test_null_key`
   declared `uint8_t seed[4]` but passed it to `do_seed_request()`, which
