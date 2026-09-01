@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`build_safety_config_context()` now threads `tools/codegen.py`'s own
+  `__version__` into the safety_config.h.j2 template context as
+  `stack_version`.** (#163, follow-up to #149/#156 and
+  Xaloqi/EDS-toolchain#70) `render_safety_wrappers()`'s Jinja2 environment
+  uses `StrictUndefined`, so any template variable not present in the
+  context dict is a hard `SystemExit(3)` on every codegen run — meaning
+  EDS-toolchain's `safety_config.h.j2` had no way to reference a
+  stack-version variable, and `UDS_STACK_VERSION` in generated
+  `safety_config.h` could only be fixed by hand-editing already-generated
+  output, or by hand-bumping the template's own literal on every release.
+  The new `stack_version` key is distinct from the existing `version` key
+  (the ECU config's own `metadata.version`) and does not collide with it.
+  Unblocks the EDS-toolchain-side follow-up to switch
+  `#define UDS_STACK_VERSION "1.12.0"` to
+  `#define UDS_STACK_VERSION "{{ stack_version }}"`, closing the loop
+  `__version__` was picked as #149's single source of truth for.
 - **Mandatory ASan + UBSan CI job on the host unit tests.** (#151) There was
   no sanitizer build anywhere in this repo's CI — `grep -rn "fsanitize"`
   over `.github/workflows/` and `build_tests.sh` returned nothing — even

@@ -1114,6 +1114,12 @@ def build_safety_config_context(
       - GEN_SAFETY_MAX_DID_DATA_LEN  DID buffer bound from YAML validation
       - GEN_SAFETY_DTC_SUPPORT_MASK  DTC status availability mask
 
+    The context also carries ``stack_version`` (the codegen tool's own
+    ``__version__``, distinct from ``version``, which is the ECU config's
+    own ``metadata.version``) so templates such as safety_config.h.j2 can
+    derive e.g. UDS_STACK_VERSION from a single source of truth instead of
+    a hand-maintained literal (see issue #163).
+
     Args:
         cfg:        Validated configuration dictionary.
         asil_level: ASIL target level string.
@@ -1140,6 +1146,7 @@ def build_safety_config_context(
     return {
         "ecu_name":                   meta["ecu_name"],
         "version":                    meta["version"],
+        "stack_version":              __version__,
         "generated":                  _now_utc(),
         "asil_level":                 asil_level.upper(),
         "asil_level_numeric":         asil_numeric,
