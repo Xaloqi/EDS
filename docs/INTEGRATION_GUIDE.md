@@ -1,6 +1,6 @@
 # Integration Guide
 
-## Xaloqi EDS — Zephyr RTOS, FreeRTOS, DoIP, and SOVD (v1.12.0)
+## Xaloqi EDS — Zephyr RTOS, FreeRTOS, DoIP, and SOVD (v1.13.0)
 
 | Field | Value |
 |---|---|
@@ -185,7 +185,7 @@ manifest:
 
     - name: embedded-diagnostics-suite
       url: https://github.com/your-org/embedded-diagnostics-suite
-      revision: v1.12.0            # pin to a release tag
+      revision: v1.13.0            # pin to a release tag
       path: eds
 ```
 
