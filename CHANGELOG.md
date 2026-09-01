@@ -96,6 +96,47 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Documentation
 
+- **Consolidated documentation-accuracy pass across `docs/ARCHITECTURE.md`,
+  `docs/TESTING_STRATEGY.md`, and `docs/GETTING_STARTED.md`, plus a widened
+  `scripts/verify_doc_counts.py` guard.** (#170, #164) `docs/ARCHITECTURE.md`'s
+  repo-tree diagram claimed 36 unit-test modules (actual 44 — the line right
+  below it in the same block already said 44), showed `build_tests.sh` /
+  `build_harness.sh` nested under a `scripts/` directory that has never
+  existed (both live at the repo root), and its `tests/` node named
+  `integration/` and `harness/` subdirectories that don't exist while
+  omitting the real `tests/runner/`; also fixed the `examples/` node (listed
+  4 of 12 examples under two names — `motor_controller/`, `ardep/` — that
+  don't match the real `motor_controller_ecu/`, `ardep_ecu/` directories).
+  `docs/TESTING_STRATEGY.md` had two sections (§7 Integration Tests, §10
+  System Tests) describing a `tests/integration/` suite and a `pytest
+  --system` flag that were never built — replaced with the real generated
+  per-example suite layout and an explicit note on §10 that it describes
+  target coverage, not an implemented one; its §11 CI pipeline tree named 10
+  of the 22 real `ci.yml` jobs with no indication the list was partial —
+  added the 3 more substantive test layers it was missing
+  (`robustness-tests`, `harness-tests`, `sovd-codegen`) and an explicit
+  callout naming what's deliberately omitted (7 repetitive per-example
+  smoke-build jobs, one extra board variant) rather than trying to keep it
+  exhaustively hand-synced a third time. `docs/GETTING_STARTED.md`'s Step 8
+  walkthrough pointed at a `tests/integration/test_uds_read_did.py` that
+  never existed, with test names (`test_read_vin`, `test_read_odometer`)
+  that don't exist anywhere in the repo — replaced with a real, verified-passing
+  example (`test_did_f190.py`, the generated VIN-read suite) and corrected
+  the surrounding narrative, which had implied the request would be sent to
+  Step 7's `native_sim` process even though `--can-interface=simulator` is a
+  separate, self-contained virtual bus that doesn't talk to it.
+  `scripts/verify_doc_counts.py`'s two existing checks (#119) were both blind
+  to ASCII tree diagrams — the dead `scripts/build_tests.sh` path was split
+  across a `scripts/` tree node and a `build_tests.sh` leaf line, never on
+  one line so the substring check never fired, and `(36 modules)` matched
+  none of the prose count patterns. Widened both, and fixed a real bug found
+  while doing so: the doc sweep wasn't excluding the gitignored
+  `.claude/worktrees/` scratch directory, so a stray agent worktree with
+  stale doc copies could fail the guard for a reason having nothing to do
+  with the tracked repo. Verified per lessons/run-014: reverted just
+  `docs/ARCHITECTURE.md` to confirm the widened guard still catches the
+  original 3 problems it was built for, then restored the fix and confirmed
+  clean.
 - **`can_transport_transmit()`'s CONFIRMED-vs-queued contract was
   undocumented, even though ISO-TP's N_As/N_Ar timers depend entirely on
   it.** (#152) `transport/can_transport.h` said only that a successful
