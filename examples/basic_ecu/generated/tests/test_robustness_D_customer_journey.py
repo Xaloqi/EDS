@@ -291,28 +291,42 @@ class TestAllECUExamplesCodegen:
 class TestAllECUExamplesPytest:
     """All 11 ECU example generated test suites must pass in simulator mode."""
 
+    # Sized from a real measurement, not a guess (see #153): the slowest
+    # individual example's nested `pytest ... --can-interface=simulator` run
+    # measured ~8-9s on a dev machine (basic_ecu suite: 98.71s / 11 examples
+    # sequentially). 90s is ~10x that, leaving headroom for slower/loaded CI
+    # environments (this is exactly the scenario that hung the wrapper for
+    # sensor_ecu_freertos in an external evaluator's environment even though
+    # the suite completed cleanly when run directly).
+    NESTED_PYTEST_TIMEOUT_S = 90
+
     @pytest.mark.parametrize("ecu", ALL_EXAMPLES)
     def test_ecu_pytest_simulator_all_pass(self, ecu):
         test_dir = os.path.join(EDS_ROOT, "examples", ecu, "generated", "tests")
         if not os.path.isdir(test_dir):
             pytest.skip(f"Generated tests not found for {ecu}")
-        r = _run([
-            sys.executable, "-m", "pytest", test_dir,
-            "--can-interface=simulator", "-q", "--tb=short",
-            "--ignore", os.path.join(test_dir, "test_firmware_services.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_A_codegen.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_B_protocol.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_C_security.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_D_customer_journey.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_E_data_integrity.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_F_codegen_limits.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_G_resilience.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_H_protocol_precision.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_I_nrc_wdbi_sa.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_J_sovd_cda.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_K_error_quality.py"),
-            "--ignore", os.path.join(test_dir, "test_robustness_L_codegen_output_fidelity.py"),
-        ], cwd=test_dir)
+        try:
+            r = _run([
+                sys.executable, "-m", "pytest", test_dir,
+                "--can-interface=simulator", "-q", "--tb=short",
+                "--ignore", os.path.join(test_dir, "test_firmware_services.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_A_codegen.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_B_protocol.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_C_security.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_D_customer_journey.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_E_data_integrity.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_F_codegen_limits.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_G_resilience.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_H_protocol_precision.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_I_nrc_wdbi_sa.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_J_sovd_cda.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_K_error_quality.py"),
+                "--ignore", os.path.join(test_dir, "test_robustness_L_codegen_output_fidelity.py"),
+            ], cwd=test_dir, timeout=self.NESTED_PYTEST_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            pytest.fail(
+                f"nested pytest timed out after {self.NESTED_PYTEST_TIMEOUT_S}s "
+                f"for {ecu} (test_dir={test_dir})")
         # Exit 5 = no tests ran (all skipped when xaloqi-tester absent); treat as pass
         assert r.returncode in (0, 5), (
             f"Generated pytest suite failed for {ecu}:\n{r.stdout[-3000:] + r.stderr[-1000:]}")

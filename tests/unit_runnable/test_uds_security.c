@@ -367,7 +367,17 @@ ZTEST(test_uds_security_send_key, test_null_key)
 {
     uds_security_ctx_t ctx;
     zassert_equal(default_sec_init(&ctx), UDS_STATUS_OK, "init failed");
-    uint8_t seed[4]; uint8_t seed_len;
+    /*
+     * [#151] Must be UDS_SECURITY_SEED_LEN, not 4: do_seed_request() declares
+     * the buffer to uds_security_request_seed() as UDS_SECURITY_SEED_LEN
+     * bytes, so a 4-byte array here has the stack memcpy 8 bytes into it.
+     * Found by the new ASan/UBSan CI job as a stack-buffer-overflow at
+     * core/uds_security.c:219 — it had been silently corrupting this frame on
+     * every run. The stack itself is correct: it rejects an honestly-declared
+     * short buffer with UDS_STATUS_ERR_BUFFER_OVERFLOW. Every other seed
+     * buffer in this suite already uses the macro.
+     */
+    uint8_t seed[UDS_SECURITY_SEED_LEN]; uint8_t seed_len;
     do_seed_request(&ctx, seed, &seed_len);
     zassert_equal(uds_security_send_key(&ctx, UDS_SEC_LEVEL_1_KEY, NULL, 4U),
                   UDS_STATUS_ERR_NULL_PTR, "NULL key must fail");

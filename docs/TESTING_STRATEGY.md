@@ -27,6 +27,31 @@ tests. All four layers run automatically in CI on every push and pull request.
 | DoIP FreeRTOS build | QEMU ARM Cortex-M4 | CMake + QEMU | ✅ basic_ecu_doip_freertos CI green |
 | SafeBoot FreeRTOS build | QEMU ARM Cortex-M4 (RAM stub flash) | CMake + QEMU | ✅ safeboot_freertos_ecu CI green (`freertos-safeboot` job) |
 
+### What "the generated pytest suite" (row above) actually runs on a clean checkout
+
+`cd examples/basic_ecu/generated/tests && pytest --collect-only -q` reports **632 tests
+collected** for `basic_ecu` (v1.12.0). That is a *collection* count, not a claim that
+632 tests execute — and pass — right after `pip install -r tools/requirements.txt`. A
+meaningful share need TestLab (the commercial `xaloqi-tester` package), the
+(not-publicly-included) `firmware_bus` harness, or the commercial `tools/templates/`
+ZIP — none of which are installed by default. Measured 2026-08-31 against a checkout
+with only the OSS dependencies from `tools/requirements.txt` installed (no
+`xaloqi-tester`, no `tools/templates/`, no `--firmware` toolchain):
+
+| Category | Count | What's needed to run it |
+|---|---|---|
+| Pure validation — codegen YAML/schema/ASIL-B checks, SOVD/CDA JSON generation, and other checks that never open a transport | ~292 | Nothing beyond `tools/requirements.txt` |
+| Simulator / live-transport — DID read/write, session control, security access, routine control, DTC handling (`test_did_*.py`, `test_services.py`, `test_routine_*.py`, `test_phase1_protocol_edge_cases.py`) | ~136 | The commercial `xaloqi-tester` (TestLab) package. See `examples/*/generated/tests/requirements_testgen.txt`. `pycryptodome` alone is **not** a substitute — the transport primitives (`VirtualBus`, `IsoTpEngine`, `UdsTester`) are built on `xaloqi-tester`, not just its AES-CMAC helper. |
+| Firmware-backed (`test_firmware_services.py` and firmware-gated cases in other files) | ~57 | `pytest --firmware` plus a local cross-toolchain and the `firmware_bus` harness (not included in this public repo) |
+| Codegen-output-fidelity (`test_robustness_L_codegen_output_fidelity.py` and similar) | ~107 | The commercial `tools/templates/` Jinja2 ZIP — a Developer/Professional deliverable, see [COMMERCIAL_NOTICE.md](../COMMERCIAL_NOTICE.md) |
+| Currently fail rather than skip cleanly when `tools/templates/` is absent — a test-classification gap in `test_robustness_A_codegen.py` / `_F_codegen_limits.py` / `_K_error_quality.py`, not a runtime defect | ~40 | Tracked in [#165](https://github.com/Xaloqi/EDS/issues/165) |
+
+**Takeaway:** on a bare public-repo checkout, expect roughly 292 of 632 collected tests
+(~46%) to run and pass with no extra install; the rest require TestLab, the firmware
+harness, or the commercial templates ZIP, and are designed to skip — mostly cleanly —
+when those aren't present. Counts drift as the YAML config and generated suite evolve;
+re-run `pytest --collect-only -q` and `pytest -rs` locally for the current numbers.
+
 ---
 
 ## 2. Testing Goals
@@ -406,6 +431,13 @@ push / PR
    ├── unit-tests          44 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
+   ├── cmake-ctest-build   The same modules via cmake -S tests + ctest
+   │                       + membership assertion vs tests/unit_runnable/
+   │
+   ├── sanitizers          The same modules via build_tests.sh --sanitize,
+   │                       built and run under ASan + UBSan
+   │                       + scripts/verify_sanitizer_gate.sh positive gate
+   │
    ├── integration-tests   Generated pytest suite, simulator mode
    │                       + zero dynamic allocation grep gate
    │
@@ -424,7 +456,10 @@ push / PR
                            + 10 pytest end-to-end tests (skipped when TestLab absent)
 ```
 
-All 8 jobs must pass before a PR can be merged.
+Every job must pass before a PR can be merged. The tree above names the
+test-bearing jobs; the `jobs:` block in `.github/workflows/ci.yml` is the
+authoritative list, because a hand-maintained job count here has already
+drifted twice (#91, #119) — this line claimed 8.
 
 ### FreeRTOS CI job (`freertos-qemu`)
 

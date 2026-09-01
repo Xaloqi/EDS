@@ -10,6 +10,74 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Mandatory ASan + UBSan CI job on the host unit tests.** (#151) There was
+  no sanitizer build anywhere in this repo's CI — `grep -rn "fsanitize"`
+  over `.github/workflows/` and `build_tests.sh` returned nothing — even
+  though `core/`, `transport/`, `config/` and `platform/` are hand-managed C
+  under a no-malloc/no-recursion policy. New `sanitizers` job runs
+  `bash build_tests.sh --sanitize`, which builds and runs all 44 modules
+  with `-fsanitize=address,undefined -fno-sanitize-recover=all`
+  (`-fno-sanitize-recover` matters: UBSan's default is to print one line and
+  let the process exit 0). `--sanitize` is also available locally.
+  The gate is `scripts/verify_sanitizer_gate.sh`, written to the run-013
+  lesson — it asserts positive success rather than absence of failure:
+  - both a planted ASan violation and a planted UBSan violation are still
+    caught on this runner, using the flags recovered from `build_tests.sh`
+    itself, so the gate proves it can fail before it is allowed to pass;
+  - every test binary that ran carries `__asan*`/`__ubsan*` symbols, checked
+    in the ELF rather than taken on trust;
+  - the module count matches `tests/unit_runnable/`, and the suite executed
+    at least 800 assertions with zero failures.
+  Verified by deliberately injecting a stack-buffer-overflow and a signed
+  integer overflow into a test module (caught, with real reports), by
+  running the gate against an uninstrumented build, an empty log, a
+  short-count log and a short-module log (all rejected), and against clean
+  code (44 modules / 894 cases / 0 failures / 0 diagnostics).
+- **`cmake-ctest-build` now asserts CTest registered and ran every module.**
+  (#151) `ctest` exits 0 on "all registered tests passed", which says
+  nothing about how many were registered — a `tests/CMakeLists.txt` that
+  drifted from `build_tests.sh` again (the O-26/#92 failure) would report
+  100% on a subset. The count is derived from `tests/unit_runnable/` so it
+  cannot go stale, with a floor so a wiped directory cannot make it vacuous.
+
+### Changed
+
+- **The C unit test build compiles the EDS stack once instead of 44 times.**
+  (#151) `build_tests.sh` and `tests/CMakeLists.txt` both compiled all 47
+  shared sources independently for each of the 44 test modules — ~1,900
+  translation units for what is ~47 objects plus 44 small drivers. The stack
+  is now compiled once per compile-time configuration:
+  `build_tests.sh` produces `libeds_testable.a` and links it with
+  `--whole-archive`; `tests/CMakeLists.txt` uses an OBJECT library
+  (the portable equivalent on its CMake 3.16 baseline). Wall-clock:
+  `build_tests.sh` **58.1s → 12.5s**, CMake configure+build+ctest
+  **19.8s → 3.1s**. The source list and compile definitions stay mirrored
+  1:1 between the two paths, as O-26/#92 requires.
+  - `--whole-archive` / OBJECT library is not cosmetic: a plain static-archive
+    link extracts only the members needed to resolve an already-undefined
+    symbol. Measured on this codebase that silently drops 279 symbols,
+    including `g_uds_service_table` and the entire DID handler set — and the
+    affected module still reports PASS.
+  - Two modules need the *shared* sources built in a different configuration
+    (`test_trng_fail_closed` with `CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0`,
+    `test_uds_acl_permissive_opt_in` with
+    `UDS_ACL_ALLOW_UNLISTED_SERVICES=1`; both macros change code in
+    `core/uds_security_algo.c`, `core/uds_access_table.c` and
+    `core/uds_server.c`). They get their own library variant. Confirmed
+    load-bearing rather than decorative: linked against the default library
+    instead, each drops from 4/4 to 1/4 passing. The variant id is derived
+    from the flags themselves, so a third per-module `-D` automatically
+    gets a third library rather than silently reusing the default one.
+  - Verified content-identical, not merely "still green": every test
+    binary's full Unity output was captured before and after and diffed —
+    byte-for-byte identical, 44 modules / 894 cases / 0 failures, via
+    `build_tests.sh`, via the `--whole-archive`-less fallback path, and via
+    a real `cmake`/`ctest` run (100%, 44/44).
+- **`build_tests.sh` now reports and asserts the number of test *cases* that
+  ran**, not just how many modules exited 0. (#151, run-013) A module whose
+  `run_all_tests()` executes nothing still exits 0 and was reported as PASS;
+  the summary now carries a `Unit Test Cases: N run, M failed` line and the
+  script fails if any module executed zero cases.
 - **CI guard: `uds_msg_buf_t` can no longer be silently stack-allocated
   without a build failure.** (#152) `core/uds_types.h`'s
   `EDS_MSG_BUF_MAX_STACK_BYTES` `_Static_assert` documents its own
@@ -74,6 +142,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Stack-buffer-overflow in `test_uds_security.c`.** (#168, found by #151's
+  new ASan job on its first run) `test_uds_security_send_key__test_null_key`
+  declared `uint8_t seed[4]` but passed it to `do_seed_request()`, which
+  declares the buffer to the stack as `UDS_SECURITY_SEED_LEN` (8) bytes — so
+  `core/uds_security.c:219`'s `memcpy` wrote 4 bytes past the end of a test
+  stack frame on every run, silently, with the module still reporting PASS.
+  The production stack is not at fault and is unchanged: it already rejects
+  an honestly-declared short buffer with `UDS_STATUS_ERR_BUFFER_OVERFLOW`.
+  The test buffer now uses the macro, as every other seed buffer in the
+  suite already did.
 - **The Python test suite had no canonical entrypoint — root-level `pytest`
   collection failed outright.** (#150) Every `examples/*/generated/tests/`
   directory's `conftest.py` declares `pytest_plugins = ["conftest_firmware"]`
@@ -215,6 +293,21 @@ All five found and fixed during the 2026-08-31 validation campaign; see
   EDS-toolchain template that generates `test_services.py` needs the
   equivalent fix so future codegen doesn't regenerate the wrong values;
   filed as a follow-up note in the fix PR, not fixed here (different repo).
+- **`test_robustness_D_customer_journey.py`'s per-example nested pytest
+  subprocess had no `timeout=`, so how long it could hang was whatever the
+  outer test runner happened to impose rather than anything deterministic.**
+  (#153) `TestAllECUExamplesPytest.test_ecu_pytest_simulator_all_pass`
+  spawns a nested `pytest ... --can-interface=simulator` per example via the
+  `_run()` helper (a thin `subprocess.run(..., capture_output=True,
+  text=True)` wrapper) with no bound at all — an external qualification
+  evaluator's environment hung on this for the FreeRTOS sensor example even
+  though that example's suite completed cleanly (`109 skipped`) when run
+  directly. Measured real per-example runtime (`basic_ecu`'s suite driving
+  all 11 examples sequentially: 98.71s / 11 ≈ 9s/example, individual runs
+  5–9s) and added an explicit `timeout=90` (~10x the slowest observed
+  example) to that call, catching `subprocess.TimeoutExpired` and failing
+  with `"nested pytest timed out after 90s for {ecu}"` — a message that
+  reads as a timeout, not a generic subprocess or assertion error.
 - **Version identity was broken: several files still claimed old
   versions instead of the current 1.12.0.** (#149) `core/uds_types.h`'s
   `UDS_SUITE_VERSION_MAJOR/MINOR/PATCH` and `UDS_SUITE_VERSION_STRING`

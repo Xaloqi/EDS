@@ -583,6 +583,14 @@ autocomplete and schema-driven validation in addition to the in-process validato
 
 The first five examples ship with committed generated output (DID handlers, safety wrappers, uds\_init) so the public repo is immediately evaluatable without running codegen. Run `pytest` against the simulator in under 60 seconds — no CAN hardware needed.
 
+**SafeBoot scope boundary:** `safeboot_ecu` and `safeboot_freertos_ecu` demonstrate the
+UDS-to-flash bridge — 0x34/0x36/0x37 wiring, CRC-32 verification, and the MCUboot
+secondary-slot / STM32H743 dual-bank backend. EDS + SafeBoot are not a complete secure-update
+platform: image signing, anti-rollback policy, A/B/transactional apply with power-loss
+recovery, and HSM integration are integrator-supplied and out of scope. See
+[`docs/INTEGRATION_GUIDE.md` §5](INTEGRATION_GUIDE.md#safeboot) for the full boundary
+statement.
+
 ---
 
 ## 13. CI Pipeline (`.github/workflows/ci.yml`)
@@ -597,6 +605,7 @@ on a pull request:
 |---|---|
 | `unit-tests` | Unit Tests |
 | `cmake-ctest-build` | CMake/CTest Build (parity with build_tests.sh) |
+| `sanitizers` | Sanitizers — ASan + UBSan (host unit tests) |
 | `integration-tests` | Integration Tests (generated, simulator mode) |
 | `static-analysis` | Static Analysis + MISRA C:2012 (zero open violations) |
 | `zephyr-native` | Zephyr Build — native_sim |
