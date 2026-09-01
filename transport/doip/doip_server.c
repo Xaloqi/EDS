@@ -458,8 +458,25 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
             /* --- Read header --- */
             uint8_t hdr_buf[DOIP_HEADER_LEN];
             uint32_t hdr_received = 0U;
+            uint32_t hdr_read_attempts = 0U;
 
             while (hdr_received < (uint32_t)DOIP_HEADER_LEN) {
+                /* [EDS#193] Bound total partial reads, not just each read's
+                 * own silence timeout. Without this, a client trickling 1
+                 * byte per DOIP_TCP_RECV_TIMEOUT_MS window keeps making
+                 * "progress" forever and never triggers the per-read
+                 * timeout — the single connection slot never frees up for
+                 * the next tester. This file cannot call an RTOS clock
+                 * directly (platform interaction is ops-only, see file
+                 * header), so a read-attempt bound is used in place of a
+                 * true wall-clock deadline — DOIP_MAX_FRAME_READ_ATTEMPTS
+                 * generously covers any legitimate fragmentation pattern
+                 * while still bounding the worst case. */
+                if (hdr_read_attempts >= (uint32_t)DOIP_MAX_FRAME_READ_ATTEMPTS) {
+                    goto connection_closed;
+                }
+                hdr_read_attempts++;
+
                 int bytes = s_ops->tcp_recv(s->conn_ctx,
                                             &hdr_buf[hdr_received],
                                             (size_t)((uint32_t)DOIP_HEADER_LEN - hdr_received),
@@ -487,7 +504,18 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
             /* --- Read payload --- */
             if (payload_len > 0U) {
                 uint32_t received = 0U;
+                uint32_t payload_read_attempts = 0U;
+
                 while (received < payload_len) {
+                    /* [EDS#193] Same read-attempt bound as the header loop
+                     * above — a large payload legitimately takes more reads
+                     * than a header does, so this is tracked separately
+                     * rather than sharing the header loop's budget. */
+                    if (payload_read_attempts >= (uint32_t)DOIP_MAX_FRAME_READ_ATTEMPTS) {
+                        goto connection_closed;
+                    }
+                    payload_read_attempts++;
+
                     int bytes = s_ops->tcp_recv(s->conn_ctx,
                                                 &s->rx_buf[received],
                                                 (size_t)(payload_len - received),
@@ -523,6 +551,28 @@ connection_closed:
         s->conn_ctx       = NULL;
         s->routing_active = false;
         s->tester_address = 0U;
+
+        /* [EDS#191] Reset UDS session/security state on every disconnect —
+         * only DoIP-layer routing state was reset above. Without this, a
+         * new TCP connection (a different tester, or the same one
+         * reconnecting) inherits whatever session/security state the
+         * previous connection left behind (e.g. Extended session +
+         * SecurityAccess unlocked) until S3 eventually times it out.
+         *
+         * Same lesson as [SEC-S3-RESET-01] (core/uds_server.c) recurring
+         * in a different code path: that fix taught this exact codebase
+         * that a forced return to DEFAULT (there, an S3 timeout) must
+         * reset SecurityAccess too, or the unlock survives the transition
+         * — a disconnect is a second, independent way a tester's session
+         * can end, and needed the identical pairing.
+         *
+         * uds_session_transition() to DEFAULT is unconditionally valid
+         * from any current session (see session_validate_transition()),
+         * and uds_security_reset() locks security while correctly
+         * preserving the failed-attempt/lockout counters per ISO
+         * 14229-1 §10.4.5.3 — same two calls SEC-S3-RESET-01 makes. */
+        (void)uds_session_transition(uds_ctx->cfg.session_ctx, UDS_SESSION_DEFAULT);
+        (void)uds_security_reset(uds_ctx->cfg.security_ctx);
     }
 
     /* Unreachable in normal operation */

@@ -309,6 +309,55 @@ async def test_doip_disconnect_reconnect(doip_ecu: subprocess.Popen) -> None:
 
 
 # ===========================================================================
+# Test 10b — Disconnect resets UDS session/security, not just DoIP routing
+#            state [EDS#191]
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_doip_disconnect_resets_security_and_session(
+    doip_ecu: subprocess.Popen,
+) -> None:
+    """A SecurityAccess unlock must NOT survive a TCP disconnect.
+
+    Before EDS#191: doip_server.c's connection_closed path only reset
+    DoIP-layer routing_active/tester_address, never the UDS session or
+    security context. A new connection (a different tester, or the same
+    one reconnecting) inherited whatever session/security state the
+    previous connection left behind until S3 eventually timed it out.
+
+    This reproduces exactly that: unlock security on connection 1, prove
+    the unlock worked (a write succeeds), disconnect, reconnect fresh,
+    and confirm the SAME write now requires a new unlock (NRC 0x33) —
+    not the state.
+    """
+    from xaloqi.tester.exceptions import NegativeResponseError
+
+    # Connection 1: unlock and prove it by writing without error.
+    async with UdsTester(_bus(), rx_id=0xE400, tx_id=0x0E00) as ecu1:
+        await ecu1.change_session(Session.EXTENDED)
+        await ecu1.security_access(level=1)
+        await ecu1.write_did(0xF187, b"EDS-DIP-001")  # unlocked — must succeed
+
+    # Brief pause to let the server accept the next connection.
+    await asyncio.sleep(0.2)
+
+    # Connection 2: fresh TCP connection, Extended session, NO re-unlock.
+    # If security state survived the disconnect (the bug), this write
+    # would silently succeed instead of raising NRC 0x33.
+    async with UdsTester(_bus(), rx_id=0xE400, tx_id=0x0E00) as ecu2:
+        await ecu2.change_session(Session.EXTENDED)
+        try:
+            await ecu2.write_did(0xF187, b"EDS-DIP-001")
+            pytest.fail(
+                "SecurityAccess unlock survived a disconnect — expected "
+                "NRC 0x33 (securityAccessDenied) on the reconnected write, "
+                "got a positive response instead"
+            )
+        except NegativeResponseError as exc:
+            assert exc.nrc == 0x33, f"Expected NRC 0x33, got 0x{exc.nrc:02X}"
+
+
+# ===========================================================================
 # Test 11 — TesterPresent with suppressPosResponse=True
 # ===========================================================================
 
