@@ -120,9 +120,9 @@ typedef struct nvm_store_cfg {
     /** NVS sector size in bytes (typically 4096 for most flash).
      *  [EDS#200] uint32_t, not uint16_t: some real targets' physical erase
      *  pages exceed 65535 bytes (e.g. STM32H743ZI and NXP MCX N947 both
-     *  use 128 KB = 0x20000 sectors — see boards/nucleo_h743zi/*.overlay
-     *  and boards/frdm_mcxn947/*.overlay). A uint16_t here silently
-     *  truncated 0x20000 to 0, which nvs_mount() would reject. */
+     *  use 128 KB = 0x20000 sectors — see boards/nucleo_h743zi and
+     *  boards/frdm_mcxn947's board overlay files). A uint16_t here
+     *  silently truncated 0x20000 to 0, which nvs_mount() would reject. */
     uint32_t    sector_size;
 
     /** Number of NVS sectors to use for diagnostics NVM (minimum 2). */
