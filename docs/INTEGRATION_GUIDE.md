@@ -461,7 +461,7 @@ while (true) {
 }
 ```
 
-**Implement your DID handlers** — open `generated/did_handlers.c` and replace each stub body with a real sensor read:
+**Implement your DID handlers** — open `generated/did_handlers.c` and replace each stub body with a real sensor read. These run synchronously from task context (`diag_task` for CAN, `doip_thread` for DoIP), never from an ISR, and EDS holds no lock while calling them — synchronizing access to any shared application state inside your handler is your responsibility. See [`docs/threading_guide.md`](threading_guide.md)'s "Callback Execution Context" section for the full contract:
 
 ```c
 /* Generated stub — replace with real sensor read: */

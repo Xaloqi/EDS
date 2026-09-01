@@ -79,6 +79,47 @@ access to guarantee atomic read-modify-write on all architectures.
 calls `k_msgq_put()` from ISR context; `diag_task` calls `k_msgq_get(K_NO_WAIT)` from thread
 context. No additional locking is required.
 
+### Dual-Transport Concurrency (CAN + DoIP)
+
+`uds_server_ctx_t` (holding session and security state) is a single struct — every generated
+`uds_init.c` declares exactly one static instance (`s_server_ctx`), regardless of which
+transport(s) are compiled in. **`core/uds_server.c` itself does not lock around
+`uds_server_process_request()`** — any locking around a call into it is application-level, not
+something EDS does for you internally.
+
+The `s_session_lock` / `s_security_lock` pair described above is example-level integration code
+(`examples/*/src/main.c`), written once per example around `diag_task`'s call site. **DoIP runs
+in its own dedicated thread** (`doip_thread`, `K_THREAD_DEFINE` in `platform/zephyr/zephyr_lwip.c`,
+running `eds_doip_server_run()`) with its own call path into `uds_server_process_request()`.
+
+The shipped examples never combine both: `basic_ecu` runs CAN-only (`diag_task`, with the mutex
+pair); `basic_ecu_doip` / `basic_ecu_doip_freertos` run DoIP-only (`doip_thread`, no mutex —
+correctly, since there's only one caller thread in that build) — its `main.c` explicitly notes
+*"The CAN diagnostic task (diag_task) is NOT started here... for a production 'both' transport
+ECU, add the CAN thread from basic_ecu alongside the DoIP init."*
+
+**If you do that** — wire both `diag_task` and `doip_thread` into the same build against the
+same `s_server_ctx` — both threads now call `uds_server_process_request()` concurrently, and
+nothing inside EDS serializes them. You are responsible for extending the *same* `s_session_lock`
+/ `s_security_lock` (or an equivalent single lock) around **every** call site that touches
+`uds_server_ctx_t`, CAN's and DoIP's alike — not just `diag_task`'s, as the single-transport
+examples show it. Skipping this is a real, unguarded data race on session/security state, not a
+theoretical one.
+
+### Callback Execution Context
+
+Generated DID/routine handlers (`did_handlers.c`, `routine_handlers.c`) are called synchronously,
+inline, from within `uds_server_process_request()` — never from an ISR. The calling thread is
+whichever thread invoked `uds_server_process_request()` in your build: `diag_task` for CAN,
+`doip_thread` for DoIP, or both (see above) if you've wired a dual-transport build.
+
+EDS holds no lock while invoking your callback and expects none — synchronizing your callback's
+access to shared application state (a sensor reading, a calibration value, anything not owned
+exclusively by the calling thread) is entirely your responsibility, using the same primitives
+(`diag_mutex_t`, atomics, message queues) you'd use between any two threads touching shared state.
+A DID handler reading `app_global_vin` without synchronization races exactly like any other
+unsynchronized cross-thread read — nothing UDS-specific makes it safer.
+
 ---
 
 ## Timing Constraints
