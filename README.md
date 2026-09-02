@@ -345,6 +345,8 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 
 Each example ships with a complete generated test suite. Run `pytest` against the simulator in under 60 seconds, no CAN hardware needed.
 
+**`TODO [APPLICATION]` convention:** every hardware/NVM-backed DID or routine accessor in these examples is tagged in-code, e.g. `/* TODO [APPLICATION]: Read VIN from NVM. */` in `examples/basic_ecu/src/main.c`. This marks exactly where a customer's application must supply real hardware I/O. The examples demonstrate integration architecture, not complete or certified ECU functionality — do not treat them as evidence that final vehicle behavior is correct.
+
 ---
 
 ## Safety and compliance

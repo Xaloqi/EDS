@@ -37,6 +37,9 @@
 #   "nothing meaningful ran here because this environment is incomplete" is
 #   never mistaken for "verified and all green". Look for "[ENV]" in the
 #   underlying pytest skip reasons to grep the exact cause.
+#   A module-level pytest.importorskip() for an absent optional dependency
+#   makes pytest exit 5 ("no tests collected") even though every test
+#   validly skipped — that case is also [ENV], not FAIL (issue #213).
 #
 # USAGE:
 #   bash run_python_tests.sh              # full suite (all examples + tests/)
@@ -109,7 +112,16 @@ run_suite() {
     local errored=0
     printf '%s\n' "$tail_line" | grep -qE '[0-9]+ error' && errored=1
 
-    if [ "$rc" -ne 0 ] || [ "$failed" -gt 0 ] || [ "$errored" -eq 1 ]; then
+    if [ "$rc" -eq 5 ] && [ "$failed" -eq 0 ] && [ "$errored" -eq 0 ]; then
+        # pytest exit code 5 = "no tests collected". A module-level
+        # pytest.importorskip() for an absent optional dependency
+        # (e.g. xaloqi-tester) hits this: every test validly skipped,
+        # but nothing was ever "collected" in pytest's own accounting,
+        # so it exits 5 instead of 0. That is an environment gap, not
+        # a failure — route it to [ENV] rather than FAIL.
+        ENV_SUITES=$((ENV_SUITES + 1))
+        SUMMARY_LINES+=("[ENV] ${label}: ${tail_line}")
+    elif [ "$rc" -ne 0 ] || [ "$failed" -gt 0 ] || [ "$errored" -eq 1 ]; then
         FAIL_SUITES=$((FAIL_SUITES + 1))
         SUMMARY_LINES+=("FAIL  ${label}: ${tail_line}")
         echo "===== ${label}: FAIL ====="
