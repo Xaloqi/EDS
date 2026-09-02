@@ -41,6 +41,14 @@
  *            registered NVM ops, those are called; otherwise the RAM stub
  *            is used (data is lost on reset — only for development).
  *
+ *          [EDS#215] PRODUCTION GUARD: eds_platform_init() fails closed
+ *            (returns UDS_STATUS_ERR_INVALID_PARAM) instead of silently
+ *            activating the RAM NVM stub when EDS_BUILD_IS_PRODUCTION is
+ *            true and no customer NVM ops were supplied — see the gate in
+ *            eds_platform_init() below. Mirrors freertos_flash_ops.c's
+ *            compile-time #error for the same class of risk on the flash
+ *            side (SEC-KEY-GATE-01 pattern).
+ *
  * SAFETY  : ASIL-B candidate. Reset path is safety-relevant.
  * STANDARD: MISRA C:2012 alignment intended.
  * =============================================================================
@@ -50,6 +58,7 @@
 #include "freertos_can.h"
 #include "nvm_store.h"
 #include "dtc_mirror.h"
+#include "uds_security_algo.h" /* EDS_BUILD_IS_PRODUCTION, SEC-BUILD-MODE-01 */
 #include "uds_session_stats.h"
 #include "uds_types.h"
 
@@ -257,8 +266,27 @@ uds_status_t eds_platform_init(const eds_platform_cfg_t *cfg)
     else
     {
         /*
-         * No customer NVM ops — activate the built-in RAM stub.
-         * Clear state and register stub ops with freertos_nvm.c.
+         * [EDS#215] No customer NVM ops. Unlike the STM32H7xx flash
+         * backend selection (freertos_flash_ops.c), this fallback is a
+         * runtime decision driven by cfg->nvm, not a compile-time #if — a
+         * plain #error here cannot see which branch a given build will
+         * actually take. So the fail-closed check has to live here, at
+         * the point the stub would otherwise be silently activated:
+         * refuse to start in a build declared production
+         * (EDS_BUILD_IS_PRODUCTION, core/uds_security_algo.h,
+         * SEC-BUILD-MODE-01) rather than silently run on a non-persistent
+         * RAM stub that loses all NVM state on every reset.
+         * `!defined(UNIT_TEST)` carries the same host-test exemption as
+         * SEC-KEY-GATE-01 — host unit tests legitimately use the stub,
+         * including runs that force EDS_BUILD_IS_PRODUCTION=1 to exercise
+         * some other gate's production behaviour.
+         */
+#if EDS_BUILD_IS_PRODUCTION && !defined(UNIT_TEST)
+        return UDS_STATUS_ERR_INVALID_PARAM;
+#else
+        /*
+         * Activate the built-in RAM stub. Clear state and register stub
+         * ops with freertos_nvm.c.
          */
         (void)memset(s_nvm_records, 0, sizeof(s_nvm_records));
         s_nvm_stub_ready = false;
@@ -268,6 +296,7 @@ uds_status_t eds_platform_init(const eds_platform_cfg_t *cfg)
         s_nvm_ops.is_ready = nvm_stub_is_ready;
 
         freertos_nvm_register_ops(&s_nvm_ops);
+#endif
     }
 
     /* Activate the nvm_store layer (writes schema version record). */

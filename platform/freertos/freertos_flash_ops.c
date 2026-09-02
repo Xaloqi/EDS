@@ -29,6 +29,7 @@
 
 #include "freertos_flash_ops.h"
 #include "uds_flash_ops.h"
+#include "uds_security_algo.h" /* EDS_BUILD_IS_PRODUCTION, SEC-BUILD-MODE-01 */
 #include "uds_transfer_ctx.h"
 #include "uds_types.h"
 
@@ -200,6 +201,41 @@ static uds_status_t h7_flash_verify(uint32_t address,
  * Matches the flash layout constants but uses a static buffer.
  * Not suitable for production — flash writes are not persistent.
  */
+
+/* =============================================================================
+ * [EDS#215] Compile-time production guard for the RAM stub backend
+ *
+ * This RAM stub is a legitimate CI/QEMU fallback (no persistent flash
+ * hardware to target), but nothing previously stopped it from being
+ * silently linked into a real production build for a FreeRTOS MCU other
+ * than STM32H7xx (or an STM32H7xx build that forgot to define the guard
+ * macro) — no compile or link error, no warning, just a flash driver that
+ * discards every write on reset.
+ *
+ * Mirrors the existing SEC-KEY-GATE-01 pattern (core/uds_security_algo.c):
+ * when EDS_BUILD_IS_PRODUCTION (core/uds_security_algo.h,
+ * SEC-BUILD-MODE-01) is true, this stub becomes a hard compile failure
+ * instead of silently linking, forcing the integrator to either wire a
+ * real flash backend for their MCU or explicitly keep the build
+ * non-production (EDS_BUILD_IS_PRODUCTION=0 / the FreeRTOS
+ * CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=1 dev default) while still on the
+ * stub. `!defined(UNIT_TEST)` carries the same host-test exemption as
+ * SEC-KEY-GATE-01 — the host unit-test build has no flash hardware target
+ * at all and legitimately always uses this stub, including runs that
+ * force EDS_BUILD_IS_PRODUCTION=1 to exercise some other gate's
+ * production behaviour.
+ *
+ * TRACEABILITY: EDS#215, mirrors SEC-KEY-GATE-01 / CRIT-4.
+ * ============================================================================= */
+#if EDS_BUILD_IS_PRODUCTION && !defined(UNIT_TEST)
+#error "[EDS#215] Production build declared (EDS_BUILD_IS_PRODUCTION=1) but " \
+       "freertos_flash_ops.c is compiling its RAM-backed stub flash backend " \
+       "(neither STM32H7xx nor STM32H743xx is defined). This stub discards " \
+       "every flash write on reset and must never ship in production. Wire a " \
+       "real flash backend for your MCU (see the STM32H743 HAL backend above " \
+       "for the expected uds_flash_ops_t shape), or keep this build " \
+       "explicitly non-production if it is CI/QEMU-only."
+#endif
 
 #define STUB_FLASH_SIZE  (FREERTOS_FLASH_OTA_SIZE)
 

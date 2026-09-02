@@ -420,6 +420,17 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
  * Blocking server loop. One connection at a time per logical address.
  * Multiple clients connect sequentially; concurrent clients share the same
  * UDS session (routing_active is reset on new connection).
+ *
+ * [EDS#218] Two additional bounds beyond the per-read timeout
+ * (DOIP_TCP_RECV_TIMEOUT_MS) and per-frame read-attempt cap
+ * (DOIP_MAX_FRAME_READ_ATTEMPTS, EDS#193):
+ *   - DOIP_MAX_CONNECTION_FRAMES forces a disconnect after that many
+ *     frames on one connection, bounding both connection lifetime and
+ *     in-connection request rate.
+ *   - DOIP_RAPID_RECONNECT_THRESHOLD / DOIP_RECONNECT_BACKOFF_REJECTS
+ *     reject new connections outright for a while after a burst of
+ *     connections that never dispatched a single frame, mitigating
+ *     connect/disconnect cycling.
  * ------------------------------------------------------------------------ */
 
 uds_status_t eds_doip_server_run(doip_server_state_t *s,
@@ -439,12 +450,32 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
         return UDS_STATUS_ERR_PLATFORM;
     }
 
+    /* [EDS#218] Rapid-reconnect tracking across connections — see
+     * DOIP_RAPID_RECONNECT_THRESHOLD / DOIP_RECONNECT_BACKOFF_REJECTS in
+     * doip_server.h for the rationale (no direct wall-clock in this
+     * file, so a bounded-count proxy is used instead of a real cooldown
+     * timer). */
+    uint32_t rapid_reconnects          = 0U;
+    uint32_t backoff_rejects_remaining = 0U;
+
     /* Accept → receive → handle → repeat */
     for (;;) {
         void *conn_ctx = NULL;
-        rc = s_ops->tcp_accept(server_ctx, &conn_ctx, 5000U /* 5s poll */);
+        rc = s_ops->tcp_accept(server_ctx, &conn_ctx, DOIP_ACCEPT_POLL_TIMEOUT_MS);
         if (rc != 0) {
             /* Timeout or transient error — keep listening */
+            continue;
+        }
+
+        if (backoff_rejects_remaining > 0U) {
+            /* [EDS#218] Reject outright: this connection follows a burst
+             * of connections that never completed any real work (see
+             * DOIP_RAPID_RECONNECT_THRESHOLD below), so it is treated as
+             * part of a connect/disconnect-cycling pattern rather than
+             * given a full serial slot. */
+            s_ops->tcp_close(conn_ctx);
+            backoff_rejects_remaining--;
+            s->connections_rate_rejected++;
             continue;
         }
 
@@ -452,6 +483,13 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
         s->routing_active = false;
         s->tester_address = 0U;
         s->conn_ctx       = conn_ctx;
+
+        /* [EDS#218] Frames dispatched on this connection so far — bounds
+         * both total connection lifetime and in-connection request rate
+         * via DOIP_MAX_CONNECTION_FRAMES (see doip_server.h), and tells
+         * the rapid-reconnect tracking below whether this connection did
+         * any real work. */
+        uint32_t conn_frame_count = 0U;
 
         /* Per-connection receive loop */
         for (;;) {
@@ -544,6 +582,17 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
                  * headers, rather than keep reading frames on it. */
                 goto connection_closed;
             }
+
+            /* [EDS#218] Enforce the per-connection frame cap — see
+             * DOIP_MAX_CONNECTION_FRAMES in doip_server.h. Force a
+             * disconnect once reached, same cleanup path as any other
+             * connection-ending condition, so the single serial slot is
+             * freed for the next client. */
+            conn_frame_count++;
+            if (conn_frame_count >= (uint32_t)DOIP_MAX_CONNECTION_FRAMES) {
+                s->connections_lifetime_capped++;
+                goto connection_closed;
+            }
         }
 
 connection_closed:
@@ -551,6 +600,22 @@ connection_closed:
         s->conn_ctx       = NULL;
         s->routing_active = false;
         s->tester_address = 0U;
+
+        /* [EDS#218] Rapid-reconnect tracking: a connection that never
+         * dispatched a single frame (malformed header, no routing
+         * activation, immediate disconnect, ...) counts toward the
+         * connect/disconnect-cycling threshold; any connection that did
+         * real work resets it. See DOIP_RAPID_RECONNECT_THRESHOLD /
+         * DOIP_RECONNECT_BACKOFF_REJECTS in doip_server.h. */
+        if (conn_frame_count > 0U) {
+            rapid_reconnects = 0U;
+        } else {
+            rapid_reconnects++;
+            if (rapid_reconnects >= (uint32_t)DOIP_RAPID_RECONNECT_THRESHOLD) {
+                backoff_rejects_remaining = (uint32_t)DOIP_RECONNECT_BACKOFF_REJECTS;
+                rapid_reconnects = 0U;
+            }
+        }
 
         /* [EDS#191] Reset UDS session/security state on every disconnect —
          * only DoIP-layer routing state was reset above. Without this, a

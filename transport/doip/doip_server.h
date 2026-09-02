@@ -127,6 +127,55 @@ extern "C" {
 #define DOIP_MAX_FRAME_READ_ATTEMPTS (256U)
 #endif
 
+/** Poll timeout for each eds_doip_server_run() tcp_accept() call while no
+ * client is connected — how often the accept loop wakes up to re-check. */
+#ifndef DOIP_ACCEPT_POLL_TIMEOUT_MS
+#define DOIP_ACCEPT_POLL_TIMEOUT_MS (5000U)
+#endif
+
+/**
+ * [EDS#218] Maximum diagnostic frames dispatched on one TCP connection
+ * before the server forces a disconnect, freeing the single serial slot
+ * (DOIP_MAX_CONNECTIONS is a listen() backlog, not a concurrency limit —
+ * see eds_doip_server_run()) for the next client. This is also the
+ * mechanism that bounds total connection lifetime: this file has no
+ * direct RTOS clock access — all platform interaction is ops-only (see
+ * file header) — so, exactly like DOIP_MAX_FRAME_READ_ATTEMPTS above
+ * (EDS#193), a bounded count stands in for a wall-clock deadline. A
+ * client sending valid traffic slowly enough to stay under
+ * DOIP_TCP_RECV_TIMEOUT_MS on every read, and so never trip the
+ * per-frame read-attempt bound, would otherwise be able to hold the
+ * single active connection indefinitely.
+ */
+#ifndef DOIP_MAX_CONNECTION_FRAMES
+#define DOIP_MAX_CONNECTION_FRAMES (500U)
+#endif
+
+/**
+ * [EDS#218] Consecutive connections that dispatch zero diagnostic frames
+ * (connect, then close/error/timeout before a single DiagnosticMessage is
+ * handled — e.g. malformed header, no routing activation, or an
+ * immediate disconnect) before the server treats accept-cycling as
+ * abusive and starts rejecting new connections outright. Resets to 0 the
+ * moment any connection dispatches at least one frame. Mitigates
+ * repeated connect/disconnect cycling used to keep re-acquiring the
+ * single serial connection slot without ever doing real work on it.
+ */
+#ifndef DOIP_RAPID_RECONNECT_THRESHOLD
+#define DOIP_RAPID_RECONNECT_THRESHOLD (8U)
+#endif
+
+/**
+ * [EDS#218] Number of subsequent connection attempts rejected outright
+ * (accepted, then immediately closed with no processing) once
+ * DOIP_RAPID_RECONNECT_THRESHOLD is hit. Counts down per rejected
+ * attempt rather than a wall-clock cooldown, for the same "no direct
+ * RTOS clock" reason as DOIP_MAX_CONNECTION_FRAMES above.
+ */
+#ifndef DOIP_RECONNECT_BACKOFF_REJECTS
+#define DOIP_RECONNECT_BACKOFF_REJECTS (4U)
+#endif
+
 /* ============================================================================
  * Platform operations — implement one set per RTOS/IP-stack combination.
  *
@@ -226,6 +275,12 @@ typedef struct doip_server_state {
     uds_msg_buf_t uds_resp;       /**< Static UDS response buffer — never on task stack. */
     uint32_t frames_received;    /**< Diagnostic counter: total frames received. */
     uint32_t frames_sent;        /**< Diagnostic counter: total frames sent. */
+    /** [EDS#218] Resource-accounting counters — connections force-closed
+     * for hitting DOIP_MAX_CONNECTION_FRAMES, and connection attempts
+     * rejected outright during a DOIP_RECONNECT_BACKOFF_REJECTS window.
+     * Diagnostic/telemetry only; never reset except at server init. */
+    uint32_t connections_lifetime_capped;
+    uint32_t connections_rate_rejected;
 } doip_server_state_t;
 
 /* ============================================================================

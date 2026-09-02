@@ -658,6 +658,37 @@ Global env: `XALOQI_LICENSE_SKIP=1` (codegen bypasses license check in CI — `_
 
 ---
 
+## 14.5. FreeRTOS vs Zephyr Platform Support Matrix
+
+[EDS#215] A side-by-side reference for evaluating which platform port to
+commit to — current backend and CI validation depth per subsystem, as of
+this release. This documents current state; it is distinct in scope from
+the broader hardware-dependent qualification-evidence work already tracked
+in #155 (WCET, HiL, fault injection — needs real hardware).
+
+| Subsystem | Zephyr | FreeRTOS |
+|---|---|---|
+| Transport (CAN / ISO-TP) | `platform/zephyr/zephyr_can.c` — Zephyr CAN driver API | `platform/freertos/freertos_can.c` — customer-provided `can_send` callback |
+| Transport (DoIP) | `transport/doip/zephyr_lwip.c` — Zephyr socket API (`zsock_*`) | `transport/doip/freertos_lwip.c` — LwIP BSD-socket API (`lwip_*`) |
+| Flash (SID 0x34–0x37 download services) | `platform/zephyr/zephyr_flash_ops.c` — real Zephyr flash API (DTS flash-map, board-backed) | `platform/freertos/freertos_flash_ops.c` — real STM32H743 HAL backend when `STM32H7xx`/`STM32H743xx` is defined; RAM stub otherwise. **A production build now fails to compile if it resolves to the RAM stub — see EDS#215 / SEC-KEY-GATE-01-style guard.** |
+| NVM (DID persistence, DTC mirror, session stats) | `platform/zephyr/zephyr_platform_api.c` — wired into real Zephyr `nvm_store_init()` paths | Customer-supplied NVM ops (persistent), or built-in RAM stub if none are supplied. **`eds_platform_init()` now fails closed (`UDS_STATUS_ERR_INVALID_PARAM`) rather than silently starting on the RAM stub in a production build — see EDS#215.** |
+| Security (SID 0x27 SecurityAccess) | `core/uds_security_algo.c` — shared, platform-agnostic | Same shared module — see §5 Security Manager and the single-security-context-per-process constraint (EDS#214) |
+| CI — simulator/emulator | `zephyr-native` job: `native_sim`, full test suite | `freertos-qemu` / `freertos-safeboot` jobs: QEMU Cortex-M4 (RAM stub flash — `freertos-safeboot` job name says so explicitly) |
+| CI — real-hardware cross-compile | `zephyr-stm32` (nucleo_h743zi), `zephyr-nxp` (frdm_mcxn947), `zephyr-nxp-s32k` (mr_canhubk3/S32K344) — 3 boards, compile-only | None — no FreeRTOS cross-compile CI job targets real hardware today |
+| HiL validation | Planned (Nucleo-H743ZI2 overlay written — see §14 Target Hardware); not yet executed in CI for either platform | Same — not yet executed in CI for either platform |
+
+**Reading this table:** Zephyr's flash and NVM backends both reach real
+hardware-facing code paths in every configuration; FreeRTOS's only do so
+when the integrator wires real ops (flash: define `STM32H7xx`/`STM32H743xx`
+and use the HAL backend; NVM: supply `read`/`write`/`is_ready` callbacks in
+`eds_platform_cfg_t`) — the EDS#215 guards above exist specifically because
+that wiring was previously optional even in a build declaring itself
+production. Zephyr also currently has broader real-hardware cross-compile
+CI coverage (three boards vs. none for FreeRTOS); neither platform has
+executed HiL validation yet.
+
+---
+
 ## 15. Extensibility
 
 The architecture supports future extensions without structural changes:
