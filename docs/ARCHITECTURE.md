@@ -282,6 +282,16 @@ the active security level, enforces the delay timer after failed attempts, and c
 failed attempts per session. The `xor_stub` algorithm is available for development builds
 only — it must not be used in production firmware.
 
+**Single security context per process:** `core/uds_security_algo.c` holds all key
+material and derivation state (`s_level_keys[]`, `s_sequence`, `s_rng_cb`, `s_derive_cb`,
+`s_lfsr`, `s_placeholder_keys[]`) in module-static globals. The module is not
+re-entrant or instantiable — there is exactly one active security context per
+process/image, by design, matching the one-ECU-personality-per-image deployment model
+the stack targets. A binary that tries to run two independent ECU personalities (or
+security contexts) in the same process will have the second instance silently share,
+and potentially clobber, the first instance's keys and sequence state. A multi-instance
+design needs a separate process/image per security context.
+
 ---
 
 ## 6. Transport Layer (`transport/`)

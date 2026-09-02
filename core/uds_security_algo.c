@@ -42,6 +42,17 @@
  *   [DEV-ALGO-01] Rule 8.13 advisory: volatile local 'diff' in ct_compare.
  *     Required to guarantee constant-time comparison. Justified by
  *     ASIL-B security requirement SEC-CT-01.
+ *
+ * SINGLE SECURITY CONTEXT PER PROCESS:
+ *   All key material and derivation state (s_level_keys[], s_sequence,
+ *   s_rng_cb, s_derive_cb, s_lfsr, s_placeholder_keys[]) is held in
+ *   module-static globals. This module is NOT re-entrant or instantiable:
+ *   there is exactly one active security context per process/image, by
+ *   design, matching the one-ECU-personality-per-image deployment model.
+ *   A process that tries to run two independent security contexts in the
+ *   same image will have the second silently share (and can clobber) the
+ *   first's keys/sequence state. See docs/ARCHITECTURE.md's Security
+ *   Manager section.
  * =============================================================================
  */
 
