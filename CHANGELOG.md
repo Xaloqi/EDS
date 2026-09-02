@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`ardep_ecu`'s committed CANoe/CAPL test suite tested two
+  `ReadDTCInformation` (0x19) sub-functions the real server no longer
+  implements** (EDS-toolchain#60). `TC_DTC_RDTCI_FaultDetectionCounter`
+  and `TC_DTC_RDTCI_PermanentStatus` in `tests/capl/test_dtcs.can`
+  requested sub-functions `0x0B`/`0x19` — the pre-O-59/EDS#148 values.
+  That fix corrected the server (`core/uds_services/service_0x19.c`) and
+  the pytest-generating template to `0x14`/`0x15`, but missed the CAPL
+  template in EDS-toolchain, so this suite kept asserting a positive
+  response for sub-functions that now fall through to
+  `UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP` (NRC 0x12) — a CANoe run against
+  real firmware would have failed both test cases. Regenerated from the
+  corrected EDS-toolchain template; only `tests/capl/test_dtcs.can`
+  differs (the other 37 committed CAPL files are unaffected).
+
 - **"Static Analysis + MISRA C:2012" CI job failing: a `-Wcomment` GCC
   warning inside `platform/nvm_store.h`, misattributed to whichever `.c`
   file happened to `#include` it** (#206). Root cause was two separate

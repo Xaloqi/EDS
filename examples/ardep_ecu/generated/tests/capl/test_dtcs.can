@@ -6,7 +6,7 @@
  *
  * ECU       : ARDEP_IOController
  * Version   : 1.0.0
- * Generated : 2026-05-19T13:51:10Z
+ * Generated : 2026-09-01T20:37:16Z
  *
  * FILE: test_dtcs.can
  *
@@ -34,7 +34,7 @@
  *   0xC0FE10  Firmware download incomplete — transfer interrupted
  *
  * Services under test:
- *   0x19  ReadDTCInformation (sub-fn 0x02, 0x06, 0x0A)
+ *   0x19  ReadDTCInformation (sub-fn 0x01, 0x02, 0x06, 0x0A, 0x14, 0x15)
  *   0x14  ClearDiagnosticInformation
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -730,6 +730,95 @@ testcase TC_DTC_RDTCI_ExtendedData_AllDTCs()
 }
 
 /*
+ * TC_DTC_RDTCI_FaultDetectionCounter
+ * Verify ReadDTCInformation sub-fn 0x14 (reportDTCFaultDetectionCounter).
+ * Response: 0x59 0x14 [{dtc3B, faultDetectionCounter}...] — no availabilityMask.
+ * ISO 14229-1 §11.3.20.
+ *
+ * [EDS-toolchain#60] Was sub-fn 0x0B here -- the pre-O-59/EDS#148 value.
+ * core/uds_services/service_0x19.c and tools/templates/test_services.py.j2
+ * were both corrected to 0x14 by that fix; this CAPL template was missed,
+ * so it tested a sub-function the real server no longer implements at all
+ * (0x0B now falls through to the default case -> NRC 0x12
+ * subFunctionNotSupported instead of the positive response this test
+ * asserted).
+ */
+testcase TC_DTC_RDTCI_FaultDetectionCounter()
+{
+  byte pdu[2];
+  int  rc;
+  TestCaseDescription("0x19 0x14 — reportDTCFaultDetectionCounter");
+
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x14;
+  Uds_EnterSession(kSessDefault);
+  rc = UdsRequest(pdu, 2);
+  AssertPositiveResponse(rc, kSidRDTCI, "RDTCI_0x14_Response");
+
+  /* Minimum: 0x59 0x14 = 2 bytes (no availability mask — differs from 0x02/0x0A) */
+  if (gRxLen >= 2 && gRxBuf[1] == 0x14) {
+    /* DTC section (if any): stride 4 bytes each */
+    int dtcBytes = gRxLen - 2;
+    if (dtcBytes == 0 || dtcBytes % 4 == 0) {
+      TestStepPass("RDTCI_0x14_Structure",
+        "Response structure valid: %d DTC record(s) in fault detection counter response",
+        dtcBytes / 4);
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x14_Structure",
+        "DTC section length %d is not a multiple of 4", dtcBytes);
+      gTestFailCount++;
+    }
+  } else {
+    TestStepFail("RDTCI_0x14_Structure",
+      "Response too short or wrong sub-function echo: len=%d", gRxLen);
+    gTestFailCount++;
+  }
+}
+
+/*
+ * TC_DTC_RDTCI_PermanentStatus
+ * Verify ReadDTCInformation sub-fn 0x15 (reportDTCWithPermanentStatus).
+ * Response: 0x59 0x15 <availMask> [{dtc3B, statusByte}...]
+ * ISO 14229-1 §11.3.25.
+ *
+ * [EDS-toolchain#60] Was sub-fn 0x19 here (identical value to the SID
+ * itself, which made the confusion worse) -- same pre-O-59/EDS#148 value
+ * as TC_DTC_RDTCI_FaultDetectionCounter above; same fix.
+ */
+testcase TC_DTC_RDTCI_PermanentStatus()
+{
+  byte pdu[2];
+  int  rc;
+  TestCaseDescription("0x19 0x15 — reportDTCWithPermanentStatus");
+
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x15;
+  Uds_EnterSession(kSessDefault);
+  rc = UdsRequest(pdu, 2);
+  AssertPositiveResponse(rc, kSidRDTCI, "RDTCI_0x15_Response");
+
+  /* Minimum: 0x59 0x15 <availMask> = 3 bytes */
+  if (gRxLen >= 3 && gRxBuf[1] == 0x15) {
+    int dtcBytes = gRxLen - 3;
+    if (dtcBytes == 0 || dtcBytes % 4 == 0) {
+      TestStepPass("RDTCI_0x15_Structure",
+        "Response structure valid: %d permanent DTC(s) returned, availMask=0x%02X",
+        dtcBytes / 4, gRxBuf[2]);
+      gTestPassCount++;
+    } else {
+      TestStepFail("RDTCI_0x15_Structure",
+        "DTC section length %d is not a multiple of 4", dtcBytes);
+      gTestFailCount++;
+    }
+  } else {
+    TestStepFail("RDTCI_0x15_Structure",
+      "Response too short or wrong sub-function echo: len=%d", gRxLen);
+    gTestFailCount++;
+  }
+}
+
+/*
  * TC_DTC_RDTCI_InvalidSubFunction
  * Verify NRC 0x12 (subFunctionNotSupported) for an invalid sub-function.
  */
@@ -786,9 +875,11 @@ testgroup TG_DTCTests()
 
   TC_DTC_ClearAll_Extended();
   TC_DTC_ClearAll_DefaultSession_Denied();
+  TC_DTC_RDTCI_ReportNumberOfDTC();
   TC_DTC_RDTCI_ReportByStatusMask_FF();
   TC_DTC_RDTCI_ReportSupportedDTC();
   TC_DTC_RDTCI_ExtendedData_AllDTCs();
+  TC_DTC_RDTCI_FaultDetectionCounter();
+  TC_DTC_RDTCI_PermanentStatus();
   TC_DTC_RDTCI_InvalidSubFunction();
-  TC_DTC_RDTCI_ReportNumberOfDTC();
 }
