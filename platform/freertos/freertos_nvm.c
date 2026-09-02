@@ -215,8 +215,9 @@ uds_status_t nvm_store_delete(uint16_t key)
 uds_status_t nvm_store_erase_all(void)
 {
     uint16_t     keys[] = {
-        (uint16_t)NVM_KEY_SEC_ATTEMPT_CTR,
-        (uint16_t)NVM_KEY_SEC_LOCKOUT_MS,
+        (uint16_t)NVM_KEY_SEC_STATE, /* [EDS#211] replaces the former
+                                       * NVM_KEY_SEC_ATTEMPT_CTR +
+                                       * NVM_KEY_SEC_LOCKOUT_MS pair. */
         (uint16_t)NVM_KEY_DTC_MIRROR,
         (uint16_t)NVM_KEY_SESSION_STATS,
         (uint16_t)NVM_KEY_LIFECYCLE_CNT,

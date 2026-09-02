@@ -14,12 +14,24 @@
  *          Each stored record is identified by a uint16_t key (NVS ID).
  *          Key layout:
  *
- *            0x0001  NVM_KEY_SEC_ATTEMPT_CTR   Security failed-attempt counter
- *            0x0002  NVM_KEY_SEC_LOCKOUT_MS    Security lockout timer residual
+ *            0x0001  NVM_KEY_SEC_STATE         Security attempt/lockout state (EDS#211)
  *            0x0003  NVM_KEY_DTC_MIRROR        DTC status-byte mirror block
  *            0x0004  NVM_KEY_SESSION_STATS     Session statistics block
  *            0x0005  NVM_KEY_LIFECYCLE_CNT     ECU lifecycle (reset) counter
  *            0x0006  NVM_KEY_SCHEMA_VERSION    NVM schema version (migration)
+ *
+ *          [EDS#211] 0x0002 (formerly NVM_KEY_SEC_LOCKOUT_MS) is
+ *          deliberately retired, not reused: the failed-attempt counter
+ *          and lockout residual used to be two independent keys/writes
+ *          (NVM_KEY_SEC_ATTEMPT_CTR + NVM_KEY_SEC_LOCKOUT_MS), which left
+ *          an unprotected window between them — a power loss after the
+ *          first write and before the second could silently drop an
+ *          engaged lockout on reboot. Both fields now live in one
+ *          versioned, CRC-32-checked record under NVM_KEY_SEC_STATE,
+ *          written with a single nvm_store_write() call, following the
+ *          same single-atomic-record-with-integrity-check shape
+ *          config/dtc_mirror.c already uses for NVM_KEY_DTC_MIRROR. See
+ *          core/uds_security_nvm.h for the wire format.
  *
  * DESIGN CONSTRAINTS:
  *   - No dynamic memory. All buffers are caller-allocated.
@@ -50,12 +62,13 @@ extern "C" {
  * NVM record key identifiers
  * -------------------------------------------------------------------------- */
 
-/** Security failed-attempt counter (uint8_t, 1 byte). */
-#define NVM_KEY_SEC_ATTEMPT_CTR    ((uint16_t)0x0001U)
-
-/** Security lockout timer residual in ms (uint32_t, 4 bytes).
- *  Persisting this prevents lockout bypass by power-cycling the ECU. */
-#define NVM_KEY_SEC_LOCKOUT_MS     ((uint16_t)0x0002U)
+/** Security attempt/lockout state — one versioned, CRC-32-checked record
+ *  holding the failed-attempt counter and lockout timer residual together
+ *  (EDS#211: replaces the former two-independent-key NVM_KEY_SEC_ATTEMPT_CTR
+ *  + NVM_KEY_SEC_LOCKOUT_MS pair). Persisting this prevents lockout bypass
+ *  by power-cycling the ECU. See core/uds_security_nvm.h for the wire
+ *  format. */
+#define NVM_KEY_SEC_STATE          ((uint16_t)0x0001U)
 
 /** DTC status-byte mirror: array of (dtc_code[3] + status_byte[1]) * count,
  *  plus a 5-byte header and 4-byte CRC-32 trailer (see config/dtc_mirror.h).
@@ -75,8 +88,17 @@ extern "C" {
 /** NVM schema version — used for migration checks (uint16_t, 2 bytes). */
 #define NVM_KEY_SCHEMA_VERSION     ((uint16_t)0x0006U)
 
-/** Current NVM schema version. Increment when layout changes. */
-#define NVM_SCHEMA_VERSION_CURRENT ((uint16_t)0x0003U)
+/** Current NVM schema version. Increment when layout changes.
+ *  [EDS#211] Bumped 0x0003 -> 0x0004: NVM_KEY_SEC_ATTEMPT_CTR/
+ *  NVM_KEY_SEC_LOCKOUT_MS collapsed into the single NVM_KEY_SEC_STATE
+ *  record. The existing schema-migration path (nvm_migrate_schema() in
+ *  platform/zephyr/nvm_store.c) erases the whole store on a version
+ *  mismatch — the same "counters restart from zero" behavior every prior
+ *  schema bump has used, no per-field migration needed. A device
+ *  upgrading across this bump loses any in-progress lockout exactly once,
+ *  which is a strict improvement over the bug this schema change fixes
+ *  (silently losing an engaged lockout to a mistimed power-cut). */
+#define NVM_SCHEMA_VERSION_CURRENT ((uint16_t)0x0004U)
 
 /** Maximum single record size in bytes. */
 #define NVM_MAX_RECORD_BYTES       (512U)
