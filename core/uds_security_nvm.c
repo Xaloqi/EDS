@@ -62,7 +62,7 @@ static void security_nvm_serialize(
      * magic bytes and the CRC field itself. */
     crc = security_nvm_crc32(
         &out_buf[UDS_SECURITY_NVM_OFF_VERSION],
-        (size_t)(UDS_SECURITY_NVM_OFF_CRC - UDS_SECURITY_NVM_OFF_VERSION));
+        UDS_SECURITY_NVM_CRC_PAYLOAD_BYTES);
 
     out_buf[UDS_SECURITY_NVM_OFF_CRC + 0U] = (uint8_t)((crc >> 24U) & 0xFFU);
     out_buf[UDS_SECURITY_NVM_OFF_CRC + 1U] = (uint8_t)((crc >> 16U) & 0xFFU);
@@ -135,7 +135,7 @@ uds_status_t uds_security_nvm_load(
      */
     crc_computed = security_nvm_crc32(
         &buf[UDS_SECURITY_NVM_OFF_VERSION],
-        (size_t)(UDS_SECURITY_NVM_OFF_CRC - UDS_SECURITY_NVM_OFF_VERSION));
+        UDS_SECURITY_NVM_CRC_PAYLOAD_BYTES);
 
     crc_stored = ((uint32_t)buf[UDS_SECURITY_NVM_OFF_CRC + 0U] << 24U)
                | ((uint32_t)buf[UDS_SECURITY_NVM_OFF_CRC + 1U] << 16U)

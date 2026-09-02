@@ -94,6 +94,20 @@ extern "C" {
 #define UDS_SECURITY_NVM_RECORD_BYTES   (12U)
 
 /**
+ * Number of bytes the CRC-32 covers: [version..lockout_ms], i.e.
+ * everything except the 2 magic bytes and the CRC field itself
+ * (1 version + 1 attempts + 4 lockout_ms = 6). A literal size_t constant
+ * rather than computed as
+ * (size_t)(UDS_SECURITY_NVM_OFF_CRC - UDS_SECURITY_NVM_OFF_VERSION) —
+ * that subtraction's result has essential type unsigned int (the two
+ * offset macros are bare unsigned-int literals), and casting a composite
+ * expression to a different/wider essential type is exactly what MISRA
+ * Rule 10.8 forbids. Matches config/dtc_mirror.c's own style of literal
+ * byte-count constants rather than offset arithmetic.
+ */
+#define UDS_SECURITY_NVM_CRC_PAYLOAD_BYTES ((size_t)6U)
+
+/**
  * @brief Load security attempt counter and lockout state from NVM.
  *
  * Implements the uds_security_cfg_t::nvm_load_cb contract.
