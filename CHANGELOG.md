@@ -8,6 +8,64 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Security
+
+- **DoIP transport had no connection-lifetime cap or request/connection
+  rate limiting** (#218). A slow-but-valid client staying under
+  `DOIP_TCP_RECV_TIMEOUT_MS` on every read (so it never tripped the
+  existing #193 read-attempt bound) could hold the server's single serial
+  connection slot indefinitely, starving every other tester on the bus.
+  `transport/doip/doip_server.c` cannot call an RTOS clock directly (all
+  platform interaction is ops-only), so the fix reuses #193's
+  bounded-count-as-clock-proxy approach rather than a wall-clock deadline:
+  `DOIP_MAX_CONNECTION_FRAMES` forces a disconnect after that many frames
+  on one connection, and `DOIP_RAPID_RECONNECT_THRESHOLD` /
+  `DOIP_RECONNECT_BACKOFF_REJECTS` reject new connections outright after a
+  run of connections that never dispatched a single frame (connect/
+  disconnect cycling). New `connections_lifetime_capped` /
+  `connections_rate_rejected` counters on `doip_server_state_t` for
+  resource-accounting telemetry.
+
+- **No compile-time production guard for the FreeRTOS RAM flash/NVM
+  stubs** (#215). `platform/freertos/freertos_flash_ops.c`'s RAM-backed
+  stub flash backend (used whenever `STM32H7xx`/`STM32H743xx` is not
+  defined) and `freertos_platform_api.c`'s RAM NVM stub (used whenever the
+  customer doesn't supply real NVM ops) could both be silently linked into
+  a production build with no compile or link error — a flash/NVM driver
+  that discards every write on reset. Both now fail closed under
+  `EDS_BUILD_IS_PRODUCTION` (`core/uds_security_algo.h`,
+  `SEC-BUILD-MODE-01`): the flash stub is a hard `#error` (mirrors the
+  existing `SEC-KEY-GATE-01` pattern), and `eds_platform_init()` returns
+  `UDS_STATUS_ERR_INVALID_PARAM` instead of silently activating the NVM
+  stub. New negative-compile test in `build_tests.sh` proves the flash
+  gate is reachable and doesn't false-positive on the real STM32H7xx HAL
+  backend.
+
+### Documentation
+
+- New §14.5 FreeRTOS vs Zephyr platform support matrix in
+  `docs/ARCHITECTURE.md` — transport/flash/NVM/security backend and CI
+  validation depth side by side (#215).
+- Documented the single-security-context-per-process constraint of
+  `core/uds_security_algo.c` (module-static key/derivation state, not
+  re-entrant or instantiable) in the file's header comment and
+  `docs/ARCHITECTURE.md`'s Security Manager section (#214).
+- Documented the `TODO [APPLICATION]` example-stub convention in
+  `README.md`'s ECU examples section (#216).
+- Fixed stale v1.12.0 current-version claims in `docs/INTEGRATION_GUIDE.md`
+  (#212).
+
+### Fixed
+
+- `run_python_tests.sh`'s `run_suite()` now treats pytest exit code 5 ("no
+  tests collected") as `[ENV]` rather than `FAIL`. A module-level
+  `pytest.importorskip()` for an absent optional dependency (e.g.
+  `xaloqi-tester`) makes pytest exit 5 even though every test validly
+  skipped (#213).
+- `build_harness.sh`, `build_tests.sh`, and `docs/setup_zephyr_env.sh` were
+  tracked in git without the executable bit, so a source ZIP/git-archive
+  download failed with `Permission denied` on first use (#217).
+
 ## [1.13.2] — 2026-09-02
 
 ### Fixed
