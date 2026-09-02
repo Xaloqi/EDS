@@ -1,10 +1,10 @@
 # Integration Guide
 
-## Xaloqi EDS — Zephyr RTOS, FreeRTOS, DoIP, and SOVD (v1.13.2)
+## Xaloqi EDS — Zephyr RTOS, FreeRTOS, DoIP, and SOVD (v1.13.3)
 
 | Field | Value |
 |---|---|
-| Stack version | 1.13.2 |
+| Stack version | 1.13.3 |
 | Zephyr version | v3.7.0 (pinned in `west.yml`) |
 | FreeRTOS version | FreeRTOS-Kernel (any recent release; tested with HEAD) |
 | ISO standard | ISO 14229-1:2020 (UDS), ISO 15765-2:2016 (ISO-TP), ISO 13400-2 (DoIP) |
@@ -185,7 +185,7 @@ manifest:
 
     - name: embedded-diagnostics-suite
       url: https://github.com/your-org/embedded-diagnostics-suite
-      revision: v1.13.2            # pin to a release tag
+      revision: v1.13.3            # pin to a release tag
       path: eds
 ```
 
@@ -1255,7 +1255,7 @@ The flag is opt-in — omitting it leaves all existing behaviour unchanged.
 ```json
 {
   "sovdVersion": "1.0.0",
-  "generatedBy": "Xaloqi EDS codegen v1.13.2",
+  "generatedBy": "Xaloqi EDS codegen v1.13.3",
   "generatedAt": "2026-05-20T10:00:00Z",
   "ecuIdentification": {
     "name": "BasicECU",
