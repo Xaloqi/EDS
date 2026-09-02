@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.13.3] — 2026-09-02
+
 ### Security
 
 - **SecurityAccess lockout NVM persistence was two independent,

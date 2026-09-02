@@ -559,7 +559,7 @@ SDV tooling, OEM SOVD clients, or any tool that understands the OpenSOVD
 ```json
 {
   "sovdVersion": "1.0.0",
-  "generatedBy":  "Xaloqi EDS codegen v1.6.0",
+  "generatedBy":  "Xaloqi EDS codegen v1.13.3",
   "generatedAt":  "<ISO 8601 UTC>",
   "ecuIdentification": {
     "name":    "<ecu_name>",

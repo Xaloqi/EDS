@@ -5,7 +5,7 @@
 > repo. Community users cloning the public repo can ignore this file.
 
 **Product:** Xaloqi EDS (Xaloqi Embedded Diagnostic Suite)  
-**Version:** v1.13.2  
+**Version:** v1.13.3  
 **Support:** contact@xaloqi.com
 
 ---
@@ -50,7 +50,7 @@ cd EDS
 Verify you are on the correct version:
 
 ```bash
-git checkout v1.13.2
+git checkout v1.13.3
 ```
 
 ---
@@ -59,10 +59,10 @@ git checkout v1.13.2
 
 ```bash
 # From the EDS repo root:
-unzip -o /path/to/xaloqi-eds-developer-v1.13.2.zip
+unzip -o /path/to/xaloqi-eds-developer-v1.13.3.zip
 
 # Or for Professional:
-unzip -o /path/to/xaloqi-eds-professional-v1.13.2.zip
+unzip -o /path/to/xaloqi-eds-professional-v1.13.3.zip
 ```
 
 The `-o` flag overwrites existing files without prompting — required when updating an existing installation.
@@ -75,7 +75,7 @@ The `-o` flag overwrites existing files without prompting — required when upda
 >
 > ```bash
 > rm -f tools/templates tools/testgen.py tools/_license.py harness
-> unzip -o /path/to/xaloqi-eds-developer-v1.13.2.zip
+> unzip -o /path/to/xaloqi-eds-developer-v1.13.3.zip
 > ```
 
 This extracts the toolchain files directly into the repo tree. No separate directory. After extraction you will have:
@@ -185,7 +185,7 @@ Expected output:
 
 ```
 ========================================================================
-  Xaloqi EDS — Code Generator v1.13.2
+  Xaloqi EDS — Code Generator v1.13.3
 ========================================================================
   Config   : examples/bms_ecu/diagnostics_config.yaml
   ...

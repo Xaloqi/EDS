@@ -14,9 +14,9 @@
     ],
     "component": {
       "type": "firmware",
-      "bom-ref": "xaloqi-eds@1.13.2",
+      "bom-ref": "xaloqi-eds@1.13.3",
       "name": "Xaloqi EDS",
-      "version": "1.13.2",
+      "version": "1.13.3",
       "description": "Production-grade UDS/ISO-TP/DoIP diagnostics stack for automotive ECUs (ASIL-B candidate, ISO 14229 / ISO 15765-2 / ISO 13400-2)",
       "licenses": [
         {
