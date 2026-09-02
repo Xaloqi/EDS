@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **SecurityAccess lockout NVM persistence was two independent,
+  non-atomic writes — a power loss between them could drop an engaged
+  lockout on reboot** (#211). `core/uds_security_nvm.c` wrote the
+  failed-attempt counter and lockout timer residual as two separate
+  `nvm_store_write()` calls; a power loss after the first (attempts=0,
+  just-written) and before the second (the lockout duration) left an
+  internally inconsistent state that `uds_security_init()` read back as
+  "not locked out." Fixed by collapsing both fields into one versioned,
+  CRC-32-checked record (`NVM_KEY_SEC_STATE`) written with a single
+  `nvm_store_write()` call, following `config/dtc_mirror.c`'s existing
+  single-atomic-record pattern. A record that fails integrity validation
+  now reports `UDS_STATUS_ERR_NVM_DATA_CORRUPT`, handled by the existing
+  `nvm_load_fail_closed` posture (#196). `NVM_SCHEMA_VERSION_CURRENT`
+  bumped 0x0003 → 0x0004 so upgrading devices go through the existing
+  erase-all schema migration rather than needing new per-field migration
+  logic.
+
 - **DoIP transport had no connection-lifetime cap or request/connection
   rate limiting** (#218). A slow-but-valid client staying under
   `DOIP_TCP_RECV_TIMEOUT_MS` on every read (so it never tripped the
