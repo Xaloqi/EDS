@@ -135,6 +135,11 @@ that implement your DID and DTC tables, safety wrappers, and init sequence.
 > part of this public repo) — see [COMMERCIAL_NOTICE.md](../COMMERCIAL_NOTICE.md).
 > **No license? Skip this step.** `basic_ecu`'s `generated/` output is already
 > committed to the repo, so Steps 6–8 (`west build` and run) work without it.
+> **Developer/Professional customer?** Don't skip it — but follow
+> [`INSTALL.md`](../INSTALL.md) (shipped at the top level of your ZIP) instead of
+> continuing from here: it covers unzipping your package into this clone and
+> activating your license before this step will produce real output. Come back to
+> this guide's Step 6 once `codegen.py` has run successfully.
 
 ```bash
 # From the eds repo root
