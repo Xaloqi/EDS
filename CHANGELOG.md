@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.13.2] — 2026-09-02
+
 ### Fixed
 
 - **`ardep_ecu`'s committed CANoe/CAPL test suite tested two
