@@ -14,10 +14,13 @@
  *   [P3-SEC-01] Lockout timer residual persisted on lockout engage
  *   [P3-SEC-01] Lockout active on reboot when residual > 0
  *   [P3-SEC-01] Counter cleared in NVM on successful unlock
- *   [P3-SEC-01] Counter clamped to max_attempts on corrupted NVM
+ *   [P3-SEC-01] Counter clamped to max_attempts on a valid-but-absurd record
+ *   [EDS#211] Single-record NVM_KEY_SEC_STATE format: bad CRC, bad magic,
+ *             bad version, and a truncated record are all reported as
+ *             UDS_STATUS_ERR_NVM_DATA_CORRUPT, nothing partially applied
  *   nvm_store_mock: write / read / erase / deinit cycle
  *
- * TEST COUNT: 14
+ * TEST COUNT: 18
  * =============================================================================
  */
 
@@ -274,12 +277,16 @@ void test_successful_unlock_clears_nvm_counter(void)
     TEST_ASSERT_EQUAL_UINT32(0U, nvm_lockout);
 }
 
-/* 8. Counter clamped to max_attempts if NVM holds corrupt value */
-void test_corrupt_nvm_counter_clamped_to_max(void)
+/* 8. Counter clamped to max_attempts if NVM holds a valid-but-absurd record.
+ * [EDS#211] Written via the real uds_security_nvm_save() so the record is
+ * well-formed (correct magic/version/CRC) — this test is about
+ * uds_security_init()'s own defensive clamp on a structurally valid but
+ * semantically absurd attempts value, not about record corruption (see
+ * the dedicated corrupt-record tests below for that). */
+void test_valid_record_counter_clamped_to_max(void)
 {
-    /* Write an absurdly large counter to NVM directly */
-    uint8_t corrupt = 200U;
-    nvm_store_write(NVM_KEY_SEC_ATTEMPT_CTR, &corrupt, sizeof(corrupt));
+    /* Write an absurdly large counter to NVM via the real save path. */
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_security_nvm_save(200U, 0U));
 
     uds_security_ctx_t ctx;
     uds_security_cfg_t cfg = make_cfg();
@@ -317,18 +324,15 @@ void test_no_nvm_callbacks_counter_zero_each_boot(void)
     }
 }
 
-/* 10. uds_security_nvm_clear removes both NVM keys */
+/* 10. uds_security_nvm_clear removes the NVM_KEY_SEC_STATE record */
 void test_nvm_clear_removes_keys(void)
 {
-    /* Write some data first */
-    uint8_t attempts = 2U;
-    uint32_t lockout = 5000U;
-    nvm_store_write(NVM_KEY_SEC_ATTEMPT_CTR, &attempts, sizeof(attempts));
-    nvm_store_write(NVM_KEY_SEC_LOCKOUT_MS,  &lockout,  sizeof(lockout));
+    /* Write some data first, via the real save path. */
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_security_nvm_save(2U, 5000U));
 
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_security_nvm_clear());
 
-    /* Both records should now be absent */
+    /* Record should now be absent */
     uint8_t  out_a = 0U;
     uint32_t out_l = 0U;
     uds_status_t rc = uds_security_nvm_load(&out_a, &out_l);
@@ -355,15 +359,13 @@ void test_nvm_mock_data_survives_deinit_reinit(void)
 /* 12. nvm_store_erase_all wipes all records */
 void test_nvm_erase_all_wipes_records(void)
 {
-    uint8_t  a = 2U;
-    uint32_t l = 9999U;
-    nvm_store_write(NVM_KEY_SEC_ATTEMPT_CTR, &a, sizeof(a));
-    nvm_store_write(NVM_KEY_SEC_LOCKOUT_MS,  &l, sizeof(l));
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_security_nvm_save(2U, 9999U));
 
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, nvm_store_erase_all());
 
-    uint8_t readback = 0U;
-    uds_status_t rc = nvm_store_read(NVM_KEY_SEC_ATTEMPT_CTR, &readback, sizeof(readback), NULL);
+    uint8_t out_a = 0U;
+    uint32_t out_l = 0U;
+    uds_status_t rc = uds_security_nvm_load(&out_a, &out_l);
     TEST_ASSERT_EQUAL(UDS_STATUS_ERR_DID_NOT_FOUND, rc);
 }
 
@@ -371,9 +373,9 @@ void test_nvm_erase_all_wipes_records(void)
 void test_nvm_delete_idempotent(void)
 {
     /* Delete a key that was never written */
-    TEST_ASSERT_EQUAL(UDS_STATUS_OK, nvm_store_delete(NVM_KEY_SEC_ATTEMPT_CTR));
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, nvm_store_delete(NVM_KEY_SEC_STATE));
     /* Delete again — must still be OK */
-    TEST_ASSERT_EQUAL(UDS_STATUS_OK, nvm_store_delete(NVM_KEY_SEC_ATTEMPT_CTR));
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, nvm_store_delete(NVM_KEY_SEC_STATE));
 }
 
 /* 14. Lockout timer ticks down and restores unlocked state; NVM not re-read */
@@ -405,6 +407,101 @@ void test_lockout_expires_after_tick(void)
 }
 
 /* --------------------------------------------------------------------------
+ * [EDS#211] NVM_KEY_SEC_STATE integrity tests.
+ *
+ * Each test writes a genuinely valid record via uds_security_nvm_save()
+ * first, reads it back raw, corrupts exactly one thing, writes the
+ * corrupted bytes back raw, then proves uds_security_nvm_load() reports
+ * UDS_STATUS_ERR_NVM_DATA_CORRUPT and applies nothing — the same
+ * all-or-nothing validation shape as config/dtc_mirror.c's own
+ * bad-CRC/bad-version/truncated-record tests.
+ * -------------------------------------------------------------------------- */
+
+/* 15. Bit-flip in the record (CRC no longer matches) -> reported corrupt */
+void test_load_reports_corrupt_on_bad_crc(void)
+{
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_security_nvm_save(2U, 5000U));
+
+    uint8_t buf[UDS_SECURITY_NVM_RECORD_BYTES];
+    size_t  read_len = 0U;
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_read(NVM_KEY_SEC_STATE, buf, sizeof(buf), &read_len));
+    TEST_ASSERT_EQUAL_INT((int)UDS_SECURITY_NVM_RECORD_BYTES, (int)read_len);
+
+    /* Flip a bit in the attempts field without touching the CRC trailer. */
+    buf[UDS_SECURITY_NVM_OFF_ATTEMPTS] ^= 0xFFU;
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_SEC_STATE, buf, sizeof(buf)));
+
+    uint8_t  out_a = 99U;
+    uint32_t out_l = 99U;
+    uds_status_t rc = uds_security_nvm_load(&out_a, &out_l);
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc);
+    /* Nothing applied — out params left at their sentinel values. */
+    TEST_ASSERT_EQUAL_UINT8(99U, out_a);
+    TEST_ASSERT_EQUAL_UINT32(99U, out_l);
+}
+
+/* 16. Bad magic bytes -> reported corrupt (never mistaken for first-boot) */
+void test_load_reports_corrupt_on_bad_magic(void)
+{
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_security_nvm_save(1U, 0U));
+
+    uint8_t buf[UDS_SECURITY_NVM_RECORD_BYTES];
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_read(NVM_KEY_SEC_STATE, buf, sizeof(buf), NULL));
+
+    buf[UDS_SECURITY_NVM_OFF_MAGIC0] = (uint8_t)0x00U;
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_SEC_STATE, buf, sizeof(buf)));
+
+    uint8_t  out_a = 0U;
+    uint32_t out_l = 0U;
+    uds_status_t rc = uds_security_nvm_load(&out_a, &out_l);
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc);
+}
+
+/* 17. Known magic, unsupported version -> reported corrupt */
+void test_load_reports_corrupt_on_bad_version(void)
+{
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_security_nvm_save(1U, 0U));
+
+    uint8_t buf[UDS_SECURITY_NVM_RECORD_BYTES];
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_read(NVM_KEY_SEC_STATE, buf, sizeof(buf), NULL));
+
+    buf[UDS_SECURITY_NVM_OFF_VERSION] = (uint8_t)0xFFU;
+    /* Deliberately leave the CRC as computed for version=1 — a genuine
+     * unsupported-version record must be caught by the version check
+     * itself, not incidentally by a CRC mismatch. */
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_SEC_STATE, buf, sizeof(buf)));
+
+    uint8_t  out_a = 0U;
+    uint32_t out_l = 0U;
+    uds_status_t rc = uds_security_nvm_load(&out_a, &out_l);
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc);
+}
+
+/* 18. Truncated record (right key, too few bytes) -> reported corrupt */
+void test_load_reports_corrupt_on_truncated_record(void)
+{
+    uint8_t short_buf[UDS_SECURITY_NVM_RECORD_BYTES - 1U];
+    memset(short_buf, 0, sizeof(short_buf));
+    short_buf[UDS_SECURITY_NVM_OFF_MAGIC0]  = UDS_SECURITY_NVM_MAGIC_0;
+    short_buf[UDS_SECURITY_NVM_OFF_MAGIC1]  = UDS_SECURITY_NVM_MAGIC_1;
+    short_buf[UDS_SECURITY_NVM_OFF_VERSION] = UDS_SECURITY_NVM_FORMAT_VERSION;
+
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_SEC_STATE, short_buf, sizeof(short_buf)));
+
+    uint8_t  out_a = 0U;
+    uint32_t out_l = 0U;
+    uds_status_t rc = uds_security_nvm_load(&out_a, &out_l);
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc);
+}
+
+/* --------------------------------------------------------------------------
  * Test runner
  * -------------------------------------------------------------------------- */
 void run_all_tests(void)
@@ -416,11 +513,15 @@ void run_all_tests(void)
     RUN_TEST(test_lockout_timer_persisted);
     RUN_TEST(test_lockout_active_after_power_cycle);
     RUN_TEST(test_successful_unlock_clears_nvm_counter);
-    RUN_TEST(test_corrupt_nvm_counter_clamped_to_max);
+    RUN_TEST(test_valid_record_counter_clamped_to_max);
     RUN_TEST(test_no_nvm_callbacks_counter_zero_each_boot);
     RUN_TEST(test_nvm_clear_removes_keys);
     RUN_TEST(test_nvm_mock_data_survives_deinit_reinit);
     RUN_TEST(test_nvm_erase_all_wipes_records);
     RUN_TEST(test_nvm_delete_idempotent);
     RUN_TEST(test_lockout_expires_after_tick);
+    RUN_TEST(test_load_reports_corrupt_on_bad_crc);
+    RUN_TEST(test_load_reports_corrupt_on_bad_magic);
+    RUN_TEST(test_load_reports_corrupt_on_bad_version);
+    RUN_TEST(test_load_reports_corrupt_on_truncated_record);
 }

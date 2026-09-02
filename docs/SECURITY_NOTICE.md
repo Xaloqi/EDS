@@ -234,6 +234,22 @@ the power-cycle bypass. If your product's threat model includes an
 attacker with physical access to power, wire NVM persistence — the stack
 does not require it, but it does not protect you without it either.
 
+**[EDS#211] The persisted counter and lockout residual are one atomic
+write, not two.** The bundled `core/uds_security_nvm.c` implementation of
+`nvm_load_cb`/`nvm_save_cb` writes both fields together in a single,
+versioned, CRC-32-checked NVM record (`NVM_KEY_SEC_STATE`) with one
+`nvm_store_write()` call. Before this fix, the two fields were two
+independent NVM writes with an unprotected window between them: a power
+loss timed precisely between the two writes could leave the attempt
+counter reset to 0 (just written) paired with a stale or absent lockout
+residual, silently dropping an engaged lockout on reboot. That window no
+longer exists — either the whole record lands, or the previous
+(still-valid, still-CRC-checked) one is what's read back next boot. A
+record that fails its magic/version/CRC-32 check is reported as
+`UDS_STATUS_ERR_NVM_DATA_CORRUPT`, which is a genuine fault as far as
+`nvm_load_fail_closed` (below) is concerned — the same posture choice
+applies to a corrupted record as to a platform-level read error.
+
 **NVM read faults: fail-open by default, fail-closed opt-in.** With
 persistence wired, `uds_security_init()` calls `nvm_load_cb` at boot to
 restore the counter and any residual lockout. Two outcomes are expected and
