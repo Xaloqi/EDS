@@ -790,8 +790,81 @@ else
 fi
 echo ""
 
-if [[ ${BUILD_MODE_PROBE_FAIL} -ne 0 || ${CRIT4_FAIL} -ne 0 ]]; then
-    echo "FAIL: build-mode gate verification (SEC-BUILD-MODE-01 / SEC-KEY-GATE-01) failed."
+# ---------------------------------------------------------------------------
+# [EDS#215] Negative compile test — FreeRTOS RAM-stub flash production guard.
+#
+# Mirrors the CRIT-4 negative compile test above: proves the
+# freertos_flash_ops.c RAM-stub #error (mirroring SEC-KEY-GATE-01) is
+# actually reachable. Compiling the file with
+# -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 (production), without -DUNIT_TEST,
+# and without STM32H7xx/STM32H743xx defined (so the RAM stub backend is
+# selected) must FAIL to compile, citing EDS#215.
+#
+# Only the STM32H7xx HAL backend is skipped here (that branch needs the
+# vendored STM32Cube HAL headers this repo does not carry) — the RAM stub
+# backend under test has no such dependency, so this compiles cleanly on
+# the host like the CRIT-4 test above.
+# ---------------------------------------------------------------------------
+EDS215_TMP_OBJ="$(mktemp -u /tmp/eds_215_negtest.XXXXXX.o)"
+EDS215_INCLUDES=(
+    "${INCLUDES[@]}"
+    "-I${ROOT}/platform/freertos"
+)
+
+echo "================================================================"
+echo "  [EDS#215] FreeRTOS flash-stub production guard negative compile test"
+echo "================================================================"
+echo ""
+
+eds215_neg_out=$(
+    gcc -std=c11 -c -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 -DEDS_MSG_BUF_MAX_STACK_BYTES=8192 \
+        "${EDS215_INCLUDES[@]}" "${ROOT}/platform/freertos/freertos_flash_ops.c" -o "${EDS215_TMP_OBJ}" 2>&1
+) && eds215_neg_rc=0 || eds215_neg_rc=$?
+rm -f "${EDS215_TMP_OBJ}"
+
+EDS215_FAIL=0
+if [[ ${eds215_neg_rc} -ne 0 ]] && echo "${eds215_neg_out}" | grep -q "EDS#215"; then
+    echo "  PASS: production build (CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0, no UNIT_TEST,"
+    echo "        no STM32H7xx) correctly FAILS to compile, citing EDS#215."
+else
+    echo "  FAIL: expected an EDS#215 compile failure, got:"
+    echo "        rc=${eds215_neg_rc}"
+    echo "${eds215_neg_out}" | sed 's/^/        /'
+    EDS215_FAIL=1
+fi
+echo ""
+
+# Regression guard: the same file, same production config, but with
+# STM32H7xx defined (the real hardware backend) must NOT hit the RAM-stub
+# gate. It is expected to fail for an unrelated reason (this repo does not
+# vendor the STM32Cube HAL headers) — the check here is only that the
+# failure is a missing-header error, never an EDS#215 gate firing on the
+# real-hardware branch.
+eds215_pos_out=$(
+    gcc -std=c11 -c -DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 -DEDS_MSG_BUF_MAX_STACK_BYTES=8192 -DSTM32H743xx \
+        "${EDS215_INCLUDES[@]}" "${ROOT}/platform/freertos/freertos_flash_ops.c" -o "${EDS215_TMP_OBJ}" 2>&1
+) && eds215_pos_rc=0 || eds215_pos_rc=$?
+rm -f "${EDS215_TMP_OBJ}"
+
+if echo "${eds215_pos_out}" | grep -q "EDS#215"; then
+    echo "  FAIL: EDS#215 gate incorrectly fired on the STM32H7xx HAL backend"
+    echo "        (production hardware build, not the RAM stub):"
+    echo "${eds215_pos_out}" | sed 's/^/        /'
+    EDS215_FAIL=1
+elif [[ ${eds215_pos_rc} -ne 0 ]] && echo "${eds215_pos_out}" | grep -qi "stm32h7xx_hal.h"; then
+    echo "  PASS: STM32H7xx HAL backend selected (not the RAM stub) — EDS#215"
+    echo "        gate correctly did not fire; unrelated failure is the"
+    echo "        expected missing vendored HAL header."
+else
+    echo "  FAIL: expected a missing-stm32h7xx_hal.h failure (or success), got:"
+    echo "        rc=${eds215_pos_rc}"
+    echo "${eds215_pos_out}" | sed 's/^/        /'
+    EDS215_FAIL=1
+fi
+echo ""
+
+if [[ ${BUILD_MODE_PROBE_FAIL} -ne 0 || ${CRIT4_FAIL} -ne 0 || ${EDS215_FAIL} -ne 0 ]]; then
+    echo "FAIL: build-mode gate verification (SEC-BUILD-MODE-01 / SEC-KEY-GATE-01 / EDS#215) failed."
     exit 1
 fi
 
