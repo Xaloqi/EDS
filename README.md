@@ -433,11 +433,16 @@ diagnostics_config.yaml
    └──────────────┘
 ```
 
-Not just a diagram: TestLab Core's Python `DoipBus` client runs against
-EDS's C DoIP server (`native_sim`) in this repo's own CI on every push — a
-genuine cross-language, cross-implementation DoIP conversation. See
-[the CI workflow](.github/workflows/ci.yml) (job:
-`DoIP Integration (native_sim + DoipBus)`).
+Not just a diagram: [Xaloqi Compatibility Tests](https://github.com/Xaloqi/xaloqi-compatibility-tests)
+runs the same UDS campaign against every combination of transport (CAN,
+DoIP) and RTOS (Zephyr, FreeRTOS) this repo ships examples for, using
+TestLab Core's Python client against EDS's C runtime — a genuine
+cross-language, cross-implementation check, not two halves of one
+codebase validating each other. **Honestly:** the virtual-ECU check
+there is green and reproducible by anyone; the real-transport matrix
+(including this repo's own `DoIP Integration` CI job, see
+[EDS#230](https://github.com/Xaloqi/EDS/issues/230)) is still being
+wired up — tracked openly rather than claimed prematurely.
 
 Want to test a UDS ECU before implementing one? →
 [Xaloqi TestLab Core](https://github.com/Xaloqi/xaloqi-testlab-core)
