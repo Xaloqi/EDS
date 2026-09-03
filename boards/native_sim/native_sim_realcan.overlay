@@ -7,8 +7,8 @@
  * ECU to a REAL host SocketCAN interface (e.g. vcan0), instead of
  * Zephyr's in-process can_loopback0 device.
  *
- * native_sim.overlay unconditionally maps the `can0` alias (used by
- * examples/*/src/main.c's DEVICE_DT_GET(DT_ALIAS(can0))) to
+ * native_sim.overlay unconditionally maps the `can0` alias (used by every
+ * example's src/main.c, via DEVICE_DT_GET(DT_ALIAS(can0))) to
  * &can_loopback0 -- so simply removing CONFIG_CAN_LOOPBACK from the
  * Kconfig side (see native_sim_realcan.conf) is not enough on its own;
  * the alias itself must be redirected too, to the board's own `can0`
