@@ -22,12 +22,13 @@ Zephyr's `native_sim`. No CAN hardware, no commercial license:
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.13.2 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.3 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 
 west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
+     -DDIAG_SKIP_CODEGEN=ON
 west build -t run
 ```
 
@@ -37,6 +38,12 @@ the licensed step, not evaluating the runtime — see
 [Open-core: what's free, what's licensed](#open-core-whats-free-whats-licensed)
 below. More boards (STM32 Nucleo, NXP FRDM/S32K) and the full generator
 walkthrough: [Quick start](#quick-start).
+
+`-DDIAG_SKIP_CODEGEN=ON` tells the build to use the committed `generated/`
+output as-is instead of trying to regenerate it — required here, since a
+fresh checkout has no commercial templates. Without it the build fails
+outright rather than silently falling back (confirmed against a real CI
+checkout — [EDS#198](https://github.com/Xaloqi/EDS/issues/198)).
 
 > **Want to test UDS without writing an ECU first?** →
 > [Xaloqi TestLab Core](https://github.com/Xaloqi/xaloqi-testlab-core) — a
@@ -119,7 +126,8 @@ python3 tools/codegen.py \
 ```bash
 # Simulator (CI, no hardware)
 west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
+     -DDIAG_SKIP_CODEGEN=ON
 west build -t run
 
 # STM32 Nucleo-H743ZI2
@@ -217,7 +225,7 @@ pip install -r tools/requirements.txt
 
 ### Run the basic ECU example
 
-> **No license? Skip the codegen step.** This example's generated code is committed under `examples/basic_ecu/generated/`, so `west build` works out of the box on the GPL runtime. The `codegen.py` step below regenerates it and **requires a Developer/Professional license** (templates are commercial — see [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md)).
+> **No license? Skip the codegen step.** This example's generated code is committed under `examples/basic_ecu/generated/` — pass `-DDIAG_SKIP_CODEGEN=ON` to `west build` (below) to use it as-is on the GPL runtime, no commercial templates needed. The `codegen.py` step below regenerates it and **requires a Developer/Professional license** (templates are commercial — see [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md)).
 
 ```bash
 # Generate code from the bundled example config  (licensed step — see note above)
@@ -228,7 +236,8 @@ python3 tools/codegen.py \
 
 # Build and run in simulator  (works without a license — generated/ is committed)
 west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
+     -DDIAG_SKIP_CODEGEN=ON
 west build -t run
 ```
 
@@ -483,10 +492,11 @@ Unlike alternatives that use PolyForm Noncommercial (which prohibits production 
 **Just want to see an ECU run?**
 
 ```bash
-west init -m https://github.com/Xaloqi/EDS --mr v1.13.2 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.3 eds-workspace
 cd eds-workspace && west update
 west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
+     -DDIAG_SKIP_CODEGEN=ON
 west build -t run
 ```
 
