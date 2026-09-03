@@ -1953,11 +1953,22 @@ def main() -> int:
     print(f"  JUSTIFIED (devs) : {report['justified_violations']}")
     print("=" * 72)
 
+    # EDS#236: the headline RESULT must carry the analysis mode, not just
+    # the mid-run "cppcheck not available" notice above -- a bare "PASS —
+    # zero open MISRA violations" reads as full MISRA compliance evidence
+    # even when only the GCC-warnings subset ran (cppcheck's
+    # --addon=misra is the actual MISRA checker; GCC flags cover a
+    # reduced, non-equivalent rule subset over a narrower directory scope).
+    mode_label = (
+        "cppcheck --addon=misra"
+        if report["checker_available"]
+        else "GCC-only subset — NOT full MISRA compliance evidence"
+    )
     if report["open_violations"] == 0:
-        print("\n  RESULT: PASS — zero open MISRA violations.")
+        print(f"\n  RESULT: PASS ({mode_label}) — zero open findings in that scope.")
         return 0
     else:
-        print(f"\n  RESULT: FAIL — {report['open_violations']} open violation(s).")
+        print(f"\n  RESULT: FAIL ({mode_label}) — {report['open_violations']} open violation(s).")
         # Print per-rule breakdown so CI logs show which rules need coverage
         open_findings = [f for f in report.get("findings", [])
                          if f.get("status") == "OPEN"]
