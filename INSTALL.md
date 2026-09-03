@@ -212,7 +212,23 @@ cd examples/bms_ecu/generated/tests
 pytest . -v --can-interface=simulator
 ```
 
-All tests should pass. This validates the generated code, the license key, and the testgen pipeline in one command.
+**Developer-tier customers: expect most of these tests to *skip*, not
+fail.** The generated suite's `conftest.py` drives the CAN interface via
+the separate `xaloqi-tester` package, which ships with **TestLab**, not
+the Developer/Professional EDS overlay — a Developer-only install
+correctly generates the pytest files (codegen succeeded, the license key
+is valid) but has nothing installed to actually execute them against a
+CAN interface, so pytest collects the suite and reports skips rather
+than failures. That's expected, not broken. What Step 6 *does* verify
+standalone at the Developer tier: codegen completed, the generated C
+compiles, and the test suite itself is well-formed and collectible. To
+see the tests actually run and pass end-to-end, install TestLab
+(`pip install xaloqi-tester`) — Professional-tier customers already have
+this, and it's what "All tests should pass" below assumes.
+
+With `xaloqi-tester` installed: all tests should pass. This validates
+the generated code, the license key, and the testgen pipeline in one
+command.
 
 ---
 

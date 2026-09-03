@@ -9,17 +9,21 @@ Three scenarios:
   2. Grace       — 10 days after expiry (within 14-day grace window)
   3. Expired     — 20 days after expiry (grace period over)
 
-Run:
+Collected by the canonical `pytest tests/` sweep (issue #227 — this file
+used to be a standalone unittest-style script with only an
+`if __name__ == "__main__":` runner block, so pytest silently collected
+zero tests from it despite the filename matching its default discovery
+pattern). Direct invocation still works too:
+
     cd /path/to/EDS
     python3 tests/test_license_expiry.py
-
-Exit 0 if all three scenarios produce the expected LicenseStatus.
 """
 import sys
-import time
-import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
@@ -43,8 +47,9 @@ except ImportError:
         sys.exit(0)
     # Collected by pytest — turn the import error into a proper SKIP report
     # instead of a collection error.
-    import pytest
     pytest.skip(_ENV_SKIP_REASON, allow_module_level=True)
+
+DAY = 86400
 
 
 def _real_expires_at() -> int:
@@ -59,68 +64,54 @@ def _real_expires_at() -> int:
     return int(claims["exp"])
 
 
-def _run_scenario(label: str, fake_now: int) -> _license.LicenseResult:
+@pytest.fixture(scope="module")
+def expires_at() -> int:
+    """Real expiry timestamp of the installed key.
+
+    Skips (not fails) if no key is activated yet — same "environment
+    setup gap, not a regression" spirit as the _license import guard
+    above, since a fresh commercial checkout with _license.py present
+    but no key activated is a real, expected local-dev state.
+    """
+    try:
+        return _real_expires_at()
+    except RuntimeError as e:
+        pytest.skip(f"[ENV] {e}")
+
+
+def _check_at(fake_now: int) -> "_license.LicenseResult":
     with patch("_license.time") as mock_time:
         mock_time.time.return_value = fake_now
-        result = _license.check()
-    return result
+        return _license.check()
 
 
-def main() -> int:
-    print("=" * 60)
-    print("  Xaloqi EDS — License Expiry Simulation")
-    print("=" * 60)
+def test_valid_license_30_days_before_expiry(expires_at: int) -> None:
+    result = _check_at(expires_at - 30 * DAY)
+    assert result.status == _license.LicenseStatus.OK, (
+        f"expected OK 30 days before expiry, got {result.status.value} "
+        f"(days_left={result.days_left}, msg={result.message!r})"
+    )
 
-    try:
-        exp = _real_expires_at()
-    except RuntimeError as e:
-        print(f"\nERROR: {e}")
-        return 1
 
-    from datetime import datetime, timezone
-    exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc).strftime("%Y-%m-%d")
-    print(f"\n  Real expiry date : {exp_dt}")
-    print(f"  Grace period     : {_license.GRACE_PERIOD_DAYS} days")
-    print()
+def test_grace_period_10_days_after_expiry(expires_at: int) -> None:
+    result = _check_at(expires_at + 10 * DAY)
+    assert result.status == _license.LicenseStatus.GRACE, (
+        f"expected GRACE 10 days after expiry (within the "
+        f"{_license.GRACE_PERIOD_DAYS}-day grace window), got "
+        f"{result.status.value} (days_left={result.days_left}, "
+        f"msg={result.message!r})"
+    )
 
-    DAY = 86400
-    scenarios = [
-        ("SCENARIO 1 — Valid (30 days before expiry)",
-         exp - 30 * DAY,
-         _license.LicenseStatus.OK),
-        ("SCENARIO 2 — Grace period (10 days after expiry)",
-         exp + 10 * DAY,
-         _license.LicenseStatus.GRACE),
-        ("SCENARIO 3 — Expired (20 days after expiry, grace over)",
-         exp + 20 * DAY,
-         _license.LicenseStatus.EXPIRED),
-    ]
 
-    all_pass = True
-    for label, fake_now, expected_status in scenarios:
-        fake_date = datetime.fromtimestamp(fake_now, tz=timezone.utc).strftime("%Y-%m-%d")
-        result = _run_scenario(label, fake_now)
-
-        ok = result.status == expected_status
-        icon = "PASS" if ok else "FAIL"
-        print(f"[{icon}] {label}")
-        print(f"       Simulated date : {fake_date}")
-        print(f"       Expected status: {expected_status.value}")
-        print(f"       Actual status  : {result.status.value}")
-        print(f"       days_left      : {result.days_left}")
-        if result.message:
-            for line in result.message.strip().splitlines():
-                print(f"       msg: {line}")
-        print()
-
-        if not ok:
-            all_pass = False
-
-    print("=" * 60)
-    print(f"  Result: {'ALL PASS' if all_pass else 'FAILURES DETECTED'}")
-    print("=" * 60)
-    return 0 if all_pass else 1
+def test_expired_20_days_after_expiry(expires_at: int) -> None:
+    result = _check_at(expires_at + 20 * DAY)
+    assert result.status == _license.LicenseStatus.EXPIRED, (
+        f"expected EXPIRED 20 days after expiry (past the "
+        f"{_license.GRACE_PERIOD_DAYS}-day grace window), got "
+        f"{result.status.value} (days_left={result.days_left}, "
+        f"msg={result.message!r})"
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(pytest.main([__file__, "-v"]))

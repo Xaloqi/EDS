@@ -58,7 +58,19 @@ This approach delivers several compounding advantages:
 
 ### Deterministic Output
 
-Generated code is fully deterministic: the same YAML always produces byte-identical output. This is essential for reproducible CI builds and for diff-based code review.
+Generated code's *content* is deterministic: the same YAML, templates,
+and generator version always produce the same DIDs, handlers, and safety
+wrappers. By default, output is **not** byte-identical between runs —
+every generated file embeds a wall-clock `Generated :`/`generated`
+timestamp (`tools/codegen.py`'s `_now_utc()`), so two runs of the same
+config a second apart differ at the byte level even though their
+substantive content is identical (issue #224). Set `SOURCE_DATE_EPOCH`
+(the [reproducible-builds.org convention](https://reproducible-builds.org/specs/source-date-epoch/))
+to a fixed Unix timestamp before running `codegen.py` to get genuinely
+byte-identical output across runs — this is what CI, diff-based code
+review, and qualification/provenance tooling that needs true
+reproducibility should do, rather than relying on wall-clock output
+matching by chance.
 
 ### Safety Integration
 
