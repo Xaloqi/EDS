@@ -22,7 +22,7 @@ Zephyr's `native_sim`. No CAN hardware, no commercial license:
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.13.2 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.3 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 
@@ -492,7 +492,7 @@ Unlike alternatives that use PolyForm Noncommercial (which prohibits production 
 **Just want to see an ECU run?**
 
 ```bash
-west init -m https://github.com/Xaloqi/EDS --mr v1.13.2 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.3 eds-workspace
 cd eds-workspace && west update
 west build -b native_sim examples/basic_ecu \
   -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
