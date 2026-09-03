@@ -15,9 +15,38 @@ security access, and DTC handling. Describe your DIDs and DTCs once. Get ISO 142
 
 ---
 
+## See it run — no license required
+
+Clone the repo, build the committed `basic_ecu` example, run it under
+Zephyr's `native_sim`. No CAN hardware, no commercial license:
+
+```bash
+pip install west
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.2 eds-workspace
+cd eds-workspace && west update
+pip install -r tools/requirements.txt
+
+west build -b native_sim examples/basic_ecu \
+  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+west build -t run
+```
+
+`examples/basic_ecu/generated/` is committed to the repo, so this builds
+and runs on the GPL v2 runtime alone. Regenerating from your *own* YAML is
+the licensed step, not evaluating the runtime — see
+[Open-core: what's free, what's licensed](#open-core-whats-free-whats-licensed)
+below. More boards (STM32 Nucleo, NXP FRDM/S32K) and the full generator
+walkthrough: [Quick start](#quick-start).
+
+> **Want to test UDS without writing an ECU first?** →
+> [Xaloqi TestLab Core](https://github.com/Xaloqi/xaloqi-testlab-core) — a
+> free Python UDS client and ECU simulator, `pip install xaloqi-tester`.
+
+---
+
 ## The problem it solves
 
-Building a UDS diagnostics stack from scratch on Zephyr takes 4–8 engineer-weeks: ISO-TP framing, session state machines, security access, DID dispatch, DTC persistence, ASIL-B safety wrappers, test coverage. Most teams do it once per project, inconsistently, with no reuse.
+Building a UDS diagnostics stack from scratch on Zephyr means solving ISO-TP framing, session state machines, security access, DID dispatch, DTC persistence, and ASIL-B safety wrappers yourself. Most teams do it once per project, inconsistently, with no reuse.
 
 EDS replaces that with a configuration-driven workflow. Define your ECU's diagnostic interface in YAML. Run the generator. The complete C implementation drops into your Zephyr build.
 
@@ -116,37 +145,9 @@ The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registrat
 
 ---
 
-## What you get
+## Already using Zephyr?
 
-| Capability | Detail |
-|---|---|
-| **UDS stack** | 19 services: 0x10 0x11 0x14 0x19 0x22 **0x23** 0x27 0x28 **0x2A** 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 **0x3D** 0x3E 0x85 · SID 0x23: direct memory read · SID 0x2A: periodic push (SLOW/MEDIUM/FAST) · SID 0x3D: direct memory write · SID 0x19 sub-functions: 0x01 0x02 0x03 0x04 0x06 0x0A 0x0B 0x19 |
-| **ISO-TP transport** | SF / FF / CF / FC · N_As / N_Bs / N_Cr timing · STmin sub-ms range |
-| **DoIP transport** | DoIP diagnostic server subset (ISO 13400-2 routing activation + diagnostic messaging) — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes. Vehicle identification, vehicle announcement, and entity status are out of scope — see the DoIP Feature Matrix in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.2. |
-| **ASIL-B safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
-| **Security** | AES-128-CMAC seed / 4-byte key response ([threat model](SECURITY.md#security-architecture-notes)) · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
-| **DTC persistence** | NVM mirror survives power cycles · 0x14 ClearDTC · 0x19 ReadDTCInformation |
-| **Code generation** | YAML → 18 Jinja2 templates · CLI · reproducible deterministic output |
-| **Test generation** | YAML → pytest suite per DID and DTC · simulator mode (no hardware) · firmware harness mode |
-| **CANoe CAPL** | YAML → `.can` scripts for CANoe import · per-DID, per-DTC, core services |
-| **SOVD CDA** | `--sovd` flag: YAML → OpenSOVD 1.0 `sovd_cda.json` — DIDs, DTCs, routines, transport, all 19 services · DoIP ECUs include `logicalAddress` and `port` · Eclipse SDV / OEM SOVD clients |
-| **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
-| **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
-| **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |
-| **Wireshark dissector** | `extras/wireshark/eds.lua` — UDS service names · NRC descriptions · ISO-TP frame types · DoIP payload decode · load in 3 steps |
-| **CI pipeline** | GitHub Actions — unit tests · integration tests · Zephyr builds (native_sim + STM32) · FreeRTOS ARM · MISRA analysis · DoIP integration · SOVD CDA · full robustness campaign (439 tests) |
-
-**Safety properties verified by CI on every commit:**
-- Zero dynamic memory allocation (`malloc`/`free` grep gate)
-- `uds_safety_self_test()` present and abort-guarded in every generated init file (ISO 26262-6 §9.4.3)
-- `ASIL_B_REQUIRE_WRITE_SECURITY = True` — write-capable DIDs without a security gate are a fatal codegen error
-- `GEN_SAFETY_DID_COUNT` in generated headers matches YAML ground truth
-
----
-
-## Using EDS as a west module
-
-If you have an existing Zephyr application and want to add EDS as an out-of-tree module, add the following to your project's `west.yml`:
+Use EDS as a west module. Add it to your application's `west.yml`:
 
 ```yaml
 manifest:
@@ -172,6 +173,34 @@ add_subdirectory(${ZEPHYR_EDS_MODULE_DIR}/transport eds_transport)
 ```
 
 The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the module is registered.
+
+---
+
+## What you get
+
+| Capability | Detail |
+|---|---|
+| **UDS stack** | 19 services: 0x10 0x11 0x14 0x19 0x22 **0x23** 0x27 0x28 **0x2A** 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 **0x3D** 0x3E 0x85 · SID 0x23: direct memory read · SID 0x2A: periodic push (SLOW/MEDIUM/FAST) · SID 0x3D: direct memory write · SID 0x19 sub-functions: 0x01 0x02 0x03 0x04 0x06 0x0A 0x0B 0x19 |
+| **ISO-TP transport** | SF / FF / CF / FC · N_As / N_Bs / N_Cr timing · STmin sub-ms range |
+| **DoIP transport** | DoIP diagnostic server subset (ISO 13400-2 routing activation + diagnostic messaging) — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes. Vehicle identification, vehicle announcement, and entity status are out of scope — see the DoIP Feature Matrix in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.2. |
+| **ASIL-B safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
+| **Security** | AES-128-CMAC seed / 4-byte key response ([threat model](SECURITY.md#security-architecture-notes)) · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
+| **DTC persistence** | NVM mirror survives power cycles · 0x14 ClearDTC · 0x19 ReadDTCInformation |
+| **Code generation** | YAML → 18 Jinja2 templates · CLI · reproducible deterministic output |
+| **Test generation** | YAML → pytest suite per DID and DTC · simulator mode (no hardware) · firmware harness mode |
+| **CANoe CAPL** | YAML → `.can` scripts for CANoe import · per-DID, per-DTC, core services |
+| **SOVD CDA** | `--sovd` flag: YAML → OpenSOVD 1.0 `sovd_cda.json` — DIDs, DTCs, routines, transport, all 19 services · DoIP ECUs include `logicalAddress` and `port` · Eclipse SDV / OEM SOVD clients |
+| **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
+| **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
+| **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |
+| **Wireshark dissector** | `extras/wireshark/eds.lua` — UDS service names · NRC descriptions · ISO-TP frame types · DoIP payload decode · load in 3 steps |
+| **CI pipeline** | GitHub Actions — unit tests · integration tests · Zephyr builds (native_sim + STM32) · FreeRTOS ARM · MISRA analysis · DoIP integration · SOVD CDA · full robustness campaign (439 tests) |
+
+**Safety properties verified by CI on every commit:**
+- Zero dynamic memory allocation (`malloc`/`free` grep gate)
+- `uds_safety_self_test()` present and abort-guarded in every generated init file (ISO 26262-6 §9.4.3)
+- `ASIL_B_REQUIRE_WRITE_SECURITY = True` — write-capable DIDs without a security gate are a fatal codegen error
+- `GEN_SAFETY_DID_COUNT` in generated headers matches YAML ground truth
 
 ---
 
@@ -329,6 +358,15 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 
 ## ECU examples
 
+Every example ships with its generated C committed — clone, build, and
+inspect without a license.
+
+**Building a BMS?** → [`examples/bms_ecu/`](examples/bms_ecu/) ·
+**Motor controller?** → [`examples/motor_controller_ecu/`](examples/motor_controller_ecu/) ·
+**Working with DoIP?** → [`examples/basic_ecu_doip/`](examples/basic_ecu_doip/) ·
+**Using FreeRTOS?** → [`examples/basic_ecu_freertos/`](examples/basic_ecu_freertos/) ·
+**Need safe firmware update?** → [`examples/safeboot_ecu/`](examples/safeboot_ecu/)
+
 | Example | DIDs | DTCs | Routines | Boards |
 |---|---|---|---|---|
 | `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947 |
@@ -361,6 +399,37 @@ EDS targets ASIL-B candidate status (ISO 26262-6:2018). The following work produ
 | WCET analysis | Host x86-64 figures available; Cortex-M7 figures pending HiL |
 
 **AES key placeholder notice:** `core/uds_security_algo.c` ships with placeholder AES-128 keys. A compile-time gate (`CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY`) and a runtime guard in the generated init sequence prevent accidental deployment. See the Security Integration Guide (Professional tier — xaloqi.com) for the OEM key injection procedure.
+
+---
+
+## Build → Test with Xaloqi
+
+EDS is the **build** side of the Xaloqi workflow. [Xaloqi TestLab Core](https://github.com/Xaloqi/xaloqi-testlab-core)
+is the **test** side — a free, Apache-2.0 Python UDS client and ECU
+simulator (`pip install xaloqi-tester`).
+
+```text
+diagnostics_config.yaml
+          │
+          ▼
+   ┌──────────────┐
+   │  Xaloqi EDS  │  BUILD
+   └──────┬───────┘
+          │ generated C / native_sim / real hardware
+          ▼
+   ┌──────────────┐
+   │   TestLab    │  TEST
+   └──────────────┘
+```
+
+Not just a diagram: TestLab Core's Python `DoipBus` client runs against
+EDS's C DoIP server (`native_sim`) in this repo's own CI on every push — a
+genuine cross-language, cross-implementation DoIP conversation. See
+[the CI workflow](.github/workflows/ci.yml) (job:
+`DoIP Integration (native_sim + DoipBus)`).
+
+Want to test a UDS ECU before implementing one? →
+[Xaloqi TestLab Core](https://github.com/Xaloqi/xaloqi-testlab-core)
 
 ---
 
@@ -404,3 +473,23 @@ Unlike alternatives that use PolyForm Noncommercial (which prohibits production 
 - **DoIP (optional)**: LwIP 2.x (any MCU with Ethernet) for FreeRTOS targets; Zephyr networking stack (`CONFIG_NETWORKING=y`) for Zephyr targets
 - Python 3.9+ with `pyyaml`, `jinja2`, `pytest`
 - Node.js 18+ (GUI only)
+
+---
+
+## Start here
+
+**Just want to see an ECU run?**
+
+```bash
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.2 eds-workspace
+cd eds-workspace && west update
+west build -b native_sim examples/basic_ecu \
+  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+west build -t run
+```
+
+**Want to test UDS without implementing an ECU first?** →
+[Xaloqi TestLab Core](https://github.com/Xaloqi/xaloqi-testlab-core)
+
+**Want to generate your own ECU configuration?** →
+[xaloqi.com](https://xaloqi.com)
