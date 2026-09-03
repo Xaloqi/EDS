@@ -23,7 +23,13 @@ struct sockaddr_in {
     uint8_t        sin_zero[8];
 };
 
-typedef struct { long tv_sec; long tv_usec; } struct_timeval;
+/* `#define timeval struct_timeval` below rewrites every `struct timeval`
+ * in the including source to `struct struct_timeval` — so the type here
+ * must be a tagged struct (`struct struct_timeval { ... }`), not a
+ * `typedef struct { ... } struct_timeval` (that only creates a typedef
+ * *name*, not a `struct struct_timeval` tag, leaving `struct timeval`
+ * references as an incomplete type: "storage size of 'tv' isn't known"). */
+struct struct_timeval { long tv_sec; long tv_usec; };
 #define timeval struct_timeval
 
 typedef struct { unsigned long fds_bits[1]; } fd_set;
