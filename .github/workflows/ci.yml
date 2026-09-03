@@ -241,6 +241,27 @@ env:
 
 jobs:
 
+  # ── Job 0: Commit message lint ──────────────────────────────────────────────
+  # Mechanical, unconditional gate for a mistake that already happened twice
+  # in one day despite being documented both times (xaloqi-knowledge
+  # lessons/run-030, run-031): a commit saying "closes EDS#N" instead of
+  # bare "closes #N" isn't recognized by GitHub's auto-close parser at all --
+  # no error, no warning, the issue just silently never closes. Cheap and
+  # fast (no build), runs on every PR so it also catches direct human
+  # commits, not just agent sessions.
+  commit-message-lint:
+    name: "Commit message lint (closing-keyword syntax)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify closing-keyword syntax
+        run: |
+          bash scripts/verify_closing_keyword_syntax.sh "${{ github.event.pull_request.base.sha }}"
+
   # ── Job 1: Host unit tests ─────────────────────────────────────────────────
   unit-tests:
     name: "Unit Tests"
