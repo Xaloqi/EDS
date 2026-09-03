@@ -8,6 +8,75 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Security
+
+- **`core/uds_services/service_0x23.c`, `service_0x34.c`, `service_0x35.c`,
+  `service_0x3D.c` accepted overlong requests instead of rejecting them**
+  (#233). Each used `if (req->length < expected)` for its length check —
+  correct for rejecting *short* requests, but silently accepting extra
+  trailing bytes as valid rather than returning NRC 0x13 (incorrect
+  message length). Fixed to exact-length `!=` checks across all four
+  services; added a `test_trailing_byte_rejected` ZTEST case per service
+  (919 → 923 unit cases). Found in an external Tier-1 PoC technical
+  review, independently re-verified against `main` before fixing.
+
+### Added
+
+- `boards/native_sim/native_sim_realcan.conf` +
+  `native_sim_realcan.overlay` — redirects native_sim's `can0` alias from
+  Zephyr's in-process `can_loopback0` device to the real
+  `zephyr,native-linux-can` node, so `basic_ecu` can be built and tested
+  against a real host `vcan0` bridge instead of only ever talking to
+  itself (#231). Verified end-to-end against real CI before merge: real
+  device (`can`, not `can_loopback0`), 8/8 UDS ops, real 2–44ms timing.
+- `examples/basic_ecu_doip/boards/native_sim/native_sim_doip_realzeth.conf`
+  — same idea for DoIP: makes `basic_ecu_doip` reachable over a real host
+  `zeth` TAP bridge instead of `native_sim_doip.conf`'s Zephyr-internal
+  loopback. Root cause of why the existing conf never worked for this:
+  its `CONFIG_NET_LOOPBACK=y` both silently drops the entire Ethernet
+  driver Kconfig subtree (a chained `default` condition) and creates a
+  competing net interface that steals the static-IP assignment — see the
+  new file's own header comment for the full trace (#230). Verified via
+  9 throwaway-branch CI iterations before merge: real ARP resolution,
+  8/8 UDS ops over real DoIP/TCP, real 102–204ms timing.
+
+### Fixed
+
+- `build_tests.sh`'s ZTEST wiring gate used `<(...)` process substitution
+  with a blanket `|| true`, masking real `/dev/fd` I/O errors identically
+  to the legitimate "no match" case — a genuinely un-wired test could
+  silently pass the gate (#235). Rewritten with real `mktemp -d` temp
+  files and `PIPESTATUS`-based error discrimination; verified both
+  directions (normal PASS; a deliberately un-wired test now fails with a
+  real exit code).
+- `misra_analysis.py`'s final `RESULT:` line read as an unconditional
+  MISRA-compliance claim ("PASS — zero open MISRA violations") even when
+  running in the GCC-only fallback mode (no cppcheck `--addon=misra`
+  available) — now conditional on `report["checker_available"]`,
+  producing "PASS (GCC-only subset — NOT full MISRA compliance evidence)"
+  in fallback mode (#236).
+- `platform/freertos/lwip_stub`'s `sockets.h` shim had a struct/typedef
+  tag mismatch that broke the DoIP FreeRTOS compile-only CI build (#229).
+
+### Documentation
+
+- `docs/TESTING_STRATEGY.md`: unit module count corrected 42/44 → 45 (3
+  places), DoIP ZTEST case count corrected 24 → 30 (7 places, uniformly
+  stale, not "alternating" as reported). `docs/INTEGRATION_GUIDE.md`'s
+  SID scope table: added the missing 0x23 and 0x37 rows, fixed 0x3D from
+  an explicit wrong "Out of scope" to "Implemented", removed a duplicate
+  0x36 row (#237).
+- `README.md`: added `-DIAG_SKIP_CODEGEN=ON` to every no-license `west
+  build` command (confirmed via real CI that mtime-staleness codegen-skip
+  doesn't hold, #198); corrected a false claim that TestLab Core's
+  DoipBus runs against EDS's C DoIP server in CI on every push (it
+  doesn't — EDS's own DoIP Integration job silently skips that test when
+  TestLab isn't installed, #230); added a cross-link to
+  `xaloqi-compatibility-tests`; GTM repo-packaging pass (hero copy,
+  "See it run" section, examples quick-nav, cross-repo "Build → Test"
+  section); pointed Developer/Professional customers to `INSTALL.md`
+  from `GETTING_STARTED.md` (#223).
+
 ## [1.13.3] — 2026-09-02
 
 ### Security
