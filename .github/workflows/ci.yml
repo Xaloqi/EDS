@@ -242,13 +242,15 @@ env:
 jobs:
 
   # ── Job 0: Commit message lint ──────────────────────────────────────────────
-  # Mechanical, unconditional gate for a mistake that already happened twice
-  # in one day despite being documented both times (xaloqi-knowledge
-  # lessons/run-030, run-031): a commit saying "closes EDS#N" instead of
-  # bare "closes #N" isn't recognized by GitHub's auto-close parser at all --
-  # no error, no warning, the issue just silently never closes. Cheap and
+  # Mechanical, unconditional gate for two independent GitHub closing-keyword
+  # mistakes that have each bitten this repo for real (xaloqi-knowledge
+  # lessons/run-024, run-030, run-031): "closes EDS#N" instead of bare
+  # "closes #N" (not recognized at all), and "fixes #1, #2, #3" (only the
+  # first-listed issue reliably auto-closes). Checks commit messages AND
+  # the PR body/description -- the comma-list mistake recurred in a PR body
+  # with otherwise-clean commits, proving both need covering. Cheap and
   # fast (no build), runs on every PR so it also catches direct human
-  # commits, not just agent sessions.
+  # edits, not just agent sessions.
   commit-message-lint:
     name: "Commit message lint (closing-keyword syntax)"
     runs-on: ubuntu-22.04
@@ -259,6 +261,11 @@ jobs:
           fetch-depth: 0
 
       - name: Verify closing-keyword syntax
+        env:
+          # Passed via env:, not interpolated into the script -- the PR
+          # body is untrusted, arbitrary text; env-var passing avoids any
+          # shell-injection risk that inlining it into `run:` would carry.
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           bash scripts/verify_closing_keyword_syntax.sh "${{ github.event.pull_request.base.sha }}"
 
