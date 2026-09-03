@@ -487,6 +487,17 @@ ZTEST(svc_0x23, test_valid_4byte_addr_4byte_size)
                   uds_service_0x23_handler(&s_srv, &s_req, &s_resp), "");
 }
 
+/* EDS#233: a request one byte longer than fields_end must be rejected,
+ * not silently accepted with the trailing byte ignored. */
+ZTEST(svc_0x23, test_trailing_byte_rejected)
+{
+    (void)uds_flash_ops_register(&k_mock_ops);
+    build_0x23_req(MOCK_RW_BASE, 8U);
+    s_req.length = (uint16_t)(s_req.length + 1U);
+    zassert_equal(UDS_STATUS_ERR_INVALID_PARAM,
+                  uds_service_0x23_handler(&s_srv, &s_req, &s_resp), "");
+}
+
 /* TC-0x23-016: positive response SID = 0x63 */
 ZTEST(svc_0x23, test_positive_response_sid)
 {
@@ -684,6 +695,18 @@ ZTEST(svc_0x3D, test_valid_4byte_addr_4byte_size)
                   uds_service_0x3D_handler(&s_srv, &s_req, &s_resp), "");
 }
 
+/* EDS#233: a request one byte longer than fields_end + mem_size must be
+ * rejected, not silently accepted with the trailing byte ignored. This
+ * is the exact reproduction the NAR_Tier1 PoC review reported. */
+ZTEST(svc_0x3D, test_trailing_byte_rejected)
+{
+    (void)uds_flash_ops_register(&k_mock_ops);
+    build_0x3D_req(MOCK_RW_BASE, 8U, k_write_pattern, 8U);
+    s_req.length = (uint16_t)(s_req.length + 1U);
+    zassert_equal(UDS_STATUS_ERR_INVALID_PARAM,
+                  uds_service_0x3D_handler(&s_srv, &s_req, &s_resp), "");
+}
+
 /* TC-0x3D-014: positive response SID = 0x7D */
 ZTEST(svc_0x3D, test_positive_response_sid)
 {
@@ -794,6 +817,7 @@ void run_all_tests(void)
     RUN_TEST(svc_0x23__test_size_exceeds_response_buffer);
     RUN_TEST(svc_0x23__test_read_cb_failure);
     RUN_TEST(svc_0x23__test_valid_4byte_addr_4byte_size);
+    RUN_TEST(svc_0x23__test_trailing_byte_rejected);
     RUN_TEST(svc_0x23__test_positive_response_sid);
     RUN_TEST(svc_0x23__test_response_data_matches_read_buf);
     RUN_TEST(svc_0x23__test_valid_1byte_addr_1byte_size);
@@ -814,6 +838,7 @@ void run_all_tests(void)
     RUN_TEST(svc_0x3D__test_address_overflow);
     RUN_TEST(svc_0x3D__test_write_cb_failure);
     RUN_TEST(svc_0x3D__test_valid_4byte_addr_4byte_size);
+    RUN_TEST(svc_0x3D__test_trailing_byte_rejected);
     RUN_TEST(svc_0x3D__test_positive_response_sid);
     RUN_TEST(svc_0x3D__test_response_echoes_alfid_addr_size);
     RUN_TEST(svc_0x3D__test_write_cb_receives_correct_data);

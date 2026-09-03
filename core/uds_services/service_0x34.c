@@ -154,13 +154,16 @@ uds_status_t uds_service_0x34_handler(
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
-    /* Check the request is long enough to hold address + size fields.
+    /* 0x34 carries no request-side data payload beyond the address/size
+     * fields (data itself arrives later via 0x36), so the request must be
+     * exactly fields_end bytes -- not just "at least". A `<` check
+     * silently accepted trailing garbage bytes (EDS#233).
      * fields_end = SVC_0x34_MEM_ADDR_OFFSET + addr_len + size_len. */
     fields_end = (uint16_t)((uint16_t)SVC_0x34_MEM_ADDR_OFFSET +
                              (uint16_t)addr_len +
                              (uint16_t)size_len);
 
-    if (req->length < fields_end) {
+    if (req->length != fields_end) {
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 

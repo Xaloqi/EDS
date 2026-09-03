@@ -333,6 +333,17 @@ ZTEST(svc_0x35, test_valid_request_4byte_fields)
     zassert_equal(0x20U, s_resp.data[1], "LFI must be 0x20");
 }
 
+/* EDS#233: 0x35 carries no request-side data payload -- a request one
+ * byte longer than fields_end must be rejected, not silently accepted. */
+ZTEST(svc_0x35, test_trailing_byte_rejected)
+{
+    (void)uds_flash_ops_register(&k_mock_ops_with_read);
+    build_valid_req(MOCK_FLASH_BASE, 0x100U);
+    s_req.length = (uint16_t)(s_req.length + 1U);
+    zassert_equal(UDS_STATUS_ERR_INVALID_PARAM,
+                  uds_service_0x35_handler(&s_srv, &s_req, &s_resp), "");
+}
+
 /* TC-0x35-013  Transfer direction set to UPLOAD */
 ZTEST(svc_0x35, test_transfer_direction_upload)
 {
@@ -410,6 +421,7 @@ void run_all_tests(void)
     RUN_TEST(svc_0x35__test_address_outside_region);
     RUN_TEST(svc_0x35__test_size_zero_rejected);
     RUN_TEST(svc_0x35__test_valid_request_4byte_fields);
+    RUN_TEST(svc_0x35__test_trailing_byte_rejected);
     RUN_TEST(svc_0x35__test_transfer_direction_upload);
     RUN_TEST(svc_0x35__test_transfer_state_active);
     RUN_TEST(svc_0x35__test_erase_not_called);

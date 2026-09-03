@@ -14,11 +14,11 @@ tests. All four layers run automatically in CI on every push and pull request.
 
 | Layer | Count | Framework | Status |
 |---|---|---|---|
-| Unit tests | 42 modules | Unity (C) | ✅ All passing |
+| Unit tests | 45 modules | Unity (C) | ✅ All passing |
 | Harness tests | 68 tests | Shell + GCC | ✅ All passing |
 | Integration tests | Per-DID/DTC suite | pytest (Python) | ✅ All passing |
 | System tests | native_sim E2E | Zephyr + pytest | ✅ All passing |
-| DoIP unit tests | 24 tests (1 module) | Unity (C) — ZTEST suite | ✅ All passing |
+| DoIP unit tests | 30 tests (1 module) | Unity (C) — ZTEST suite | ✅ All passing |
 | DoIP integration tests | 10 tests | pytest + xaloqi-tester DoipBus | ✅ Passing (skipped when TestLab absent) |
 | Generated pytest suite | Per-DID + per-DTC | testgen.py → pytest | ✅ Generated from YAML — all examples |
 | Generated CANoe CAPL | Per-DID + DTC + services | testgen.py → `.can` files | ✅ Generated from YAML |
@@ -92,7 +92,7 @@ Integration Tests (Python ISO-TP/UDS simulation)
 Harness Tests (68 — GCC build + run on host)
               │
               ▼
-Unit Tests (42 modules — Unity on host)
+Unit Tests (45 modules — Unity on host)
 ```
 
 Each layer depends on the layer below it passing. CI runs all layers in sequence.
@@ -127,7 +127,7 @@ tests/unit_runnable/
 
 ```bash
 bash build_tests.sh
-# Expected: 44 passed, 0 failed
+# Expected: 45 passed, 0 failed
 ```
 
 ### Coverage — 45 unit test modules
@@ -174,7 +174,7 @@ bash build_tests.sh
 | `test_isotp.c` | SF Rx/Tx, FF+CF multi-frame, FC CTS/Wait/Overflow, N_Cr timeout |
 | `test_isotp_concurrent.c` | A new request interrupting an in-progress multi-frame reassembly (retransmit / second-request race) |
 | `test_can_transport.c` | Frame queuing, filter setup, loopback round-trip |
-| `test_doip_server.c` | 24 tests — see DoIP section below |
+| `test_doip_server.c` | 30 tests — see DoIP section below |
 
 **Diagnostics Databases (4 modules)**
 
@@ -215,7 +215,7 @@ restored.
 
 ## 5. DoIP Unit Tests (`test_doip_server.c`)
 
-Added in v1.6.0. 24 tests covering the `transport/doip/doip_server.c` module on the host
+Added in v1.6.0. 30 tests covering the `transport/doip/doip_server.c` module on the host
 via the ZTEST shim (same build path as all other unit test modules).
 
 ```bash
@@ -223,7 +223,7 @@ bash build_tests.sh
 # test_doip_server is included in the standard unit-test run
 ```
 
-**Test coverage — 24 ZTEST cases:**
+**Test coverage — 30 ZTEST cases:**
 
 | Test | What it verifies |
 |---|---|
@@ -482,7 +482,7 @@ push / PR
    ├── freertos-safeboot   FreeRTOS OTA DFU compile — QEMU Cortex-M4 (safeboot_freertos_ecu, RAM stub flash)
    │
    └── doip-integration    basic_ecu_doip native_sim build
-                           + 24 DoIP unit tests (smoke check via build_tests.sh)
+                           + 30 DoIP unit tests (smoke check via build_tests.sh)
                            + 10 pytest end-to-end tests (skipped when TestLab absent)
 ```
 
@@ -529,7 +529,7 @@ Added in v1.6.0. Three stages:
    are ground truth and match template output byte-for-byte.
 
 2. **Unit test smoke check:** `bash build_tests.sh` filtered for DoIP tests — verifies
-   the 24 `test_doip_server.c` cases pass.
+   the 30 `test_doip_server.c` cases pass.
 
 3. **pytest integration:** `tests/test_doip_integration.py` — 10 end-to-end tests over
    TCP loopback using `xaloqi-tester` DoipBus. Exit code 5 (all skipped — xaloqi-tester

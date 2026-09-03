@@ -690,18 +690,50 @@ fi
 # but silently never executes -- the module still reports PASS even though
 # the case never ran. This guard fails the build if that drift recurs.
 #
-# [FIX-SETE] grep/comm returning "no matches" exit non-zero; under
-# set -euo pipefail that would abort the script inside a $(...) pipeline,
-# so every such command here is explicitly allowed to "fail" with `|| true`.
+# [EDS#235] grep/comm returning "no matches" exit non-zero; under
+# set -euo pipefail that would abort the script mid-pipeline, so each
+# pipeline below is used as an `if !` condition (exempt from set -e) and
+# its exit code inspected via PIPESTATUS -- "no match" (grep exit 1) is
+# expected and fine, anything else is a real tool/I/O error and fails
+# the gate closed instead of silently reporting PASS.
+# Real temp files, not `<(...)` process substitution: this gate used to
+# report PASS even when `/dev/fd` wasn't available to the shell, because
+# `comm: /dev/fd/NN: No such file or directory` was swallowed by a
+# blanket `|| true` on every step (see EDS#235 for the original report).
 # LC_ALL=C keeps sort/comm ordering stable regardless of the host locale.
 # ---------------------------------------------------------------------------
 WIRING_FAIL=0
+WIRING_TMP="$(mktemp -d)" || { echo "ERROR: mktemp failed for wiring gate"; exit 1; }
+trap 'rm -rf "${WIRING_TMP}"' EXIT
+
 for f in "${ROOT}"/tests/unit_runnable/*.c; do
-    defined=$(LC_ALL=C grep -oP '^ZTEST\(\s*\K[A-Za-z0-9_]+\s*,\s*[A-Za-z0-9_]+' "${f}" 2>/dev/null \
-        | sed 's/\s*,\s*/__/' | LC_ALL=C sort -u) || true
-    wired=$(sed -n '/void run_all_tests/,/^}/p' "${f}" \
-        | LC_ALL=C grep -oP 'RUN_TEST\(\s*\K[A-Za-z0-9_]+' 2>/dev/null | LC_ALL=C sort -u) || true
-    missing=$(LC_ALL=C comm -23 <(echo "${defined}") <(echo "${wired}")) || true
+    if ! LC_ALL=C grep -oP '^ZTEST\(\s*\K[A-Za-z0-9_]+\s*,\s*[A-Za-z0-9_]+' "${f}" \
+            | sed 's/\s*,\s*/__/' | LC_ALL=C sort -u > "${WIRING_TMP}/defined"; then
+        grep_rc=${PIPESTATUS[0]}
+        if [[ ${grep_rc} -gt 1 ]]; then
+            echo "ERROR: failed to scan ${f} for ZTEST definitions (grep exit ${grep_rc})"
+            WIRING_FAIL=1
+            continue
+        fi
+        : > "${WIRING_TMP}/defined"   # grep exit 1 = no ZTEST cases in this file; fine
+    fi
+
+    if ! sed -n '/void run_all_tests/,/^}/p' "${f}" \
+            | LC_ALL=C grep -oP 'RUN_TEST\(\s*\K[A-Za-z0-9_]+' | LC_ALL=C sort -u > "${WIRING_TMP}/wired"; then
+        grep_rc=${PIPESTATUS[1]}
+        if [[ ${grep_rc} -gt 1 ]]; then
+            echo "ERROR: failed to scan ${f} for RUN_TEST wiring (grep exit ${grep_rc})"
+            WIRING_FAIL=1
+            continue
+        fi
+        : > "${WIRING_TMP}/wired"     # grep exit 1 = no RUN_TEST calls in this file; fine
+    fi
+
+    if ! missing="$(LC_ALL=C comm -23 "${WIRING_TMP}/defined" "${WIRING_TMP}/wired")"; then
+        echo "ERROR: comm failed comparing wiring for ${f} (exit $?)"
+        WIRING_FAIL=1
+        continue
+    fi
 
     if [[ -n "${missing}" ]]; then
         echo "ERROR: ${f} has ZTEST case(s) with no matching RUN_TEST in run_all_tests():"
