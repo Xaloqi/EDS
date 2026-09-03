@@ -225,32 +225,44 @@ bash build_tests.sh
 
 **Test coverage — 30 ZTEST cases:**
 
+Rewritten from the real `ZTEST(...)` names and assertions in
+`tests/unit_runnable/test_doip_server.c` (issue #239 — the previous
+table matched only 6 of these 24 real names; the other 18 rows named
+tests that don't exist in the current file, and 24 of the real 30 tests
+had no row at all).
+
 | Test | What it verifies |
 |---|---|
-| `test_doip_encode_header_valid` | Header byte layout: sync byte, inverse, payload type, length |
-| `test_doip_encode_header_length_field` | Length field set correctly for varying payload sizes |
-| `test_doip_parse_header_valid` | Parse round-trip — encode then parse returns identical fields |
-| `test_doip_parse_header_version_mismatch` | Wrong sync byte → `DOIP_NACK_INCORRECT_PATTERN` |
-| `test_doip_parse_header_inv_byte_corrupt` | Inverse byte wrong → NACK |
-| `test_doip_header_too_short_rejected` | Fewer than 8 bytes → length error |
-| `test_doip_routing_activation_accepted` | Valid Routing Activation → positive response, connection registered |
-| `test_doip_routing_activation_wrong_type` | Unsupported activation type → NACK |
-| `test_doip_routing_activation_source_addr` | Source address stored, echoed in RoutingActivationResponse |
-| `test_doip_alive_check_request` | AliveCheckRequest → AliveCheckResponse with correct logical addr |
-| `test_doip_alive_check_response_payload` | Response payload length = 2, logical address = ECU addr |
-| `test_doip_diagnostic_message_dispatch` | Valid DiagnosticMessage → `uds_server_process_request()` called |
-| `test_doip_diagnostic_positive_ack` | After dispatch → DiagnosticMessagePositiveAck sent |
-| `test_doip_diagnostic_negative_ack_no_route` | DiagnosticMessage before Routing Activation → NACK 0x02 |
-| `test_doip_diagnostic_target_addr_mismatch` | Wrong target address → NACK 0x03 |
-| `test_doip_diagnostic_source_addr_mismatch` | Source address not matching registered addr → NACK |
-| `test_doip_nack_unknown_payload_type` | Unknown payload type → Generic NACK |
-| `test_doip_nack_message_too_large` | Payload length exceeding buffer → NACK 0x01 |
-| `test_doip_null_ops_rejected` | `eds_doip_server_init(NULL, ...)` → non-OK status |
-| `test_doip_null_ctx_rejected` | NULL ctx pointer → non-OK status |
-| `test_doip_boundary_min_header` | Exactly 8 bytes (header only, zero payload) — accepted |
-| `test_doip_boundary_max_payload` | Max configured payload length — accepted |
-| `test_doip_boundary_max_payload_plus_one` | Max + 1 byte → NACK 0x01 |
-| `test_doip_reinit_rejected` | Second `eds_doip_server_init()` call → `ERR_ALREADY_INITIALIZED` |
+| `test_doip_encode_header_valid` | Header byte layout: version, inverse version, payload type, and length all set correctly |
+| `test_doip_encode_header_length_field` | All 4 big-endian length bytes populated correctly for a large (0x01020304) length value |
+| `test_doip_parse_header_valid` | Parse round-trip — encode then parse returns identical payload type and length |
+| `test_doip_parse_header_version_mismatch` | Wrong version byte → `UDS_STATUS_ERR_TP_FRAME_INVALID` |
+| `test_doip_parse_header_inv_byte_corrupt` | Corrupt inverse-version byte → `UDS_STATUS_ERR_TP_FRAME_INVALID` |
+| `test_doip_header_too_short_rejected` | NULL buffer to `doip_parse_header()`/`doip_encode_header()` → `UDS_STATUS_ERR_NULL_PTR`, both directions |
+| `test_doip_handle_routing_activation_default` | Valid default-type Routing Activation → routing active, tester address stored, `DOIP_RA_RESP_OK` sent |
+| `test_doip_handle_routing_activation_already_active` | Second Routing Activation on an already-active connection → stays active, responds `DOIP_RA_RESP_OK_CONFIRMED` |
+| `test_doip_routing_activation_wrong_type_denied` | Non-default activation type → routing stays inactive, `DOIP_RA_RESP_DENIED` sent |
+| `test_doip_routing_activation_wrong_source_addr` | An unusual tester address is still stored correctly and activates routing |
+| `test_doip_handle_alive_check` | Alive Check Request after activation → Alive Check Response with an empty payload |
+| `test_doip_alive_check_no_routing_activation_needed` | Alive Check succeeds even before routing activation |
+| `test_doip_handle_diagnostic_msg_not_activated` | Diagnostic message before routing activation → NACK `DOIP_NACK_TGT_UNREACHABLE` |
+| `test_doip_handle_diagnostic_msg_activated` | Diagnostic message after activation → positive ack sent as the first frame |
+| `test_doip_handle_diagnostic_negative_ack_invalid_src` | Diagnostic message from a source address that doesn't match the activated tester → NACK `DOIP_NACK_INVALID_SRC` |
+| `test_doip_diagnostic_msg_extracts_uds_pdu_correctly` | Positive-ack addressing (src = tester, tgt = ECU) is correct before UDS dispatch |
+| `test_doip_diagnostic_msg_calls_uds_core` | `frames_received` counter increments on successful dispatch to the UDS core |
+| `test_doip_response_wraps_in_doip_frame` | A UDS response is wrapped in a DiagnosticMessage frame with correct src/tgt addressing (ECU → tester) |
+| `test_doip_short_write_reassembles_large_response` | [#105] `doip_send_all()` retries a ~4 KB response through a `tcp_send()` capped at 64 bytes/call, arrives byte-identical |
+| `test_doip_short_write_stalled_peer_bounded_retry_gives_up` | [#105] A peer accepting zero bytes ever trips a small, bounded retry cap and returns non-OK (so the caller tears the connection down) instead of hanging |
+| `test_doip_short_write_slow_but_progressing_succeeds` | [#105] A slow-but-always-progressing 24-byte/call peer still completes (needs >128 calls — more than a flat attempt cap would allow) |
+| `test_doip_max_pdu_size_boundary` | Diagnostic message payload exceeding `UDS_MAX_PAYLOAD_LEN` → NACK `DOIP_NACK_MSG_TOO_LARGE` |
+| `test_doip_oversized_response_returns_nrc_0x14` | [#108] A ~4090-byte response (past the 4084-byte DoIP frame budget) downgrades to a UDS NRC 0x14 RESPONSE_TOO_LONG instead of being silently dropped |
+| `test_doip_response_4084_bytes_still_sent_positive` | [#108] Exactly 4084 bytes (the largest response that still fits) is sent unmodified as a normal positive response |
+| `test_doip_response_4085_bytes_triggers_nrc_0x14` | [#108] Exactly 4085 bytes — one byte past the boundary — triggers the NRC 0x14 downgrade |
+| `test_doip_handle_unknown_payload_type_ignored` | Unknown DoIP payload type → `UDS_STATUS_OK`, no frame sent |
+| `test_doip_server_init_null_guard` | `eds_doip_server_init(NULL, ...)` → `UDS_STATUS_ERR_NULL_PTR` |
+| `test_doip_handle_frame_null_state` | NULL `doip_server_state_t*` → `UDS_STATUS_ERR_NULL_PTR` |
+| `test_doip_handle_frame_null_uds` | NULL `uds_server_ctx_t*` → `UDS_STATUS_ERR_NULL_PTR` |
+| `test_doip_register_platform_null_guard` | `eds_doip_register_platform(NULL)` → `UDS_STATUS_ERR_NULL_PTR` |
 
 ---
 

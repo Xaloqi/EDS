@@ -96,6 +96,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   false for bytes by default (the embedded wall-clock timestamp, #224).
   Corrected to describe the real, `SOURCE_DATE_EPOCH`-gated behavior
   instead of the blanket claim.
+- `docs/TESTING_STRATEGY.md`'s DoIP unit-test coverage table (§5)
+  described what looked like a substantially earlier version of
+  `test_doip_server.c`: only 6 of its 24 documented test names matched a
+  real `ZTEST`, the other 18 didn't exist, and 24 of the real 30 tests
+  had no row at all (missing the #105 short-write retry tests and the
+  #108 oversized-response NRC 0x14 boundary tests entirely). Rewritten
+  from the real `ZTEST(...)` names and assertions — all 30 rows
+  verified to correspond exactly, mechanically diffed against the
+  source file (#239).
 
 - `docs/TESTING_STRATEGY.md`: unit module count corrected 42/44 → 45 (3
   places), DoIP ZTEST case count corrected 24 → 30 (7 places, uniformly
