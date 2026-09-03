@@ -57,8 +57,45 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   in fallback mode (#236).
 - `platform/freertos/lwip_stub`'s `sockets.h` shim had a struct/typedef
   tag mismatch that broke the DoIP FreeRTOS compile-only CI build (#229).
+- `tools/codegen.py`'s `_now_utc()` (the single choke point for every
+  "Generated :"/`generated`/`generatedAt` timestamp written into `.c`,
+  `.h`, generated pytest files, `sovd_cda.json`, and the manifest) always
+  used wall-clock time — generating the same config twice, a second
+  apart, produced byte-different output even though the only real
+  difference was the timestamp. Now honours `SOURCE_DATE_EPOCH`
+  ([reproducible-builds.org convention](https://reproducible-builds.org/specs/source-date-epoch/))
+  when set, falling back to wall-clock time with a warning on an invalid
+  value (#224). Verified locally: same epoch → byte-identical timestamp
+  across repeated calls; invalid epoch → warns and falls back correctly.
+- `tests/test_license_expiry.py` was a standalone `unittest`-style
+  script (`if __name__ == "__main__":` runner block only, no
+  pytest-discoverable `test_*` functions or `TestCase`) — `pytest
+  tests/test_license_expiry.py` silently collected zero tests whenever
+  `tools/_license.py` was actually importable (a real commercial
+  checkout), giving silent zero-coverage on license-expiry regression
+  via the canonical `pytest tests/` sweep. Converted to real
+  `test_*` functions with real assertions; direct invocation
+  (`python3 tests/test_license_expiry.py`) still works. Verified with a
+  temporary mock `_license` module (this public checkout has no real
+  one to test against): pytest now collects and passes all 3 scenarios,
+  and a deliberately broken grace-period case correctly fails with a
+  clear assertion message before being reverted (#227).
 
 ### Documentation
+
+- `INSTALL.md` Step 6 told every customer "All tests should pass"
+  running the generated suite with no tier caveat — a Developer-only
+  install (no `xaloqi-tester`/TestLab) correctly generates the tests but
+  has nothing installed to execute them against a CAN interface, so
+  pytest collects and skips rather than fails. Added an explicit note:
+  what Step 6 verifies standalone at the Developer tier (codegen
+  succeeded, generated C compiles, suite is collectible) vs. what needs
+  TestLab installed (#225).
+- `docs/CODEGEN_ARCHITECTURE.md` claimed generated output is "fully
+  deterministic... byte-identical" unconditionally — true for content,
+  false for bytes by default (the embedded wall-clock timestamp, #224).
+  Corrected to describe the real, `SOURCE_DATE_EPOCH`-gated behavior
+  instead of the blanket claim.
 
 - `docs/TESTING_STRATEGY.md`: unit module count corrected 42/44 → 45 (3
   places), DoIP ZTEST case count corrected 24 → 30 (7 places, uniformly

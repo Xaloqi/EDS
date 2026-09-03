@@ -237,8 +237,28 @@ def _warn(message: str) -> None:
 
 
 def _now_utc() -> str:
-    """Return current time in ISO 8601 UTC format."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """Return current time in ISO 8601 UTC format.
+
+    Honours SOURCE_DATE_EPOCH (https://reproducible-builds.org/specs/source-date-epoch/,
+    the widely-adopted reproducible-builds convention) when set, so that
+    identical (generator version + YAML + templates + flags) input produces
+    byte-identical output -- see issue #224. Every generated-file timestamp
+    ("Generated :", "generated", "generatedAt", "generated_at" fields) flows
+    through this single function.
+    """
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if epoch:
+        try:
+            when = datetime.fromtimestamp(int(epoch), tz=timezone.utc)
+        except ValueError:
+            _warn(
+                f"SOURCE_DATE_EPOCH={epoch!r} is not a valid integer Unix "
+                "timestamp -- ignoring, using current time instead."
+            )
+            when = datetime.now(timezone.utc)
+    else:
+        when = datetime.now(timezone.utc)
+    return when.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _c_identifier(name: str) -> str:
