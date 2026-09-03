@@ -358,6 +358,17 @@ ZTEST(svc_0x34, test_valid_request_4byte_fields)
                   uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
 }
 
+/* EDS#233: 0x34 carries no request-side data payload -- a request one
+ * byte longer than fields_end must be rejected, not silently accepted. */
+ZTEST(svc_0x34, test_trailing_byte_rejected)
+{
+    (void)uds_flash_ops_register(&k_mock_ops);
+    build_valid_req(MOCK_FLASH_BASE, 0x100U);
+    s_req.length = (uint16_t)(s_req.length + 1U);
+    zassert_equal(UDS_STATUS_ERR_INVALID_PARAM,
+                  uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
+}
+
 /* TC-0x34-015  Positive response format: [0x74, LFI, mxblHi, mxblLo] */
 ZTEST(svc_0x34, test_positive_response_format)
 {
@@ -552,6 +563,7 @@ void run_all_tests(void)
     RUN_TEST(svc_0x34__test_address_size_overflow);
     RUN_TEST(svc_0x34__test_erase_callback_failure);
     RUN_TEST(svc_0x34__test_valid_request_4byte_fields);
+    RUN_TEST(svc_0x34__test_trailing_byte_rejected);
     RUN_TEST(svc_0x34__test_positive_response_format);
     RUN_TEST(svc_0x34__test_max_block_length_includes_counter);
     RUN_TEST(svc_0x34__test_transfer_state_active_after_success);

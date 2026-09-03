@@ -166,7 +166,10 @@ uds_status_t uds_service_0x3D_handler(
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
     expected_total = (uint16_t)(data_offset + (uint16_t)mem_size);
-    if (req->length < expected_total) {
+    /* EDS#233: `<` only rejected too-short requests -- the comment above
+     * says "exactly", the code didn't enforce it. Trailing bytes beyond
+     * mem_size were silently accepted and ignored. */
+    if (req->length != expected_total) {
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
