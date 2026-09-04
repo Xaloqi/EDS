@@ -154,14 +154,24 @@ Verify activation:
 python3 tools/activate.py --check
 ```
 
+`--status` is accepted as an alias for `--check`, and
+`--key ... --quiet` installs a key without printing anything (for CI and
+automation).
+
 Expected output:
 
 ```
-License: ACTIVE
-  Tier   : developer          (or: professional)
-  Email  : engineer@yourcompany.com
-  Expires: 2027-04-21
-  Product: xaloqi-eds v1
+License source: /home/you/.xaloqi/license.key
+
+============================================================
+  Xaloqi EDS — License Status
+============================================================
+  Status   : OK
+  Email    : engineer@yourcompany.com
+  Tier     : Developer          (or: Professional)
+  Expires  : 2027-04-21
+  Days left: 365
+============================================================
 ```
 
 ---
