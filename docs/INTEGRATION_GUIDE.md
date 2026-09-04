@@ -1385,7 +1385,7 @@ pytest test_robustness_A_codegen.py \
 | Phase | Tests | Covers |
 |---|---|---|
 | A | 22 | Generated file presence, C safety markers, GCC syntax |
-| B | 42 | All 19 UDS services — positive and negative responses |
+| B | 42 | Protocol behaviour across 10 of the 19 services — positive and negative responses |
 | C | 21 | SecurityAccess CMAC, lockout, replay |
 | D | 30 | Full customer workflow; all 12 ECU example configs |
 | E | 35 | DID data integrity, DTC lifecycle, session isolation |

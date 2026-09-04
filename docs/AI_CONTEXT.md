@@ -872,7 +872,7 @@ pytest test_robustness_A_codegen.py \
 | Phase | Tests | What it covers |
 |---|---|---|
 | A | 22 | Generated file presence, C safety markers, GCC syntax |
-| B | 42 | Session transitions, TesterPresent, ECUReset, all 19 service NRCs |
+| B | 42 | Session transitions, TesterPresent, ECUReset, NRCs across 10 of the 19 services |
 | C | 21 | CMAC SecurityAccess unlock/lockout/replay |
 | D | 30 | Customer workflow (fresh YAML → codegen → pytest), all 12 ECU examples |
 | E | 35 | DID read/write integrity, DTC lifecycle, session isolation |

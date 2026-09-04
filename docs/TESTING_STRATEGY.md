@@ -280,6 +280,31 @@ Harness tests cover scenarios that are difficult to isolate in pure unit tests: 
 interaction, end-to-end NRC generation, and the full ISO-TP → UDS → safety wrapper →
 handler call chain.
 
+### What the robustness phases actually cover
+
+The phase table in
+[INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) lists tests per phase. One
+number there is easy to misread, so it is stated plainly here:
+
+**Phase B exercises 10 of the 19 implemented UDS services** — `0x10`, `0x11`,
+`0x14`, `0x19`, `0x22`, `0x28`, `0x2E`, `0x31`, `0x3E`, `0x85`. It is the
+protocol-behaviour phase: sessions, NRCs, positive and negative responses.
+
+The other nine are covered elsewhere by design, not by omission:
+
+| Not in phase B | Where |
+|---|---|
+| `0x27` SecurityAccess | phase C — CMAC unlock, lockout, replay |
+| `0x34` `0x35` `0x36` `0x37` firmware download | the firmware/DFU tests |
+| `0x23` `0x3D` memory access, `0x2A` periodic, `0x2F` IO control | service-specific suites |
+
+That count is checked automatically. `xaloqi-knowledge`'s
+`check_release_docs.py` parses the generated
+`test_robustness_B_protocol.py` for the SIDs it actually sends and fails the
+docs sweep if the documented figure disagrees — added after the row read
+"All 14 UDS services", was corrected to 19 on the assumption it was a stale
+total, and turned out to be 10.
+
 ### The 68 assertions target `basic_ecu` (#252)
 
 `build_harness.sh --example <name>` builds the harness against another
