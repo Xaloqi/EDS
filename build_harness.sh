@@ -92,6 +92,31 @@ if [[ ! -f "${EXAMPLE_GENERATED}/did_handlers.c" ]]; then
     exit 1
 fi
 
+# EDS#249: harness_ecu.c pulls in this example's DTCs via
+#   #if __has_include("dtc_config.h")
+# and falls back to registering basic_ecu's two DTCs when the file is absent.
+# That fallback is correct for the basic_ecu family and silently WRONG for any
+# other example -- bms_ecu declares 10 DTCs, ardep_ecu 19 -- with no warning,
+# so DTC assertions would run against the wrong data.
+#
+# Since codegen renders dtc_config.h unconditionally (it is emitted even for a
+# config with an empty dtcs: list), its absence always means generated/ predates
+# that change rather than "this ECU has no DTCs". So fail loudly instead of
+# building something quietly incorrect.
+if [[ ! -f "${EXAMPLE_GENERATED}/dtc_config.h" ]]; then
+    echo "ERROR: ${EXAMPLE_GENERATED}/dtc_config.h not found." >&2
+    echo "" >&2
+    echo "  Without it the harness would silently register basic_ecu's DTCs" >&2
+    echo "  instead of ${EXAMPLE}'s, and any DTC assertion would test the" >&2
+    echo "  wrong data (EDS#249)." >&2
+    echo "" >&2
+    echo "Regenerate it with:" >&2
+    echo "  python3 tools/codegen.py \\" >&2
+    echo "             --config examples/${EXAMPLE}/diagnostics_config.yaml \\" >&2
+    echo "             --out examples/${EXAMPLE}/generated/ --safety-wrappers --asil-level B --no-manifest" >&2
+    exit 1
+fi
+
 OUTPUT="${OUTPUT:-/tmp/harness_ecu_test_${EXAMPLE}}"
 
 # ---------------------------------------------------------------------------
