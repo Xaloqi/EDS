@@ -8,6 +8,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **`tools/activate.py` had diverged into two incompatible
+  implementations, and every paying customer ran the one the docs were
+  not written against** (EDS-toolchain#99). EDS-toolchain kept a
+  separately-written `tools/activate.py` (`--key`/`--status`/`--quiet`)
+  that `build_release.sh` staged into the license ZIPs; INSTALL.md Step 2
+  tells customers to `unzip -o` the ZIP over their clone of this repo, so
+  that copy silently overwrote this repo's (`--key`/`--check`/
+  `--deactivate`) for every real Developer/Professional install. INSTALL.md
+  then documented `python3 tools/activate.py --check`, which the
+  overwritten file rejected — a customer following the documented step
+  order hit `error: unrecognized arguments: --check` on their first
+  activation command. This file is now the single canonical
+  implementation (EDS-toolchain stages it straight from here and no
+  longer keeps its own), with the ZIP-only features folded in so nothing
+  regresses: `--status` is accepted as an alias for `--check`, and
+  `--quiet` suppresses output on successful activation for CI/automation.
+  Also dropped a dead `_license.check.__wrapped__` probe whose result was
+  assigned and never read. Reported by an external evaluator mid-review
+  of v1.13.3.
+- `INSTALL.md`'s "Expected output" block for activation showed the
+  *other* implementation's format (`License: ACTIVE` / `Product:`), so it
+  was wrong for both files even before the flag mismatch. Replaced with
+  the real output, captured from a run against the shipped `_license.py`.
+
 ### Security
 
 - **`core/uds_services/service_0x23.c`, `service_0x34.c`, `service_0x35.c`,

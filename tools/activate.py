@@ -14,12 +14,24 @@ PURPOSE: License key activation for Xaloqi EDS.
          It can validate and install keys but cannot generate them
          (the Ed25519 private key is never distributed).
 
+         THIS IS THE SINGLE CANONICAL IMPLEMENTATION. The Developer and
+         Professional license ZIPs ship this exact file (EDS-toolchain's
+         build_release.sh stages it straight from this repo), so the
+         `unzip -o` step in INSTALL.md overwrites it with an identical
+         copy rather than a second, separately-drifted one. Do not fork a
+         parallel activate.py into EDS-toolchain — that divergence was
+         EDS-toolchain#99. tests/test_activate_single_implementation.py
+         (EDS-toolchain) enforces this.
+
 USAGE:
     python3 tools/activate.py --key <YOUR_LICENSE_KEY>
 
+    # Silent install, for CI/automation:
+    python3 tools/activate.py --key <YOUR_LICENSE_KEY> --quiet
+
     # Or via environment variable (CI, Docker):
     export XALOQI_LICENSE_KEY=<YOUR_LICENSE_KEY>
-    python3 tools/activate.py --check
+    python3 tools/activate.py --check        # --status is an accepted alias
 
 EXIT CODES:
     0  Activation successful (or --check with a valid key).
@@ -63,7 +75,7 @@ def _require_license_module() -> None:
         sys.exit(1)
 
 
-def cmd_activate(key: str) -> None:
+def cmd_activate(key: str, quiet: bool = False) -> None:
     """Validate and install a license key."""
     _require_license_module()
 
@@ -72,9 +84,8 @@ def cmd_activate(key: str) -> None:
         print("ERROR: License key cannot be empty.", file=sys.stderr)
         sys.exit(1)
 
-    print("Validating license key...")
-
-    result = _license.check.__wrapped__(key) if hasattr(_license.check, "__wrapped__") else None
+    if not quiet:
+        print("Validating license key...")
 
     # Use the internal _verify_jwt directly for activation — we need to
     # validate the key before writing it, including expired keys (they
@@ -108,32 +119,33 @@ def cmd_activate(key: str) -> None:
     except OSError:
         pass  # Windows — ignore
 
-    print()
-    print("=" * 60)
-    print("  Xaloqi EDS — License Activated")
-    print("=" * 60)
-    print(f"  Email    : {email}")
-    print(f"  Tier     : {tier.capitalize()}")
-    print(f"  Expires  : {exp_str}", end="")
+    if not quiet:
+        print()
+        print("=" * 60)
+        print("  Xaloqi EDS — License Activated")
+        print("=" * 60)
+        print(f"  Email    : {email}")
+        print(f"  Tier     : {tier.capitalize()}")
+        print(f"  Expires  : {exp_str}", end="")
 
-    if days_left < 0:
-        days_expired = abs(days_left)
-        grace_left   = _license.GRACE_PERIOD_DAYS - days_expired
-        if grace_left > 0:
-            print(f"  ⚠  EXPIRED {days_expired}d ago — {grace_left}d grace period remains")
+        if days_left < 0:
+            days_expired = abs(days_left)
+            grace_left   = _license.GRACE_PERIOD_DAYS - days_expired
+            if grace_left > 0:
+                print(f"  ⚠  EXPIRED {days_expired}d ago — {grace_left}d grace period remains")
+            else:
+                print(f"  ✗  EXPIRED — grace period over. Renew at {_license.PURCHASE_URL}")
+        elif days_left <= 30:
+            print(f"  ({days_left} days remaining — renewal recommended)")
         else:
-            print(f"  ✗  EXPIRED — grace period over. Renew at {_license.PURCHASE_URL}")
-    elif days_left <= 30:
-        print(f"  ({days_left} days remaining — renewal recommended)")
-    else:
-        print(f"  ({days_left} days remaining)")
+            print(f"  ({days_left} days remaining)")
 
-    print(f"  Saved to : {_license.LICENSE_FILE_PATH}")
-    print("=" * 60)
-    print()
-    print("  Run codegen to confirm activation:")
-    print("    python3 tools/codegen.py --config diagnostics_config.yaml --out generated/")
-    print()
+        print(f"  Saved to : {_license.LICENSE_FILE_PATH}")
+        print("=" * 60)
+        print()
+        print("  Run codegen to confirm activation:")
+        print("    python3 tools/codegen.py --config diagnostics_config.yaml --out generated/")
+        print()
 
 
 def cmd_check() -> None:
@@ -212,6 +224,12 @@ def main() -> None:
             "  # Check the currently installed key:\n"
             "  python3 tools/activate.py --check\n"
             "\n"
+            "  # Check using the alias accepted for ZIP compatibility:\n"
+            "  python3 tools/activate.py --status\n"
+            "\n"
+            "  # Silent install for CI/automation:\n"
+            "  python3 tools/activate.py --key eyJhbGciOiJFZERTQSJ9... --quiet\n"
+            "\n"
             "  # Remove the locally stored key:\n"
             "  python3 tools/activate.py --deactivate\n"
             "\n"
@@ -228,8 +246,13 @@ def main() -> None:
         help="License key JWT string to activate.",
     )
     group.add_argument(
-        "--check", "-c",
+        # --status is an accepted alias: the license ZIPs used to ship a
+        # separate activate.py whose only status flag was --status
+        # (EDS-toolchain#99). Keeping it means customers who learned that
+        # flag are not broken by the consolidation.
+        "--check", "--status", "-c",
         action="store_true",
+        dest="check",
         help="Check the currently installed license key and exit.",
     )
     group.add_argument(
@@ -238,10 +261,16 @@ def main() -> None:
         help="Remove the locally stored license key file.",
     )
 
+    parser.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        help="Suppress output on successful activation (for CI/automation).",
+    )
+
     args = parser.parse_args()
 
     if args.key:
-        cmd_activate(args.key)
+        cmd_activate(args.key, quiet=args.quiet)
     elif args.check:
         cmd_check()
     elif args.deactivate:
