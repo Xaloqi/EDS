@@ -36,10 +36,10 @@ extern "C" {
  * -------------------------------------------------------------------------- */
 #define UDS_SUITE_VERSION_MAJOR  (1U)
 #define UDS_SUITE_VERSION_MINOR  (13U)
-#define UDS_SUITE_VERSION_PATCH  (3U)
+#define UDS_SUITE_VERSION_PATCH  (4U)
 
 /** Compile-time version string — matches UDS_STACK_VERSION in safety_config.h. */
-#define UDS_SUITE_VERSION_STRING "1.13.3"
+#define UDS_SUITE_VERSION_STRING "1.13.4"
 
 /* --------------------------------------------------------------------------
  * Buffer and protocol sizing constants
