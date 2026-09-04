@@ -15,6 +15,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   catch it — its count patterns do not cover this phrasing, so the drift was
   invisible to the release sweep (the `docs/`-goes-unswept shape of
   lessons/run-010, one layer down).
+- `docs/ARCHITECTURE.md:182` described the generator as having **8
+  templates**; it has **18**. Found by widening the release sweep's count
+  patterns after the CI-job miss below, then re-running it across both
+  repos rather than only re-checking the one case that prompted it
+  (lessons/run-020).
 - Documented that the 68 harness assertions target `basic_ecu`'s DID/routine
   fixture, so `build_harness.sh --example <specialist>` builds and runs but
   does **not** go green — it reports fixture mismatches, not defects (#252).
