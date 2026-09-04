@@ -8,6 +8,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **`examples/*/generated/dtc_config.h` is now committed for all 12
+  examples** (#249). `codegen.py` has rendered this file since #176, but no
+  example committed it, so the repo's committed `generated/` did not match
+  what the generator produces. The Professional harness consumes it via
+  `#if __has_include("dtc_config.h")` and falls back to registering
+  `basic_ecu`'s two DTCs when absent — correct for the basic_ecu family,
+  silently wrong for any other example (`bms_ecu` declares 10, `ardep_ecu`
+  19). Delivery ZIPs were never affected: `build_release.sh` regenerates
+  `generated/` at staging, verified against the shipped v1.13.4 artifacts.
+  Committing the file makes a repo checkout behave like the ZIP.
+- `build_harness.sh` now **fails** if the selected example has no
+  `generated/dtc_config.h`, instead of building something quietly
+  incorrect. Since codegen emits the file unconditionally — including for a
+  config with an empty `dtcs:` list, verified — its absence always means
+  `generated/` predates #176 rather than "this ECU has no DTCs".
+
+  Scope note: this is correctness hygiene, not a fix for a failing test.
+  The 68 harness assertions are hardcoded to `basic_ecu`'s DID/routine
+  fixture, so no DTC assertion existed that the missing file could have
+  broken — see #252.
+
 ## [1.13.4] — 2026-09-04
 
 ### Security
