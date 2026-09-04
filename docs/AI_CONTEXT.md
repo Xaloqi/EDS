@@ -872,11 +872,11 @@ pytest test_robustness_A_codegen.py \
 | Phase | Tests | What it covers |
 |---|---|---|
 | A | 22 | Generated file presence, C safety markers, GCC syntax |
-| B | 42 | Session transitions, TesterPresent, ECUReset, all 19 service NRCs |
+| B | 42 | Session transitions, TesterPresent, ECUReset, NRCs across 10 of the 19 services |
 | C | 21 | CMAC SecurityAccess unlock/lockout/replay |
-| D | 30 | Customer workflow (fresh YAML → codegen → pytest), all 11 ECU examples |
+| D | 30 | Customer workflow (fresh YAML → codegen → pytest), all 12 ECU examples |
 | E | 35 | DID read/write integrity, DTC lifecycle, session isolation |
-| F | 54 | Max DID/DTC/routine counts, GCC syntax gate for all 11 ECU C files |
+| F | 54 | Max DID/DTC/routine counts, GCC syntax gate for all 12 ECU C files |
 | G | 47 | Malformed PDU resilience, CMAC round-trip, suppress-response bit, YAML↔simulator consistency |
 | H | 41 | DSC timing precision, multi-DID RDBI batch, DTC record format, routine lifecycle |
 | I | 34 | NRC 3-byte format/SID echo, WDBI check ordering, SA level isolation |

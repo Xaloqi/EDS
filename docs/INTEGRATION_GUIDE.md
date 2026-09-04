@@ -511,7 +511,7 @@ Without flash ops registered (and without `safeboot.enabled: true`), any `0x34 R
 
 ## 4. FreeRTOS Integration {#freertos-integration}
 
-This section covers everything needed to run EDS on a FreeRTOS target. The same YAML configuration, the same codegen, and the same 14 UDS services work identically — only the platform layer differs.
+This section covers everything needed to run EDS on a FreeRTOS target. The same YAML configuration, the same codegen, and the same 19 UDS services work identically — only the platform layer differs.
 
 ### 4.1 Overview
 
@@ -1385,11 +1385,11 @@ pytest test_robustness_A_codegen.py \
 | Phase | Tests | Covers |
 |---|---|---|
 | A | 22 | Generated file presence, C safety markers, GCC syntax |
-| B | 42 | All 14 UDS services — positive and negative responses |
+| B | 42 | Protocol behaviour across 10 of the 19 services — positive and negative responses |
 | C | 21 | SecurityAccess CMAC, lockout, replay |
-| D | 30 | Full customer workflow; all 11 ECU example configs |
+| D | 30 | Full customer workflow; all 12 ECU example configs |
 | E | 35 | DID data integrity, DTC lifecycle, session isolation |
-| F | 54 | Codegen limits, GCC syntax gate for all 11 ECU C files |
+| F | 54 | Codegen limits, GCC syntax gate for all 12 ECU C files |
 | G | 47 | Malformed PDUs, suppress-response bit, YAML↔simulator consistency |
 | H | 41 | Timing bytes, multi-DID RDBI, DTC record format, routine lifecycle |
 | I | 34 | NRC 3-byte format, WDBI check ordering, SA level isolation |
