@@ -8,6 +8,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Documentation
+
+- `docs/TESTING_STRATEGY.md`'s status line claimed **21/21 CI jobs**; `ci.yml`
+  has **23**. Stale since two jobs were added. `check_release_docs.py` did not
+  catch it — its count patterns do not cover this phrasing, so the drift was
+  invisible to the release sweep (the `docs/`-goes-unswept shape of
+  lessons/run-010, one layer down).
+- `docs/ARCHITECTURE.md:182` described the generator as having **8
+  templates**; it has **18**. Found by widening the release sweep's count
+  patterns after the CI-job miss below, then re-running it across both
+  repos rather than only re-checking the one case that prompted it
+  (lessons/run-020).
+- Documented that the 68 harness assertions target `basic_ecu`'s DID/routine
+  fixture, so `build_harness.sh --example <specialist>` builds and runs but
+  does **not** go green — it reports fixture mismatches, not defects (#252).
+  Added to `TESTING_STRATEGY.md` and to `build_harness.sh`'s own help text,
+  which advertised the flag with no such caveat. Figures verified by running
+  it: `bms_ecu` 58 pass / 10 fail, `basic_ecu` 68/68.
+
 ### Added
 
 - **`examples/*/generated/dtc_config.h` is now committed for all 12

@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.13.4  
-**Status:** 45/45 unit test modules passing. 68/68 harness tests passing. 21/21 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
+**Status:** 45/45 unit test modules passing. 68/68 harness tests passing. 23/23 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
 
 ---
 
@@ -279,6 +279,34 @@ bash build_harness.sh
 Harness tests cover scenarios that are difficult to isolate in pure unit tests: multi-module
 interaction, end-to-end NRC generation, and the full ISO-TP → UDS → safety wrapper →
 handler call chain.
+
+### The 68 assertions target `basic_ecu` (#252)
+
+`build_harness.sh --example <name>` builds the harness against another
+example's `generated/` sources, which is useful for checking that an
+example's generated code compiles and links. **It is not expected to
+produce a green run.**
+
+The 68 assertions are written against `basic_ecu`'s specific DIDs and
+routines, so against a specialist example they report fixture mismatches
+rather than defects:
+
+```bash
+bash build_harness.sh --example bms_ecu --run
+# 58 pass, 10 fail — all DID/routine fixture mismatches
+```
+
+Those ten failures are the correct protocol behaviour. `bms_ecu` does not
+declare DIDs `0x0C00`/`0x0500` or routines `0xFF00`/`0xFF01`, so NRC `0x31`
+(`requestOutOfRange`) is the right response; the tests simply assume
+`basic_ecu`'s fixture. Making the assertions fixture-aware — deriving the
+expected DIDs and routines from the selected example's
+`diagnostics_config.yaml` — is tracked in #252 and is a considerably larger
+change than it looks.
+
+`--example` does still enforce one thing: the selected example must have a
+`generated/dtc_config.h`, or the build fails. Without it the harness would
+silently register `basic_ecu`'s DTCs instead of the example's own (#249).
 
 ---
 

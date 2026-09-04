@@ -179,7 +179,7 @@ embedded-diagnostics-suite/
 │   └── safety_config.h         # Generated ASIL compile-time assertions
 │
 ├── tools/
-│   ├── codegen.py              # Main generator: YAML → C/H (8 templates)
+│   ├── codegen.py              # Main generator: YAML → C/H (18 templates)
 │   ├── testgen.py              # Test generator: YAML → pytest + CANoe CAPL (v1.1.0)
 │   ├── config_parser.py        # YAML validation and parsing helpers
 │   └── templates/              # Jinja2 templates for all generated files

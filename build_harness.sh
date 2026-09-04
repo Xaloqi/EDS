@@ -14,6 +14,12 @@
 #   ./build_harness.sh --run --hw             # Build for AF_CAN hardware (vcan0)
 #   ./build_harness.sh --fast                 # Build without Wpedantic (faster CI)
 #   ./build_harness.sh --example sensor_ecu   # Build against examples/sensor_ecu/generated
+#
+#   NOTE: the 68 assertions target basic_ecu's DIDs and routines, so
+#   --example <specialist> builds and runs but does NOT go green -- it
+#   reports fixture mismatches, not defects. Use it to check an example's
+#   generated sources compile and link. See docs/TESTING_STRATEGY.md "The 68
+#   assertions target basic_ecu" and issue #252.
 #                                              # instead of the default (basic_ecu). The
 #                                              # EXAMPLE env var works the same way.
 #
