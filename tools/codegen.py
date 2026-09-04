@@ -185,6 +185,29 @@ ASIL_B_REQUIRE_EXPLICIT_SESSION: bool = True
 #:   Do NOT set it False globally without per-DID justification.
 ASIL_B_REQUIRE_WRITE_SECURITY: bool = True  # [HIGH-1 FIX] Hard error, not advisory.
 
+#: ASIL-B requires the CAN addressing section to be declared explicitly.
+#:
+#: [#226 FIX] Set to True — an ASIL build with no explicit rx_can_id/tx_can_id
+#: is now a hard fatal error, not an advisory warning. This aligns check 5 with
+#: checks 3 and 4 in validate_safety_config(), which were already fatal; it was
+#: the only ASIL check that merely warned.
+#:
+#: RATIONALE: the fallback is rx=0x7DF, the ISO 15765-4 *functional* (broadcast)
+#: request ID, answered on tx=0x7E8 (physical response, ECU address 0). Silently
+#: defaulting a safety-relevant ECU to those means (a) it services diagnostic
+#: requests broadcast to every ECU on the bus rather than ones physically
+#: addressed to it, and (b) any second ECU that also defaulted answers on the
+#: same 0x7E8, so two ECUs collide on one response ID. Neither is detectable
+#: from the generated code — it surfaces as bus misbehaviour during
+#: integration. An ASIL-B ECU's diagnostic addressing must be a deliberate,
+#: reviewed decision, not a fallback nobody chose.
+#:
+#: TO OVERRIDE (requires formal safety deviation record):
+#:   Declare can.rx_can_id and can.tx_can_id in the YAML, OR set
+#:   ASIL_B_REQUIRE_EXPLICIT_CAN_IDS = False here with a documented deviation
+#:   record justifying reliance on the defaults per ISO 26262-8 §7.
+ASIL_B_REQUIRE_EXPLICIT_CAN_IDS: bool = True  # [#226 FIX] Hard error, not advisory.
+
 _DID_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{4}$")
 _DTC_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{6}$")
 _RID_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{4}$")  # RID is 16-bit like DID
@@ -1054,7 +1077,9 @@ def validate_safety_config(cfg: Dict[str, Any], asil_level: str = "B") -> None:
          (Advisory: ASIL_B_REQUIRE_WRITE_SECURITY controls whether this is fatal.)
       4. Timing constraints must meet minimum ASIL-B response headroom:
          p2_server_max_ms >= 10 ms (below 10 ms is unrealistic for ASIL-B).
-      5. CAN addressing section must be present in ASIL builds (no defaults).
+      5. CAN addressing (rx_can_id + tx_can_id) must be declared explicitly
+         in ASIL builds — no silent fallback to 0x7DF / 0x7E8.
+         (ASIL_B_REQUIRE_EXPLICIT_CAN_IDS controls whether this is fatal.)
 
     Args:
         cfg:        Validated configuration dictionary (validate_config passed).
@@ -1127,12 +1152,37 @@ def validate_safety_config(cfg: Dict[str, Any], asil_level: str = "B") -> None:
         )
 
     # ── 5. CAN section must be explicit in ASIL builds ───────────────────────
-    if not cfg.get("can"):
-        _warn(
-            "SAFETY ADVISORY: No 'can' section found in config. "
-            "ASIL builds should explicitly declare rx_can_id and tx_can_id "
-            "rather than relying on defaults (0x7DF / 0x7E8)."
-        )
+    # Both IDs must be declared, not merely the section: a config carrying only
+    # rx_can_id still silently inherits tx=0x7E8, which is the half that makes
+    # two defaulted ECUs collide on one response ID.
+    can_cfg = cfg.get("can") or {}
+    missing_ids = [k for k in ("rx_can_id", "tx_can_id") if not can_cfg.get(k)]
+    if missing_ids:
+        if not can_cfg:
+            what = "No 'can' section found in config"
+        else:
+            what = f"'can' section does not declare {' and '.join(missing_ids)}"
+
+        if ASIL_B_REQUIRE_EXPLICIT_CAN_IDS:
+            _fatal(
+                f"SAFETY [#226]: {what}.  "
+                "ASIL builds must declare CAN diagnostic addressing explicitly "
+                "rather than inheriting the defaults (rx=0x7DF, tx=0x7E8).  "
+                "0x7DF is the ISO 15765-4 functional (broadcast) request ID, so "
+                "a defaulted ECU answers requests addressed to every ECU on the "
+                "bus, and any second defaulted ECU responds on the same 0x7E8.  "
+                "FIX: set can.rx_can_id and can.tx_can_id in "
+                "diagnostics_config.yaml for this ECU.  "
+                "OVERRIDE (requires formal deviation record per ISO 26262-8 §7): "
+                "set ASIL_B_REQUIRE_EXPLICIT_CAN_IDS = False in tools/codegen.py "
+                "with a documented justification for relying on the defaults."
+            )
+        else:
+            _warn(
+                f"SAFETY ADVISORY: {what}. "
+                "ASIL builds should explicitly declare rx_can_id and tx_can_id "
+                "rather than relying on defaults (0x7DF / 0x7E8)."
+            )
 
 
 # =============================================================================

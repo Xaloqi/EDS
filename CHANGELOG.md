@@ -8,6 +8,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **ASIL builds now *fail* rather than warn when CAN diagnostic addressing
+  is not declared explicitly** (#226). `validate_safety_config()`'s check 5
+  was the only one of its five ASIL checks that merely warned — checks 3
+  (write-security) and 4 (P2 timing) were already fatal. Silently falling
+  back to `rx=0x7DF` / `tx=0x7E8` is not a benign default: `0x7DF` is the
+  ISO 15765-4 *functional* (broadcast) request ID, so a defaulted ECU
+  services requests addressed to every ECU on the bus, and any second
+  defaulted ECU answers on the same `0x7E8`. Neither is visible in the
+  generated code — it surfaces as bus misbehaviour during integration.
+  Gated on the new `ASIL_B_REQUIRE_EXPLICIT_CAN_IDS` constant, mirroring
+  `ASIL_B_REQUIRE_WRITE_SECURITY`'s documented ISO 26262-8 §7 deviation
+  override. The check also now catches a `can:` section that declares only
+  one of the two IDs, which previously passed while still inheriting the
+  other default. **Only affects ASIL builds** — `validate_safety_config()`
+  runs solely under `--safety-wrappers`; non-safety generation is
+  unchanged.
+- The 10 example configs that relied on the implicit defaults now declare
+  `can.rx_can_id` / `can.tx_can_id` explicitly, matching the block already
+  present in `robot_joint_controller_ecu` and `sensor_ecu_freertos`. The
+  declared values are the previous effective defaults, so **generated
+  output is byte-identical** — verified by regenerating against
+  `origin/main`'s `codegen.py` and diffing (timestamps excluded).
+
 ### Security
 
 - **`core/uds_services/service_0x23.c`, `service_0x34.c`, `service_0x35.c`,
