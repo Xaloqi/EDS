@@ -2,7 +2,7 @@
 # Xaloqi Embedded Diagnostics Suite
 
 [![CI](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml/badge.svg)](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v1.13.3-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.13.3)
+[![Version](https://img.shields.io/badge/version-v1.13.4-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.13.4)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Zephyr](https://img.shields.io/badge/Zephyr-v3.7%2B-brightgreen)](https://zephyrproject.org)
 
@@ -22,7 +22,7 @@ Zephyr's `native_sim`. No CAN hardware, no commercial license:
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.13.3 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.4 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 
@@ -166,7 +166,7 @@ manifest:
   projects:
     - name: EDS
       remote: xaloqi
-      revision: v1.13.3
+      revision: v1.13.4
       path: modules/eds
 ```
 
@@ -218,7 +218,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.13.3 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.4 eds-workspace
 cd eds-workspace && west update
 pip install -r tools/requirements.txt
 ```
@@ -497,7 +497,7 @@ Unlike alternatives that use PolyForm Noncommercial (which prohibits production 
 **Just want to see an ECU run?**
 
 ```bash
-west init -m https://github.com/Xaloqi/EDS --mr v1.13.3 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.13.4 eds-workspace
 cd eds-workspace && west update
 west build -b native_sim examples/basic_ecu \
   -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \

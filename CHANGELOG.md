@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.13.4] — 2026-09-04
+
 ### Security
 
 - **`core/uds_services/service_0x23.c`, `service_0x34.c`, `service_0x35.c`,

@@ -100,7 +100,7 @@ except ImportError:
     print("ERROR: Jinja2 is required.  pip install jinja2", file=sys.stderr)
     sys.exit(2)
 
-__version__ = "1.13.3"
+__version__ = "1.13.4"
 
 # =============================================================================
 # Constants
