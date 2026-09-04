@@ -34,6 +34,10 @@ ecu:
     source_address:  "0x0E00"   # Expected tester address (xaloqi-tester default)
     port:            13400       # Standard DoIP TCP port (ISO 13400)
 
+can:
+  rx_can_id: "0x7DF"  # ISO 15765-4 functional addressing (request)
+  tx_can_id: "0x7E8"  # ISO 15765-4 physical response (ECU address 0)
+
 timing:
   p2_server_max_ms:       25
   p2_star_server_max_ms:  5000

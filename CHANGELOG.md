@@ -8,32 +8,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
-### Fixed
-
-- **`tools/activate.py` had diverged into two incompatible
-  implementations, and every paying customer ran the one the docs were
-  not written against** (EDS-toolchain#99). EDS-toolchain kept a
-  separately-written `tools/activate.py` (`--key`/`--status`/`--quiet`)
-  that `build_release.sh` staged into the license ZIPs; INSTALL.md Step 2
-  tells customers to `unzip -o` the ZIP over their clone of this repo, so
-  that copy silently overwrote this repo's (`--key`/`--check`/
-  `--deactivate`) for every real Developer/Professional install. INSTALL.md
-  then documented `python3 tools/activate.py --check`, which the
-  overwritten file rejected — a customer following the documented step
-  order hit `error: unrecognized arguments: --check` on their first
-  activation command. This file is now the single canonical
-  implementation (EDS-toolchain stages it straight from here and no
-  longer keeps its own), with the ZIP-only features folded in so nothing
-  regresses: `--status` is accepted as an alias for `--check`, and
-  `--quiet` suppresses output on successful activation for CI/automation.
-  Also dropped a dead `_license.check.__wrapped__` probe whose result was
-  assigned and never read. Reported by an external evaluator mid-review
-  of v1.13.3.
-- `INSTALL.md`'s "Expected output" block for activation showed the
-  *other* implementation's format (`License: ACTIVE` / `Product:`), so it
-  was wrong for both files even before the flag mismatch. Replaced with
-  the real output, captured from a run against the shipped `_license.py`.
-
 ### Security
 
 - **`core/uds_services/service_0x23.c`, `service_0x34.c`, `service_0x35.c`,
@@ -65,6 +39,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   new file's own header comment for the full trace (#230). Verified via
   9 throwaway-branch CI iterations before merge: real ARP resolution,
   8/8 UDS ops over real DoIP/TCP, real 102–204ms timing.
+
+### Changed
+
+- **ASIL builds now *fail* rather than warn when CAN diagnostic addressing
+  is not declared explicitly** (#226). `validate_safety_config()`'s check 5
+  was the only one of its five ASIL checks that merely warned — checks 3
+  (write-security) and 4 (P2 timing) were already fatal. Silently falling
+  back to `rx=0x7DF` / `tx=0x7E8` is not a benign default: `0x7DF` is the
+  ISO 15765-4 *functional* (broadcast) request ID, so a defaulted ECU
+  services requests addressed to every ECU on the bus, and any second
+  defaulted ECU answers on the same `0x7E8`. Neither is visible in the
+  generated code — it surfaces as bus misbehaviour during integration.
+  Gated on the new `ASIL_B_REQUIRE_EXPLICIT_CAN_IDS` constant, mirroring
+  `ASIL_B_REQUIRE_WRITE_SECURITY`'s documented ISO 26262-8 §7 deviation
+  override. The check also now catches a `can:` section that declares only
+  one of the two IDs, which previously passed while still inheriting the
+  other default. **Only affects ASIL builds** — `validate_safety_config()`
+  runs solely under `--safety-wrappers`; non-safety generation is
+  unchanged.
+- The 10 example configs that relied on the implicit defaults now declare
+  `can.rx_can_id` / `can.tx_can_id` explicitly, matching the block already
+  present in `robot_joint_controller_ecu` and `sensor_ecu_freertos`. The
+  declared values are the previous effective defaults, so **generated
+  output is byte-identical** — verified by regenerating against
+  `origin/main`'s `codegen.py` and diffing (timestamps excluded).
 
 ### Fixed
 
@@ -106,6 +105,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   one to test against): pytest now collects and passes all 3 scenarios,
   and a deliberately broken grace-period case correctly fails with a
   clear assertion message before being reverted (#227).
+- **`tools/activate.py` had diverged into two incompatible
+  implementations, and every paying customer ran the one the docs were
+  not written against** (EDS-toolchain#99). EDS-toolchain kept a
+  separately-written `tools/activate.py` (`--key`/`--status`/`--quiet`)
+  that `build_release.sh` staged into the license ZIPs; INSTALL.md Step 2
+  tells customers to `unzip -o` the ZIP over their clone of this repo, so
+  that copy silently overwrote this repo's (`--key`/`--check`/
+  `--deactivate`) for every real Developer/Professional install. INSTALL.md
+  then documented `python3 tools/activate.py --check`, which the
+  overwritten file rejected — a customer following the documented step
+  order hit `error: unrecognized arguments: --check` on their first
+  activation command. This file is now the single canonical
+  implementation (EDS-toolchain stages it straight from here and no
+  longer keeps its own), with the ZIP-only features folded in so nothing
+  regresses: `--status` is accepted as an alias for `--check`, and
+  `--quiet` suppresses output on successful activation for CI/automation.
+  Also dropped a dead `_license.check.__wrapped__` probe whose result was
+  assigned and never read. Reported by an external evaluator mid-review
+  of v1.13.3.
+- `INSTALL.md`'s "Expected output" block for activation showed the
+  *other* implementation's format (`License: ACTIVE` / `Product:`), so it
+  was wrong for both files even before the flag mismatch. Replaced with
+  the real output, captured from a run against the shipped `_license.py`.
 
 ### Documentation
 
