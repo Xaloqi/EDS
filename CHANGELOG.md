@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Documentation
 
+- Corrected stale counts across `docs/`, all found by extending
+  `check_release_docs.py` rather than by hand: three claims of **14 UDS
+  services** (`INTEGRATION_GUIDE.md` ×2, `CODEGEN_ARCHITECTURE.md`) against a
+  real **19**, and four of **11 ECU examples** (`INTEGRATION_GUIDE.md`,
+  `AI_CONTEXT.md`) against a real **12**. The service claims are totality
+  statements — *"a static list of all 14 UDS services EDS implements"*, *"the
+  same 14 UDS services work identically"* — so they were stale totals, not
+  deliberate subsets.
+
+### Documentation
+
 - `docs/TESTING_STRATEGY.md`'s status line claimed **21/21 CI jobs**; `ci.yml`
   has **23**. Stale since two jobs were added. `check_release_docs.py` did not
   catch it — its count patterns do not cover this phrasing, so the drift was

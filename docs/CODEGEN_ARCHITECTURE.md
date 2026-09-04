@@ -600,7 +600,7 @@ SDV tooling, OEM SOVD clients, or any tool that understands the OpenSOVD
   readable without knowledge of the EDS internals.
 - `writeSecurityLevel` is `null` for read-only DIDs (where `"write"` is absent from
   the `access` list).
-- `diagnosticServices` is a static list of all 14 UDS services EDS implements; it
+- `diagnosticServices` is a static list of all 19 UDS services EDS implements; it
   does not vary per ECU and is identical in every generated CDA.
 - Implementation is pure Python in `build_sovd_cda()` — `json.dumps(indent=2)` is
   used directly rather than a Jinja2 template, which avoids JSON-escaping issues and
