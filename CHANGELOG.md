@@ -8,6 +8,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **Corrected a factual error about `native_sim_doip_realzeth.conf` that
+  v1.14.0 shipped** (#257). Two `ci.yml` comments and the
+  `native_sim_doip.conf` header described the real-DoIP zeth-bridge
+  configuration as living on a *"diagnosed-but-not-yet-merged"* branch. It
+  is neither diagnosed-only nor unmerged: it landed on `main` in **#242 on
+  2026-09-03**, and `xaloqi-compatibility-tests`' `compat.yml` has been
+  running the real DoIP/TCP leg against it ever since — which is why
+  `xaloqi-compatibility-tests#4` is closed. The comments now point at the
+  file as the supported host-reachable configuration, and say why this
+  example stays loopback-only on purpose: it needs no host network setup,
+  so it works in any clone or CI runner without `sudo`.
+
+  The v1.14.0 entry below repeats the same wrong claim. It is **left as
+  written**: those notes were extracted verbatim into the published GitHub
+  Release, and silently editing the record would desync the two. This entry
+  is the correction.
+
+  The error propagated by being copied rather than checked — written once
+  in a CI comment, then repeated into an issue, a config header and a
+  campaign record, none of which verified whether the file was actually on
+  `main`. One `git show origin/main:<path>` would have caught it at any
+  point.
+
+
 ## [1.14.0] — 2026-09-07
 
 ### A note on the numbers in this release
