@@ -66,6 +66,73 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   pins required status checks by exact job name is being updated
   separately by the maintainer.
 
+- **`run_python_tests.sh` (the canonical local Python runner, #234's
+  remaining half) can no longer exit 0 having executed almost nothing.**
+  Phase 3 of the execution-truth fix; #234 stays open for Phase 4
+  (re-deriving every published count at full commercial-campaign scope).
+  The real baseline this script has been hiding: a full run collects
+  **2,981 cases and executes 1,958 of them (1,023 never run)** — every one
+  of the 1,023 is a legitimate skip (a template-dependent codegen case, a
+  firmware/harness-backed test, or a commercial dependency this checkout
+  doesn't have), not a bug, but the script printed a bare `PASS` for every
+  one of those 12 suites regardless. Four gaps fixed, all in this one
+  script:
+  - **Case-level accounting.** The script already parsed `N passed`/`N
+    failed` from pytest's tail line; it now also parses `skipped` and
+    `deselected` and reports `executed`/`not_executed` per suite and as a
+    total, so "1,958 of 2,981 executed" is printed explicitly instead of
+    implied by a suite count.
+  - **`[ENV]` renamed to `BLOCKED`**, the one spelling ADR-005 settles on
+    repo-wide (also `tests/test_doip_integration.py`,
+    `tests/test_license_expiry.py`) — chosen over keeping `[ENV]` because
+    BLOCKED also covers tier-gated artifacts and absent credentials, not
+    only environment gaps, and reads clearly to an external evaluator.
+    `CHANGELOG.md`'s existing `[ENV]` mentions are historical records and
+    are untouched.
+  - **Every suite now declares a floor** — the minimum executed count it
+    must reach to be entitled to `PASS` (ADR-005 rule 3); a suite with no
+    declared floor reports `BLOCKED` no matter how many cases happen to
+    run. All 12 suites in this checkout (`tests/` and each
+    `examples/*/generated/tests`) declare their floor **`unknown`**: each
+    depends on a commercial or build prerequisite this checkout cannot
+    verify is complete — `tests/` needs `xaloqi-tester`'s built ECU
+    binary (DoIP integration) and `tools/_license.py`; every
+    `examples/*` suite needs the commercial `harness/` build for its
+    firmware-backed cases, and some additionally need `tools/templates`
+    for codegen-variant cases. Setting a floor to whatever happened to
+    execute here would rebuild the exact false-pass defect this phase
+    removes, so none of the 12 currently reports `PASS` — every suite
+    reports `BLOCKED` with its real executed/not-executed counts printed
+    alongside. Re-deriving real numeric floors at full commercial-campaign
+    scope is Phase 4, not this script.
+  - **`BLOCKED` now reaches the exit status**, mirroring the harness job's
+    contract exactly: permitted, printed explicitly, and exits 0 in a
+    normal/local run (never counted toward a claim); a hard failure
+    (non-zero exit) when `EDS_QUALIFICATION_RUN=1` is set. `FAIL` always
+    exits non-zero either way; precedence is `FAIL` > `BLOCKED` > `PASS`.
+  - **`test-outcomes.json`** (ADR-005 rule 6) is now written on every run
+    at the repo root — gitignored, a regenerated build artifact, never
+    committed — with each suite's
+    `{outcome, executed, passed, failed, not_executed, floor}` plus a
+    top-level aggregate, for the release gate and
+    `scripts/check_release_docs.py` to consume directly in a later phase
+    instead of re-parsing this script's prose.
+
+  **Found and fixed in the process:** a real test failure in any suite
+  aborted the whole script immediately, before the FAIL banner, the
+  summary, or `test-outcomes.json` were ever written, whenever `-e`
+  (errexit) was active in the invoking shell — GitHub Actions' default for
+  `run:` steps. A plain `out="$(cmd)"` assignment (not `local out=$(cmd)`)
+  propagates the substituted command's exit status to the assignment
+  itself, and this script's own `set -uo pipefail` deliberately omits `-e`
+  but does not un-inherit it from a caller that already had it on. Fixed
+  by disabling errexit only around that one substitution and restoring
+  the caller's exact original setting afterward. This script is not
+  currently invoked from `ci.yml`, so the bug was latent rather than live,
+  but it directly threatened the new `BLOCKED`/`FAIL` exit-status and
+  `test-outcomes.json` guarantees this phase adds, so it is fixed here
+  rather than filed separately.
+
 ### Documentation
 
 - **Phase B of the robustness suite covers 10 of the 19 UDS services, not

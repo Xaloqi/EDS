@@ -6,7 +6,7 @@
 # PURPOSE: Canonical entrypoint for the whole Python test suite (issue #150).
 #          Mirrors build_tests.sh's role for the C suite: one command, run
 #          from anywhere in the repo, that exercises everything correctly
-#          scoped and prints a clear pass/skip/fail summary.
+#          scoped and prints a clear pass/blocked/fail summary.
 #
 # WHY THIS EXISTS INSTEAD OF A SHARED ROOT conftest.py:
 #   Bare `pytest` from the repo root only collects tests/ (see pytest.ini —
@@ -28,18 +28,56 @@
 #      one pytest session per example directory (its own pytest.ini
 #      applies: simulator mode by default, --strict-markers, etc.)
 #
-# SKIP CLASSIFICATION:
-#   A suite that fails collection or has 1+ real test failures is FAIL.
-#   A suite where every test passed (0 failed) is PASS, but if it produced
-#   zero passes and only skips (an optional dependency — xaloqi-tester,
-#   pycryptodome — or firmware_bus is unavailable, or a firmware binary/ECU
-#   binary is missing) it is reported as [ENV] instead of a bare PASS, so
-#   "nothing meaningful ran here because this environment is incomplete" is
-#   never mistaken for "verified and all green". Look for "[ENV]" in the
-#   underlying pytest skip reasons to grep the exact cause.
-#   A module-level pytest.importorskip() for an absent optional dependency
-#   makes pytest exit 5 ("no tests collected") even though every test
-#   validly skipped — that case is also [ENV], not FAIL (issue #213).
+# EXECUTION-TRUTH SEMANTICS (ADR-005) — three outcomes, not two:
+#   Case level:   EXECUTED-PASS / EXECUTED-FAIL / NOT-EXECUTED (skipped,
+#                 deselected, or never collected).
+#   Suite level, derived, precedence FAIL > BLOCKED > PASS:
+#     FAIL     any real test failure, a collection error, or an abnormal
+#              exit pytest couldn't explain with a normal summary line.
+#     BLOCKED  no failure, but the suite has no declared floor, or its
+#              executed count is below the declared floor. Printed
+#              explicitly as "BLOCKED:", never a silent/bare PASS.
+#     PASS     no failure, and executed count is at or above the
+#              declared floor.
+#   A suite with no declared floor CANNOT report PASS — it reports
+#   BLOCKED, however many cases happen to run (ADR-005 rule 3). Today
+#   every suite below is declared `unknown`: both tests/ (needs
+#   xaloqi-tester's firmware binary — the DoIP integration tests build
+#   against a Zephyr-built ECU this checkout never builds — and
+#   tools/_license.py) and every examples/*/generated/tests suite (needs
+#   the commercial harness/ build for its firmware-backed tests, and for
+#   template-generated DID/routine variants, tools/templates) depend on
+#   commercial or build prerequisites this checkout cannot verify are
+#   complete. Guessing a floor from whatever happens to execute here
+#   would rebuild the exact false-pass defect this script exists to
+#   remove — see the ENV-classifier history at issue #213 and the
+#   "292 vs 439" robustness-campaign story in .github/workflows/ci.yml.
+#   Re-deriving real floors at full commercial-campaign scope is Phase 4
+#   of the v1.14.0 execution-truth-semantics work, not this script.
+#
+#   BLOCKED is this same mechanism (built for #213, then named ENV) under
+#   its one spelling repo-wide (ADR-005): here, and in
+#   `tests/test_doip_integration.py` and `tests/test_license_expiry.py`.
+#   Renamed because BLOCKED also covers tier-gated artifacts and absent
+#   credentials, not only environment gaps, and reads clearly to external
+#   evaluators. Look for "BLOCKED" in the underlying pytest skip reasons to
+#   grep the exact cause of any one case.
+#
+# EDS_QUALIFICATION_RUN=1 (ADR-005 rule 5):
+#   Unset (normal/local/public run) — BLOCKED is permitted, printed
+#   explicitly, and never fails the run; it is never counted toward any
+#   claim regardless.
+#   Set to exactly "1" — BLOCKED becomes a hard failure. Use this in a
+#   release-qualification context, where every suite's prerequisites are
+#   expected to be genuinely present.
+#   FAIL always fails the run either way.
+#
+# MACHINE-READABLE OUTPUT (ADR-005 rule 6):
+#   Every run overwrites test-outcomes.json at the repo root (gitignored —
+#   a generated build artifact, never committed) with each suite's
+#   {outcome, executed, passed, failed, not_executed, floor} plus a
+#   top-level aggregate, for downstream consumption (the release gate,
+#   check_release_docs.py) without re-parsing this script's prose output.
 #
 # USAGE:
 #   bash run_python_tests.sh              # full suite (all examples + tests/)
@@ -48,8 +86,10 @@
 #                                          # in its own dedicated CI job)
 #
 # EXIT CODES:
-#   0  No suite reported a real test failure or collection error.
-#   1  At least one suite failed.
+#   0  No suite FAILed, and either no suite is BLOCKED or
+#      EDS_QUALIFICATION_RUN is unset (BLOCKED permitted — ADR-005 rule 5).
+#   1  At least one suite FAILed, OR at least one suite is BLOCKED and
+#      EDS_QUALIFICATION_RUN=1.
 # =============================================================================
 set -uo pipefail
 
@@ -92,62 +132,129 @@ ROBUSTNESS_IGNORE=(
 
 TOTAL_SUITES=0
 FAIL_SUITES=0
-ENV_SUITES=0
+BLOCKED_SUITES=0
+TOTAL_EXECUTED=0
+TOTAL_NOT_EXECUTED=0
+TOTAL_COLLECTED=0
 declare -a SUMMARY_LINES
+declare -a SUITE_JSON
 
-# run_suite LABEL DIR [extra pytest args...]
+# run_suite LABEL DIR FLOOR [extra pytest args...]
+#   FLOOR is a non-negative integer (the declared minimum executed count
+#   this suite must reach to be entitled to PASS — ADR-005 rule 3), or the
+#   literal string "unknown" when this checkout cannot determine that
+#   number (see the header comment above). "unknown" always reports
+#   BLOCKED, never PASS, no matter how many cases execute.
 run_suite() {
-    local label="$1" dir="$2"
-    shift 2
+    local label="$1" dir="$2" floor="$3"
+    shift 3
     TOTAL_SUITES=$((TOTAL_SUITES + 1))
 
-    local out rc tail_line
+    local out rc tail_line had_errexit=0
+    case "$-" in *e*) had_errexit=1 ;; esac
+    # A real test failure makes pytest exit non-zero, and a plain
+    # (non-`local`-combined) `var="$(cmd)"` assignment propagates that as
+    # the assignment statement's own exit status — under a caller that has
+    # errexit active (GitHub Actions' default `bash -e` for `run:` steps;
+    # this script's own `set -uo pipefail` deliberately omits -e, but does
+    # not un-inherit it if a caller already enabled it), that would abort
+    # the whole script right here on the first FAIL, before the FAIL
+    # banner, the summary, or test-outcomes.json (ADR-005 rule 6) ever get
+    # written. Disable errexit only for this substitution, and restore the
+    # caller's exact original setting afterward (not unconditionally
+    # `set -e`, which would turn errexit on for the rest of the script even
+    # when the caller never asked for it).
+    set +e
     out="$(cd "$dir" && python3 -m pytest . -q "$@" 2>&1)"
     rc=$?
+    [ "$had_errexit" -eq 1 ] && set -e
     tail_line="$(printf '%s\n' "$out" | tail -n 1)"
 
-    local passed failed
+    local passed failed skipped deselected errored
     passed="$(printf '%s\n' "$tail_line" | grep -oE '[0-9]+ passed' | grep -oE '^[0-9]+' || echo 0)"
     failed="$(printf '%s\n' "$tail_line" | grep -oE '[0-9]+ failed' | grep -oE '^[0-9]+' || echo 0)"
-    local errored=0
+    skipped="$(printf '%s\n' "$tail_line" | grep -oE '[0-9]+ skipped' | grep -oE '^[0-9]+' || echo 0)"
+    deselected="$(printf '%s\n' "$tail_line" | grep -oE '[0-9]+ deselected' | grep -oE '^[0-9]+' || echo 0)"
+    errored=0
     printf '%s\n' "$tail_line" | grep -qE '[0-9]+ error' && errored=1
 
-    if [ "$rc" -eq 5 ] && [ "$failed" -eq 0 ] && [ "$errored" -eq 0 ]; then
-        # pytest exit code 5 = "no tests collected". A module-level
-        # pytest.importorskip() for an absent optional dependency
-        # (e.g. xaloqi-tester) hits this: every test validly skipped,
-        # but nothing was ever "collected" in pytest's own accounting,
-        # so it exits 5 instead of 0. That is an environment gap, not
-        # a failure — route it to [ENV] rather than FAIL.
-        ENV_SUITES=$((ENV_SUITES + 1))
-        SUMMARY_LINES+=("[ENV] ${label}: ${tail_line}")
-    elif [ "$rc" -ne 0 ] || [ "$failed" -gt 0 ] || [ "$errored" -eq 1 ]; then
-        FAIL_SUITES=$((FAIL_SUITES + 1))
-        SUMMARY_LINES+=("FAIL  ${label}: ${tail_line}")
-        echo "===== ${label}: FAIL ====="
-        printf '%s\n' "$out"
-        echo "===================================================="
-    elif [ "$passed" -eq 0 ]; then
-        # Collected fine, zero failures, but nothing actually ran/passed —
-        # an environment gap (missing optional dependency / firmware
-        # binary / license module), not a verified pass.
-        ENV_SUITES=$((ENV_SUITES + 1))
-        SUMMARY_LINES+=("[ENV] ${label}: ${tail_line}")
-    else
-        SUMMARY_LINES+=("PASS  ${label}: ${tail_line}")
+    local executed=$((passed + failed))
+    local not_executed=$((skipped + deselected))
+
+    # rc outside {0, 5} with no failed/error signal in the tail line at all
+    # is an abnormal exit (e.g. pytest itself crashed before it could print
+    # a summary) — treat it as FAIL rather than silently falling through to
+    # BLOCKED/PASS logic that assumes a well-formed tail line. rc 5 = "no
+    # tests collected", which a module-level pytest.importorskip()/
+    # pytest.skip(allow_module_level=True) hits even though every case
+    # validly skipped (issue #213) — not an abnormal exit.
+    local abnormal=0
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 5 ] && [ "$failed" -eq 0 ] && [ "$errored" -eq 0 ]; then
+        abnormal=1
     fi
+
+    TOTAL_EXECUTED=$((TOTAL_EXECUTED + executed))
+    TOTAL_NOT_EXECUTED=$((TOTAL_NOT_EXECUTED + not_executed))
+    TOTAL_COLLECTED=$((TOTAL_COLLECTED + executed + not_executed))
+
+    local outcome
+    if [ "$failed" -gt 0 ] || [ "$errored" -eq 1 ] || [ "$abnormal" -eq 1 ]; then
+        outcome="FAIL"
+    elif [ "$floor" = "unknown" ]; then
+        outcome="BLOCKED"
+    elif [ "$executed" -ge "$floor" ]; then
+        outcome="PASS"
+    else
+        outcome="BLOCKED"
+    fi
+
+    case "$outcome" in
+        FAIL)
+            FAIL_SUITES=$((FAIL_SUITES + 1))
+            SUMMARY_LINES+=("FAIL     ${label}: ${executed} executed, ${not_executed} not executed — ${tail_line}")
+            echo "===== ${label}: FAIL ====="
+            printf '%s\n' "$out"
+            echo "===================================================="
+            ;;
+        BLOCKED)
+            BLOCKED_SUITES=$((BLOCKED_SUITES + 1))
+            if [ "$floor" = "unknown" ]; then
+                SUMMARY_LINES+=("BLOCKED  ${label}: ${executed} executed, ${not_executed} not executed — no declared floor: ${tail_line}")
+                echo "BLOCKED: ${label} has no declared floor (ADR-005 rule 3) — its prerequisites"
+                echo "         are not verifiable as complete in this checkout, so it cannot report"
+                echo "         PASS regardless of how many cases ran. ${executed} executed,"
+                echo "         ${not_executed} not executed. Never counted toward a claim."
+            else
+                SUMMARY_LINES+=("BLOCKED  ${label}: ${executed} executed, ${not_executed} not executed — below declared floor of ${floor}: ${tail_line}")
+                echo "BLOCKED: ${label} executed ${executed} of its declared floor of ${floor} —"
+                echo "         below floor (ADR-005 rule 3). Never counted toward a claim."
+            fi
+            ;;
+        PASS)
+            SUMMARY_LINES+=("PASS     ${label}: ${executed} executed (floor ${floor}), ${not_executed} not executed — ${tail_line}")
+            ;;
+    esac
+
+    local floor_json
+    if [ "$floor" = "unknown" ]; then
+        floor_json="null"
+    else
+        floor_json="$floor"
+    fi
+    SUITE_JSON+=("$(printf '    {"suite": "%s", "outcome": "%s", "executed": %d, "passed": %d, "failed": %d, "not_executed": %d, "floor": %s}' \
+        "$label" "$outcome" "$executed" "$passed" "$failed" "$not_executed" "$floor_json")")
 }
 
 echo "======================================================================"
 echo " Xaloqi EDS — canonical Python test suite (issue #150)"
-echo " XALOQI_LICENSE_SKIP=1"
+echo " XALOQI_LICENSE_SKIP=1  EDS_QUALIFICATION_RUN=${EDS_QUALIFICATION_RUN:-<unset>}"
 echo "======================================================================"
 
 START_TS=$(date +%s)
 
 echo
 echo "--- tests/ (repo-level suite) ---"
-run_suite "tests/" "${ROOT}/tests"
+run_suite "tests/" "${ROOT}/tests" unknown
 
 for dir in "${ROOT}"/examples/*/generated/tests; do
     [ -d "$dir" ] || continue
@@ -155,9 +262,9 @@ for dir in "${ROOT}"/examples/*/generated/tests; do
     echo
     echo "--- examples/${example_name}/generated/tests ---"
     if [ "$QUICK" -eq 1 ] && [ -f "${dir}/test_robustness_A_codegen.py" ]; then
-        run_suite "examples/${example_name}" "$dir" "${ROBUSTNESS_IGNORE[@]}"
+        run_suite "examples/${example_name}" "$dir" unknown "${ROBUSTNESS_IGNORE[@]}"
     else
-        run_suite "examples/${example_name}" "$dir"
+        run_suite "examples/${example_name}" "$dir" unknown
     fi
 done
 
@@ -171,10 +278,59 @@ for line in "${SUMMARY_LINES[@]}"; do
     echo " $line"
 done
 echo "----------------------------------------------------------------------"
-echo " ${FAIL_SUITES} failed, ${ENV_SUITES} environment-incomplete, $((TOTAL_SUITES - FAIL_SUITES - ENV_SUITES)) passed clean"
+echo " ${FAIL_SUITES} failed, ${BLOCKED_SUITES} blocked, $((TOTAL_SUITES - FAIL_SUITES - BLOCKED_SUITES)) passed"
+echo " ${TOTAL_EXECUTED} of ${TOTAL_COLLECTED} cases executed across all suites (${TOTAL_NOT_EXECUTED} not executed)"
+echo "======================================================================"
+
+# ---------------------------------------------------------------------------
+# test-outcomes.json (ADR-005 rule 6) — machine-readable summary, gitignored
+# build artifact. Written on every run, pass or fail, so downstream
+# consumers (release gate, check_release_docs.py) always have the latest.
+# ---------------------------------------------------------------------------
+{
+    echo "{"
+    echo "  \"suites\": ["
+    joined=""
+    for entry in "${SUITE_JSON[@]}"; do
+        if [ -n "$joined" ]; then
+            joined="${joined},"$'\n'"${entry}"
+        else
+            joined="${entry}"
+        fi
+    done
+    printf '%s\n' "$joined"
+    echo "  ],"
+    echo "  \"totals\": {"
+    echo "    \"suites_total\": ${TOTAL_SUITES},"
+    echo "    \"suites_pass\": $((TOTAL_SUITES - FAIL_SUITES - BLOCKED_SUITES)),"
+    echo "    \"suites_fail\": ${FAIL_SUITES},"
+    echo "    \"suites_blocked\": ${BLOCKED_SUITES},"
+    echo "    \"executed\": ${TOTAL_EXECUTED},"
+    echo "    \"not_executed\": ${TOTAL_NOT_EXECUTED},"
+    echo "    \"collected\": ${TOTAL_COLLECTED}"
+    echo "  }"
+    echo "}"
+} > "${ROOT}/test-outcomes.json"
+echo " Wrote ${ROOT}/test-outcomes.json"
 echo "======================================================================"
 
 if [ "$FAIL_SUITES" -gt 0 ]; then
+    echo
+    echo "FAIL: ${FAIL_SUITES} suite(s) reported a real test failure or collection error."
     exit 1
 fi
+
+if [ "$BLOCKED_SUITES" -gt 0 ]; then
+    echo
+    if [ "${EDS_QUALIFICATION_RUN:-}" = "1" ]; then
+        echo "ERROR: EDS_QUALIFICATION_RUN=1 — BLOCKED is a hard failure in a qualification"
+        echo "       context (ADR-005 rule 5). ${BLOCKED_SUITES} suite(s) reported BLOCKED."
+        echo "       Refusing to pass."
+        exit 1
+    fi
+    echo "Public/local run — BLOCKED is permitted here (ADR-005 rule 5); ${BLOCKED_SUITES}"
+    echo "suite(s) reported BLOCKED above and are never counted toward a claim. Exiting 0."
+    exit 0
+fi
+
 exit 0
