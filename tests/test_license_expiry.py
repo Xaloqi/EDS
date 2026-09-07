@@ -27,15 +27,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
-# [ENV] tools/_license.py is a commercial, gitignored deliverable (CLAUDE.md /
-# issue #67) — it is never present in a bare public checkout. Without this
-# guard, pytest's collection of tests/ (issue #150) hard-errors here with a
-# bare ModuleNotFoundError, indistinguishable at a glance from a real test
-# failure. The "[ENV] " prefix lets `pytest`/run_python_tests.sh output tell
-# "this environment is missing an optional/commercial component" apart from
-# an actual regression.
+# BLOCKED: tools/_license.py is a commercial, gitignored deliverable
+# (CLAUDE.md / issue #67) — it is never present in a bare public checkout.
+# Without this guard, pytest's collection of tests/ (issue #150) hard-errors
+# here with a bare ModuleNotFoundError, indistinguishable at a glance from a
+# real test failure. The "BLOCKED: " prefix lets `pytest`/run_python_tests.sh
+# output tell "this environment is missing an optional/commercial component"
+# apart from an actual regression (ADR-005).
 _ENV_SKIP_REASON = (
-    "[ENV] tools/_license.py not present (commercial gitignored deliverable, "
+    "BLOCKED: tools/_license.py not present (commercial gitignored deliverable, "
     "not part of the public repo checkout)"
 )
 try:
@@ -76,7 +76,7 @@ def expires_at() -> int:
     try:
         return _real_expires_at()
     except RuntimeError as e:
-        pytest.skip(f"[ENV] {e}")
+        pytest.skip(f"BLOCKED: {e}")
 
 
 def _check_at(fake_now: int) -> "_license.LicenseResult":

@@ -74,6 +74,10 @@ misra_report.json
 misra_report.txt
 misra_violations.csv
 
+# run_python_tests.sh machine-readable summary (ADR-005 rule 6) — build
+# artefact regenerated on every run, never commit
+test-outcomes.json
+
 # Commercial tier — live in EDS-toolchain, not this repo
 gui/
 ide/
