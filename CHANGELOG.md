@@ -8,6 +8,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### A note on the numbers in this release
+
+Starting with this release, test counts mean **executed** cases — a test
+that actually ran and either passed or failed. Earlier releases' figures
+could include cases that were skipped, never collected, or blocked by a
+missing dependency, and still counted toward the published total.
+
+As a result, some numbers below are **lower than v1.13.4's** for the same
+suite. That is a measurement correction, not a regression: nothing was
+removed, no coverage was dropped, and no test was deleted — we simply
+stopped counting cases that never ran.
+
+Going forward, expect counts to be stated together with the tier they
+apply to. The same Python test suite honestly executes **1,958 of 2,981**
+cases on a Developer-tier checkout and **2,782 of 2,981** with the
+Professional harness present — which figure you see depends on what's
+installed, not on how many tests exist. The full machine-readable
+breakdown for any run is written to `test-outcomes.json` at the repo root.
+
 ### Changed
 
 - **CI can no longer report a passing job that executed zero tests**
