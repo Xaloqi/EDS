@@ -27,53 +27,28 @@ Professional harness present — which figure you see depends on what's
 installed, not on how many tests exist. The full machine-readable
 breakdown for any run is written to `test-outcomes.json` at the repo root.
 
-### Fixed
+### Added
 
-- **A free-tier install no longer turns the documented test command into a
-  collection error** (#260). `tests/test_doip_integration.py` guarded on
-  `pytest.importorskip("xaloqi")` and then imported `DoipBus` — a **Pro-only**
-  symbol under the OD-15 open-core split. With only the free, Apache-2.0
-  `xaloqi-tester` wheel installed (exactly what the free tier instructs), the
-  guard passed, the Pro import raised at module scope, and pytest reported a
-  *collection error* that aborted the entire `tests/` suite rather than
-  skipping one module. The two prerequisites are now checked separately and
-  both report **BLOCKED** (ADR-005), never FAIL — they are tier-gated
-  artifacts that are legitimately absent. Verified against the real published
-  wheel (`xaloqi-tester` 1.5.2 from PyPI, import path confirmed per
-  lessons/run-008): before, `1 skipped, 1 error` + `Interrupted: 1 error
-  during collection`; after, `2 skipped`. CI never caught this because CI
-  never installs the package at all — the bug was only reachable in the
-  free-tier user's environment, the one configuration nothing tested.
+- **`examples/*/generated/dtc_config.h` is now committed for all 12
+  examples** (#249). `codegen.py` has rendered this file since #176, but no
+  example committed it, so the repo's committed `generated/` did not match
+  what the generator produces. The Professional harness consumes it via
+  `#if __has_include("dtc_config.h")` and falls back to registering
+  `basic_ecu`'s two DTCs when absent — correct for the basic_ecu family,
+  silently wrong for any other example (`bms_ecu` declares 10, `ardep_ecu`
+  19). Delivery ZIPs were never affected: `build_release.sh` regenerates
+  `generated/` at staging, verified against the shipped v1.13.4 artifacts.
+  Committing the file makes a repo checkout behave like the ZIP.
+- `build_harness.sh` now **fails** if the selected example has no
+  `generated/dtc_config.h`, instead of building something quietly
+  incorrect. Since codegen emits the file unconditionally — including for a
+  config with an empty `dtcs:` list, verified — its absence always means
+  `generated/` predates #176 rather than "this ECU has no DTCs".
 
-- **`native_sim_doip.conf` no longer claims an Ethernet driver it does not
-  have** (#257). The file set `CONFIG_ETH_NATIVE_POSIX=y` under a comment
-  reading *"Networking: enable native posix Ethernet"*. That symbol is a
-  **no-op** here: `CONFIG_NET_LOOPBACK=y` blocks `NET_L2_ETHERNET`'s default
-  (`y if !NET_LOOPBACK && !NET_TEST`), leaving `ETH_DRIVER` and its whole
-  subtree invisible, silently dropped with no build error. A reader
-  reasonably concluded the DoIP example was host-reachable; it never has
-  been, from any client, by any method. The comment now states this plainly.
-  **No functional change** — the line is documented rather than deleted,
-  since removing an assumed-inert Kconfig symbol carries build risk that
-  cannot be verified without a full Zephyr toolchain, and keeping it makes
-  the eventual fix a one-place change. Real host-reachable DoIP remains
-  tracked by #257.
-
-- **The two published execution figures are now derived and guarded, not
-  hand-written prose** (#262). v1.14.0 states *1,958 of 2,981* (developer)
-  and *2,782 of 2,981* (professional) across `README.md`,
-  `docs/TESTING_STRATEGY.md` and this changelog, and nothing verified them —
-  they could drift the moment a suite changed, which is this release's own
-  failure mode reintroduced one layer up (the shape of lessons/run-010 and
-  run-020). `scripts/verify_doc_counts.py` now derives each executed figure
-  by summing `run_python_tests.sh`'s declared floor tables and fails when a
-  document disagrees, and separately fails when documents disagree with each
-  other on the collected total (which is a measured constant and cannot be
-  derived cheaply). It needs no test run, so it stays in the existing
-  per-PR `Unit Tests` job. Verified per lessons/run-014 that the guard can
-  actually fail: a drifted doc figure, a changed floor constant, and two
-  documents disagreeing on the total each produce exit 1; the clean tree
-  produces exit 0.
+  Scope note: this is correctness hygiene, not a fix for a failing test.
+  The 68 harness assertions are hardcoded to `basic_ecu`'s DID/routine
+  fixture, so no DTC assertion existed that the missing file could have
+  broken — see #252.
 
 ### Changed
 
@@ -236,6 +211,54 @@ breakdown for any run is written to `test-outcomes.json` at the repo root.
   confirmed it reported `BLOCKED` — `"executed 80 of its declared floor of
   81"` — rather than `PASS`, before restoring the real number.
 
+### Fixed
+
+- **A free-tier install no longer turns the documented test command into a
+  collection error** (#260). `tests/test_doip_integration.py` guarded on
+  `pytest.importorskip("xaloqi")` and then imported `DoipBus` — a **Pro-only**
+  symbol under the OD-15 open-core split. With only the free, Apache-2.0
+  `xaloqi-tester` wheel installed (exactly what the free tier instructs), the
+  guard passed, the Pro import raised at module scope, and pytest reported a
+  *collection error* that aborted the entire `tests/` suite rather than
+  skipping one module. The two prerequisites are now checked separately and
+  both report **BLOCKED** (ADR-005), never FAIL — they are tier-gated
+  artifacts that are legitimately absent. Verified against the real published
+  wheel (`xaloqi-tester` 1.5.2 from PyPI, import path confirmed per
+  lessons/run-008): before, `1 skipped, 1 error` + `Interrupted: 1 error
+  during collection`; after, `2 skipped`. CI never caught this because CI
+  never installs the package at all — the bug was only reachable in the
+  free-tier user's environment, the one configuration nothing tested.
+
+- **`native_sim_doip.conf` no longer claims an Ethernet driver it does not
+  have** (#257). The file set `CONFIG_ETH_NATIVE_POSIX=y` under a comment
+  reading *"Networking: enable native posix Ethernet"*. That symbol is a
+  **no-op** here: `CONFIG_NET_LOOPBACK=y` blocks `NET_L2_ETHERNET`'s default
+  (`y if !NET_LOOPBACK && !NET_TEST`), leaving `ETH_DRIVER` and its whole
+  subtree invisible, silently dropped with no build error. A reader
+  reasonably concluded the DoIP example was host-reachable; it never has
+  been, from any client, by any method. The comment now states this plainly.
+  **No functional change** — the line is documented rather than deleted,
+  since removing an assumed-inert Kconfig symbol carries build risk that
+  cannot be verified without a full Zephyr toolchain, and keeping it makes
+  the eventual fix a one-place change. Real host-reachable DoIP remains
+  tracked by #257.
+
+- **The two published execution figures are now derived and guarded, not
+  hand-written prose** (#262). v1.14.0 states *1,958 of 2,981* (developer)
+  and *2,782 of 2,981* (professional) across `README.md`,
+  `docs/TESTING_STRATEGY.md` and this changelog, and nothing verified them —
+  they could drift the moment a suite changed, which is this release's own
+  failure mode reintroduced one layer up (the shape of lessons/run-010 and
+  run-020). `scripts/verify_doc_counts.py` now derives each executed figure
+  by summing `run_python_tests.sh`'s declared floor tables and fails when a
+  document disagrees, and separately fails when documents disagree with each
+  other on the collected total (which is a measured constant and cannot be
+  derived cheaply). It needs no test run, so it stays in the existing
+  per-PR `Unit Tests` job. Verified per lessons/run-014 that the guard can
+  actually fail: a drifted doc figure, a changed floor constant, and two
+  documents disagreeing on the total each produce exit 1; the clean tree
+  produces exit 0.
+
 ### Documentation
 
 - **Phase B of the robustness suite covers 10 of the 19 UDS services, not
@@ -257,7 +280,6 @@ breakdown for any run is written to `test-outcomes.json` at the repo root.
   same 14 UDS services work identically"* — so they were stale totals, not
   deliberate subsets.
 
-### Documentation
 
 - `docs/TESTING_STRATEGY.md`'s status line claimed **21/21 CI jobs**; `ci.yml`
   has **23**. Stale since two jobs were added. `check_release_docs.py` did not
@@ -276,30 +298,6 @@ breakdown for any run is written to `test-outcomes.json` at the repo root.
   which advertised the flag with no such caveat. Figures verified by running
   it: `bms_ecu` 58 pass / 10 fail, `basic_ecu` 68/68.
 
-### Added
-
-- **`examples/*/generated/dtc_config.h` is now committed for all 12
-  examples** (#249). `codegen.py` has rendered this file since #176, but no
-  example committed it, so the repo's committed `generated/` did not match
-  what the generator produces. The Professional harness consumes it via
-  `#if __has_include("dtc_config.h")` and falls back to registering
-  `basic_ecu`'s two DTCs when absent — correct for the basic_ecu family,
-  silently wrong for any other example (`bms_ecu` declares 10, `ardep_ecu`
-  19). Delivery ZIPs were never affected: `build_release.sh` regenerates
-  `generated/` at staging, verified against the shipped v1.13.4 artifacts.
-  Committing the file makes a repo checkout behave like the ZIP.
-- `build_harness.sh` now **fails** if the selected example has no
-  `generated/dtc_config.h`, instead of building something quietly
-  incorrect. Since codegen emits the file unconditionally — including for a
-  config with an empty `dtcs:` list, verified — its absence always means
-  `generated/` predates #176 rather than "this ECU has no DTCs".
-
-  Scope note: this is correctness hygiene, not a fix for a failing test.
-  The 68 harness assertions are hardcoded to `basic_ecu`'s DID/routine
-  fixture, so no DTC assertion existed that the missing file could have
-  broken — see #252.
-
-### Documentation
 
 - **Corrected every unconditional "68/68 harness tests passing" claim**
   (Phase 4a of the execution-truth fix, completing #234):
