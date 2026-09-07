@@ -81,6 +81,84 @@ def docs():
         yield rel, p.read_text(encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------
+# Execution-figure guard (#262)
+#
+# v1.14.0 publishes two headline figures — "1,958 of 2,981" (developer) and
+# "2,782 of 2,981" (professional) — in README.md, docs/TESTING_STRATEGY.md
+# and the CHANGELOG. They were hand-written prose that nothing verified, so
+# they could drift the moment a suite changed: the exact failure this
+# release removed from CI, reintroduced one layer up.
+#
+# The executed halves ARE derivable without running anything: they are the
+# sums of run_python_tests.sh's two declared floor tables. The collected
+# total (2,981) is a measured constant that cannot be derived cheaply, so it
+# is checked for *consistency* across documents instead — which catches the
+# common failure, a partial edit updating one file and not the others.
+# ---------------------------------------------------------------------------
+FLOOR_TABLE_RE = re.compile(
+    r"declare -A FLOOR_(DEVELOPER|PROFESSIONAL)=\((.*?)\n\)", re.DOTALL
+)
+FLOOR_ENTRY_RE = re.compile(r"\]=(\d+)")
+# "1,958 of 2,981 cases", "executes 2,782 of 2,981" — comma optional.
+EXEC_FIGURE_RE = re.compile(r"\b(\d{1,3}(?:,\d{3})*|\d+)\s+of\s+(\d{1,3}(?:,\d{3})*|\d+)\b")
+
+
+def _int(text: str) -> int:
+    return int(text.replace(",", ""))
+
+
+def declared_floor_totals() -> dict:
+    """Sum each profile's floor table in run_python_tests.sh."""
+    runner = ROOT / "run_python_tests.sh"
+    if not runner.exists():
+        sys.exit("FAIL: run_python_tests.sh not found — wrong repo root?")
+    text = runner.read_text(encoding="utf-8")
+    totals = {}
+    for profile, body in FLOOR_TABLE_RE.findall(text):
+        totals[profile.lower()] = sum(int(v) for v in FLOOR_ENTRY_RE.findall(body))
+    if set(totals) != {"developer", "professional"}:
+        sys.exit(
+            "FAIL: could not parse both FLOOR_DEVELOPER and FLOOR_PROFESSIONAL "
+            f"from run_python_tests.sh (found: {sorted(totals)})"
+        )
+    return totals
+
+
+def check_execution_figures(all_docs) -> list:
+    """Every 'N of M' execution figure must match a declared floor total,
+    and every M must agree with every other M."""
+    totals = declared_floor_totals()
+    valid = set(totals.values())
+    problems, collected_seen = [], {}
+
+    for rel, text in all_docs:
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for m in EXEC_FIGURE_RE.finditer(line):
+                executed, collected = _int(m.group(1)), _int(m.group(2))
+                # Only consider figures in the right ballpark; "3 of 4
+                # examples" is not an execution claim.
+                if collected < 1000:
+                    continue
+                if executed not in valid:
+                    problems.append(
+                        f"{rel}:{lineno}: states {executed:,} executed cases, but the "
+                        f"declared floor totals are "
+                        f"developer={totals['developer']:,} / "
+                        f"professional={totals['professional']:,} — {m.group(0)!r}"
+                    )
+                collected_seen.setdefault(collected, []).append(f"{rel}:{lineno}")
+
+    if len(collected_seen) > 1:
+        detail = "; ".join(
+            f"{c:,} at {', '.join(where)}" for c, where in sorted(collected_seen.items())
+        )
+        problems.append(
+            f"documents disagree on the total collected-case count — {detail}"
+        )
+    return problems
+
+
 def main() -> int:
     expected = real_module_count()
     problems = []
@@ -132,8 +210,10 @@ def main() -> int:
                     f"actual is {expected} — {quote!r}"
                 )
 
+    problems.extend(check_execution_figures(list(docs())))
+
     if problems:
-        print("FAIL: stale references in prose docs (#119 guard)\n")
+        print("FAIL: stale references in prose docs (#119 / #262 guards)\n")
         for p in problems:
             print(f"  {p}")
         print(
@@ -142,7 +222,11 @@ def main() -> int:
         )
         return 1
 
-    print(f"PASS: prose docs agree with the real unit-test count ({expected}) "
+    totals = declared_floor_totals()
+    print(f"PASS: prose docs agree with the real unit-test count ({expected}), "
+          f"state execution figures matching the declared floor totals "
+          f"(developer={totals['developer']:,} / "
+          f"professional={totals['professional']:,}), "
           f"and reference no dead script paths.")
     return 0
 
