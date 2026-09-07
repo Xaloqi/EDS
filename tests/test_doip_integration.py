@@ -57,14 +57,35 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # xaloqi-tester imports — DoIP transport + UDS client
-# Skip the entire module when xaloqi-tester is not installed (e.g. CI without
-# TestLab access). The ECU binary smoke-check and unit tests still run.
+# Skip the entire module when the pieces this file needs are not installed
+# (e.g. CI without TestLab access). The ECU binary smoke-check and unit tests
+# still run.
+#
+# Two separate prerequisites, and they must be checked separately (#260):
+#   1. the `xaloqi` package at all — the free, Apache-2.0 `xaloqi-tester`
+#      wheel on PyPI provides this;
+#   2. `DoipBus`, which is a **Pro-only** symbol under the OD-15 open-core
+#      split. The free wheel imports fine and then raises ImportError on
+#      this attribute.
+#
+# Guarding only on (1) meant a free-tier user — who has done exactly what
+# the free tier tells them to do — got an ImportError at module scope, which
+# pytest reports as a *collection error* that aborts the whole tests/ suite,
+# rather than a clean skip of this one module. Both prerequisites are
+# tier-gated artifacts that are legitimately absent, so both report BLOCKED
+# (ADR-005), never FAIL.
 # ---------------------------------------------------------------------------
 xaloqi = pytest.importorskip(
     "xaloqi",
     reason="BLOCKED: xaloqi-tester not installed — skipping DoIP integration tests"
 )
-from xaloqi.tester import DoipBus, Session, UdsTester
+try:
+    from xaloqi.tester import DoipBus, Session, UdsTester
+except ImportError as exc:  # Pro-only symbols absent — free wheel installed
+    pytest.skip(
+        f"BLOCKED: xaloqi-tester Pro components not installed — {exc}",
+        allow_module_level=True,
+    )
 
 # ---------------------------------------------------------------------------
 # Configuration
