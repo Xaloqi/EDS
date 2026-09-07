@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.14.0] — 2026-09-07
+
 ### A note on the numbers in this release
 
 Starting with this release, test counts mean **executed** cases — a test
