@@ -1975,9 +1975,11 @@ jobs:
   # Not a live connection because this example's native_sim_doip.conf sets
   # CONFIG_NET_LOOPBACK=y, which binds the DoIP server to Zephyr's internal
   # virtual loopback only -- never reachable from the host OS by any
-  # client. A real host-side connection needs a "zeth" TAP bridge (see the
-  # diagnosed-but-not-yet-merged fix/eds230-native-sim-doip-realzeth
-  # branch), which this job deliberately does not set up.
+  # client. A real host-side connection needs a "zeth" TAP bridge, which
+  # this job deliberately does not set up. That configuration already
+  # exists and is supported: examples/basic_ecu_doip/boards/native_sim/
+  # native_sim_doip_realzeth.conf (merged #242), used by
+  # xaloqi-compatibility-tests' compat.yml for the real DoIP/TCP leg.
   #
   # This job proves build + boot only. It deliberately does NOT attempt a
   # real DoIP protocol/connection test: xaloqi-tester (TestLab) is a private,
@@ -2058,8 +2060,8 @@ jobs:
         run: |
           # Asserts on the ECU's own log line, not a live host TCP connect.
           # examples/basic_ecu_doip's native_sim_doip.conf sets
-          # CONFIG_NET_LOOPBACK=y, which (see the diagnosed-but-not-yet-
-          # merged fix/eds230-native-sim-doip-realzeth branch) silently
+          # CONFIG_NET_LOOPBACK=y, which (see native_sim_doip_realzeth.conf's
+          # header, merged #242) silently
           # drops the Ethernet driver subtree and binds the DoIP server to
           # Zephyr's internal virtual loopback only -- never reachable from
           # the host OS, by any client, regardless of method. A real host-
