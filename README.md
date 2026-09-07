@@ -286,7 +286,9 @@ pip install -r requirements_testgen.txt   # xaloqi-tester — separate from tool
 pytest test_services.py test_did_*.py -v --can-interface=simulator
 
 # Whole Python suite (repo tests/ + every example, each correctly scoped) —
-# the canonical entrypoint; prints a pass/skip/fail summary per suite
+# the canonical entrypoint; prints a PASS/BLOCKED/FAIL summary per suite
+# (ADR-005 execution-truth semantics — BLOCKED means "ran, but below its
+# declared floor or no floor declared", never a silent pass)
 bash run_python_tests.sh
 ```
 
@@ -294,7 +296,13 @@ bash run_python_tests.sh
 > `pytest.ini`) — every example's `generated/tests/` is its own
 > self-contained pytest project and must be run scoped to its own
 > directory, exactly as shown above. `run_python_tests.sh` runs all of them
-> for you.
+> for you. It executes **1,958 of 2,981** collected cases in a Developer-tier
+> checkout (this repo, as cloned) and **2,782 of 2,981** with the
+> Professional-tier `harness/` build present — the gap is cases gated on
+> commercial prerequisites (TestLab, the firmware harness, or the
+> `tools/templates` codegen ZIP), not failures. See
+> [docs/TESTING_STRATEGY.md](docs/TESTING_STRATEGY.md) for the per-suite
+> breakdown.
 
 ### GUI configurator
 

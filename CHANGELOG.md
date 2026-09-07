@@ -133,6 +133,42 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `test-outcomes.json` guarantees this phase adds, so it is fixed here
   rather than filed separately.
 
+- **Every suite in `run_python_tests.sh` now declares a real, profile-aware
+  floor** (Phase 4a of the execution-truth fix, completing #234). Phase 3
+  shipped the floor mechanism with every suite set to `unknown` —
+  permanently `BLOCKED` by design, pending real numbers. ADR-005 rule 3
+  defines a floor as what a suite executes *when its prerequisites are
+  present*, and prerequisites differ by tier, so the script now selects one
+  of two named profiles automatically, by whether `harness/harness_main.c`
+  exists (the same test `ci.yml`'s `harness-tests` job uses):
+  - **`developer`** — `harness/` absent. What CI and a community clone see.
+  - **`professional`** — `harness/` present.
+
+  Both floor tables were derived by running this exact script,
+  `XALOQI_LICENSE_SKIP=1`, under `bash --noprofile --norc -eo pipefail`,
+  once per profile, and reading off the real executed counts — declared
+  constants, not re-derived from whatever happens to execute locally (that
+  would rebuild the exact false-pass defect this phase removes). Of 2,981
+  total collected cases: **developer executes 1,958** (all 11
+  `examples/*` suites reach `PASS` at their declared floor) and
+  **professional executes 2,782**. The active profile and the reason it was
+  selected are now printed in the human summary and written to
+  `test-outcomes.json`.
+
+  `tests/` keeps **no floor in either profile** and stays permanently
+  `BLOCKED`: it executes 0 cases in both (needs `xaloqi-tester`'s built ECU
+  binary for the DoIP integration tests and `tools/_license.py` for the
+  license tests, neither present in this checkout in either profile), and
+  it additionally has a real bug tracked at #260 (not fixed here). A floor
+  of 0 would let it report `PASS` having executed nothing — exactly what
+  ADR-005 rule 1 forbids.
+
+  Verified each floor can actually fail (per lessons/run-014, a floor that
+  cannot fail is not a floor): temporarily raised `examples/safeboot_ecu`'s
+  developer floor from 80 to 81 (one above its real executed count) and
+  confirmed it reported `BLOCKED` — `"executed 80 of its declared floor of
+  81"` — rather than `PASS`, before restoring the real number.
+
 ### Documentation
 
 - **Phase B of the robustness suite covers 10 of the 19 UDS services, not
@@ -195,6 +231,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   The 68 harness assertions are hardcoded to `basic_ecu`'s DID/routine
   fixture, so no DTC assertion existed that the missing file could have
   broken — see #252.
+
+### Documentation
+
+- **Corrected every unconditional "68/68 harness tests passing" claim**
+  (Phase 4a of the execution-truth fix, completing #234):
+  `docs/TESTING_STRATEGY.md:4`, `README.md:277`, `CONTRIBUTING.md:132,178`,
+  `docs/Safety_Model.md:370`, `docs/AI_CONTEXT.md:75,652`. 68/68 only holds
+  on the **Professional** tier, where `harness/` is present; a
+  **Developer**-tier checkout — every public clone and every CI run —
+  reports the harness suite `BLOCKED`, not a pass, per ADR-005.
+  `docs/ARCHITECTURE.md:229` and `README.md:277` were already correctly
+  tier-qualified and needed no change. `docs/TESTING_STRATEGY.md`'s status
+  line and its "Current test counts" table both carried the unconditional
+  version and are now both qualified, so the two no longer contradict each
+  other four lines apart. Re-verified the other three numbers in the same
+  status line rather than carrying them forward unchecked: **45/45** unit
+  test modules (`bash build_tests.sh`) and **23/23** CI jobs
+  (`.github/workflows/ci.yml`'s `jobs:` block) are both still accurate as
+  unconditional claims and needed no correction.
+- **Stated the new Python execution figures honestly, in both directions.**
+  `docs/TESTING_STRATEGY.md` gained a "Canonical whole-suite floors"
+  section (also summarized in `README.md`) giving the full per-suite
+  developer/professional breakdown behind the headline numbers: the
+  canonical Python suite (`run_python_tests.sh`) executes **1,958 of
+  2,981** collected cases in a Developer-tier checkout and **2,782 of
+  2,981** with the Professional harness present. Neither is presented as
+  "all tests passing" — the gap in both profiles is disclosed as
+  commercial-prerequisite-gated cases (TestLab, the firmware harness,
+  `tools/templates`), not failures, and `tests/`'s permanent `BLOCKED`
+  status (see Changed, above) is called out by name rather than folded
+  into the total.
 
 ## [1.13.4] — 2026-09-04
 

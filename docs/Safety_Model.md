@@ -367,6 +367,6 @@ The following test modules specifically target safety-critical paths:
 
 ### Integration and Firmware Tests
 
-- **68 harness integration tests** validate the compiled C stack including AES-CMAC key derivation, session state machine, DID safety enforcement, and RoutineControl dispatch
+- **68 harness integration tests** (Professional tier — requires `harness/` sources, absent by design from a Developer-tier checkout, which reports BLOCKED per ADR-005 rather than a pass) validate the compiled C stack including AES-CMAC key derivation, session state machine, DID safety enforcement, and RoutineControl dispatch
 - **Generated simulator tests** cover every YAML-configured DID and routine with session and security gate NRCs
 - **CI gate**: any open MISRA violation or failing safety test blocks merge

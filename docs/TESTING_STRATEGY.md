@@ -1,7 +1,17 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.13.4  
-**Status:** 45/45 unit test modules passing. 68/68 harness tests passing. 23/23 CI jobs green. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples all covered.
+**Status:** 45/45 unit test modules passing. 23/23 CI jobs green. 68/68 harness
+tests passing — **Professional tier only**: `harness/` sources are a gitignored
+commercial deliverable (#68), absent from a Developer-tier checkout (every
+public clone and CI run), which reports the harness suite **BLOCKED**, not a
+pass, per ADR-005 (execution-truth semantics — see `xaloqi-knowledge`'s
+`decisions/ADR-005-execution-truth-semantics.md`). The canonical Python suite
+(`run_python_tests.sh`) executes **1,958 of 2,981** collected cases in a
+Developer-tier checkout and **2,782 of 2,981** with the Professional harness
+present — see "Canonical whole-suite floors" below for the per-suite
+breakdown. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples
+all covered.
 
 ---
 
@@ -15,7 +25,7 @@ tests. All four layers run automatically in CI on every push and pull request.
 | Layer | Count | Framework | Status |
 |---|---|---|---|
 | Unit tests | 45 modules | Unity (C) | ✅ All passing |
-| Harness tests | 68 tests | Shell + GCC | ✅ All passing |
+| Harness tests | 68 tests | Shell + GCC | ✅ Passing on Professional tier; BLOCKED (not executed) on Developer tier — `harness/` absent, ADR-005 |
 | Integration tests | Per-DID/DTC suite | pytest (Python) | ✅ All passing |
 | System tests | native_sim E2E | Zephyr + pytest | ✅ All passing |
 | DoIP unit tests | 30 tests (1 module) | Unity (C) — ZTEST suite | ✅ All passing |
@@ -51,6 +61,53 @@ with only the OSS dependencies from `tools/requirements.txt` installed (no
 harness, or the commercial templates ZIP, and are designed to skip — mostly cleanly —
 when those aren't present. Counts drift as the YAML config and generated suite evolve;
 re-run `pytest --collect-only -q` and `pytest -rs` locally for the current numbers.
+
+### Canonical whole-suite floors (`run_python_tests.sh`, ADR-005 rule 3)
+
+The table above covers one example (`basic_ecu`) in isolation. `run_python_tests.sh`
+is the canonical entrypoint for the *whole* Python suite — `tests/` plus all 12
+`examples/*/generated/tests` directories — and every suite it runs (except `tests/`)
+now declares a **floor**: the minimum number of cases it must execute to report
+PASS instead of BLOCKED (ADR-005 rule 3). Floors are profile-aware, selected
+automatically by whether `harness/harness_main.c` exists:
+
+- **Developer** — `harness/` absent. What CI and every public/community
+  checkout sees.
+- **Professional** — `harness/` present. The commercial-tier checkout.
+
+Both columns below were measured by running `run_python_tests.sh` once per
+profile, `XALOQI_LICENSE_SKIP=1`, under `bash --noprofile --norc -eo pipefail`
+(v1.14.0 Phase 4a). Of 2,981 total collected cases:
+
+| Suite | Developer executed (floor) | Professional executed (floor) |
+|---|---|---|
+| `tests/` | 0 — **no floor, always BLOCKED** (#260) | 0 — **no floor, always BLOCKED** (#260) |
+| `examples/ardep_ecu` | 312 | 450 |
+| `examples/basic_ecu` | 426 | 482 |
+| `examples/basic_ecu_doip` | 99 | 155 |
+| `examples/basic_ecu_doip_freertos` | 99 | 155 |
+| `examples/basic_ecu_freertos` | 99 | 155 |
+| `examples/bms_ecu` | 228 | 331 |
+| `examples/motor_controller_ecu` | 263 | 379 |
+| `examples/robot_joint_controller_ecu` | 142 | 215 |
+| `examples/safeboot_ecu` | 80 | 130 |
+| `examples/sensor_ecu` | 105 | 165 |
+| `examples/sensor_ecu_freertos` | 105 | 165 |
+| **Total** | **1,958 of 2,981** | **2,782 of 2,981** |
+
+`tests/` keeps no floor in either profile: it executes 0 cases in both (it
+needs `xaloqi-tester`'s firmware binary for the DoIP integration tests and
+`tools/_license.py` for the license tests — neither present in this checkout
+in either profile), and it additionally has a real bug tracked at #260. A
+floor of 0 would let it report PASS having executed nothing, which is exactly
+what ADR-005 rule 1 forbids, so it stays BLOCKED unconditionally.
+
+The gap between the two profiles' totals (824 cases) and the gap to full
+collection (223 cases even at Professional tier) is cases gated on further
+commercial prerequisites — TestLab, template-generated DID/routine variants,
+firmware-backed cases — not failures. See `test-outcomes.json` (written by
+every `run_python_tests.sh` run) for the machine-readable per-suite outcome,
+including which profile produced it.
 
 ---
 
