@@ -72,7 +72,10 @@ EDS/
 │   ├── runner/             # ZTEST shim + test runner
 │   └── test_*.py           # Python DoIP-integration and license tests
 ├── build_tests.sh          # Runs the unit test modules (repo root)
-├── build_harness.sh        # Runs the 68 harness tests (repo root)
+├── build_harness.sh        # Runs the 68 harness tests (repo root; Professional
+│                           # tier — harness/ sources are gitignored, absent from
+│                           # a Developer-tier checkout, which reports BLOCKED
+│                           # per ADR-005 rather than a pass)
 └── .github/workflows/ci.yml   # Public CI pipeline — see its `jobs:` block for the
                                 # authoritative job list; deliberately not counted here (#119)
 ```
@@ -649,7 +652,9 @@ ninja -C build_freertos
 bash build_tests.sh                  # 45 Unity modules
 
 # ── Harness Tests ─────────────────────────────────────────────────────────────
-bash build_harness.sh                # 68 harness tests
+bash build_harness.sh                # 68 harness tests (Professional tier —
+                                      # requires harness/ sources; BLOCKED, not
+                                      # a pass, in a Developer-tier checkout)
 
 # ── GUI ───────────────────────────────────────────────────────────────────────
 cd gui && npm ci && npm start        # Dev mode (WebSocket bridge + demo mode)

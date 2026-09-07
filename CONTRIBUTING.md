@@ -129,7 +129,11 @@ python3 tools/codegen.py \
 # All unit tests must pass (currently 45)
 bash build_tests.sh
 
-# All 68 harness tests must pass
+# All 68 harness tests must pass — Professional tier only. harness/ is a
+# gitignored commercial deliverable (#68); most public contributors won't
+# have it. If you don't, skip this step — CI reports BLOCKED (not a pass,
+# not a failure) for the harness-tests job on your PR, which is expected
+# and does not block merge there (ADR-005).
 bash build_harness.sh
 
 # native_sim build must succeed
@@ -175,7 +179,8 @@ here have caused real CI failures and customer-visible linker errors.
 - [ ] `build_harness.sh` — add `$ROOT/core/uds_services/service_0xNN.c` to `STACK_SRCS`;
   also add any new support module the handler depends on (e.g. `uds_periodic.c` for 0x2A,
   `uds_io_control.c` for 0x2F if one exists). Omitting this causes undefined-reference linker
-  errors that only surface when running the 68 harness tests, not the unit tests.
+  errors that only surface when running the 68 harness tests (Professional tier —
+  requires `harness/` sources, see step 4 above), not the unit tests.
 - [ ] `.github/workflows/ci.yml` — bump the expected count in the `Verify test
   count` step (the `unit-tests` job's display name is deliberately count-free,
   so it never needs touching — see #119)

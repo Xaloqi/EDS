@@ -40,20 +40,32 @@
 #     PASS     no failure, and executed count is at or above the
 #              declared floor.
 #   A suite with no declared floor CANNOT report PASS — it reports
-#   BLOCKED, however many cases happen to run (ADR-005 rule 3). Today
-#   every suite below is declared `unknown`: both tests/ (needs
-#   xaloqi-tester's firmware binary — the DoIP integration tests build
-#   against a Zephyr-built ECU this checkout never builds — and
-#   tools/_license.py) and every examples/*/generated/tests suite (needs
-#   the commercial harness/ build for its firmware-backed tests, and for
-#   template-generated DID/routine variants, tools/templates) depend on
-#   commercial or build prerequisites this checkout cannot verify are
-#   complete. Guessing a floor from whatever happens to execute here
-#   would rebuild the exact false-pass defect this script exists to
-#   remove — see the ENV-classifier history at issue #213 and the
-#   "292 vs 439" robustness-campaign story in .github/workflows/ci.yml.
-#   Re-deriving real floors at full commercial-campaign scope is Phase 4
-#   of the v1.14.0 execution-truth-semantics work, not this script.
+#   BLOCKED, however many cases happen to run (ADR-005 rule 3).
+#
+# PROFILE-AWARE FLOORS (v1.14.0 Phase 4a) — ADR-005 rule 3 defines a floor
+#   as the number of cases a suite executes *when its prerequisites are
+#   present*, and prerequisites differ by tier. Two named profiles, chosen
+#   automatically by whether harness/harness_main.c exists (the same test
+#   ci.yml's harness-tests job uses):
+#     developer     harness/ absent — what CI and a community clone see.
+#     professional  harness/ present — the commercial-tier checkout.
+#   Both floor tables below were derived by running this exact script,
+#   `XALOQI_LICENSE_SKIP=1`, under `bash --noprofile --norc -eo pipefail`,
+#   once per profile, and reading off the real executed counts (issue
+#   #234/#230 scoping, v1.14.0 Phase 4). They are declared constants, not
+#   re-derived on every run — re-deriving from whatever happens to execute
+#   locally would rebuild the exact false-pass defect this script exists
+#   to remove (see the ENV-classifier history at issue #213 and the
+#   "292 vs 439" robustness-campaign story in .github/workflows/ci.yml).
+#
+#   tests/ keeps NO floor in either profile (always `unknown` → always
+#   BLOCKED). It executes 0 cases in both profiles today (needs
+#   xaloqi-tester's firmware binary for the DoIP integration tests — the
+#   ECU binary this checkout never builds — and tools/_license.py for the
+#   license tests), and it additionally has a real bug tracked at #260. A
+#   floor of 0 would let it report PASS having executed nothing — exactly
+#   what ADR-005 rule 1 forbids — so it stays BLOCKED unconditionally
+#   until #260 is fixed and a real floor can be observed.
 #
 #   BLOCKED is this same mechanism (built for #213, then named ENV) under
 #   its one spelling repo-wide (ADR-005): here, and in
@@ -96,6 +108,63 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${SCRIPT_DIR}"
 export XALOQI_LICENSE_SKIP=1
+
+# -----------------------------------------------------------------------
+# Profile selection (ADR-005 rule 3 / v1.14.0 Phase 4a) — see the header
+# comment above for how these numbers were derived and why tests/ has no
+# floor in either profile.
+# -----------------------------------------------------------------------
+if [ -f "${ROOT}/harness/harness_main.c" ]; then
+    PROFILE="professional"
+    PROFILE_REASON="harness/harness_main.c present"
+else
+    PROFILE="developer"
+    PROFILE_REASON="harness/harness_main.c absent (Professional-tier deliverable, #68)"
+fi
+
+declare -A FLOOR_DEVELOPER=(
+    ["examples/ardep_ecu"]=312
+    ["examples/basic_ecu"]=426
+    ["examples/basic_ecu_doip"]=99
+    ["examples/basic_ecu_doip_freertos"]=99
+    ["examples/basic_ecu_freertos"]=99
+    ["examples/bms_ecu"]=228
+    ["examples/motor_controller_ecu"]=263
+    ["examples/robot_joint_controller_ecu"]=142
+    ["examples/safeboot_ecu"]=80
+    ["examples/sensor_ecu"]=105
+    ["examples/sensor_ecu_freertos"]=105
+)
+declare -A FLOOR_PROFESSIONAL=(
+    ["examples/ardep_ecu"]=450
+    ["examples/basic_ecu"]=482
+    ["examples/basic_ecu_doip"]=155
+    ["examples/basic_ecu_doip_freertos"]=155
+    ["examples/basic_ecu_freertos"]=155
+    ["examples/bms_ecu"]=331
+    ["examples/motor_controller_ecu"]=379
+    ["examples/robot_joint_controller_ecu"]=215
+    ["examples/safeboot_ecu"]=130
+    ["examples/sensor_ecu"]=165
+    ["examples/sensor_ecu_freertos"]=165
+)
+
+# floor_for LABEL — echoes the declared floor for the active profile, or
+# the literal string "unknown" when LABEL has none (tests/, always, by
+# design — see the header comment).
+floor_for() {
+    local label="$1" value=""
+    if [ "$PROFILE" = "professional" ]; then
+        value="${FLOOR_PROFESSIONAL[$label]:-}"
+    else
+        value="${FLOOR_DEVELOPER[$label]:-}"
+    fi
+    if [ -n "$value" ]; then
+        echo "$value"
+    else
+        echo "unknown"
+    fi
+}
 
 QUICK=0
 for arg in "$@"; do
@@ -248,23 +317,27 @@ run_suite() {
 echo "======================================================================"
 echo " Xaloqi EDS — canonical Python test suite (issue #150)"
 echo " XALOQI_LICENSE_SKIP=1  EDS_QUALIFICATION_RUN=${EDS_QUALIFICATION_RUN:-<unset>}"
+echo " Profile: ${PROFILE} (${PROFILE_REASON}) — ADR-005 rule 3 floors"
 echo "======================================================================"
 
 START_TS=$(date +%s)
 
 echo
 echo "--- tests/ (repo-level suite) ---"
+# tests/ has no floor in either profile — see the header comment and #260.
 run_suite "tests/" "${ROOT}/tests" unknown
 
 for dir in "${ROOT}"/examples/*/generated/tests; do
     [ -d "$dir" ] || continue
     example_name="$(basename "$(dirname "$(dirname "$dir")")")"
+    label="examples/${example_name}"
+    floor="$(floor_for "$label")"
     echo
-    echo "--- examples/${example_name}/generated/tests ---"
+    echo "--- ${label}/generated/tests ---"
     if [ "$QUICK" -eq 1 ] && [ -f "${dir}/test_robustness_A_codegen.py" ]; then
-        run_suite "examples/${example_name}" "$dir" unknown "${ROBUSTNESS_IGNORE[@]}"
+        run_suite "$label" "$dir" "$floor" "${ROBUSTNESS_IGNORE[@]}"
     else
-        run_suite "examples/${example_name}" "$dir" unknown
+        run_suite "$label" "$dir" "$floor"
     fi
 done
 
@@ -272,7 +345,7 @@ END_TS=$(date +%s)
 
 echo
 echo "======================================================================"
-echo " Summary (${TOTAL_SUITES} suites, $((END_TS - START_TS))s)"
+echo " Summary (${TOTAL_SUITES} suites, $((END_TS - START_TS))s) — profile: ${PROFILE} (${PROFILE_REASON})"
 echo "======================================================================"
 for line in "${SUMMARY_LINES[@]}"; do
     echo " $line"
@@ -289,6 +362,8 @@ echo "======================================================================"
 # ---------------------------------------------------------------------------
 {
     echo "{"
+    echo "  \"profile\": \"${PROFILE}\","
+    echo "  \"profile_reason\": \"${PROFILE_REASON}\","
     echo "  \"suites\": ["
     joined=""
     for entry in "${SUITE_JSON[@]}"; do
