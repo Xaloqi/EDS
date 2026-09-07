@@ -8,6 +8,64 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **CI can no longer report a passing job that executed zero tests**
+  (#234, #230 — Phases 1–2 of a 4-phase execution-truth fix; #234 stays
+  open for the Python-runner and claim/floor-rederivation phases still to
+  come). Two CI jobs reported green while proving nothing, both now fixed
+  at the CI layer only — neither `build_harness.sh` nor the test suites
+  themselves changed:
+  - **Harness Integration Tests.** `harness/` is a Professional-tier
+    deliverable (#68) and is absent from every public checkout by design,
+    so the CI wrapper around `build_harness.sh` printed "skipped" and
+    exited 0 — indistinguishable from 68/68 passing. It now prints
+    **BLOCKED** explicitly, states the declared floor (68 executed
+    cases), and still exits 0 in normal/public CI (BLOCKED is permitted
+    there and is never counted toward a claim) — but exits non-zero when
+    `EDS_QUALIFICATION_RUN=1` is set, so a release-qualification run can
+    no longer pass without actually executing the harness. The floor is
+    load-bearing, not decorative: the pass assertion's `grep` pattern is
+    now built from the same `HARNESS_FLOOR` variable it is declared with
+    (`ALL ${HARNESS_FLOOR} HARNESS TESTS PASSED`), so raising the floor
+    without a matching increase in what actually ran fails the job
+    instead of silently printing a stale "PASS" claim. Renamed
+    `Harness Integration Tests (68 C tests, MISRA-clean build)` →
+    `Harness Integration Tests (MISRA-clean build)` (job names carry no
+    counts, ADR-005 rule 7).
+  - **DoIP job.** `doip-integration` swallowed pytest's exit code 5
+    ("no tests collected") as "OK" whenever `xaloqi-tester` (TestLab)
+    wasn't installed — which is always, in this public repo's CI, since
+    TestLab is a private commercial dependency never present at
+    `../TestLab` here. The job had never executed a real DoIP connection
+    test. The swallow is deleted along with the pytest invocation itself;
+    the job is rescoped to what it can actually prove without a secret —
+    that `basic_ecu_doip` builds for `native_sim` and its DoIP server
+    reaches listen state on boot — and now asserts that positively by
+    watching the ECU's own log for the line `transport/doip/zephyr_lwip.c`
+    emits right after its `zsock_listen()` call succeeds, rather than by
+    opening a live host TCP connection. **Found in the process:**
+    `examples/basic_ecu_doip`'s `native_sim_doip.conf` sets
+    `CONFIG_NET_LOOPBACK=y`, which silently drops the Ethernet driver
+    subtree and binds the DoIP server to Zephyr's internal virtual
+    loopback only — never reachable from the host OS by any client,
+    which is why the log-based assertion was used instead of a live
+    connect. A real host-reachable bridge needs a "zeth" TAP interface;
+    that fix already exists as an unmerged, diagnosed branch
+    (`fix/eds230-native-sim-doip-realzeth`) and is not part of this
+    change. No `GH_PAT` was added here: it would not help
+    fork-originated PRs (GitHub withholds secrets from forks) and would
+    break the OD-14 reproducible-by-anyone boundary. Real DoIP
+    protocol/connection verification is `xaloqi-compatibility-tests`'
+    `basic_ecu_doip` leg, which runs the real campaign over real
+    DoIP/TCP and passes on `main` — the job now says so explicitly.
+    Renamed `DoIP Integration (native_sim + DoipBus)` →
+    `DoIP ECU Build + Boot (native_sim)` to match what it verifies.
+
+  Both job renames land with this change; the repository ruleset that
+  pins required status checks by exact job name is being updated
+  separately by the maintainer.
+
 ### Documentation
 
 - **Phase B of the robustness suite covers 10 of the 19 UDS services, not
