@@ -3,7 +3,7 @@
 **EDS version:** v1.6.0  
 **Transport:** DoIP (ISO 13400-2) over Ethernet/TCP  
 **Platform:** FreeRTOS + LwIP — any Ethernet-capable MCU (STM32H7, i.MX RT, etc.)  
-**CI target:** QEMU ARM Cortex-M4 (compile-only; LwIP TCP not emulated in CI)  
+**CI target:** QEMU `mps2-an386` (Cortex-M4) — real DoIP/TCP over an emulated LAN9118 MAC when `LWIP_DIR` is set; compile-only otherwise  
 **DIDs:** 5 · **DTCs:** 2 · **Routines:** 3
 
 ---
@@ -44,23 +44,91 @@ ecu:
 
 ## Building
 
-### QEMU ARM Cortex-M4 (CI — compile test only)
+There are two QEMU builds: a **compile-only** one (the default) and a
+**runnable, network-capable** one selected by setting `LWIP_DIR`.
+
+### QEMU ARM Cortex-M4 — compile test only (default)
 
 ```bash
 cmake -B build \
   -DEDS_PLATFORM=freertos \
   -DFREERTOS_DIR=/path/to/FreeRTOS-Kernel \
-  -DLWIP_DIR=/path/to/lwip \
-  -DEDS_DOIP_ONLY_BUILD=ON \
   -GNinja \
   examples/basic_ecu_doip_freertos
 
 ninja -C build
 ```
 
-In CI, LwIP stub headers under `boards/qemu_cortex_m4/lwip_stubs/` satisfy include
-dependencies without bringing in the full LwIP source. The binary compiles and links; TCP
-operation requires real LwIP at runtime.
+With no `LWIP_DIR`, the stub headers under `boards/qemu_cortex_m4/lwip_stub/`
+satisfy the include dependencies without bringing in lwIP. Every socket call
+in that stub returns `-1` by design, so the binary builds and boots but can
+never accept a DoIP connection. Use it to check that the UDS stack compiles
+for FreeRTOS — not to test DoIP.
+
+### QEMU ARM Cortex-M4 — real DoIP over emulated Ethernet
+
+This is what the `xaloqi-compatibility-tests` `basic_ecu_doip_freertos` leg
+runs. lwIP is fetched, not vendored — the same convention as
+`FREERTOS_DIR`:
+
+```bash
+git clone --depth=1 -b STABLE-2_2_1_RELEASE \
+  https://github.com/lwip-tcpip/lwip.git /opt/lwip
+
+cmake -B build \
+  -DEDS_PLATFORM=freertos \
+  -DFREERTOS_DIR=/path/to/FreeRTOS-Kernel \
+  -DLWIP_DIR=/opt/lwip \
+  -GNinja \
+  examples/basic_ecu_doip_freertos
+
+ninja -C build
+```
+
+Run it, with the guest's port 13400 forwarded to the host:
+
+```bash
+qemu-system-arm \
+  -machine mps2-an386 \
+  -kernel build/eds_freertos_doip.elf \
+  -net nic,model=lan9118 \
+  -net user,hostfwd=tcp::13400-:13400 \
+  -nographic -serial file:boot.log
+```
+
+`mps2-an386` is the correct machine: it is QEMU's **Cortex-M4** MPS2 variant,
+matching this example's `-mcpu=cortex-m4 -mfpu=fpv4-sp-d16` build and the
+memory map in `boards/qemu_cortex_m4/linker.ld`. It emulates an SMSC
+**LAN9118** MAC at `0x40200000`, which
+`boards/qemu_cortex_m4/lwip_port/ethernetif_lan9118.c` drives. (`lm3s6965evb`
+is a Cortex-M3 machine with a different MAC and a different memory map — a
+Cortex-M4 hard-float image will not run on it.)
+
+`boot.log` should show the network coming up:
+
+```
+[eds] basic_ecu_doip_freertos boot
+[eds] board=qemu mps2-an386 cortex-m4f
+[eds] platform init ok
+[eds] uds stack init ok
+[eds] doip task created, starting scheduler
+[net] tcpip_init...
+[net] tcpip up, lwip 2.2.1
+[net] mac  02:00:00:ed:50:01
+[net] chip id_rev 01180001
+[net] ip   10.0.2.15
+[net] mask 255.255.255.0
+[net] gw   10.0.2.2
+[net] netif up — DoIP reachable on port 13400
+```
+
+`chip id_rev 01180001` is read back from the emulated MAC, so that line is
+positive proof the driver reached real hardware registers.
+
+> **Do not use a bare TCP connect as a liveness check.** Connecting to the
+> forwarded host port succeeds even against the stub build, because QEMU's
+> slirp `hostfwd` accepts on the host side before it can know whether a guest
+> listener exists. Only a completed DoIP exchange proves anything.
 
 ### STM32H7 (hardware target)
 
@@ -129,7 +197,17 @@ basic_ecu_doip_freertos/
 ├── CMakeLists.txt              FreeRTOS CMake — DoIP sources, EDS_DOIP_ONLY_BUILD flag
 ├── boards/
 │   └── qemu_cortex_m4/
-│       └── lwip_stubs/         Minimal LwIP headers for CI compile test
+│       ├── startup.c           ARMv7-M vector table + C runtime startup
+│       ├── freertos_hooks.c    Static-allocation callbacks (idle task memory)
+│       ├── board_uart.c/.h     Polled CMSDK UART0 — boot logging
+│       ├── linker.ld           mps2-an386 memory map
+│       ├── FreeRTOSConfig.h    1 ms tick, 48 KB heap
+│       ├── lwip_stub/          Minimal LwIP headers — compile-only default
+│       └── lwip_port/          Real LwIP port (used when LWIP_DIR is set)
+│           ├── lwipopts.h              IPv4 + sockets, static pools
+│           ├── arch/cc.h, sys_arch.h   Compiler/OS abstraction types
+│           ├── sys_arch.c              lwIP NO_SYS=0 layer on FreeRTOS
+│           └── ethernetif_lan9118.c/.h QEMU LAN9118 netif driver
 ├── src/
 │   └── main.c                  Integration sequence — eds_platform_init → DoIP start
 └── generated/                  Pre-generated C files (committed, updated by codegen)

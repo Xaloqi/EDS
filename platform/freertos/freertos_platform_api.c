@@ -215,6 +215,7 @@ uds_status_t eds_platform_init(const eds_platform_cfg_t *cfg)
         return UDS_STATUS_ERR_NULL_PTR;
     }
 
+#if !defined(EDS_DOIP_ONLY_BUILD) || (EDS_DOIP_ONLY_BUILD != 1)
     if (cfg->can_send == NULL) {
         /*
          * can_send is required. Without it the UDS stack cannot transmit
@@ -222,6 +223,14 @@ uds_status_t eds_platform_init(const eds_platform_cfg_t *cfg)
          */
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
+#endif
+    /*
+     * EDS_DOIP_ONLY_BUILD: responses leave over DoIP/TCP, not CAN, so
+     * can_send is legitimately NULL and the check above must not run.
+     * examples/basic_ecu_doip_freertos passes .can_send = NULL deliberately
+     * (see its main.c step 1) — against the unguarded check that example
+     * could never get past eds_platform_init() at all.
+     */
 
     if (s_initialized) {
         return UDS_STATUS_ERR_ALREADY_INITIALIZED;
@@ -242,8 +251,14 @@ uds_status_t eds_platform_init(const eds_platform_cfg_t *cfg)
     /*
      * Initialise the CAN shim. This wires s_can_send into the
      * can_transport_ops_t vtable used by the ISO-TP layer.
+     *
+     * Skipped for EDS_DOIP_ONLY_BUILD, which does not compile
+     * platform/freertos/freertos_can.c at all — calling it there is an
+     * undefined reference at link time, not merely dead code.
      */
+#if !defined(EDS_DOIP_ONLY_BUILD) || (EDS_DOIP_ONLY_BUILD != 1)
     freertos_can_init(cfg->can_send);
+#endif
 
     /*
      * Initialise NVM.

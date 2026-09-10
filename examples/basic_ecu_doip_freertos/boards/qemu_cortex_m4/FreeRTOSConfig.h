@@ -23,7 +23,11 @@
 #define configTICK_RATE_HZ                      1000U        /* 1ms tick — required for ISO-TP */
 #define configMAX_PRIORITIES                    8U
 #define configMINIMAL_STACK_SIZE                128U
-#define configTOTAL_HEAP_SIZE                   (16 * 1024U)
+/* 48 KB, raised from 16 KB. The real-lwIP build (-DLWIP_DIR=...) draws the
+ * tcpip thread stack, the netif/RX task stack, the DoIP server task stack and
+ * every lwIP semaphore, mutex and mailbox from this heap. 16 KB is not enough
+ * to reach netif-up; the failure looks like tcpip_init() never returning. */
+#define configTOTAL_HEAP_SIZE                   (48 * 1024U)
 #define configMAX_TASK_NAME_LEN                 16U
 #define configUSE_TRACE_FACILITY                0
 #define configUSE_16_BIT_TICKS                  0
