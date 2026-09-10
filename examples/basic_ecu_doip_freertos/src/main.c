@@ -58,6 +58,12 @@
 #include "platform_doip.h"
 #include "doip_server.h"
 
+/* Board support (QEMU mps2-an386) */
+#include "board_uart.h"
+#if defined(EDS_LWIP_REAL) && (EDS_LWIP_REAL == 1)
+#include "eds_net.h"
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -190,6 +196,15 @@ int main(void)
     uds_server_ctx_t *srv = NULL;
 
     /*
+     * Step 0a: Board bring-up. UART first, so every later step has somewhere
+     * to report to. These lines are the CI leg's boot evidence — see
+     * compat-tests COVERAGE.md.
+     */
+    board_uart_init();
+    board_uart_puts("\r\n[eds] basic_ecu_doip_freertos boot\r\n");
+    board_uart_puts("[eds] board=qemu mps2-an386 cortex-m4f\r\n");
+
+    /*
      * Step 0: Security algorithm placeholder.
      * Inject TRNG callback and OEM keys before production.
      */
@@ -207,9 +222,10 @@ int main(void)
         .uds_task_priority   = 0U,
     });
     if (status != UDS_STATUS_OK) {
-        /* Platform init failure is fatal — no logging available yet */
-        for (;;) { vTaskDelay(pdMS_TO_TICKS(1000U)); }
+        board_uart_puts("[eds] FATAL: eds_platform_init failed\r\n");
+        for (;;) { }
     }
+    board_uart_puts("[eds] platform init ok\r\n");
 
     /*
      * Step 2: UDS stack init.
@@ -219,13 +235,16 @@ int main(void)
      */
     status = uds_generated_init(NULL, 0U, 0U);
     if (status != UDS_STATUS_OK) {
-        for (;;) { vTaskDelay(pdMS_TO_TICKS(1000U)); }
+        board_uart_puts("[eds] FATAL: uds_generated_init failed\r\n");
+        for (;;) { }
     }
 
     srv = uds_generated_get_server();
     if (srv == NULL) {
-        for (;;) { vTaskDelay(pdMS_TO_TICKS(1000U)); }
+        board_uart_puts("[eds] FATAL: uds_generated_get_server returned NULL\r\n");
+        for (;;) { }
     }
+    board_uart_puts("[eds] uds stack init ok\r\n");
 
     (void)uds_periodic_init();
     (void)uds_session_register_change_cb(srv->cfg.session_ctx,
@@ -248,13 +267,27 @@ int main(void)
     );
 
     /*
+     * Step 2.75: Bring up the IP stack.
+     *
+     * Only present in the real-lwIP build (-DLWIP_DIR=...). The default
+     * build compiles against boards/qemu_cortex_m4/lwip_stub, whose socket
+     * calls all return -1 by design, and has no netif to bring up.
+     *
+     * eds_net_start() only *creates* the bring-up task; lwIP's own
+     * tcpip_init() waits on a semaphore for its thread to come up, which
+     * would deadlock if it ran here, before vTaskStartScheduler(). So the
+     * real work happens in that task once the scheduler is running. The
+     * DoIP server task's existing 500 ms delay covers the ordering.
+     */
+#if defined(EDS_LWIP_REAL) && (EDS_LWIP_REAL == 1)
+    eds_net_start();
+#endif
+
+    /*
      * Step 3: Start DoIP server task.
      * The task is created here but blocks in vTaskDelay(500ms) before
      * calling lwip_listen — giving LwIP time to come up after the
      * scheduler starts.
-     *
-     * For production: call lwip_netif_add() / lwip_dhcp_start() before
-     * this point so the netif is ready when the DoIP task unblocks.
      */
     status = eds_doip_platform_start_freertos(
         DOIP_ECU_LOGICAL_ADDR,
@@ -264,8 +297,10 @@ int main(void)
         DOIP_TASK_PRIORITY
     );
     if (status != UDS_STATUS_OK) {
-        for (;;) { vTaskDelay(pdMS_TO_TICKS(1000U)); }
+        board_uart_puts("[eds] FATAL: doip platform start failed\r\n");
+        for (;;) { }
     }
+    board_uart_puts("[eds] doip task created, starting scheduler\r\n");
 
     /*
      * Step 4: Hand control to the FreeRTOS scheduler.

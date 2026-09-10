@@ -8,7 +8,96 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **`examples/basic_ecu_doip_freertos` can now serve real DoIP traffic on
+  QEMU** — unblocks `xaloqi-compatibility-tests#7`. Setting
+  `-DLWIP_DIR=/path/to/lwip` builds the example against real lwIP plus a new
+  guest-side Ethernet driver, instead of the compile-only socket stub whose
+  every call returned `-1`.
+
+  New, all under `examples/basic_ecu_doip_freertos/`:
+
+  - `boards/qemu_cortex_m4/lwip_port/ethernetif_lan9118.c` — polled lwIP
+    netif driver for the SMSC LAN9118 MAC that QEMU's `mps2-an386` machine
+    emulates at `0x40200000`. Register semantics were taken from QEMU's own
+    `hw/net/lan9118.c` rather than the datasheet, since QEMU implements a
+    documented subset. Polled rather than interrupt-driven: at DoIP's
+    one-client request/response traffic level polling costs nothing
+    measurable and removes the ISR/`FromISR`/NVIC-priority class of bug
+    entirely.
+  - `boards/qemu_cortex_m4/lwip_port/sys_arch.c` + `lwipopts.h` + `arch/` —
+    lwIP `NO_SYS=0` OS abstraction on FreeRTOS primitives. Written here
+    rather than pulled from `lwip-contrib` (a second repository) for ~250
+    lines.
+  - `src/eds_net.c` — netif bring-up and RX poll task. Static addressing
+    (10.0.2.15/24, gw 10.0.2.2) because QEMU's slirp network is fixed and
+    DHCP would only negotiate back the hard-coded value.
+  - `boards/qemu_cortex_m4/startup.c` — ARMv7-M vector table and C runtime
+    startup (see below).
+
+  lwIP is **not** vendored into the repository. It is fetched and pointed at
+  via `LWIP_DIR`, exactly as `FREERTOS_DIR` already works and as `west.yml`
+  does for Zephyr — the existing convention for third-party dependencies
+  here. Pinned upstream: lwIP `STABLE-2_2_1_RELEASE`.
+
+  **The default build is unchanged**: with no `LWIP_DIR`, the example still
+  compiles against `boards/qemu_cortex_m4/lwip_stub` exactly as before.
+
+  Verified against real traffic, not just a successful compile: the
+  `xaloqi-compatibility-tests` `core_validation` campaign passes 8/8 over
+  real DoIP/TCP to the QEMU guest (tester present, extended session,
+  AES-128-CMAC SecurityAccess level 1, `0xF190` read, DTC read/clear/read,
+  return to default), 52 ms total. Against the stub build the identical
+  campaign fails at `DoIP: Routing Activation Response timed out`.
+
+  Note for anyone reproducing this: a bare TCP connect to the forwarded host
+  port succeeds **even against the stub build**, because QEMU's slirp
+  `hostfwd` accepts on the host side before it can know whether a guest
+  listener exists. Connect success is not evidence of anything; only a
+  completed DoIP exchange is.
+
 ### Fixed
+
+- **`examples/basic_ecu_doip_freertos` produced a completely empty
+  binary.** The example had no vector table and no `Reset_Handler` anywhere
+  in the repository, so the linker warned `cannot find entry symbol
+  Reset_Handler; defaulting to 00000000` and — with no root to trace from —
+  `--gc-sections` discarded the entire program. The resulting ELF had
+  `.text` size **0**, `.data` 0 and `.bss` 0. It linked, which is why the
+  compile-only CI leg reported success for as long as it has existed.
+  `boards/qemu_cortex_m4/startup.c` now supplies the vector table (with the
+  FreeRTOS `vPortSVCHandler` / `xPortPendSVHandler` / `xPortSysTickHandler`
+  slots wired), `.data` copy, `.bss` zeroing and the call to `main()`.
+
+- **`examples/basic_ecu_doip_freertos` never defined
+  `EDS_PLATFORM_FREERTOS`**, unlike every other FreeRTOS example
+  (`basic_ecu_freertos`, `sensor_ecu_freertos`, `safeboot_freertos_ecu`).
+  `platform/freertos/freertos_nvm.c` guards its entire body on that macro,
+  so the file compiled to an empty translation unit and
+  `nvm_store_read` / `nvm_store_write` / `nvm_store_is_ready` were
+  undefined at link time. Masked by the `--gc-sections` bug above.
+
+- **`eds_platform_init()` rejected the DoIP-only configuration it is
+  documented to support.** It returned `UDS_STATUS_ERR_INVALID_PARAM`
+  whenever `cfg->can_send == NULL`, but `basic_ecu_doip_freertos` passes
+  `NULL` deliberately — there is no CAN in a DoIP-only build. The example
+  could never have got past step 1 of its own integration sequence. The
+  check, and the `freertos_can_init()` call below it, are now guarded on
+  `EDS_DOIP_ONLY_BUILD` (that call was also an undefined reference, since
+  the DoIP-only build does not compile `freertos_can.c`).
+
+- **`examples/basic_ecu_doip_freertos/src/main.c` called `vTaskDelay()` from
+  its pre-scheduler fatal-error paths**, before `vTaskStartScheduler()`.
+  Replaced with plain halt loops, and each now reports the failing step over
+  the board UART instead of hanging silently.
+
+- Link flags changed from `-nostdlib` to `-nostartfiles` (plus
+  `--specs=nano.specs`). The compiler emits `memcpy`/`memset` calls from
+  ordinary struct and array initialisation, and lwIP additionally needs
+  `memcmp`/`strlen`; under `-nostdlib` those were simply unresolved. The
+  link only appeared to succeed because `--gc-sections` had already
+  discarded every caller.
 
 - **Corrected a factual error about `native_sim_doip_realzeth.conf` that
   v1.14.0 shipped** (#257). Two `ci.yml` comments and the
