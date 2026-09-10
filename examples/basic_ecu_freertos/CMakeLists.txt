@@ -91,6 +91,12 @@ include(${DIAG_ROOT}/cmake/eds_build_mode.cmake)
 # Board-specific compiler flags
 # ---------------------------------------------------------------------------
 
+# Shared example board support (vector table, FreeRTOS hooks, boot log).
+# See examples/common/boards/qemu_cortex_m4/startup.c — without a vector table
+# ENTRY(Reset_Handler) has no root and --gc-sections deletes the whole image
+# (EDS issue #268).
+set(EDS_COMMON_BOARDS "${DIAG_ROOT}/examples/common/boards")
+
 if(BOARD STREQUAL "qemu_cortex_m4" OR BOARD STREQUAL "stm32f4")
     set(CPU_FLAGS
         -mcpu=cortex-m4
@@ -99,6 +105,13 @@ if(BOARD STREQUAL "qemu_cortex_m4" OR BOARD STREQUAL "stm32f4")
         -mfloat-abi=hard
     )
     set(LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/boards/qemu_cortex_m4/linker.ld")
+    if(BOARD STREQUAL "qemu_cortex_m4")
+        set(BOARD_SRCS
+            ${EDS_COMMON_BOARDS}/qemu_cortex_m4/startup.c
+            ${EDS_COMMON_BOARDS}/qemu_cortex_m4/freertos_hooks.c
+            ${EDS_COMMON_BOARDS}/qemu_cortex_m4/board_log.c
+        )
+    endif()
 elseif(BOARD STREQUAL "stm32h7")
     set(CPU_FLAGS
         -mcpu=cortex-m7
@@ -162,6 +175,10 @@ add_executable(eds_freertos
     # Application
     src/main.c
 
+    # Board support: reset vector, C runtime startup, FreeRTOS static-
+    # allocation hooks, boot log. Empty for boards that supply their own.
+    ${BOARD_SRCS}
+
     # EDS core
     ${DIAG_ROOT}/core/uds_server.c
     ${DIAG_ROOT}/core/uds_session.c
@@ -222,6 +239,7 @@ target_include_directories(eds_freertos PRIVATE
     ${DIAG_ROOT}/config
     ${DIAG_ROOT}/platform
     ${DIAG_ROOT}/platform/freertos
+    ${EDS_COMMON_BOARDS}
     ${GENERATED_DIR}
     # FreeRTOS
     ${FREERTOS_DIR}/include

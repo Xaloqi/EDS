@@ -56,6 +56,7 @@
 #include "task.h"
 
 /* EDS platform + stack */
+#include "board_log.h"
 #include "platform_api.h"
 #include "uds_server.h"
 #include "uds_periodic.h"
@@ -237,6 +238,11 @@ int main(void)
     uds_status_t      status;
     uds_server_ctx_t *srv = NULL;
 
+    /* ── 0. Board console, so the steps below leave evidence. A no-op on
+     *       nucleo_h743zi; real UART0 output under QEMU. ─────────────────── */
+    board_log_init();
+    board_log_puts("\r\nEDS safeboot_freertos_ecu: boot\r\n");
+
     /* ── 1. EDS platform init — provide CAN send callback ────────────────── */
     status = eds_platform_init(&(eds_platform_cfg_t){
         .can_send            = loopback_can_send,
@@ -290,6 +296,7 @@ int main(void)
     );
 
     /* ── 4. Start FreeRTOS scheduler ─────────────────────────────────────── */
+    board_log_puts("EDS safeboot_freertos_ecu: starting scheduler\r\n");
     vTaskStartScheduler();
 
     /* Should never reach here. */

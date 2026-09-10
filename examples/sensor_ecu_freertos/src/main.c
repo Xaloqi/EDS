@@ -44,6 +44,9 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+/* Board support */
+#include "board_log.h"
+
 /* EDS platform + stack */
 #include "platform_api.h"
 #include "uds_server.h"
@@ -209,6 +212,11 @@ int main(void)
     uds_status_t      status;
     uds_server_ctx_t *srv = NULL;
 
+    /* ── 0. Board console, so the steps below leave evidence. No-op on a
+     *       board without a console. ─────────────────────────────────────── */
+    board_log_init();
+    board_log_puts("\r\nEDS sensor_ecu_freertos: boot\r\n");
+
     /* ── 1. Sensor monitor (starts sensor_monitor_task, creates mutex) ───── */
     sensor_monitor_init();
 
@@ -251,6 +259,7 @@ int main(void)
     );
 
     /* ── 5. Start scheduler ──────────────────────────────────────────────── */
+    board_log_puts("EDS sensor_ecu_freertos: starting scheduler\r\n");
     vTaskStartScheduler();
 
     for (;;) { }

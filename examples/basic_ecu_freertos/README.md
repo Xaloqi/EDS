@@ -36,9 +36,27 @@ qemu-system-arm \
   -machine mps2-an386 \
   -cpu cortex-m4 \
   -kernel build/eds_freertos.elf \
-  -nographic \
-  -semihosting
+  -nographic -monitor none \
+  -serial file:boot.log
 ```
+
+Expected contents of `boot.log`:
+
+```
+EDS basic_ecu_freertos: boot
+EDS basic_ecu_freertos: starting scheduler
+```
+
+Both lines come from `src/main.c` over the board's UART0
+(`examples/common/boards/qemu_cortex_m4/board_log.c`). Their absence means the
+image is not running — check `arm-none-eabi-size build/eds_freertos.elf` first:
+`.text` should be tens of kilobytes. A `.text` of a few hundred bytes, together
+with a `cannot find entry symbol Reset_Handler` warning at link time, means the
+board support in `examples/common/boards/qemu_cortex_m4/` was not compiled in,
+and `--gc-sections` has deleted the program (EDS issue #268).
+
+Piping QEMU's `-serial stdio` straight into another command can swallow this
+output; `-serial file:` is the reliable form.
 
 ## Production integration
 

@@ -59,6 +59,80 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The three remaining FreeRTOS examples produced non-functional binaries**
+  — `basic_ecu_freertos`, `sensor_ecu_freertos` and `safeboot_freertos_ecu`
+  (both of its boards). Same defect as `basic_ecu_doip_freertos` below, still
+  present in every example that PR did not touch: each declared
+  `ENTRY(Reset_Handler)` in its linker script while defining neither a vector
+  table nor a `Reset_Handler`, so the linker warned `cannot find entry symbol
+  Reset_Handler; defaulting to 00000000` and `--gc-sections`, with no root to
+  trace from, discarded the whole program. `basic_ecu_freertos` linked to 144
+  bytes of `.text` — newlib syscall stubs, with `main` absent from the symbol
+  table entirely. These images could never have booted.
+
+  **This is a behaviour change**: the binaries these examples produce did
+  nothing at all before and now run.
+
+  - New `examples/common/boards/qemu_cortex_m4/` — shared board support for
+    every FreeRTOS example targeting `-DBOARD=qemu_cortex_m4`: `startup.c`
+    (ARMv7-M vector table with the FreeRTOS `vPortSVCHandler` /
+    `xPortPendSVHandler` / `xPortSysTickHandler` slots wired, `.data` copy,
+    `.bss` zeroing, call to `main()`), `freertos_hooks.c`
+    (`vApplicationGetIdleTaskMemory()`, required by
+    `configSUPPORT_STATIC_ALLOCATION = 1` and defined nowhere in the
+    repository until now), and `board_log.c` (polled CMSDK UART0 boot log).
+    Shared rather than copied three times because all three
+    `qemu_cortex_m4` board directories specify identical FreeRTOS settings
+    and the same QEMU machine — the precedent set by
+    `cmake/eds_service_sources.cmake`.
+
+    `basic_ecu_doip_freertos` is deliberately left on its own local copy and
+    is **not** modified by this change: it is the one FreeRTOS target with a
+    proven end-to-end DoIP campaign behind it, and that campaign cannot be
+    re-run here. Consolidating it is tracked separately.
+
+  - New `examples/safeboot_freertos_ecu/boards/nucleo_h743zi/startup.c` —
+    a *separate* implementation for the real MCU, not a copy of the QEMU
+    one. The STM32H743 boots from `0x08000000`, not `0x00000000`, and has
+    150 external interrupts against the `mps2-an386`'s 32, so its table is
+    166 entries where the QEMU one is 48. The IRQ count is from ST's own
+    CMSIS device header (`stm32h743xx.h`, `WAKEUP_PIN_IRQn = 149`); the
+    memory map matches this repository's Zephyr board files for the same
+    part. `Reset_Handler` also sets `VTOR` explicitly, because the H7 boot
+    address is programmable and this example documents running after a
+    customer bootloader's bank swap.
+
+  - New `examples/safeboot_freertos_ecu/boards/nucleo_h743zi/freertos_hooks.c`
+    — that board's `FreeRTOSConfig.h` is stricter than the QEMU ones and
+    needs three hooks, not one: `configCHECK_FOR_STACK_OVERFLOW = 2` and
+    `configUSE_MALLOC_FAILED_HOOK = 1` additionally require
+    `vApplicationStackOverflowHook()` and `vApplicationMallocFailedHook()`.
+
+  Two further link failures surfaced only once a vector table gave
+  `--gc-sections` something to keep — both previously masked, both real:
+
+  - **`safeboot_freertos_ecu` on `qemu_cortex_m4` could not fit its own
+    `.bss`.** The QEMU build backs the OTA staging slot with a RAM stub
+    (`s_stub_flash`) that is 896 KB — the size of the `image-1` partition it
+    stands in for — while the board's `linker.ld` declared 256 KB of SRAM:
+    `region `SRAM' overflowed by 725696 bytes`. The declaration is now the
+    full 4 MB the `mps2-an386` actually provides at `0x20000000`.
+
+  - **`safeboot_freertos_ecu` on `nucleo_h743zi` could not link at all in
+    its documented hardware configuration.** With
+    `-DSTM32_HAL_DIR=...` the build compiles `stm32h7xx_hal_flash.c`, whose
+    `FLASH_WaitForLastOperation()` calls `HAL_GetTick()` — defined in
+    `stm32h7xx_hal.c`, which this example does not compile: `undefined
+    reference to 'HAL_GetTick'`. New `boards/nucleo_h743zi/hal_timebase.c`
+    supplies it from the FreeRTOS tick rather than pulling in
+    `stm32h7xx_hal.c`, whose `HAL_InitTick()` would take ownership of
+    SysTick — which FreeRTOS already owns via vector slot 15.
+
+  Building `-DBOARD=nucleo_h743zi` *without* `-DSTM32_HAL_DIR` now fails at
+  configure time with an explanation, instead of overflowing DTCM by 910 KB
+  at link time: the RAM stub is a QEMU-only construct and cannot fit that
+  MCU.
+
 - **`examples/basic_ecu_doip_freertos` produced a completely empty
   binary.** The example had no vector table and no `Reset_Handler` anywhere
   in the repository, so the linker warned `cannot find entry symbol

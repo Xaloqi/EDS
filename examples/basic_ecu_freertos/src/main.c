@@ -42,6 +42,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "board_log.h"
 #include "platform_api.h"
 #include "freertos_can.h"
 #include "uds_init.h"
@@ -90,6 +91,11 @@ int main(void)
 {
     uds_status_t status;
 
+    /* Step 0 — Bring the board console up so the steps below leave evidence.
+     * On a board with no console board_log_* is a no-op. */
+    board_log_init();
+    board_log_puts("\r\nEDS basic_ecu_freertos: boot\r\n");
+
     /* Step 1 — Initialise the EDS platform layer. */
     status = eds_platform_init(&(eds_platform_cfg_t){
         .can_send            = loopback_can_send,
@@ -129,6 +135,7 @@ int main(void)
     }
 
     /* Step 4 — Start the FreeRTOS scheduler. Does not return. */
+    board_log_puts("EDS basic_ecu_freertos: starting scheduler\r\n");
     vTaskStartScheduler();
 
     for (;;) { }   /* unreachable */
