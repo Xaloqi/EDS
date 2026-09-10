@@ -104,22 +104,37 @@ include(${DIAG_ROOT}/cmake/eds_build_mode.cmake)
 # (EDS issue #268).
 set(EDS_COMMON_BOARDS "${DIAG_ROOT}/examples/common/boards")
 
-if(BOARD STREQUAL "qemu_cortex_m4" OR BOARD STREQUAL "stm32f4")
+if(BOARD STREQUAL "qemu_cortex_m4")
     set(CPU_FLAGS -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard)
     set(LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/boards/qemu_cortex_m4/linker.ld")
-    if(BOARD STREQUAL "qemu_cortex_m4")
-        set(BOARD_SRCS
-            ${EDS_COMMON_BOARDS}/qemu_cortex_m4/startup.c
-            ${EDS_COMMON_BOARDS}/qemu_cortex_m4/freertos_hooks.c
-            ${EDS_COMMON_BOARDS}/qemu_cortex_m4/board_log.c
-        )
-    endif()
-elseif(BOARD STREQUAL "stm32h7")
-    set(CPU_FLAGS -mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard)
-    set(LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/boards/stm32h7/linker.ld")
+    set(BOARD_SRCS
+        ${EDS_COMMON_BOARDS}/qemu_cortex_m4/startup.c
+        ${EDS_COMMON_BOARDS}/qemu_cortex_m4/freertos_hooks.c
+        ${EDS_COMMON_BOARDS}/qemu_cortex_m4/board_log.c
+    )
+elseif(BOARD STREQUAL "stm32h7" OR BOARD STREQUAL "stm32f4")
+    # EDS#272: these used to "build" — stm32h7 pointed at a linker script that
+    # doesn't exist (silently falling through to no memory layout at all), and
+    # stm32f4 shared qemu_cortex_m4's script, whose FLASH origin (0x00000000)
+    # is wrong for a real STM32F4 (0x08000000). Neither ever produced a
+    # bootable image; nothing caught it because nothing ran these images
+    # before #268. Fail loudly instead of shipping an option that doesn't work.
+    message(FATAL_ERROR
+        "BOARD '${BOARD}' has no real board support in this example — it "
+        "previously built an unbootable image silently (missing vector "
+        "table, or the wrong flash origin) instead of failing (EDS#272). "
+        "Add boards/${BOARD}/{linker.ld,startup.c} with the correct memory "
+        "map and IRQ vector table for the real part first — see "
+        "examples/safeboot_freertos_ecu/boards/nucleo_h743zi/ for the "
+        "pattern this example doesn't yet have.")
 else()
-    message(WARNING "Unknown BOARD '${BOARD}' — using Cortex-M4 flags.")
-    set(CPU_FLAGS -mcpu=cortex-m4 -mthumb)
+    message(FATAL_ERROR
+        "Unknown BOARD '${BOARD}'. Supported: qemu_cortex_m4. Add real "
+        "board support (linker script + startup.c, see "
+        "examples/safeboot_freertos_ecu/boards/nucleo_h743zi/ for the "
+        "pattern) before adding a new BOARD value here — see EDS#268/#272; "
+        "a build that silently falls back to generic Cortex-M4 flags with "
+        "no linker script is exactly the defect those fixed.")
 endif()
 
 # ---------------------------------------------------------------------------
