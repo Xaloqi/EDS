@@ -62,7 +62,16 @@ extern "C" {
  * Maximum payload bytes in eds_can_frame_t.
  * 8 for Classic CAN builds; 64 when ISOTP_ENABLE_CAN_FD=1.
  * Must agree with UDS_CAN_FRAME_MAX_LEN in uds_types.h (both = 64 for FD).
+ *
+ * Defaulted here (MISRA 20.9) rather than assuming transport/isotp.h's own
+ * default was already pulled in: this header must not depend on transport/
+ * to stay build-order-independent, and any build already passing
+ * -DISOTP_ENABLE_CAN_FD=... still wins over this default.
  */
+#ifndef ISOTP_ENABLE_CAN_FD
+#define ISOTP_ENABLE_CAN_FD 0
+#endif
+
 #if ISOTP_ENABLE_CAN_FD
 #define EDS_CAN_FRAME_MAX_DLEN  (64U)
 #else

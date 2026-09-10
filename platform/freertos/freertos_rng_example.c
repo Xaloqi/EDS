@@ -14,7 +14,7 @@
  *     your own application source tree and adapt it to your MCU's actual
  *     TRNG peripheral before use — the STM32 HAL calls below are a worked
  *     example, not a portable driver.
- *   - Every shipped FreeRTOS example (examples/*_freertos/src/main.c) passes
+ *   - Every shipped FreeRTOS example (examples/<name>_freertos/src/main.c) passes
  *     NULL to uds_security_algo_set_rng_cb() and logs a "no TRNG — CI/dev
  *     build" warning. That NULL is intentional for CI/simulation and is NOT
  *     something to leave in a production build — see docs/SECURITY_NOTICE.md.

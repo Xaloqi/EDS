@@ -122,6 +122,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `main`. One `git show origin/main:<path>` would have caught it at any
   point.
 
+- **Two pre-existing MISRA C:2012 Rule 20.9 findings in `platform/`** (#269),
+  found incidentally while running `misra_analysis.py` over #267's changed
+  code — not introduced by that PR. `platform/platform_api.h` used
+  `#if ISOTP_ENABLE_CAN_FD` without the macro being defined anywhere in the
+  include path for builds that don't set it, so the preprocessor silently
+  evaluated it to `0`. Rule 20.9 exists exactly to catch that: a typo in the
+  macro name would have looked identical. Now defaulted locally
+  (`#ifndef`/`#define ISOTP_ENABLE_CAN_FD 0`) next to its documentation,
+  matching the existing default in `transport/isotp.h`; any build already
+  passing `-DISOTP_ENABLE_CAN_FD=...` is unaffected. Also fixed a nested
+  `/*` inside a banner comment in `platform/freertos/freertos_rng_example.c`
+  (an `examples/*_freertos/...` glob whose `/*` read as a comment-start to
+  the compiler).
+
 
 ## [1.14.0] — 2026-09-07
 
