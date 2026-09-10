@@ -138,6 +138,37 @@ ninja -C build_ci
 No STM32 HAL required. Flash operations run in a RAM stub — useful for
 compile testing and basic UDS flow validation in CI.
 
+Run it:
+
+```sh
+qemu-system-arm -machine mps2-an386 -cpu cortex-m4 \
+    -kernel build_ci/eds_safeboot_freertos.elf \
+    -nographic -monitor none -serial file:boot.log
+```
+
+`boot.log` should contain:
+
+```
+EDS safeboot_freertos_ecu: boot
+EDS safeboot_freertos_ecu: starting scheduler
+```
+
+Note the RAM stub is a 896 KB static buffer standing in for the `image-1`
+staging slot, so this build's `.bss` is close to 1 MB. That is why the QEMU
+board's `linker.ld` declares the full 4 MB of SRAM the `mps2-an386` provides
+rather than 256 KB. The stub is a QEMU-only construct: it cannot fit the real
+MCU's 128 KB DTCM, so `-DBOARD=nucleo_h743zi` without `-DSTM32_HAL_DIR` is
+rejected at configure time.
+
+Board support for this target — reset vector, C runtime startup, FreeRTOS
+hooks, boot log — comes from the shared
+`examples/common/boards/qemu_cortex_m4/`. The `nucleo_h743zi` board has its
+own under `boards/nucleo_h743zi/`, because the STM32H743 boots from
+`0x08000000` and has 150 external interrupts rather than the emulated
+machine's 32. `board_log_*` is a deliberate no-op on that board — see
+`boards/nucleo_h743zi/board_log.c` for why an unverified UART driver was not
+shipped in its place.
+
 ---
 
 ## Adapting to real hardware

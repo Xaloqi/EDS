@@ -96,17 +96,53 @@ endif()
 # Board-specific flags and linker script
 # ---------------------------------------------------------------------------
 
+# Board support sources: reset vector + C runtime startup, FreeRTOS hooks and
+# boot log. Without a vector table ENTRY(Reset_Handler) has no root and
+# --gc-sections deletes the whole image (EDS issue #268).
+#
+# nucleo_h743zi does NOT share the QEMU startup: it needs the STM32H743's own
+# flash base (0x08000000) and its full 150-entry IRQ table, and it needs two
+# extra FreeRTOS hooks its stricter FreeRTOSConfig.h demands.
+set(EDS_COMMON_BOARDS "${CMAKE_CURRENT_SOURCE_DIR}/../common/boards")
+
 if(BOARD STREQUAL "nucleo_h743zi")
     set(CPU_FLAGS -mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard)
     set(FREERTOS_CONFIG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h743zi")
     set(LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h743zi/linker.ld")
     set(FREERTOS_PORT_SUBDIR "GCC/ARM_CM7/r0p1")
+    set(BOARD_SRCS
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h743zi/startup.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h743zi/freertos_hooks.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h743zi/board_log.c
+        # HAL_GetTick() for the STM32 flash HAL, backed by the FreeRTOS tick.
+        # Compiles to nothing unless STM32H7xx/STM32H743xx is defined.
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h743zi/hal_timebase.c
+    )
+    # Without the STM32 HAL, freertos_flash_ops.c falls back to its RAM stub,
+    # which is a 896 KB static buffer standing in for the OTA staging slot.
+    # That cannot fit the H743's 128 KB DTCM: the link fails with
+    # "region `DTCM' overflowed by 910528 bytes". Say so here rather than
+    # leaving the integrator to decode a linker overflow. (Before EDS #268
+    # this combination appeared to build, because the image was empty.)
+    if(NOT DEFINED STM32_HAL_DIR)
+        message(FATAL_ERROR
+            "BOARD=nucleo_h743zi needs the STM32H7 flash HAL.\n"
+            "Pass -DSTM32_HAL_DIR=/path/to/STM32H7xx_HAL_Driver.\n"
+            "Without it freertos_flash_ops.c compiles its 896 KB RAM stub, "
+            "which does not fit this MCU's 128 KB DTCM. For a HAL-free "
+            "compile check use -DBOARD=qemu_cortex_m4.")
+    endif()
 else()
     # qemu_cortex_m4 — default for CI
     set(CPU_FLAGS -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard)
     set(FREERTOS_CONFIG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/boards/qemu_cortex_m4")
     set(LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/boards/qemu_cortex_m4/linker.ld")
     set(FREERTOS_PORT_SUBDIR "GCC/ARM_CM4F")
+    set(BOARD_SRCS
+        ${EDS_COMMON_BOARDS}/qemu_cortex_m4/startup.c
+        ${EDS_COMMON_BOARDS}/qemu_cortex_m4/freertos_hooks.c
+        ${EDS_COMMON_BOARDS}/qemu_cortex_m4/board_log.c
+    )
 endif()
 
 # ---------------------------------------------------------------------------
@@ -154,6 +190,9 @@ include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
 # ---------------------------------------------------------------------------
 
 add_executable(eds_safeboot_freertos
+    # Board support: reset vector, C runtime startup, FreeRTOS hooks, boot log.
+    ${BOARD_SRCS}
+
     # Application
     src/main.c
 
@@ -231,6 +270,7 @@ target_include_directories(eds_safeboot_freertos PRIVATE
     ${DIAG_ROOT}/config
     ${DIAG_ROOT}/platform
     ${DIAG_ROOT}/platform/freertos
+    ${EDS_COMMON_BOARDS}
     ${CMAKE_CURRENT_SOURCE_DIR}/generated
     ${FREERTOS_DIR}/include
     ${FREERTOS_PORT_DIR}
