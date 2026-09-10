@@ -59,6 +59,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`basic_ecu_freertos` and `sensor_ecu_freertos` advertised `-DBOARD=stm32h7`
+  and `-DBOARD=stm32f4` options that could never produce a working image**
+  (#272, found while fixing #268 — separate defect, deliberately not fixed
+  there). `stm32h7` pointed at a linker script that does not exist
+  (`boards/stm32h7/linker.ld`); the `if(EXISTS ...)` guard around the link
+  step then silently fell through to linking with no memory layout and no
+  vector table at all. `stm32f4` was worse: it shared `qemu_cortex_m4`'s
+  linker script, whose `FLASH` region starts at `0x00000000` — the real
+  STM32F4's internal flash starts at `0x08000000`, so an image linked this
+  way cannot run on the part. Neither was ever caught because, until #268,
+  no FreeRTOS example produced a non-empty binary at all, and only
+  `qemu_cortex_m4` is exercised in CI.
+
+  Rather than build out real board support for two parts nobody has asked
+  for, both now fail loudly at configure time with `FATAL_ERROR` — an
+  advertised board option that silently links an unbootable image is worse
+  than no option, which is #268's whole lesson applied one level up. The
+  generic `else()` fallback (unknown `BOARD` → `message(WARNING ...)` +
+  Cortex-M4 flags) is gone for the same reason. `-DBOARD=qemu_cortex_m4` is
+  unaffected and was rebuilt to confirm: `basic_ecu_freertos` still links to
+  the same `.text` 23236 B / `.data` 68 B / `.bss` 70244 B as #271 produced.
+
+  `safeboot_freertos_ecu` was not affected — both of its board options
+  already resolve to real directories.
+
 - **The three remaining FreeRTOS examples produced non-functional binaries**
   — `basic_ecu_freertos`, `sensor_ecu_freertos` and `safeboot_freertos_ecu`
   (both of its boards). Same defect as `basic_ecu_doip_freertos` below, still
