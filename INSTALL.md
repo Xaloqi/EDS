@@ -16,7 +16,7 @@ This ZIP delivers the commercial toolchain for Xaloqi EDS.
 It installs by extracting into the public EDS repo you already cloned.
 
 **Developer tier includes:**
-- 17 Jinja2 code generation templates (the generation engine)
+- 18 Jinja2 code generation templates (the generation engine)
 - SOVD Bridge: `--sovd` flag generates OpenSOVD 1.0 `sovd_cda.json` from any `diagnostics_config.yaml`
 - `testgen.py` — pytest + CANoe CAPL test suite generator
 - `arxml_parser.py` — AUTOSAR 4.x ECU Extract ARXML → `diagnostics_config.yaml` importer (stdlib only, no deps)
@@ -25,7 +25,10 @@ It installs by extracting into the public EDS repo you already cloned.
 - `_license.py` — offline license verification module
 - React/TypeScript GUI dashboard + WebSocket bridge
 - VS Code extension (YAML validation, hover docs, Run Codegen)
-- 7 specialist ECU examples: BMS, Motor Controller, ARDEP, Sensor, SafeBoot, Robotics, Sensor FreeRTOS
+- Full codegen support for the 7 specialist ECU examples (BMS, Motor
+  Controller, ARDEP, Sensor, SafeBoot, Robotics, Sensor FreeRTOS). The
+  examples themselves are in the public repo; what the ZIP adds is the
+  engine that regenerates their `generated/` output from YAML.
 
 **Professional tier adds:**
 - Integration test harness (`harness/`) — 68 C tests against the full UDS stack
@@ -124,11 +127,17 @@ For `eds_ai.py` (AI configuration assistant):
 pip install anthropic
 ```
 
-All dependencies are listed in `tools/requirements.txt`. To install everything at once:
+`tools/requirements.txt` lists everything the Python toolchain needs —
+codegen, testgen, license verification and `eds_ai.py`:
 
 ```bash
 pip install -r tools/requirements.txt
 ```
+
+> `python-can` is **not** in that file — it is only needed to drive a real
+> CAN interface (`--can-interface=can0`), not to generate code or to run
+> the generated suite against the simulator. Install it separately if you
+> need it: `pip install python-can`.
 
 > **Note for Ubuntu 23.04+ / Debian 12+ users:** if `pip install` fails with
 > `externally-managed-environment`, either use a virtual environment
@@ -203,10 +212,15 @@ Expected output:
 [2/5] Base validation passed.
 [2B]  ASIL-B safety validation passed.
 [3/5] Rendering standard templates...
-  [OK]     generated/uds_init.c
+  [OK]     generated/generated_config.h
+  [OK]     generated/did_handlers.h
   [OK]     generated/did_handlers.c
-  ... (5 standard files + 3 safety wrapper files)
-[5/5] Manifest skipped (--no-manifest).
+  [OK]     generated/uds_init.h
+  [OK]     generated/uds_init.c
+  [OK]     generated/dtc_config.h
+  ... (6 standard files, then 3 safety wrapper files and 2 routine
+       handler files)
+[5/5] Writing manifest...
 
 ========================================================================
   Generation complete.

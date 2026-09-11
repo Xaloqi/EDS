@@ -2,16 +2,30 @@
 #
 # Install: pip install -r tools/requirements.txt
 #
+# SINGLE SOURCE OF TRUTH. The Developer/Professional delivery ZIP stages this
+# exact file rather than shipping its own copy, so `unzip -o` (INSTALL.md
+# Step 2) is a no-op for this path. Two divergent copies used to exist — this
+# one and EDS-toolchain's — and the ZIP's copy silently replaced this one,
+# dropping pytest/pycryptodome/pyelftools while INSTALL.md Step 6 still told
+# customers to run pytest. Keep this file and the tools it serves in sync;
+# do not reintroduce a second copy in EDS-toolchain.
+#
 # Required for codegen.py:
 pyyaml>=6.0
 jinja2>=3.1
 #
-# Required for license verification (_license.py) and key generation (keygen.py):
-# These are the ONLY additional dependencies beyond standard codegen requirements.
-cryptography>=41.0
-PyJWT>=2.7
+# Required for license verification (_license.py, activate.py) and key
+# generation (keygen.py). These are the ONLY additional dependencies beyond
+# standard codegen requirements:
+cryptography>=41.0.0
+PyJWT>=2.8.0
 #
-# Required for test generation (testgen.py) and integration tests:
+# Required for test generation (testgen.py) and the generated integration
+# tests (commercial tiers; harmless to install otherwise):
 pytest>=7.4
 pycryptodome>=3.18
 pyelftools>=0.29
+#
+# Required for eds_ai.py, the AI configuration assistant (commercial tiers).
+# Only needed if you actually run eds_ai.py:
+anthropic>=0.40.0
