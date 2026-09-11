@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.15.0] — 2026-09-11
+
 ### Added
 
 - **`examples/basic_ecu_doip_freertos` can now serve real DoIP traffic on
