@@ -262,6 +262,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   (an `examples/*_freertos/...` glob whose `/*` read as a comment-start to
   the compiler).
 
+- **`codegen.py` now escapes config-supplied names and descriptions before
+  embedding them in generated source.** Both were emitted raw, so valid input
+  could produce C that does not compile while codegen exited 0 and printed
+  "Generation complete.":
+  - `*/` inside a name terminated the generated block comment early
+    (`error: unknown type name 'Comment'`)
+  - `"` inside a name closed the generated string literal early
+    (`error: expected '}' before 'Hello'`)
+
+  Both are reachable from a valid AUTOSAR import: `arxml_parser.py` escapes
+  correctly for YAML (EDS-toolchain#34), so uncontrolled SHORT-NAME/LONG-NAME
+  text round-trips cleanly into codegen and breaks at the C layer instead.
+
+  Escaping is applied centrally in the template context (`_c_safe_text()`)
+  rather than per template site, and is safe in comment and string-literal
+  contexts simultaneously. It is the **identity function** for every name a
+  real config carries — umlauts, hyphens, leading digits, `#` and spaces are
+  all passed through unchanged — so shipped example output is byte-identical
+  (verified across 8 examples, 293 generated files, 0 substantive diffs).
 
 ## [1.14.0] — 2026-09-07
 
