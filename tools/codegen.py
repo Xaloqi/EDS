@@ -298,6 +298,50 @@ def _c_identifier(name: str) -> str:
     return s.strip("_")
 
 
+def _c_safe_text(value: str) -> str:
+    """
+    Make a config-supplied string safe to embed in generated source.
+
+    Names and descriptions come from `diagnostics_config.yaml`, which is often
+    machine-produced — `arxml_parser.py` copies AUTOSAR SHORT-NAME/LONG-NAME
+    straight through, and those are uncontrolled input. The same value is
+    emitted into two contexts by the templates:
+
+        /* Stub backing store for DID 0x3005 — {{ did.name }}. */
+        .description = "{{ did.name }}"
+
+    Before this function existed, neither was escaped, and codegen exited 0
+    while writing C that does not compile:
+
+      - `*/` inside a name terminated the block comment early
+        ("error: unknown type name 'Comment'")
+      - `"` inside a name closed the string literal early
+        ("error: expected '}' before 'Hello'")
+
+    Both were reachable from a valid ARXML import: `arxml_parser.py` escapes
+    correctly for YAML (EDS-toolchain#34), so hostile text round-tripped
+    cleanly into codegen and broke at the C layer instead.
+
+    The transformation is deliberately safe in *both* contexts at once rather
+    than context-specific, because the same value feeds 63 template sites
+    across two repos and a per-site filter would have to be applied correctly
+    at every one of them. It is the identity function for every name that does
+    not contain a backslash, a double quote, a comment terminator or a control
+    character — so real configs generate byte-identical output.
+
+    Escaping is also valid for the generated *Python* test files, which embed
+    the same value in string literals with the same syntax.
+    """
+    if not isinstance(value, str):
+        return value
+    s = value.replace("\\", "\\\\").replace('"', '\\"')
+    # Neutralise the C block-comment terminator without losing the characters.
+    s = s.replace("*/", "* /")
+    # Newlines and other control characters break comments and literals alike.
+    s = "".join(ch if (ch.isprintable() or ch == " ") else " " for ch in s)
+    return s
+
+
 def _normalise_hex(raw: str) -> str:
     """Normalise a hex string to uppercase '0x' prefix form: '0xF190'."""
     return "0x" + raw[2:].upper()
@@ -745,7 +789,7 @@ def _build_did_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
         result.append({
             "id":                         norm_id,
             "id_int":                     int(raw_id, 16),
-            "name":                       did["name"],
+            "name":                       _c_safe_text(did["name"]),
             "c_name":                     c_name,
             "access_read":                "read"  in did.get("access", []),
             "access_write":               "write" in did.get("access", []),
@@ -774,7 +818,7 @@ def _build_dtc_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
         result.append({
             "code":        norm,
             "code_int":    int(raw_code, 16),
-            "description": dtc.get("description", ""),
+            "description": _c_safe_text(dtc.get("description", "")),
             "severity":    dtc.get("severity", "check_at_next_halt"),
         })
     return result
@@ -808,7 +852,7 @@ def _build_routine_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
         result.append({
             "id":                      norm_id,
             "id_int":                  int(raw_id, 16),
-            "name":                    routine["name"],
+            "name":                    _c_safe_text(routine["name"]),
             "c_name":                  c_name,
             "min_session":             SESSION_MAP.get(
                                            routine.get("min_session", "extended"),
@@ -831,7 +875,7 @@ def _build_routine_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
                                                                 # or "stop" sub-functions.
             "support_flags_c":         " | ".join(flags_parts) if flags_parts
                                        else "ROUTINE_SUPPORT_START",
-            "description":             routine.get("description", ""),
+            "description":             _c_safe_text(routine.get("description", "")),
         })
     return result
 
@@ -883,7 +927,7 @@ def build_sovd_cda(cfg):
         access = did.get("access", [])
         entry = {
             "id":              _normalise_hex(did["id"]),
-            "name":            did["name"],
+            "name":            _c_safe_text(did["name"]),
             "dataLengthBytes": did.get("data_length", 4),
             "access":          list(access),
             "minSession":      did.get("min_session", "default"),
@@ -897,7 +941,7 @@ def build_sovd_cda(cfg):
     for dtc in cfg.get("dtcs", []):
         dtc_entries.append({
             "code":        _normalise_hex(dtc["code"]),
-            "description": dtc.get("description", ""),
+            "description": _c_safe_text(dtc.get("description", "")),
             "severity":    dtc.get("severity", "check_at_next_halt"),
         })
 
@@ -906,7 +950,7 @@ def build_sovd_cda(cfg):
         support = list(routine.get("support", ["start"]))
         routine_entries.append({
             "id":                    _normalise_hex(routine["id"]),
-            "name":                  routine["name"],
+            "name":                  _c_safe_text(routine["name"]),
             "minSession":            routine.get("min_session", "extended"),
             "securityLevel":         routine.get("security_level", 0),
             "supportedSubFunctions": support,
