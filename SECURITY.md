@@ -4,9 +4,9 @@
 
 | Version | Security fixes |
 |---|---|
-| 1.14.x (current) | ✅ Yes |
+| 1.15.x (current) | ✅ Yes |
 | 1.11.x | ✅ Yes (critical only) |
-| < 1.13 | ❌ No — please upgrade |
+| < 1.14 | ❌ No — please upgrade |
 
 Only the current release branch receives routine security fixes. Pre-release and
 modified versions are not supported. Update to the latest tagged release before
