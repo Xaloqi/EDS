@@ -59,6 +59,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`tools/requirements.txt` is now the single source of truth for the Python
+  toolchain's dependencies, and the delivery ZIP ships this exact file.** A
+  second, divergent copy lived in the EDS-toolchain repo and the ZIP staged
+  that one, so INSTALL.md Step 2's `unzip -o` replaced this file with a list
+  that omitted `pytest`, `pycryptodome` and `pyelftools` — while INSTALL.md
+  Step 6 still instructed customers to run `pytest`. A customer who followed
+  "install everything at once" literally had no pytest by the time they
+  reached Step 6. The commercial copy is deleted in `EDS-toolchain#<PR>`; this
+  file gains `anthropic` (for `eds_ai.py`) and the toolchain copy's tighter
+  `cryptography`/`PyJWT` pins so nothing is lost in the merge.
+- **INSTALL.md corrections found by executing it literally from a fresh
+  clone** (2026-09-11 validation campaign):
+  - the Developer tier list said **17** Jinja2 templates; there are **18**
+    (`ls tools/templates/*.j2`). Every other doc already said 18.
+  - Step 5's expected output showed "(5 standard files + 3 safety wrapper
+    files)" and `[5/5] Manifest skipped (--no-manifest).`; a real run of the
+    documented command writes **6** standard files (`dtc_config.h`, since
+    #176/#249), 3 safety files, 2 routine-handler files, and *writes* the
+    manifest.
+  - the Developer tier was described as including "7 specialist ECU
+    examples". Those examples are in the public repo; what the tier adds is
+    the codegen engine that regenerates their output.
+  - Step 3 claimed `tools/requirements.txt` installs "everything at once".
+    It does not include `python-can`, which is only needed for a real CAN
+    interface — now stated explicitly.
+
+
 - **`basic_ecu_freertos` and `sensor_ecu_freertos` advertised `-DBOARD=stm32h7`
   and `-DBOARD=stm32f4` options that could never produce a working image**
   (#272, found while fixing #268 — separate defect, deliberately not fixed
