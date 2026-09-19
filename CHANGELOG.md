@@ -43,6 +43,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   gated on `tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD`; uploads never
   touch image-policy state.
 
+- **#232 Phase 2, hardware-independent half — streaming SHA-256 and an
+  MCUboot image header/TLV parser.** `platform/uds_sha256.h/.c` is a
+  self-contained FIPS 180-4 SHA-256 with an init/update/final streaming
+  API, sized for digesting a firmware image incrementally across 0x36
+  TransferData blocks rather than buffering a whole image (there is no
+  NRC 0x78 mechanism to buy time at 0x37 — see #282). Verified against
+  the published NIST test vectors plus explicit boundary cases at message
+  lengths 55/56/57/63/64/65/119 bytes, which is where a subtle
+  off-by-one in the padding length field would otherwise hide.
+
+  `platform/uds_mcuboot_image.h/.c` decodes the 32-byte MCUboot image
+  header and iterates its TLV trailer (where the image's own SHA-256
+  digest and ECDSA-P256 signature live), byte-assembled from the wire
+  format rather than pointer-cast onto a `struct image_header *` — flash
+  buffers carry no alignment guarantee and a cast would be a MISRA
+  Rule 11.3 violation. Every length is bounds-checked by subtraction
+  against an already-proven upper bound, so a corrupt `it_len` cannot
+  produce an out-of-bounds offset; clean end-of-area and a malformed
+  trailer are distinct, explicit outcomes; a caller cannot mistake a
+  truncated signature TLV for "nothing more to read." Field layout and
+  every magic/type constant were taken directly from this repository's
+  own vendored `bootutil/image.h`, not reconstructed from memory.
+
+  Both modules are platform-layer (not `core/`, preserving the MISRA-zero
+  boundary), host-testable with no Zephyr dependency, and **unwired** —
+  nothing calls them yet. They are the hardware-independent half of the
+  Phase 2 Zephyr/MCUboot reference policy; the hardware-dependent half
+  (ECDSA-P256 verification against a real signing key, binding into
+  `service_0x36.c`/`service_0x37.c`, and calling `boot_request_upgrade()`)
+  is tracked on #277/#278 and waits on a NUCLEO-H743ZI2 on the bench.
+
 ## [1.15.0] — 2026-09-11
 
 ### Added
