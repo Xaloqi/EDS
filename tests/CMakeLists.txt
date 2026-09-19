@@ -383,6 +383,7 @@ set(DIAG_STACK_SRCS
     "${DIAG_SERVICES}/service_0x3D.c"   # WriteMemoryByAddress
     "${DIAG_CORE}/uds_transfer_ctx.c"   # DFU transfer state machine
     "${DIAG_PLATFORM}/uds_flash_ops.c"  # Flash ops singleton
+    "${DIAG_PLATFORM}/uds_image_policy.c"  # [#232] Image verification policy singleton
     # Transport
     "${DIAG_TRANSPORT}/isotp.c"
     "${DIAG_TRANSPORT}/can_transport.c"
@@ -664,6 +665,36 @@ add_diag_test(test_uds_acl_permissive_opt_in
         "${TEST_UNIT_DIR}/test_uds_acl_permissive_opt_in.c"
     DEFINES
         UDS_ACL_ALLOW_UNLISTED_SERVICES=1
+)
+
+# ---------------------------------------------------------------------------
+# test_image_policy  [#232 Phase 1] [#279]
+#      Module under test: platform/uds_image_policy.c plus the policy call
+#      sites in core/uds_services/service_0x34.c, service_0x36.c and
+#      service_0x37.c.  Default (development) build configuration: covers
+#      registration validation, the begin/update/finalise/commit/abort
+#      wiring, the verdict->NRC mapping, the #279 crc_check_requested
+#      binding and parameter-record ownership.
+# ---------------------------------------------------------------------------
+add_diag_test(test_image_policy
+    SOURCES
+        "${TEST_UNIT_DIR}/test_image_policy.c"
+)
+
+# ---------------------------------------------------------------------------
+# test_image_policy_fail_closed  [#232 Phase 1]
+#      Module under test: the PRODUCTION-configuration fail-closed DFU gates
+#      in core/uds_services/service_0x34.c and service_0x37.c.  Compiled
+#      with CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 so EDS_BUILD_IS_PRODUCTION
+#      is 1 and those two refusals are compiled in; they cannot be reached
+#      from the default host build used by every other module here.  Mirrors
+#      test_trng_fail_closed's per-target DEFINES pattern.
+# ---------------------------------------------------------------------------
+add_diag_test(test_image_policy_fail_closed
+    SOURCES
+        "${TEST_UNIT_DIR}/test_image_policy_fail_closed.c"
+    DEFINES
+        CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0
 )
 
 # ===========================================================================

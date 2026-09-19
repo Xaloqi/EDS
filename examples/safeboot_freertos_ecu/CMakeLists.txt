@@ -226,6 +226,7 @@ add_executable(eds_safeboot_freertos
     ${DIAG_ROOT}/platform/freertos/freertos_can.c
     ${DIAG_ROOT}/platform/freertos/freertos_nvm.c
     ${DIAG_ROOT}/platform/uds_flash_ops.c
+    ${DIAG_ROOT}/platform/uds_image_policy.c  # [#232] Image verification policy singleton
     ${DIAG_ROOT}/platform/freertos/freertos_flash_ops.c
 
     # Generated sources

@@ -197,6 +197,7 @@ STACK_SRCS=(
     "$ROOT/examples/${EXAMPLE}/generated/routine_handlers.c"
     "$ROOT/platform/zephyr/nvm_store_mock.c"
     "$ROOT/platform/uds_flash_ops.c"
+    "$ROOT/platform/uds_image_policy.c"
     "$ROOT/platform/zephyr/harness_flash_mock.c"
     "$ROOT/tests/mocks/zephyr_port_mock.c"
 )

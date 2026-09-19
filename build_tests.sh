@@ -223,6 +223,15 @@ extra_flags_for_test() {
             # test module compiles against the fail-closed default.
             echo "-DUDS_ACL_ALLOW_UNLISTED_SERVICES=1"
             ;;
+        test_image_policy_fail_closed)
+            # [#232] Forces EDS_BUILD_IS_PRODUCTION=1 in this TU and in the
+            # stack archive it links against, so the fail-closed DFU image
+            # policy gates in service_0x34.c / service_0x37.c are compiled
+            # in.  Same mechanism as test_trng_fail_closed above; the
+            # development-configuration half of the same feature is proven
+            # by test_image_policy, which uses the default flags.
+            echo "-DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0"
+            ;;
         *)
             echo ""
             ;;
@@ -292,6 +301,7 @@ STACK_SRCS=(
     "${ROOT}/core/uds_services/service_0x3D.c"   # WriteMemoryByAddress
     "${ROOT}/core/uds_transfer_ctx.c"             # DFU transfer state machine
     "${ROOT}/platform/uds_flash_ops.c"            # Flash ops singleton
+    "${ROOT}/platform/uds_image_policy.c"         # [#232] Image policy singleton
     # Transport
     "${ROOT}/transport/isotp.c"
     "${ROOT}/transport/can_transport.c"
@@ -374,6 +384,16 @@ TESTS=(
     # behaviour cannot be reached from the default (fail-closed) build used
     # by every other test in this list, including test_phase5_access_table.
     test_uds_acl_permissive_opt_in
+    # [#232] DFU image verification policy gate — development/CI half plus
+    # every build-mode-independent behaviour (registration validation,
+    # begin/update/finalise/commit/abort wiring, verdict->NRC mapping, the
+    # #279 crc_check_requested binding, parameter-record ownership).
+    test_image_policy
+    # [#232] PRODUCTION-configuration fail-closed half of the same gate.
+    # Compiled separately (see extra_flags_for_test above) with
+    # CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 because those two refusals cannot
+    # be reached from the default dev-configuration build.
+    test_image_policy_fail_closed
 )
 
 # ---------------------------------------------------------------------------

@@ -367,6 +367,23 @@ static uds_nrc_t srv_status_to_nrc(uds_status_t status)
             return UDS_NRC_UPLOAD_DOWNLOAD_NOT_ACCEPTED;   /* NRC 0x70 */
 
         /*
+         * [#232] DFU image policy gate.  Both map to NRC 0x22
+         * (conditionsNotCorrect) — the same NRC the `default:` arm would
+         * produce, but listed explicitly so the mapping is a reviewed
+         * decision rather than a fall-through, and so a future change to
+         * the default arm cannot silently move them.
+         *
+         *   ERR_IMAGE_POLICY_ABSENT   — no policy registered on a
+         *                               production build (0x34 gate, and
+         *                               the 0x37 defence-in-depth re-check)
+         *   ERR_IMAGE_POLICY_REJECTED — finalise_cb returned
+         *                               UDS_IMAGE_REJECT_POLICY
+         */
+        case UDS_STATUS_ERR_IMAGE_POLICY_ABSENT:
+        case UDS_STATUS_ERR_IMAGE_POLICY_REJECTED:
+            return UDS_NRC_CONDITIONS_NOT_CORRECT;         /* NRC 0x22 */
+
+        /*
          * UDS_STATUS_ERR_PLATFORM is reused for flash write/verify failures
          * and erase failures in the download services:
          *   service_0x34: erase failure        → NRC 0x70

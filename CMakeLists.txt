@@ -411,6 +411,7 @@ if(EDS_PLATFORM STREQUAL "zephyr")
         platform/zephyr/zephyr_wdt.c
         platform/zephyr/zephyr_platform_api.c
         platform/uds_flash_ops.c
+        platform/uds_image_policy.c  # [#232] Image verification policy singleton
     )
 
     target_include_directories(app PRIVATE
@@ -443,6 +444,7 @@ elseif(EDS_PLATFORM STREQUAL "freertos")
         platform/freertos/freertos_can.c
         platform/freertos/freertos_nvm.c
         platform/uds_flash_ops.c
+        platform/uds_image_policy.c  # [#232] Image verification policy singleton
         # FreeRTOS kernel sources
         ${FREERTOS_DIR}/tasks.c
         ${FREERTOS_DIR}/queue.c
