@@ -244,11 +244,21 @@ uds_status_t nvm_store_delete(uint16_t key)
 
 uds_status_t nvm_store_erase_all(void)
 {
-    int rc;
+    int     rc;
+    uint8_t sec_state_buf[NVM_MAX_RECORD_BYTES];
+    size_t  sec_state_len = (size_t)0U;
+    bool    sec_state_present;
 
     if (!s_initialized) {
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
+
+    /* [#280] NVM_KEY_SEC_STATE must survive this call — see the contract
+     * in nvm_store.h. nvs_clear() has no per-key selectivity, so preserve
+     * the record's raw bytes across the clear and restore them after. */
+    sec_state_present =
+        (nvm_store_read((uint16_t)NVM_KEY_SEC_STATE, sec_state_buf,
+                        sizeof(sec_state_buf), &sec_state_len) == UDS_STATUS_OK);
 
     rc = nvs_clear(&s_nvs_fs);
     if (rc < 0) {
@@ -261,7 +271,12 @@ uds_status_t nvm_store_erase_all(void)
     (void)nvs_write(&s_nvs_fs, (uint16_t)NVM_KEY_SCHEMA_VERSION,
                     &current, sizeof(current));
 
-    LOG_WRN("NVM store: all records erased (factory reset)");
+    if (sec_state_present) {
+        (void)nvs_write(&s_nvs_fs, (uint16_t)NVM_KEY_SEC_STATE,
+                        sec_state_buf, sec_state_len);
+    }
+
+    LOG_WRN("NVM store: all records erased except NVM_KEY_SEC_STATE (factory reset)");
     return UDS_STATUS_OK;
 }
 

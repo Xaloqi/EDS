@@ -14,7 +14,7 @@
  * DESIGN:
  *   - 16 record slots keyed by uint16_t NVM_KEY_*.
  *   - Each slot holds up to NVM_MAX_RECORD_BYTES bytes.
- *   - nvm_store_erase_all() clears all slots.
+ *   - nvm_store_erase_all() clears all slots except NVM_KEY_SEC_STATE (#280).
  *   - Simulates power-cycle by allowing controlled resets via nvm_mock_reset().
  *
  * SAFETY  : Test-only. NOT for production firmware.
@@ -202,15 +202,29 @@ uds_status_t nvm_store_delete(uint16_t key)
 
 uds_status_t nvm_store_erase_all(void)
 {
+    uint8_t sec_state_buf[NVM_MAX_RECORD_BYTES];
+    size_t  sec_state_len = (size_t)0U;
+    bool    sec_state_present;
+
     if (!s_initialized) {
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
+
+    /* [#280] NVM_KEY_SEC_STATE must survive this call — see the contract
+     * in nvm_store.h. Preserve its raw bytes across the wipe. */
+    sec_state_present =
+        (nvm_store_read((uint16_t)NVM_KEY_SEC_STATE, sec_state_buf,
+                        sizeof(sec_state_buf), &sec_state_len) == UDS_STATUS_OK);
 
     (void)memset(s_records, 0, sizeof(s_records));
 
     /* Re-write schema version to maintain initialized state. */
     uint16_t ver = (uint16_t)NVM_SCHEMA_VERSION_CURRENT;
     (void)nvm_store_write((uint16_t)NVM_KEY_SCHEMA_VERSION, &ver, sizeof(ver));
+
+    if (sec_state_present) {
+        (void)nvm_store_write((uint16_t)NVM_KEY_SEC_STATE, sec_state_buf, sec_state_len);
+    }
 
     return UDS_STATUS_OK;
 }

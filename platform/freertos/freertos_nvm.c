@@ -214,10 +214,12 @@ uds_status_t nvm_store_delete(uint16_t key)
 
 uds_status_t nvm_store_erase_all(void)
 {
+    /* [#280] NVM_KEY_SEC_STATE is deliberately NOT in this list — see the
+     * contract in nvm_store.h. This primitive has no authorization concept
+     * of its own, so it must not be able to clear the SecurityAccess
+     * lockout record as an unreviewed side effect of a diagnostics-related
+     * reset. Formerly included [EDS#211]; removed here, not renamed. */
     uint16_t     keys[] = {
-        (uint16_t)NVM_KEY_SEC_STATE, /* [EDS#211] replaces the former
-                                       * NVM_KEY_SEC_ATTEMPT_CTR +
-                                       * NVM_KEY_SEC_LOCKOUT_MS pair. */
         (uint16_t)NVM_KEY_DTC_MIRROR,
         (uint16_t)NVM_KEY_SESSION_STATS,
         (uint16_t)NVM_KEY_LIFECYCLE_CNT,
