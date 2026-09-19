@@ -1075,6 +1075,162 @@ jobs:
             build/zephyr/zephyr.hex
             build/zephyr/zephyr.bin
 
+  # ── Job 4b: Zephyr build — safeboot_ecu / nucleo_h743zi ───────────────────
+  #
+  # Cross-compiles safeboot_ecu (MCUboot DFU over UDS, 0x34/0x36/0x37) for
+  # nucleo_h743zi — the board being prepared for real-hardware bring-up.
+  # Closes the compile-verification gap flagged by PR #205 / issue #200:
+  # safeboot_ecu's nvm_store_init() wiring (#200) was believed correct but
+  # had never actually been built by CI (example-safeboot only validates
+  # generated YAML/files via Python assertions, never a real `west build`).
+  #
+  # TOOLCHAIN: Zephyr SDK 0.16.8 (arm-zephyr-eabi cross-compiler) — same as
+  # zephyr-stm32 above.
+  #
+  # [RC-7] SDK installation method — see header comment for full explanation.
+  #   Only the minimal bundle is downloaded manually.
+  #   setup.sh -t arm-zephyr-eabi downloads and extracts the ARM toolchain
+  #   using its own internal "tar xf tarball -C SDK_DIR" (no strip), which
+  #   always produces: SDK_DIR/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc
+  #
+  # Board overlay/conf: safeboot_ecu has its OWN example-local copies at
+  # examples/safeboot_ecu/boards/nucleo_h743zi/ (not the top-level
+  # boards/nucleo_h743zi/ used by basic_ecu) — these define the eds_nvs_slot
+  # NVS partition (and MCUboot slot partitions) that main.c's
+  # nvm_store_init() call depends on via FIXED_PARTITION_DEVICE/OFFSET.
+  # ──────────────────────────────────────────────────────────────────────────
+  zephyr-stm32-safeboot:
+
+    name: "Zephyr Build — safeboot_ecu / nucleo_h743zi (cross-compile)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget xz-utils
+
+      - name: Install west
+        run: pip install west
+
+      # [RC-7] Install Zephyr SDK — minimal bundle only, then setup.sh handles
+      # the ARM toolchain download and extraction with correct directory layout.
+      #
+      # Step-by-step:
+      #   1. Download zephyr-sdk-0.16.8_linux-x86_64_minimal.tar.xz
+      #      This tarball has: zephyr-sdk-0.16.8/ at root (version wrapper present).
+      #      --strip-components=1 removes the wrapper, placing setup.sh and cmake/
+      #      directly into SDK_DIR. This is correct for the minimal bundle.
+      #
+      #   2. Run setup.sh -t arm-zephyr-eabi
+      #      setup.sh checks: does SDK_DIR/arm-zephyr-eabi/ exist?
+      #      No → downloads toolchain_linux-x86_64_arm-zephyr-eabi.tar.xz from
+      #      GitHub and extracts it with: tar xf tarball -C SDK_DIR
+      #      (no --strip-components). The tarball has arm-zephyr-eabi/ at root
+      #      (no version wrapper), so extraction gives SDK_DIR/arm-zephyr-eabi/.
+      #      setup.sh also sets executable bits and creates the cmake config file.
+      #
+      #   3. Run setup.sh -c
+      #      Registers ~/.cmake/packages/Zephyr-sdk/ so find_package(Zephyr-sdk)
+      #      resolves without needing ZEPHYR_SDK_INSTALL_DIR in the environment.
+      #
+      #   4. Verify arm-zephyr-eabi-gcc exists and is executable before
+      #      handing off to west. Fail fast with a clear error if setup failed.
+      - name: Install Zephyr SDK (ARM toolchain via setup.sh)
+        run: |
+          SDK_VER="${ZEPHYR_SDK_VERSION}"
+          SDK_DIR="${HOME}/zephyr-sdk-${SDK_VER}"
+          BASE_URL="https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VER}"
+
+          echo "=== Downloading minimal bundle ==="
+          wget -q --show-progress \
+            "${BASE_URL}/zephyr-sdk-${SDK_VER}_linux-x86_64_minimal.tar.xz" \
+            -O /tmp/zephyr-sdk-minimal.tar.xz
+
+          echo "=== Extracting minimal bundle ==="
+          mkdir -p "${SDK_DIR}"
+          tar -xf /tmp/zephyr-sdk-minimal.tar.xz --strip-components=1 -C "${SDK_DIR}"
+
+          if [ ! -f "${SDK_DIR}/setup.sh" ]; then
+            echo "ERROR: setup.sh not found in ${SDK_DIR}"
+            ls -la "${SDK_DIR}"
+            exit 1
+          fi
+
+          echo "=== Installing ARM toolchain via setup.sh ==="
+          cd "${SDK_DIR}"
+          bash setup.sh -t arm-zephyr-eabi -c
+
+          echo "=== Verifying toolchain binary ==="
+          GCC="${SDK_DIR}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc"
+          if [ ! -x "${GCC}" ]; then
+            echo "ERROR: ${GCC} not found or not executable"
+            echo "SDK_DIR contents:"
+            ls -la "${SDK_DIR}/"
+            echo "arm-zephyr-eabi (if present):"
+            ls -la "${SDK_DIR}/arm-zephyr-eabi/" 2>/dev/null || echo "  (absent)"
+            exit 1
+          fi
+          echo "PASS: ${GCC}"
+          echo "ZEPHYR_SDK_INSTALL_DIR=${SDK_DIR}" >> "${GITHUB_ENV}"
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: Install project Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Verify pre-committed generated files are present
+        working-directory: EDS
+        run: |
+          for f in examples/safeboot_ecu/generated/uds_init.c \
+                   examples/safeboot_ecu/generated/did_handlers.c \
+                   examples/safeboot_ecu/generated/safety_config.h \
+                   examples/safeboot_ecu/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
+
+      - name: West build — safeboot_ecu / nucleo_h743zi
+        run: |
+          west build \
+            --pristine \
+            -b nucleo_h743zi \
+            EDS/examples/safeboot_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/examples/safeboot_ecu/boards/nucleo_h743zi/nucleo_h743zi.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/examples/safeboot_ecu/boards/nucleo_h743zi/nucleo_h743zi.overlay"
+
+      - name: Verify ELF + HEX output
+        run: |
+          test -f build/zephyr/zephyr.elf && echo "PASS: .elf" || exit 1
+          test -f build/zephyr/zephyr.hex && echo "PASS: .hex" || exit 1
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: safeboot-nucleo_h743zi-firmware
+          path: |
+            build/zephyr/zephyr.elf
+            build/zephyr/zephyr.hex
+            build/zephyr/zephyr.bin
+
   # ── Job 5b: Zephyr build — frdm_mcxn947 ─────────────────────────────────────
   #
   # Cross-compiles basic_ecu for the NXP FRDM-MCXN947 (MCX N947, Cortex-M33).
