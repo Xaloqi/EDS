@@ -244,10 +244,11 @@ uds_status_t nvm_store_delete(uint16_t key)
 
 uds_status_t nvm_store_erase_all(void)
 {
-    int     rc;
-    uint8_t sec_state_buf[NVM_MAX_RECORD_BYTES];
-    size_t  sec_state_len = (size_t)0U;
-    bool    sec_state_present;
+    int          rc;
+    uint8_t      sec_state_buf[NVM_MAX_RECORD_BYTES];
+    size_t       sec_state_len = (size_t)0U;
+    bool         sec_state_present;
+    uds_status_t read_rc;
 
     if (!s_initialized) {
         return UDS_STATUS_ERR_NOT_INITIALIZED;
@@ -255,10 +256,26 @@ uds_status_t nvm_store_erase_all(void)
 
     /* [#280] NVM_KEY_SEC_STATE must survive this call — see the contract
      * in nvm_store.h. nvs_clear() has no per-key selectivity, so preserve
-     * the record's raw bytes across the clear and restore them after. */
-    sec_state_present =
-        (nvm_store_read((uint16_t)NVM_KEY_SEC_STATE, sec_state_buf,
-                        sizeof(sec_state_buf), &sec_state_len) == UDS_STATUS_OK);
+     * the record's raw bytes across the clear and restore them after.
+     *
+     * Only a CONFIRMED absence (DID_NOT_FOUND) is safe to proceed on. Any
+     * other read outcome (a flash/ECC read error on an otherwise-valid
+     * record, say) is ambiguous — we cannot tell "never written" from
+     * "written, but unreadable right now" — and proceeding could silently
+     * destroy a real lockout record. Fail closed: refuse the whole erase
+     * rather than risk that, exactly the class of trap #280 exists to
+     * remove. */
+    read_rc = nvm_store_read((uint16_t)NVM_KEY_SEC_STATE, sec_state_buf,
+                             sizeof(sec_state_buf), &sec_state_len);
+    if (read_rc == UDS_STATUS_OK) {
+        sec_state_present = true;
+    } else if (read_rc == UDS_STATUS_ERR_DID_NOT_FOUND) {
+        sec_state_present = false;
+    } else {
+        LOG_ERR("NVM store: erase_all aborted — could not confirm "
+                "NVM_KEY_SEC_STATE absence (rc=%d)", (int)read_rc);
+        return UDS_STATUS_ERR_PLATFORM;
+    }
 
     rc = nvs_clear(&s_nvs_fs);
     if (rc < 0) {
@@ -272,8 +289,16 @@ uds_status_t nvm_store_erase_all(void)
                     &current, sizeof(current));
 
     if (sec_state_present) {
-        (void)nvs_write(&s_nvs_fs, (uint16_t)NVM_KEY_SEC_STATE,
-                        sec_state_buf, sec_state_len);
+        rc = nvs_write(&s_nvs_fs, (uint16_t)NVM_KEY_SEC_STATE,
+                       sec_state_buf, sec_state_len);
+        if (rc < 0) {
+            /* The clear already happened and cannot be undone; report the
+             * failure honestly rather than claim OK while the #280
+             * invariant silently did not hold. */
+            LOG_ERR("NVM store: erase_all cleared but NVM_KEY_SEC_STATE "
+                    "restore failed (rc=%d)", rc);
+            return UDS_STATUS_ERR_PLATFORM;
+        }
     }
 
     LOG_WRN("NVM store: all records erased except NVM_KEY_SEC_STATE (factory reset)");

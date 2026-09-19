@@ -360,8 +360,13 @@ void test_nvm_mock_data_survives_deinit_reinit(void)
 void test_nvm_erase_all_wipes_records(void)
 {
     uint32_t val = 0xCAFEF00DUL;
+    uint8_t  dtc_val = 0x42U;
     TEST_ASSERT_EQUAL(UDS_STATUS_OK,
         nvm_store_write(NVM_KEY_LIFECYCLE_CNT, &val, sizeof(val)));
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_DTC_MIRROR, &dtc_val, sizeof(dtc_val)));
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_SESSION_STATS, &dtc_val, sizeof(dtc_val)));
 
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, nvm_store_erase_all());
 
@@ -370,6 +375,10 @@ void test_nvm_erase_all_wipes_records(void)
     uds_status_t     rc = nvm_store_read(NVM_KEY_LIFECYCLE_CNT, &readback,
                                           sizeof(readback), &len);
     TEST_ASSERT_EQUAL(UDS_STATUS_ERR_DID_NOT_FOUND, rc);
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_DID_NOT_FOUND,
+        nvm_store_read(NVM_KEY_DTC_MIRROR, &dtc_val, sizeof(dtc_val), &len));
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_DID_NOT_FOUND,
+        nvm_store_read(NVM_KEY_SESSION_STATS, &dtc_val, sizeof(dtc_val), &len));
 }
 
 /* 12b. [#280] ... but NOT NVM_KEY_SEC_STATE — it has no authorization

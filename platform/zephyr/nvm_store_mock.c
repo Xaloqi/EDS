@@ -202,19 +202,30 @@ uds_status_t nvm_store_delete(uint16_t key)
 
 uds_status_t nvm_store_erase_all(void)
 {
-    uint8_t sec_state_buf[NVM_MAX_RECORD_BYTES];
-    size_t  sec_state_len = (size_t)0U;
-    bool    sec_state_present;
+    uint8_t      sec_state_buf[NVM_MAX_RECORD_BYTES];
+    size_t       sec_state_len = (size_t)0U;
+    bool         sec_state_present;
+    uds_status_t read_rc;
+    uds_status_t write_rc;
 
     if (!s_initialized) {
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
     /* [#280] NVM_KEY_SEC_STATE must survive this call — see the contract
-     * in nvm_store.h. Preserve its raw bytes across the wipe. */
-    sec_state_present =
-        (nvm_store_read((uint16_t)NVM_KEY_SEC_STATE, sec_state_buf,
-                        sizeof(sec_state_buf), &sec_state_len) == UDS_STATUS_OK);
+     * in nvm_store.h. Only a CONFIRMED absence (DID_NOT_FOUND) is safe to
+     * proceed on; any other read outcome is ambiguous and this mock should
+     * fail the same way the real backend does, so tests exercise the real
+     * contract rather than a looser one. */
+    read_rc = nvm_store_read((uint16_t)NVM_KEY_SEC_STATE, sec_state_buf,
+                             sizeof(sec_state_buf), &sec_state_len);
+    if (read_rc == UDS_STATUS_OK) {
+        sec_state_present = true;
+    } else if (read_rc == UDS_STATUS_ERR_DID_NOT_FOUND) {
+        sec_state_present = false;
+    } else {
+        return UDS_STATUS_ERR_PLATFORM;
+    }
 
     (void)memset(s_records, 0, sizeof(s_records));
 
@@ -223,7 +234,12 @@ uds_status_t nvm_store_erase_all(void)
     (void)nvm_store_write((uint16_t)NVM_KEY_SCHEMA_VERSION, &ver, sizeof(ver));
 
     if (sec_state_present) {
-        (void)nvm_store_write((uint16_t)NVM_KEY_SEC_STATE, sec_state_buf, sec_state_len);
+        write_rc = nvm_store_write((uint16_t)NVM_KEY_SEC_STATE, sec_state_buf, sec_state_len);
+        if (write_rc != UDS_STATUS_OK) {
+            /* The wipe already happened; report honestly rather than claim
+             * OK while the #280 invariant silently did not hold. */
+            return UDS_STATUS_ERR_PLATFORM;
+        }
     }
 
     return UDS_STATUS_OK;

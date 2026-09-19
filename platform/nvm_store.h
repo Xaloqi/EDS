@@ -247,11 +247,15 @@ uds_status_t nvm_store_delete(uint16_t key);
  * primitive has no authorization concept of its own — it is a plain C
  * function, not a UDS service with a SecurityAccess level attached — so
  * any future diagnostic-reachable reset routine that calls it must not be
- * able to clear the lockout state as an unreviewed side effect. Only the
- * schema-migration path (which erases everything, including
- * NVM_KEY_SEC_STATE, via its own separate wipe — see nvm_migrate_schema()
- * in platform/zephyr/nvm_store.c) is privileged enough to do that; it does
- * not call this function. A caller that genuinely needs to reset
+ * able to clear the lockout state as an unreviewed side effect. Of this
+ * function's own callers, only the schema-migration path is privileged
+ * enough to still wipe it, and does so
+ * explicitly rather than relying on this function's blast radius — on
+ * Zephyr, nvm_migrate_schema() (platform/zephyr/nvm_store.c) calls
+ * nvs_clear() directly and never calls this function at all; on FreeRTOS,
+ * nvm_check_schema() (platform/freertos/freertos_nvm.c) calls this
+ * function for its general wipe and then separately re-asserts the
+ * NVM_KEY_SEC_STATE wipe itself. A caller that genuinely needs to reset
  * NVM_KEY_SEC_STATE alongside a call to this one must do so explicitly,
  * with nvm_store_delete(NVM_KEY_SEC_STATE) or nvm_store_write(), under its
  * own authorization check — never implicitly via this primitive's blast
