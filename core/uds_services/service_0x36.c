@@ -33,7 +33,11 @@
  *   NRC 0x31 (requestOutOfRange)                      — payload exceeds
  *                                                        bytes_remaining;
  *                                                        transfer is aborted
- *   NRC 0x72 (generalProgrammingFailure)              — flash write failed
+ *   NRC 0x72 (generalProgrammingFailure)              — flash write failed, or
+ *                                                        the registered image
+ *                                                        policy's update_cb
+ *                                                        refused the block
+ *                                                        (issue #232)
  *
  * BLOCK COUNTER WRAP LOGIC (REQ-DL-001):
  *
@@ -71,6 +75,7 @@
 #include "uds_server.h"
 #include "uds_transfer_ctx.h"
 #include "uds_flash_ops.h"
+#include "uds_image_policy.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -234,6 +239,7 @@ uds_status_t uds_service_0x36_handler(
      * well-formed. Reject and abort instead (mirrors the 0x37 handling of
      * REQ-DL-002 for the "too few bytes" case). */
     if ((uint32_t)payload_len > tctx->bytes_remaining) {
+        uds_image_policy_notify_abort();            /* [#232] drop partial state */
         uds_transfer_ctx_reset(tctx); /* abort — REQ-DL-003 */
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE; /* NRC 0x31 */
     }
@@ -243,6 +249,52 @@ uds_status_t uds_service_0x36_handler(
         tctx->crc_accumulator,
         payload,
         (uint32_t)payload_len);
+
+    /* ----------------------------------------------------------------------
+     * [#232 Phase 1] Stream the SAME byte range to the image policy.
+     *
+     * The digest is accumulated here, block by block, rather than computed
+     * over the whole image at 0x37, because the server has no NRC 0x78
+     * (responsePending) mechanism and P2server_max is 50 ms (issue #282) —
+     * a whole-image hash at transfer exit would blow the timer on any
+     * realistic image size.
+     *
+     * OFFSET DERIVATION: bytes_remaining is decremented for this block
+     * further down, AFTER the write-buffer loop.  It therefore still holds
+     * the pre-block value here, and
+     *
+     *     image_offset = total_size_bytes - bytes_remaining
+     *
+     * is the offset at which THIS chunk starts, not the one at which it
+     * ends.  Ranges handed to update_cb are consequently contiguous,
+     * non-overlapping, and cover [0, total_size_bytes) exactly once:
+     * bytes_remaining only ever moves by exactly the number of payload
+     * bytes just passed to update_cb, and an over-long block is rejected
+     * above before reaching this point.
+     * -------------------------------------------------------------------- */
+    {
+        const uds_image_policy_t *policy = uds_image_policy_get();
+
+        if (policy != NULL) {
+            uint32_t image_offset =
+                tctx->total_size_bytes - tctx->bytes_remaining;
+
+            status = policy->update_cb(image_offset,
+                                        payload,
+                                        (uint32_t)payload_len);
+            if (status != UDS_STATUS_OK) {
+                uds_image_policy_notify_abort();
+                uds_transfer_ctx_reset(tctx); /* abort — REQ-DL-003 */
+                /* NRC 0x72 generalProgrammingFailure — same NRC a flash
+                 * write failure produces below, reached through the status
+                 * code that says "transfer aborted" rather than the one
+                 * that says "flash driver fault", so a policy refusal stays
+                 * distinguishable from a hardware failure internally while
+                 * being indistinguishable on the wire. */
+                return UDS_STATUS_ERR_TRANSFER_ABORTED;
+            }
+        }
+    }
 
     /* --- Accumulate bytes into write_buf, flushing full chunks --- */
     src_offset = (uint16_t)0U;
@@ -267,6 +319,7 @@ uds_status_t uds_service_0x36_handler(
         if (tctx->write_buf_fill >= tctx->write_buf_capacity) {
             status = s_flush_write_buf(tctx, ops);
             if (status != UDS_STATUS_OK) {
+                uds_image_policy_notify_abort();  /* [#232] drop partial state */
                 uds_transfer_ctx_reset(tctx); /* abort on failure */
                 return UDS_STATUS_ERR_PLATFORM;
             }

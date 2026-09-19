@@ -171,6 +171,27 @@ typedef enum uds_status {
                                                          ERR_NOT_INITIALIZED (no record
                                                          present / module not ready). */
 
+    /* --- DFU image policy errors (issue #232, Phase 1) --- */
+    UDS_STATUS_ERR_IMAGE_POLICY_ABSENT   = 0x63U, /**< No uds_image_policy_t was
+                                                         registered when a download
+                                                         service required one — the
+                                                         fail-closed production gate
+                                                         in service_0x34.c /
+                                                         service_0x37.c (NRC 0x22).
+                                                         Distinct from
+                                                         ERR_CONDITIONS_NOT_MET so the
+                                                         safety violation counter can
+                                                         tell "DFU is unverified" apart
+                                                         from every other
+                                                         conditions-not-correct case. */
+    UDS_STATUS_ERR_IMAGE_POLICY_REJECTED = 0x64U, /**< The registered image policy
+                                                         refused the image with
+                                                         UDS_IMAGE_REJECT_POLICY — an
+                                                         integrator-specific refusal
+                                                         that is not a signature,
+                                                         digest, format or rollback
+                                                         failure (NRC 0x22). */
+
     UDS_STATUS_MAX                                /**< Sentinel — do not use as return value. */
 } uds_status_t;
 

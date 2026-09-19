@@ -260,6 +260,7 @@ target_sources(app PRIVATE
     ${EDS_SERVICE_SRCS}
     ${DIAG_ROOT}/core/uds_transfer_ctx.c                # DFU transfer state machine + CRC-32
     ${DIAG_ROOT}/platform/uds_flash_ops.c               # Flash ops registration singleton
+    ${DIAG_ROOT}/platform/uds_image_policy.c  # [#232] Image verification policy singleton
 
     # ── ISO-TP and CAN transport ──────────────────────────────────────────
     ${DIAG_ROOT}/transport/isotp.c

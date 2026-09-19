@@ -130,6 +130,7 @@ add_executable(eds_freertos_doip
     ${EDS_SERVICE_SRCS}
     ${DIAG_ROOT}/core/uds_transfer_ctx.c
     ${DIAG_ROOT}/platform/uds_flash_ops.c
+    ${DIAG_ROOT}/platform/uds_image_policy.c  # [#232] Image verification policy singleton
 
     # DoIP transport (FreeRTOS + LwIP binding)
     ${DIAG_ROOT}/transport/doip/doip_server.c
