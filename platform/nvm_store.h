@@ -126,6 +126,20 @@ extern "C" {
  * UDS_SECURITY_NVM_RECORD_BYTES = 12 bytes — see
  * core/uds_security_nvm.h), which is exactly the set of keys this
  * translation should ever be applied to.
+ *
+ * KNOWN, ACCEPTED LIMITATION — a sentinel can only ever be a heuristic,
+ * not a true delete: a genuinely corrupted record (e.g. a torn flash
+ * write on the customer's own driver) that happens to land on exactly
+ * this byte pattern is indistinguishable from a deliberate delete and
+ * is ALSO reported as absent rather than failing closed as corrupt.
+ * Every other corruption signature (any other length, or a full-length
+ * record with a bad magic/version/CRC) is unaffected and still fails
+ * closed. This is a real, accepted trade-off, not an oversight: before
+ * this convention existed, EVERY delete on such a backend was a
+ * guaranteed, 100%-reproducible false failure; after it, only a narrow,
+ * driver-dependent corruption coincidence could produce one. The only
+ * way to close this residual gap entirely is a true delete primitive —
+ * eds_nvm_ops_t (platform_api.h) has none today.
  */
 #define NVM_STORE_DELETE_SENTINEL_LEN  ((size_t)1U)
 #define NVM_STORE_DELETE_SENTINEL_BYTE ((uint8_t)0x00U)

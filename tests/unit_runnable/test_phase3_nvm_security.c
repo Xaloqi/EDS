@@ -544,7 +544,7 @@ void test_load_reports_corrupt_on_truncated_record(void)
  * this fail-closed guarantee holds on every OTHER backend. */
 void test_load_reports_corrupt_on_sentinel_pattern_from_true_delete_backend(void)
 {
-    uint8_t sentinel[1] = { 0x00U };
+    uint8_t sentinel[NVM_STORE_DELETE_SENTINEL_LEN] = { NVM_STORE_DELETE_SENTINEL_BYTE };
 
     TEST_ASSERT_EQUAL(UDS_STATUS_OK,
         nvm_store_write(NVM_KEY_SEC_STATE, sentinel, sizeof(sentinel)));

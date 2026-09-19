@@ -75,6 +75,14 @@ static eds_nvm_ops_t s_ops;
 /** True after nvm_store_init() completes successfully. */
 static bool s_initialized = false;
 
+/** The delete-sentinel byte pattern (NVM_STORE_DELETE_SENTINEL_LEN/_BYTE,
+ *  nvm_store.h), as a single shared buffer rather than a duplicate
+ *  local + memset() at each of this file's two write sites
+ *  (nvm_store_delete(), nvm_store_erase_all()). */
+static const uint8_t s_delete_sentinel[NVM_STORE_DELETE_SENTINEL_LEN] = {
+    NVM_STORE_DELETE_SENTINEL_BYTE
+};
+
 /* --------------------------------------------------------------------------
  * Internal helpers
  * -------------------------------------------------------------------------- */
@@ -233,6 +241,26 @@ uds_status_t nvm_store_read(uint16_t key, void *data, size_t len,
      * default-off flag, say). Narrowing to the one key this stack
      * itself ever deletes avoids reinterpreting a customer's own
      * genuine data as "deleted".
+     *
+     * KNOWN, ACCEPTED RESIDUAL LIMITATION: this is a sentinel, not a true
+     * delete, and a sentinel can only ever be a heuristic. A genuinely
+     * corrupted NVM_KEY_SEC_STATE record that happens to land on exactly
+     * this 1-byte, 0x00 pattern (a torn/partial flash write on the
+     * customer's driver that commits only the first byte, which happens
+     * to read back as 0x00) is indistinguishable from a deliberate
+     * delete and is now ALSO reported as DID_NOT_FOUND rather than
+     * failing closed as corrupt. Every OTHER possible corruption
+     * signature — any other length, or a full 12 bytes with a bad magic/
+     * version/CRC — still correctly fails closed via
+     * core/uds_security_nvm.c's unchanged checks; only this exact byte
+     * pattern is affected, and there is no way to widen coverage further
+     * without a true delete primitive in eds_nvm_ops_t (no such
+     * primitive exists today — see #285's tracking issue for the
+     * deeper fix). Accepted trade-off: before this fix, EVERY delete
+     * was a guaranteed, 100%-reproducible lockout; after this fix, only
+     * a narrow, driver-dependent corruption coincidence could produce
+     * one — a strict improvement, not a complete elimination, of the
+     * risk.
      */
     if ((key == (uint16_t)NVM_KEY_SEC_STATE) &&
         (rc == UDS_STATUS_OK) &&
@@ -255,11 +283,7 @@ uds_status_t nvm_store_read(uint16_t key, void *data, size_t len,
 
 uds_status_t nvm_store_delete(uint16_t key)
 {
-    uint8_t sentinel[NVM_STORE_DELETE_SENTINEL_LEN];
-
     if (!s_initialized) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
-
-    (void)memset(sentinel, (int)NVM_STORE_DELETE_SENTINEL_BYTE, sizeof(sentinel));
 
     /*
      * FreeRTOS NVM does not have a native delete primitive — the customer's
@@ -276,7 +300,7 @@ uds_status_t nvm_store_delete(uint16_t key)
      * call nvm_store_erase_all() instead.
      */
     if (s_ops.write != NULL) {
-        (void)s_ops.write(key, sentinel, sizeof(sentinel));
+        (void)s_ops.write(key, s_delete_sentinel, sizeof(s_delete_sentinel));
     }
 
     return UDS_STATUS_OK;
@@ -301,20 +325,15 @@ uds_status_t nvm_store_erase_all(void)
         (uint16_t)NVM_KEY_LIFECYCLE_CNT,
         (uint16_t)NVM_KEY_SCHEMA_VERSION,
     };
-    /* Same pattern nvm_store_delete() writes — see NVM_STORE_DELETE_
-     * SENTINEL_LEN/_BYTE in nvm_store.h. Named here rather than a raw
-     * literal so the one other producer of this exact byte pattern in
-     * this file stays discoverable by grepping for the constant. */
-    uint8_t      sentinel[NVM_STORE_DELETE_SENTINEL_LEN];
     uint8_t      i;
 
     if (!s_initialized) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
     if (s_ops.write == NULL) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
 
-    (void)memset(sentinel, (int)NVM_STORE_DELETE_SENTINEL_BYTE, sizeof(sentinel));
-
+    /* Same s_delete_sentinel nvm_store_delete() writes — see
+     * NVM_STORE_DELETE_SENTINEL_LEN/_BYTE in nvm_store.h. */
     for (i = 0U; i < (uint8_t)(sizeof(keys) / sizeof(keys[0])); i++) {
-        (void)s_ops.write(keys[i], sentinel, sizeof(sentinel));
+        (void)s_ops.write(keys[i], s_delete_sentinel, sizeof(s_delete_sentinel));
     }
 
     /* Re-write schema version so the store is ready after erase. */

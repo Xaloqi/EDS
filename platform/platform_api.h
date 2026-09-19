@@ -234,18 +234,12 @@ typedef uds_status_t (*eds_can_send_fn_t)(const eds_can_frame_t *frame);
  * Matches the nvm_store_* API contract: key-value store, uint16_t keys.
  *
  * CONTRACT — read()'s out_len: MUST report the number of bytes actually
- * available for this key (i.e. the length of the most recent successful
- * write to it), NOT a fixed per-key slot capacity. [#285]
- * platform/freertos/freertos_nvm.c's nvm_store_delete() relies on this:
- * it has no native delete primitive, so it overwrites the record with a
- * single-byte sentinel (NVM_STORE_DELETE_SENTINEL_LEN/_BYTE,
- * nvm_store.h) and nvm_store_read() recognizes that pattern specifically
- * by out_len == 1 — a driver whose read() instead always reports the
- * slot's maximum capacity would defeat that recognition and reproduce
- * the exact corrupt-record-instead-of-absent defect #285 fixed, for
- * NVM_KEY_SEC_STATE specifically (fails the magic-byte/CRC checks in
- * core/uds_security_nvm.c on the sentinel's overwritten first byte,
- * rather than being recognized as a clean delete).
+ * available for this key (the length of the most recent successful write
+ * to it), NOT a fixed per-key slot capacity. [#285] A driver that always
+ * reports slot capacity defeats platform/freertos/freertos_nvm.c's
+ * delete-sentinel recognition — see NVM_STORE_DELETE_SENTINEL_LEN/_BYTE
+ * in nvm_store.h for the full mechanism and consequence of getting this
+ * wrong.
  */
 typedef struct {
     uds_status_t (*read) (uint16_t key, uint8_t *buf, size_t len,

@@ -45,6 +45,16 @@
  * driver's correctness (irrelevant here; freertos_nvm.c never touches
  * flash directly).
  *
+ * NOT REUSED: platform/freertos/freertos_platform_api.c already has a
+ * RAM-backed eds_nvm_ops_t stub (nvm_stub_read/nvm_stub_write) that is
+ * more representative of the real built-in-stub backend than this
+ * probe's own minimal one. It is not reused here because that file
+ * #includes FreeRTOS.h/task.h/queue.h and is not host-includable —
+ * pulling it in would defeat the point of this probe being a plain,
+ * standalone host build. If that stub is ever extracted into its own
+ * FreeRTOS-header-free file, switch this probe to it instead of
+ * maintaining a second copy.
+ *
  * Exit code 0 = every check passed. Any assertion failure aborts with a
  * message naming the specific check via stderr/exit status, exactly like
  * every other gate in build_tests.sh.
@@ -159,6 +169,18 @@ int main(void)
             "[#285 PROBE FAIL] nvm_store_read() after nvm_store_delete() "
             "returned rc=%d (expected UDS_STATUS_ERR_DID_NOT_FOUND=%d)\n",
             (int)rc, (int)UDS_STATUS_ERR_DID_NOT_FOUND);
+        return 1;
+    }
+    /* out_len must be left untouched on DID_NOT_FOUND (matches
+     * platform/zephyr/nvm_store.c's convention) -- this is the second
+     * behavioural change nvm_store_read() makes in this fix, and it has
+     * its own failure mode: a future refactor that moves the
+     * *out_read_len assignment back above the sentinel-translation check
+     * would silently regress this without tripping the rc check above. */
+    if (out_len != 999U) {
+        (void)fprintf(stderr,
+            "[#285 PROBE FAIL] out_read_len was written (%zu) on a "
+            "DID_NOT_FOUND return -- must be left untouched\n", out_len);
         return 1;
     }
 
