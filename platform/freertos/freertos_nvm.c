@@ -219,17 +219,23 @@ uds_status_t nvm_store_read(uint16_t key, void *data, size_t len,
 
     rc = s_ops.read(key, (uint8_t *)data, len, &read_len);
 
-    /* [#285] This backend's nvm_store_delete() has no native delete
-     * primitive to call and instead overwrites the record with the
-     * documented sentinel pattern (NVM_STORE_DELETE_SENTINEL_LEN/_BYTE,
-     * nvm_store.h) — a raw pass-through read would return that sentinel
-     * as ordinary UDS_STATUS_OK data, indistinguishable to the caller
-     * from a genuine 1-byte record. Translate it back to
-     * UDS_STATUS_ERR_DID_NOT_FOUND here, at the one backend that actually
-     * produces this pattern, so nvm_store_delete()+nvm_store_read()
-     * honour the same "deleted reads as absent" contract every other
-     * backend gets for free from a true delete — no caller needs to know
-     * this backend fakes it.
+    /* [#285] When this backend's nvm_store_delete() has no native delete
+     * to call (s_ops.remove == NULL, [#287]), it falls back to
+     * overwriting the record with the documented sentinel pattern
+     * (NVM_STORE_DELETE_SENTINEL_LEN/_BYTE, nvm_store.h) — a raw
+     * pass-through read would return that sentinel as ordinary
+     * UDS_STATUS_OK data, indistinguishable to the caller from a genuine
+     * 1-byte record. Translate it back to UDS_STATUS_ERR_DID_NOT_FOUND
+     * here, so nvm_store_delete()+nvm_store_read() honour the same
+     * "deleted reads as absent" contract every backend gets for free
+     * from a true delete — no caller needs to know this one sometimes
+     * fakes it.
+     *
+     * When s_ops.remove IS available, this check is simply never
+     * triggered by a genuine delete: the record is truly gone from the
+     * backend's storage, so s_ops.read() above already returns
+     * DID_NOT_FOUND directly and rc never reaches UDS_STATUS_OK here.
+     * This block exists purely for the no-native-delete fallback case.
      *
      * Scoped to key == NVM_KEY_SEC_STATE, not applied globally: that is
      * the only key nvm_store_delete() is ever called with anywhere in
@@ -242,25 +248,23 @@ uds_status_t nvm_store_read(uint16_t key, void *data, size_t len,
      * itself ever deletes avoids reinterpreting a customer's own
      * genuine data as "deleted".
      *
-     * KNOWN, ACCEPTED RESIDUAL LIMITATION: this is a sentinel, not a true
-     * delete, and a sentinel can only ever be a heuristic. A genuinely
-     * corrupted NVM_KEY_SEC_STATE record that happens to land on exactly
-     * this 1-byte, 0x00 pattern (a torn/partial flash write on the
-     * customer's driver that commits only the first byte, which happens
-     * to read back as 0x00) is indistinguishable from a deliberate
-     * delete and is now ALSO reported as DID_NOT_FOUND rather than
-     * failing closed as corrupt. Every OTHER possible corruption
-     * signature — any other length, or a full 12 bytes with a bad magic/
-     * version/CRC — still correctly fails closed via
-     * core/uds_security_nvm.c's unchanged checks; only this exact byte
-     * pattern is affected, and there is no way to widen coverage further
-     * without a true delete primitive in eds_nvm_ops_t (no such
-     * primitive exists today — see #285's tracking issue for the
-     * deeper fix). Accepted trade-off: before this fix, EVERY delete
-     * was a guaranteed, 100%-reproducible lockout; after this fix, only
-     * a narrow, driver-dependent corruption coincidence could produce
-     * one — a strict improvement, not a complete elimination, of the
-     * risk.
+     * KNOWN, ACCEPTED RESIDUAL LIMITATION (fallback path only, i.e. only
+     * when s_ops.remove is NULL): a sentinel can only ever be a
+     * heuristic, never a true delete. A genuinely corrupted
+     * NVM_KEY_SEC_STATE record that happens to land on exactly this
+     * 1-byte, 0x00 pattern (a torn/partial flash write on the customer's
+     * driver that commits only the first byte, which happens to read
+     * back as 0x00) is indistinguishable from a deliberate delete and is
+     * now ALSO reported as DID_NOT_FOUND rather than failing closed as
+     * corrupt. Every OTHER possible corruption signature — any other
+     * length, or a full 12 bytes with a bad magic/version/CRC — still
+     * correctly fails closed via core/uds_security_nvm.c's unchanged
+     * checks; only this exact byte pattern is affected. [#287] closes
+     * this gap entirely for any backend that implements s_ops.remove —
+     * for one that doesn't, the accepted trade-off is unchanged from
+     * #285: before that fix, EVERY delete was a guaranteed,
+     * 100%-reproducible lockout; after it, only a narrow, driver-
+     * dependent corruption coincidence could produce one.
      */
     if ((key == (uint16_t)NVM_KEY_SEC_STATE) &&
         (rc == UDS_STATUS_OK) &&
@@ -286,15 +290,28 @@ uds_status_t nvm_store_delete(uint16_t key)
     if (!s_initialized) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
 
     /*
-     * FreeRTOS NVM does not have a native delete primitive — the customer's
-     * flash backend may not support record-level deletion. We implement
-     * delete as a documented sentinel write (NVM_STORE_DELETE_SENTINEL_LEN/
-     * _BYTE in nvm_store.h) rather than true removal. nvm_store_read()
-     * above translates that sentinel back to UDS_STATUS_ERR_DID_NOT_FOUND
-     * itself ([#285]), so callers of this backend's read/delete pair never
-     * observe the raw sentinel bytes — "deleted reads as absent" holds the
-     * same way it would with a true delete, with no caller-side awareness
-     * needed of how this backend fakes it.
+     * [#287] Prefer the backend's own native delete when it has one: a
+     * real flash driver (or the built-in RAM stub — see nvm_stub_delete()
+     * in freertos_platform_api.c) that implements this makes the record
+     * genuinely, unambiguously absent, with none of the corruption-
+     * coincidence residual risk the sentinel fallback below carries.
+     */
+    if (s_ops.remove != NULL) {
+        return s_ops.remove(key);
+    }
+
+    /*
+     * FALLBACK — no native delete primitive on this backend (s_ops.remove
+     * is NULL): the customer's flash driver may not support record-level
+     * deletion. Implement delete as a documented sentinel write
+     * (NVM_STORE_DELETE_SENTINEL_LEN/_BYTE in nvm_store.h) rather than
+     * true removal. nvm_store_read() above translates that sentinel back
+     * to UDS_STATUS_ERR_DID_NOT_FOUND itself ([#285]), so callers of this
+     * backend's read/delete pair never observe the raw sentinel bytes —
+     * "deleted reads as absent" holds the same way it would with a true
+     * delete, with no caller-side awareness needed of how this backend
+     * fakes it (or whether it needs to fake it at all — that's exactly
+     * what s_ops.remove being available above skips).
      *
      * For records that must truly be absent (e.g. after a factory reset),
      * call nvm_store_erase_all() instead.

@@ -930,7 +930,7 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# [#280/#285] platform/freertos/freertos_nvm.c behavioural probe.
+# [#280/#285/#287] platform/freertos/freertos_nvm.c behavioural probes.
 #
 # The only nvm_store_* backend the shared Unity suite never exercises —
 # every module in TESTS[] links platform/zephyr/nvm_store_mock.c instead,
@@ -939,17 +939,15 @@ echo ""
 # standalone here, same "outside the shared stack" pattern as the CRIT-4/
 # EDS#215 negative-compile tests above, but checking runtime behaviour
 # (exit code) rather than a compile-time failure.
+#
+# Run twice, from the same probe source file, with different -D flags —
+# see tests/probe_freertos_nvm_delete_sentinel.c's own banner comment for
+# why one probe source covers both scenarios rather than two files.
 # ---------------------------------------------------------------------------
-FREERTOS_NVM_TMP_BIN="$(mktemp -u /tmp/eds_freertos_nvm_probe.XXXXXX)"
 FREERTOS_NVM_INCLUDES=(
     "${INCLUDES[@]}"
     "-I${ROOT}/platform/freertos"
 )
-
-echo "================================================================"
-echo "  [#280/#285] platform/freertos/freertos_nvm.c behavioural probe"
-echo "================================================================"
-echo ""
 
 # Deliberately NOT the shared CFLAGS array: it carries -DNVM_STORE_HOST_MOCK=1
 # (needed by every other module here, which links platform/zephyr/
@@ -973,34 +971,55 @@ if [[ $SANITIZE -eq 1 ]]; then
     )
 fi
 
-FREERTOS_NVM_FAIL=0
-freertos_nvm_probe_out=$(
-    gcc "${FREERTOS_NVM_FLAGS[@]}" \
-        "${FREERTOS_NVM_INCLUDES[@]}" \
-        "${ROOT}/platform/freertos/freertos_nvm.c" \
-        "${ROOT}/tests/probe_freertos_nvm_delete_sentinel.c" \
-        -o "${FREERTOS_NVM_TMP_BIN}" 2>&1
-) && freertos_nvm_build_rc=0 || freertos_nvm_build_rc=$?
+# run_freertos_nvm_probe <label> <extra -D flag, or empty>
+# Sets FREERTOS_NVM_FAIL=1 (never clears it — caller resets once up front)
+# on either a build or a runtime failure.
+run_freertos_nvm_probe() {
+    local label="$1"
+    local extra_flag="$2"
+    local tmp_bin probe_out build_rc run_out run_rc
+    local -a flags=("${FREERTOS_NVM_FLAGS[@]}")
 
-if [[ ${freertos_nvm_build_rc} -ne 0 ]]; then
-    echo "  FAIL: probe failed to compile/link:"
-    echo "${freertos_nvm_probe_out}" | sed 's/^/        /'
-    FREERTOS_NVM_FAIL=1
-else
-    freertos_nvm_run_out=$("${FREERTOS_NVM_TMP_BIN}" 2>&1) && freertos_nvm_run_rc=0 || freertos_nvm_run_rc=$?
-    if [[ ${freertos_nvm_run_rc} -ne 0 ]]; then
-        echo "  FAIL: probe built but reported a failure at runtime:"
-        echo "${freertos_nvm_run_out}" | sed 's/^/        /'
+    [[ -n "${extra_flag}" ]] && flags+=("${extra_flag}")
+    tmp_bin="$(mktemp -u /tmp/eds_freertos_nvm_probe.XXXXXX)"
+
+    echo "================================================================"
+    echo "  [#280/#285/#287] freertos_nvm.c behavioural probe — ${label}"
+    echo "================================================================"
+    echo ""
+
+    probe_out=$(
+        gcc "${flags[@]}" \
+            "${FREERTOS_NVM_INCLUDES[@]}" \
+            "${ROOT}/platform/freertos/freertos_nvm.c" \
+            "${ROOT}/tests/probe_freertos_nvm_delete_sentinel.c" \
+            -o "${tmp_bin}" 2>&1
+    ) && build_rc=0 || build_rc=$?
+
+    if [[ ${build_rc} -ne 0 ]]; then
+        echo "  FAIL: probe failed to compile/link:"
+        echo "${probe_out}" | sed 's/^/        /'
         FREERTOS_NVM_FAIL=1
     else
-        echo "  PASS: ${freertos_nvm_run_out}"
+        run_out=$("${tmp_bin}" 2>&1) && run_rc=0 || run_rc=$?
+        if [[ ${run_rc} -ne 0 ]]; then
+            echo "  FAIL: probe built but reported a failure at runtime:"
+            echo "${run_out}" | sed 's/^/        /'
+            FREERTOS_NVM_FAIL=1
+        else
+            echo "  PASS: ${run_out}"
+        fi
     fi
-fi
-rm -f "${FREERTOS_NVM_TMP_BIN}"
-echo ""
+    rm -f "${tmp_bin}"
+    echo ""
+}
+
+FREERTOS_NVM_FAIL=0
+run_freertos_nvm_probe "sentinel fallback (#280/#285)" ""
+run_freertos_nvm_probe "native remove (#287)" "-DPROBE_TEST_NATIVE_REMOVE=1"
 
 if [[ ${BUILD_MODE_PROBE_FAIL} -ne 0 || ${CRIT4_FAIL} -ne 0 || ${EDS215_FAIL} -ne 0 || ${FREERTOS_NVM_FAIL} -ne 0 ]]; then
-    echo "FAIL: build-mode gate verification (SEC-BUILD-MODE-01 / SEC-KEY-GATE-01 / EDS#215 / #280 / #285) failed."
+    echo "FAIL: build-mode gate verification (SEC-BUILD-MODE-01 / SEC-KEY-GATE-01 / EDS#215 / #280 / #285 / #287) failed."
     exit 1
 fi
 

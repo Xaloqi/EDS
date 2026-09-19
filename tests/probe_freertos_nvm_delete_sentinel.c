@@ -40,6 +40,19 @@
  *      DID_NOT_FOUND — a pre-existing characteristic, not something
  *      #280 or #285 changed or need to change.
  *
+ * COMPILED TWICE, as two separate binaries, from this one source file
+ * (see build_tests.sh's "[#280/#285/#287]" gate):
+ *   - Default: ops has no `remove` callback (NULL) — exercises the #285
+ *     sentinel-fallback path above, exactly as historically.
+ *   - -DPROBE_TEST_NATIVE_REMOVE=1: ops registers probe_delete() as
+ *     `remove` — exercises [#287]'s native-delete path instead. Proves,
+ *     via a call counter, that nvm_store_delete() actually dispatches to
+ *     the callback rather than silently taking the fallback path anyway
+ *     (the externally-observable DID_NOT_FOUND-after-delete result is,
+ *     by design, identical either way — that's the whole point of #287
+ *     being additive — so the counter is the only thing that can tell
+ *     the two paths apart from outside nvm_store_delete() itself).
+ *
  * A minimal RAM-backed eds_nvm_ops_t stands in for a customer's flash
  * driver — enough to prove freertos_nvm.c's own logic, not a flash
  * driver's correctness (irrelevant here; freertos_nvm.c never touches
@@ -127,9 +140,40 @@ static bool probe_is_ready(void)
     return true;
 }
 
+#ifdef PROBE_TEST_NATIVE_REMOVE
+/* [#287] Built and run as a SECOND, separate binary (see build_tests.sh's
+ * "[#280/#285/#287]" gate) compiled with -DPROBE_TEST_NATIVE_REMOVE=1 from
+ * this same source file, registering a `remove` callback so
+ * nvm_store_delete() takes the native-delete path instead of the sentinel
+ * fallback. s_probe_remove_calls proves nvm_store_delete() actually
+ * dispatched to this callback rather than silently falling back — the
+ * DID_NOT_FOUND-after-delete assertion below is, by design, identical to
+ * the sentinel-fallback probe's; only this counter distinguishes "took
+ * the native path" from "took the fallback path and got the same
+ * externally-observable result anyway". */
+static unsigned s_probe_remove_calls = 0U;
+
+static uds_status_t probe_delete(uint16_t key)
+{
+    s_probe_remove_calls++;
+    for (unsigned i = 0U; i < PROBE_SLOTS; i++) {
+        if (s_slots[i].used && (s_slots[i].key == key)) {
+            (void)memset(&s_slots[i], 0, sizeof(s_slots[i]));
+            break;
+        }
+    }
+    return UDS_STATUS_OK;
+}
+#endif
+
 int main(void)
 {
+#ifdef PROBE_TEST_NATIVE_REMOVE
+    eds_nvm_ops_t ops = { .read = probe_read, .write = probe_write,
+                          .is_ready = probe_is_ready, .remove = probe_delete };
+#else
     eds_nvm_ops_t ops = { .read = probe_read, .write = probe_write, .is_ready = probe_is_ready };
+#endif
     uint8_t       rec[12];
     uint8_t       readback[12];
     uint8_t       after_delete[12];
@@ -184,6 +228,20 @@ int main(void)
         return 1;
     }
 
+#ifdef PROBE_TEST_NATIVE_REMOVE
+    /* [#287] Prove nvm_store_delete() actually dispatched to s_ops.remove()
+     * above, rather than reaching the same DID_NOT_FOUND result via the
+     * sentinel fallback despite remove being registered. */
+    if (s_probe_remove_calls != 1U) {
+        (void)fprintf(stderr,
+            "[#287 PROBE FAIL] nvm_store_delete() did not call the "
+            "registered remove() callback exactly once (calls=%u) -- "
+            "took the sentinel fallback path instead of the native one\n",
+            s_probe_remove_calls);
+        return 1;
+    }
+#endif
+
     /* [#280] erase_all() preserves NVM_KEY_SEC_STATE, wipes an ordinary key,
      * on THIS backend specifically. */
     rc = nvm_store_write(NVM_KEY_SEC_STATE, rec, sizeof(rec));
@@ -226,7 +284,12 @@ int main(void)
         return 1;
     }
 
-    (void)printf("freertos_nvm probe: all checks passed (#280 erase_all "
-                 "exclusion, #285 delete-sentinel translation)\n");
+#ifdef PROBE_TEST_NATIVE_REMOVE
+    (void)printf("freertos_nvm probe (native remove): all checks passed "
+                 "(#280 erase_all exclusion, #287 native-delete dispatch)\n");
+#else
+    (void)printf("freertos_nvm probe (sentinel fallback): all checks passed "
+                 "(#280 erase_all exclusion, #285 delete-sentinel translation)\n");
+#endif
     return 0;
 }

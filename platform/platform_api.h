@@ -227,9 +227,10 @@ typedef uds_status_t (*eds_can_send_fn_t)(const eds_can_frame_t *frame);
 /**
  * @brief NVM operations table (optional FreeRTOS override).
  *
- * If all three function pointers are NULL, the platform uses a built-in
+ * If read/write/is_ready are all NULL, the platform uses a built-in
  * RAM-backed stub (development/testing only, not persistent).
- * For production FreeRTOS targets, populate all three with flash driver calls.
+ * For production FreeRTOS targets, populate at least those three with
+ * flash driver calls.
  *
  * Matches the nvm_store_* API contract: key-value store, uint16_t keys.
  *
@@ -240,12 +241,26 @@ typedef uds_status_t (*eds_can_send_fn_t)(const eds_can_frame_t *frame);
  * delete-sentinel recognition — see NVM_STORE_DELETE_SENTINEL_LEN/_BYTE
  * in nvm_store.h for the full mechanism and consequence of getting this
  * wrong.
+ *
+ * `remove` — OPTIONAL, [#287]. A native, unambiguous delete for a flash
+ * driver that has one (mark the record's storage invalid/erased so a
+ * subsequent read() genuinely reports UDS_STATUS_ERR_DID_NOT_FOUND).
+ * Leave NULL if the driver has none: platform/freertos/freertos_nvm.c's
+ * nvm_store_delete() falls back to the documented sentinel-write scheme
+ * (NVM_STORE_DELETE_SENTINEL_LEN/_BYTE, nvm_store.h) exactly as it always
+ * has. Added at the end of this struct, not inserted between existing
+ * fields, so existing positional initializers — like this file's own
+ * documented `.nvm = { my_read, my_write, my_is_ready }` customer example
+ * — keep compiling unchanged, with `remove` defaulting to NULL (C
+ * aggregate-initialization zero-fills any trailing members an initializer
+ * doesn't mention).
  */
 typedef struct {
     uds_status_t (*read) (uint16_t key, uint8_t *buf, size_t len,
                           size_t *out_len);
     uds_status_t (*write)(uint16_t key, const uint8_t *buf, size_t len);
     bool         (*is_ready)(void);
+    uds_status_t (*remove)(uint16_t key);
 } eds_nvm_ops_t;
 
 /**

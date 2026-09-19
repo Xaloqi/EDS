@@ -304,6 +304,9 @@ static const eds_nvm_ops_t my_nvm = {
     .read     = my_flash_read,
     .write    = my_flash_write,
     .is_ready = my_flash_is_ready,
+    // .remove = my_flash_delete,  // optional native delete; omit if your
+                                    // flash driver has none (sentinel-write
+                                    // fallback used instead)
 };
 
 int main(void)
