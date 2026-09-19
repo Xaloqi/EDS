@@ -92,6 +92,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   never compiled into the runtime — stays `Apache-2.0`, now as a named,
   explained exception in `COMMERCIAL_NOTICE.md` rather than an
   unreconciled mismatch.
+- **FreeRTOS's NVM delete sentinel is now recognized as absent, not
+  corrupt** (#285). `platform/freertos/freertos_nvm.c` has no native
+  delete primitive, so `nvm_store_delete()` overwrites a record with a
+  single `0x00` byte instead. For `NVM_KEY_SEC_STATE`, that collided
+  with `uds_security_nvm_load()`'s own corrupt-record detection (a
+  record shorter than the full 12-byte format is reported as corrupt,
+  EDS#211) — so a delete didn't read back as "no persisted state,
+  start from zero" on this backend, it read back as a data-corruption
+  error, and with `nvm_load_fail_closed` configured true that locks
+  SecurityAccess out for the rest of the power cycle. Surfaced while
+  fixing #280's FreeRTOS schema-migration path; predates it and is
+  fixed independently. `platform/freertos/freertos_nvm.c`'s own
+  `nvm_store_read()` — the one backend that actually produces this
+  pattern — now recognizes it and reports
+  `UDS_STATUS_ERR_DID_NOT_FOUND`, scoped to `NVM_KEY_SEC_STATE`
+  specifically (documented as a named convention,
+  `NVM_STORE_DELETE_SENTINEL_LEN`/`_BYTE` in `platform/nvm_store.h`).
+  `core/uds_security_nvm.c` is unchanged and keeps failing closed on
+  every other backend, where this exact byte pattern could only mean
+  genuine corruption. A sentinel can only ever be a heuristic, not a
+  true delete — the residual gap (a genuine single-byte corruption
+  coincidence on `NVM_KEY_SEC_STATE` is now also read as absent) is
+  documented explicitly rather than left implicit, and a true delete
+  primitive for `eds_nvm_ops_t` that would close it entirely is
+  tracked separately as #287.
 
 ## [1.15.0] — 2026-09-11
 

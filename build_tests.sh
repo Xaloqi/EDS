@@ -929,8 +929,78 @@ else
 fi
 echo ""
 
-if [[ ${BUILD_MODE_PROBE_FAIL} -ne 0 || ${CRIT4_FAIL} -ne 0 || ${EDS215_FAIL} -ne 0 ]]; then
-    echo "FAIL: build-mode gate verification (SEC-BUILD-MODE-01 / SEC-KEY-GATE-01 / EDS#215) failed."
+# ---------------------------------------------------------------------------
+# [#280/#285] platform/freertos/freertos_nvm.c behavioural probe.
+#
+# The only nvm_store_* backend the shared Unity suite never exercises —
+# every module in TESTS[] links platform/zephyr/nvm_store_mock.c instead,
+# via the single shared stack archive; adding this file there too would
+# collide on duplicate nvm_store_* symbol definitions. Compiled and RUN
+# standalone here, same "outside the shared stack" pattern as the CRIT-4/
+# EDS#215 negative-compile tests above, but checking runtime behaviour
+# (exit code) rather than a compile-time failure.
+# ---------------------------------------------------------------------------
+FREERTOS_NVM_TMP_BIN="$(mktemp -u /tmp/eds_freertos_nvm_probe.XXXXXX)"
+FREERTOS_NVM_INCLUDES=(
+    "${INCLUDES[@]}"
+    "-I${ROOT}/platform/freertos"
+)
+
+echo "================================================================"
+echo "  [#280/#285] platform/freertos/freertos_nvm.c behavioural probe"
+echo "================================================================"
+echo ""
+
+# Deliberately NOT the shared CFLAGS array: it carries -DNVM_STORE_HOST_MOCK=1
+# (needed by every other module here, which links platform/zephyr/
+# nvm_store_mock.c instead), and freertos_nvm.c's own guard is
+# `#if defined(EDS_PLATFORM_FREERTOS) && !defined(NVM_STORE_HOST_MOCK)` — that
+# macro would compile this probe's module-under-test down to an empty
+# translation unit, failing at LINK time (or worse, silently testing
+# nothing, if some future refactor ever gave freertos_nvm.c a body that
+# satisfied both guards). Only the sanitizer flags are threaded through,
+# matching the same $SANITIZE-eq-1 condition CFLAGS itself uses above.
+FREERTOS_NVM_FLAGS=(
+    "-std=c11" "-Wall" "-Wextra"
+    "-DEDS_PLATFORM_FREERTOS=1"
+    "-DEDS_MSG_BUF_MAX_STACK_BYTES=8192"
+)
+if [[ $SANITIZE -eq 1 ]]; then
+    FREERTOS_NVM_FLAGS+=(
+        "-fsanitize=address,undefined"
+        "-fno-sanitize-recover=all"
+        "-fno-omit-frame-pointer"
+    )
+fi
+
+FREERTOS_NVM_FAIL=0
+freertos_nvm_probe_out=$(
+    gcc "${FREERTOS_NVM_FLAGS[@]}" \
+        "${FREERTOS_NVM_INCLUDES[@]}" \
+        "${ROOT}/platform/freertos/freertos_nvm.c" \
+        "${ROOT}/tests/probe_freertos_nvm_delete_sentinel.c" \
+        -o "${FREERTOS_NVM_TMP_BIN}" 2>&1
+) && freertos_nvm_build_rc=0 || freertos_nvm_build_rc=$?
+
+if [[ ${freertos_nvm_build_rc} -ne 0 ]]; then
+    echo "  FAIL: probe failed to compile/link:"
+    echo "${freertos_nvm_probe_out}" | sed 's/^/        /'
+    FREERTOS_NVM_FAIL=1
+else
+    freertos_nvm_run_out=$("${FREERTOS_NVM_TMP_BIN}" 2>&1) && freertos_nvm_run_rc=0 || freertos_nvm_run_rc=$?
+    if [[ ${freertos_nvm_run_rc} -ne 0 ]]; then
+        echo "  FAIL: probe built but reported a failure at runtime:"
+        echo "${freertos_nvm_run_out}" | sed 's/^/        /'
+        FREERTOS_NVM_FAIL=1
+    else
+        echo "  PASS: ${freertos_nvm_run_out}"
+    fi
+fi
+rm -f "${FREERTOS_NVM_TMP_BIN}"
+echo ""
+
+if [[ ${BUILD_MODE_PROBE_FAIL} -ne 0 || ${CRIT4_FAIL} -ne 0 || ${EDS215_FAIL} -ne 0 || ${FREERTOS_NVM_FAIL} -ne 0 ]]; then
+    echo "FAIL: build-mode gate verification (SEC-BUILD-MODE-01 / SEC-KEY-GATE-01 / EDS#215 / #280 / #285) failed."
     exit 1
 fi
 

@@ -113,6 +113,16 @@ uds_status_t uds_security_nvm_load(
      * bytes under NVM_KEY_SEC_STATE — any record read back under this
      * key that fails validation is a real corruption, not a legacy
      * format.
+     *
+     * [#285] This is deliberately NOT relaxed for backends (FreeRTOS)
+     * whose nvm_store_delete() fakes deletion with a short sentinel
+     * write — that translation back to DID_NOT_FOUND belongs, and is
+     * done, inside that backend's own nvm_store_read()
+     * (platform/freertos/freertos_nvm.c), not here. This function is
+     * backend-agnostic and must keep failing closed on a too-short
+     * record on every backend, including ones (Zephyr NVS, the host
+     * mock) where a true delete means this pattern can only mean real
+     * corruption, never a deliberate delete.
      */
     if (bytes_read != (size_t)UDS_SECURITY_NVM_RECORD_BYTES) {
         return UDS_STATUS_ERR_NVM_DATA_CORRUPT;

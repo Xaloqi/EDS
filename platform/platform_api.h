@@ -232,6 +232,14 @@ typedef uds_status_t (*eds_can_send_fn_t)(const eds_can_frame_t *frame);
  * For production FreeRTOS targets, populate all three with flash driver calls.
  *
  * Matches the nvm_store_* API contract: key-value store, uint16_t keys.
+ *
+ * CONTRACT — read()'s out_len: MUST report the number of bytes actually
+ * available for this key (the length of the most recent successful write
+ * to it), NOT a fixed per-key slot capacity. [#285] A driver that always
+ * reports slot capacity defeats platform/freertos/freertos_nvm.c's
+ * delete-sentinel recognition — see NVM_STORE_DELETE_SENTINEL_LEN/_BYTE
+ * in nvm_store.h for the full mechanism and consequence of getting this
+ * wrong.
  */
 typedef struct {
     uds_status_t (*read) (uint16_t key, uint8_t *buf, size_t len,
