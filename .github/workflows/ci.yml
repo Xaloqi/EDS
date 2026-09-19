@@ -1098,6 +1098,29 @@ jobs:
   # boards/nucleo_h743zi/ used by basic_ecu) — these define the eds_nvs_slot
   # NVS partition (and MCUboot slot partitions) that main.c's
   # nvm_store_init() call depends on via FIXED_PARTITION_DEVICE/OFFSET.
+  #
+  # WHY THIS ISN'T THE DUPLICATION #98's CHANGELOG ENTRY ARGUED AGAINST:
+  # #98 deliberately skipped adding a west-build/SDK cross-compile per
+  # example, reasoning that doing so would "duplicate what zephyr-native/
+  # zephyr-stm32/freertos-qemu already prove for basic_ecu... for a class
+  # of bug (missing an init call, config/header drift) that YAML
+  # validation plus generated-file assertions catch just as well." That
+  # reasoning does not extend here: this job's whole reason to exist is
+  # proving FIXED_PARTITION_DEVICE/OFFSET actually RESOLVE against
+  # safeboot_ecu's own, different DTS overlay (a different eds_nvs_slot
+  # node, different MCUboot partition layout) — a devicetree-macro-
+  # resolution class of bug basic_ecu's existing jobs cannot see at all,
+  # since they never touch this overlay. PR #205 hit exactly this class
+  # of failure on other boards ("'__device_dts_ord_...' undeclared"),
+  # which only a real `west build` against the specific overlay in
+  # question can catch — no YAML/generated-file assertion can.
+  #
+  # The SDK-install steps below ARE a real, separately-tracked duplication
+  # cost (now a 4th near-identical copy across Zephyr build jobs) — see
+  # #290 for extracting these into a shared composite action. Deliberately
+  # not done here: refactoring four already-working jobs is a bigger,
+  # riskier change than this one's actual justification (closing a real
+  # compile-verification gap) needs.
   # ──────────────────────────────────────────────────────────────────────────
   zephyr-stm32-safeboot:
 
