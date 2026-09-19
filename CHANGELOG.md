@@ -111,7 +111,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `NVM_STORE_DELETE_SENTINEL_LEN`/`_BYTE` in `platform/nvm_store.h`).
   `core/uds_security_nvm.c` is unchanged and keeps failing closed on
   every other backend, where this exact byte pattern could only mean
-  genuine corruption.
+  genuine corruption. A sentinel can only ever be a heuristic, not a
+  true delete — the residual gap (a genuine single-byte corruption
+  coincidence on `NVM_KEY_SEC_STATE` is now also read as absent) is
+  documented explicitly rather than left implicit, and a true delete
+  primitive for `eds_nvm_ops_t` that would close it entirely is
+  tracked separately as #287.
 
 ## [1.15.0] — 2026-09-11
 
