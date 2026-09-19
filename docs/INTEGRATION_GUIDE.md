@@ -593,6 +593,10 @@ void app_init(void)
             .read     = my_flash_read,
             .write    = my_flash_write,
             .is_ready = my_flash_is_ready,
+            /* .remove = my_flash_delete,   // optional; omit if your flash
+             *                              // driver has no native per-record
+             *                              // delete — a documented sentinel-
+             *                              // write fallback is used instead */
         },
         .uds_task_stack_size = 2048U,
         .uds_task_priority   = 5U,

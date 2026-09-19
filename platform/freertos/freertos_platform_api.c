@@ -23,6 +23,11 @@
  *                     .uds_task_stack_size = 2048U,
  *                     .uds_task_priority   = 5U,
  *                 });
+ *               [#287] .nvm.remove is optional and NOT shown above — this
+ *               positional example still compiles unchanged and leaves it
+ *               NULL (see eds_nvm_ops_t's doc comment, platform_api.h).
+ *               Populate it only if your flash driver has a real,
+ *               unambiguous per-record delete.
  *            3. Call uds_generated_init() to start the UDS stack.
  *            4. Call vTaskStartScheduler() — do NOT start it before step 3.
  *            5. In your CAN RX interrupt/callback:
@@ -187,6 +192,32 @@ static bool nvm_stub_is_ready(void)
     return s_nvm_stub_ready;
 }
 
+/**
+ * [#287] A true, unambiguous delete for this stub — clearing `used`
+ * makes nvm_stub_find() report the record gone, so nvm_stub_read()
+ * returns UDS_STATUS_ERR_DID_NOT_FOUND directly. No sentinel byte
+ * pattern, no heuristic, no coincidental-corruption ambiguity: this
+ * record's slot is genuinely free and reusable by nvm_stub_alloc()
+ * for a different key, exactly like platform/zephyr/nvm_store_mock.c's
+ * own delete (same s_nvm_records / mock_record_t "used" bit shape,
+ * per this section's own "Same slot layout as nvm_store_mock.c" note).
+ * Idempotent: deleting an already-absent or never-written key is OK,
+ * matching every other nvm_store_delete() backend's contract.
+ */
+static uds_status_t nvm_stub_delete(uint16_t key)
+{
+    freertos_nvm_record_t *rec;
+
+    if (!s_nvm_stub_ready) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
+
+    rec = nvm_stub_find(key);
+    if (rec != NULL) {
+        (void)memset(rec, 0, sizeof(*rec));
+    }
+
+    return UDS_STATUS_OK;
+}
+
 /* Default task parameters — overridden by eds_platform_init() values. */
 #define EDS_POLL_TASK_DEFAULT_STACK_BYTES   (2048U)
 #define EDS_POLL_TASK_DEFAULT_PRIORITY      (5U)
@@ -309,6 +340,7 @@ uds_status_t eds_platform_init(const eds_platform_cfg_t *cfg)
         s_nvm_ops.read     = nvm_stub_read;
         s_nvm_ops.write    = nvm_stub_write;
         s_nvm_ops.is_ready = nvm_stub_is_ready;
+        s_nvm_ops.remove   = nvm_stub_delete;  /* [#287] true delete available */
 
         freertos_nvm_register_ops(&s_nvm_ops);
 #endif

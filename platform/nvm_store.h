@@ -105,8 +105,9 @@ extern "C" {
 
 /**
  * [#285] A backend without a native delete primitive (see the
- * nvm_store_delete() doc comment) may implement it as a sentinel write
- * instead of true removal: a record consisting of exactly
+ * nvm_store_delete() doc comment, and eds_nvm_ops_t's optional `remove`
+ * callback — [#287], platform_api.h) may implement it as a sentinel
+ * write instead of true removal: a record consisting of exactly
  * NVM_STORE_DELETE_SENTINEL_LEN byte(s), each equal to
  * NVM_STORE_DELETE_SENTINEL_BYTE.
  *
@@ -127,19 +128,24 @@ extern "C" {
  * core/uds_security_nvm.h), which is exactly the set of keys this
  * translation should ever be applied to.
  *
- * KNOWN, ACCEPTED LIMITATION — a sentinel can only ever be a heuristic,
- * not a true delete: a genuinely corrupted record (e.g. a torn flash
- * write on the customer's own driver) that happens to land on exactly
- * this byte pattern is indistinguishable from a deliberate delete and
- * is ALSO reported as absent rather than failing closed as corrupt.
- * Every other corruption signature (any other length, or a full-length
- * record with a bad magic/version/CRC) is unaffected and still fails
- * closed. This is a real, accepted trade-off, not an oversight: before
- * this convention existed, EVERY delete on such a backend was a
- * guaranteed, 100%-reproducible false failure; after it, only a narrow,
- * driver-dependent corruption coincidence could produce one. The only
- * way to close this residual gap entirely is a true delete primitive —
- * eds_nvm_ops_t (platform_api.h) has none today.
+ * KNOWN, ACCEPTED LIMITATION (applies only when the backend has no
+ * native delete, i.e. eds_nvm_ops_t.remove is NULL) — a sentinel can
+ * only ever be a heuristic, not a true delete: a genuinely corrupted
+ * record (e.g. a torn flash write on the customer's own driver) that
+ * happens to land on exactly this byte pattern is indistinguishable
+ * from a deliberate delete and is ALSO reported as absent rather than
+ * failing closed as corrupt. Every other corruption signature (any
+ * other length, or a full-length record with a bad magic/version/CRC)
+ * is unaffected and still fails closed. This is a real, accepted
+ * trade-off, not an oversight: before this convention existed, EVERY
+ * delete on such a backend was a guaranteed, 100%-reproducible false
+ * failure; after it, only a narrow, driver-dependent corruption
+ * coincidence could produce one. [#287] closes this gap entirely for a
+ * backend that implements eds_nvm_ops_t.remove — the built-in FreeRTOS
+ * RAM stub does; a real customer flash driver only does if the customer
+ * implements it, which remains optional and non-breaking (existing
+ * driver code with no `remove` field, or `remove = NULL`, keeps working
+ * exactly as it did before this callback existed).
  */
 #define NVM_STORE_DELETE_SENTINEL_LEN  ((size_t)1U)
 #define NVM_STORE_DELETE_SENTINEL_BYTE ((uint8_t)0x00U)

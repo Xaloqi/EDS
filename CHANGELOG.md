@@ -74,6 +74,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `service_0x36.c`/`service_0x37.c`, and calling `boot_request_upgrade()`)
   is tracked on #277/#278 and waits on a NUCLEO-H743ZI2 on the bench.
 
+- **Optional native delete callback for `eds_nvm_ops_t`** (#287).
+  `eds_nvm_ops_t` (`platform/platform_api.h`) gains a new, optional
+  `remove` field — `NULL` means "no native delete" exactly as before;
+  a FreeRTOS flash driver (or the built-in RAM stub, which now
+  implements it) that provides one gets a true, unambiguous delete
+  instead of #285's sentinel-write fallback, closing that fix's
+  documented residual limitation (a coincidental single-byte
+  corruption indistinguishable from a deliberate delete) for any
+  backend that implements it. Additive and non-breaking: appended at
+  the end of the struct, not inserted between existing fields, so
+  existing customer code — including this codebase's own documented
+  `.nvm = { my_read, my_write, my_is_ready }` positional example —
+  keeps compiling unchanged, with `remove` defaulting to `NULL`.
+
 ### Fixed
 
 - **`nvm_store_erase_all()` no longer clears the SecurityAccess lockout
