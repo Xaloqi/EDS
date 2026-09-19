@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.15.0  
-**Status:** 47/47 unit test modules passing. 23/23 CI jobs green. 68/68 harness
+**Status:** 49/49 unit test modules passing. 23/23 CI jobs green. 68/68 harness
 tests passing — **Professional tier only**: `harness/` sources are a gitignored
 commercial deliverable (#68), absent from a Developer-tier checkout (every
 public clone and CI run), which reports the harness suite **BLOCKED**, not a
@@ -187,7 +187,7 @@ bash build_tests.sh
 # Expected: 45 passed, 0 failed
 ```
 
-### Coverage — 47 unit test modules
+### Coverage — 49 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -571,7 +571,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          47 Unity modules via build_tests.sh
+   ├── unit-tests          49 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── cmake-ctest-build   The same modules via cmake -S tests + ctest
@@ -617,7 +617,7 @@ drifted twice (#91, #119) — this line claimed 8.
 
 Added in v1.3.0. Builds `examples/basic_ecu_freertos` with `-DEDS_PLATFORM=freertos`
 targeting QEMU ARM Cortex-M4. Downloads FreeRTOS-Kernel from GitHub, runs codegen,
-builds the ELF, and verifies it exists. The same 47 unit tests run against the FreeRTOS
+builds the ELF, and verifies it exists. The same 49 unit tests run against the FreeRTOS
 platform HAL (they mock the platform layer and are platform-independent).
 
 ### SafeBoot CI job (within `unit-tests`)
