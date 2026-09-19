@@ -229,8 +229,20 @@
 		};
 
 		/* Secondary / OTA staging slot — 896 KB after image-0.
-		 * platform/zephyr_flash_ops.c targets this via FLASH_AREA_ID(image_1). */
-		eds_ota_slot: partition@e0000 {
+		 * platform/zephyr_flash_ops.c targets this via FLASH_AREA_ID(image_1),
+		 * which expands to DT_FIXED_PARTITION_ID(DT_NODELABEL(image_1)) — it
+		 * resolves by DTS NODE LABEL, not by the "image-1" string "label"
+		 * property (same node-label-vs-string-label distinction already
+		 * documented above for slot0_partition/eds_app_slot). The node was
+		 * missing the image_1 label entirely — this comment said the macro
+		 * targeted it, but nothing actually gave it that label, so the
+		 * macro had nothing to resolve to. Caught by CI #291, the first
+		 * time examples/safeboot_ecu was ever compiled against this board
+		 * (this file's own copy under examples/safeboot_ecu/boards/ is what
+		 * that job actually uses — kept identical here since both files are
+		 * meant to be exact copies). Dual-labelled, same pattern as
+		 * slot0_partition above. */
+		eds_ota_slot: image_1: partition@e0000 {
 			label = "image-1";
 			reg = <0x000E0000 0x000E0000>;
 		};
