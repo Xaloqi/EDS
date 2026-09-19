@@ -8,6 +8,41 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **Fail-closed DFU image verification policy gate — `platform/uds_image_policy.h/.c`**
+  (#232 Phase 1, #279). Closes the authenticity/anti-rollback gap an external
+  Tier-1 evaluator raised against the 0x34/0x36/0x37 (RequestDownload/
+  TransferData/RequestTransferExit) flash-programming flow: a production
+  build with SafeBoot enabled and no policy registered now **refuses
+  RequestDownload** outright rather than returning a positive
+  TransferExit, closing the "documented-but-unenforced" boundary the
+  finding actually pointed at.
+
+  `uds_image_policy_t` — `begin`/`update`/`finalise`/`commit`/`abort`
+  hooks plus a `policy_flags` bitmask
+  (`REQUIRE_SIGNATURE`/`REQUIRE_ANTIROLLBACK`/`REQUIRE_PARAM_RECORD`) —
+  registers exactly like `uds_flash_ops_t`. The gate itself stays
+  platform-agnostic and MISRA-clean in `core/`; concrete crypto
+  (signature/digest verification) is left to the platform-layer policy
+  implementation an integrator registers, keeping the "not a bootloader"
+  boundary the repo has always documented, now actually enforced instead
+  of just documented.
+
+  Also fixes #279 (a dead `crc_check_requested` field in the 0x37 request
+  parser that was parsed but never consulted) as part of the same
+  0x37 rework — the CRC-mandatory check is now recomputed live per
+  request rather than read from a stale cached value.
+
+  Found and fixed during review, before merge: an upload
+  (0x35-initiated) transfer could reach 0x34's erase-failure path and the
+  image-policy checks in 0x37 without the direction guards the download
+  path relies on — 0x37 is the *same* handler for both directions. All
+  three call sites in `service_0x37.c` (param-record requirement, the
+  CRC-mandatory check, and the finalise/commit block) are now explicitly
+  gated on `tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD`; uploads never
+  touch image-policy state.
+
 ## [1.15.0] — 2026-09-11
 
 ### Added
