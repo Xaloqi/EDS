@@ -161,7 +161,9 @@ static void build_header(uint8_t buf[UDS_MCUBOOT_HEADER_SIZE],
     o += 1U;
     o += pack_le16(&buf[o], (uint16_t)FIX_VER_REVISION);
     o += pack_le32(&buf[o], (uint32_t)FIX_VER_BUILD_NUM);
-    /* _pad1 at offset 28 is left zero; the parser must ignore it. */
+    /* _pad1 at offset 28 is deliberately packed with garbage (not zero):
+     * the parser must ignore it regardless of value, not merely tolerate
+     * a zeroed reserved field. */
     o += pack_le32(&buf[o], 0xFFFFFFFFUL);
     zassert_equal((size_t)UDS_MCUBOOT_HEADER_SIZE, o, "");
 }

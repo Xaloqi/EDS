@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.15.0  
-**Status:** 47/49 unit test modules passing. 23/23 CI jobs green. 68/68 harness
+**Status:** 49/49 unit test modules passing. 23/23 CI jobs green. 68/68 harness
 tests passing — **Professional tier only**: `harness/` sources are a gitignored
 commercial deliverable (#68), absent from a Developer-tier checkout (every
 public clone and CI run), which reports the harness suite **BLOCKED**, not a
