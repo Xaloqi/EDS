@@ -132,6 +132,45 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   primitive for `eds_nvm_ops_t` that would close it entirely is
   tracked separately as #287.
 
+- **CI now compile-verifies `safeboot_ecu` against `nucleo_h743zi`, and
+  four real build bugs it immediately found are fixed** (#200).
+  `examples/safeboot_ecu` — including `nvm_store_init()`'s wiring, added
+  by an earlier fix for this same issue — had never actually been built
+  by CI; the only existing job for this example validates generated
+  files, not a real `west build`. New `zephyr-stm32-safeboot` job closes
+  that gap, mirroring the existing `basic_ecu`/`nucleo_h743zi` build job.
+  The first real compile immediately surfaced four genuine,
+  previously-invisible defects in already-merged code, fixed here:
+  - `platform/zephyr/zephyr_flash_ops.c` referenced `FLASH_AREA_ID`,
+    which does not exist in Zephyr v3.7.0 (this project's pinned
+    revision, `west.yml`) — renamed to `FIXED_PARTITION_ID` some
+    releases back. Renamed at both the `#ifndef` guard and the macro
+    definition; corrected the same stale name in `platform/uds_flash_ops.h`,
+    `platform/zephyr/zephyr_flash_ops.h`, and `docs/INTEGRATION_GUIDE.md`.
+  - The OTA-slot DTS partition (`boards/nucleo_h743zi/nucleo_h743zi.overlay`
+    and its `examples/safeboot_ecu`-local copy) was missing the
+    `image_1` node label `FIXED_PARTITION_ID(image_1)` resolves by —
+    its own comment already claimed to target it, but nothing had
+    actually given the node that label.
+  - `CONFIG_STREAM_FLASH` was never set — without it, Zephyr's entire
+    `IMG_MANAGER` Kconfig menu (which selects `MCUBOOT_BOOTUTIL_LIB`,
+    the library providing `boot_is_img_confirmed()`/
+    `boot_write_img_confirmed()`, called from `main.c` right after
+    `uds_generated_init()`) stays invisible, so no assignment inside it
+    could ever take effect.
+  - The same OTA-slot partition also needed a third DTS label,
+    `slot1_partition` — the canonical name MCUboot's own bootutil
+    library (not this repo's code) hardcodes internally to find the
+    secondary slot, a direct parallel to `slot0_partition` already
+    being correctly dual-labelled on the primary slot two lines above.
+
+  Each was reachable only once the previous one let the build get
+  further than any CI job ever had for this file. Issue #200 itself
+  stays open pending real-hardware validation — unaffected by this fix,
+  which closes the compile-verification gap the issue's own tracking
+  comment named as the remaining blocker, not the hardware-validation
+  bar it's actually waiting on.
+
 ## [1.15.0] — 2026-09-11
 
 ### Added

@@ -19,7 +19,14 @@
  *     uds_generated_init(can_transport, rx_id, tx_id);
  *
  * FLASH AREA:
- *   FLASH_AREA_ID(image_1) — MCUboot secondary slot.
+ *   FIXED_PARTITION_ID(image_1) — MCUboot secondary slot.
+ *   [#200/#291] Was FLASH_AREA_ID(image_1) — that macro does not exist in
+ *   Zephyr v3.7.0 (this project's pinned revision, west.yml). It was
+ *   renamed to FIXED_PARTITION_ID some releases back; FLASH_AREA_ID
+ *   compiled to an implicit-function-declaration error citing "'image_1'
+ *   undeclared", not a missing-macro error, which is what made this take
+ *   two wrong guesses to root-cause: this file was never compiled by any
+ *   CI job before #291, the first real Zephyr build of safeboot_ecu.
  *   The primary slot (image_0) is never written directly; MCUboot performs
  *   the swap on next boot after the secondary slot is validated.
  *
@@ -56,12 +63,12 @@ LOG_MODULE_REGISTER(zephyr_flash_ops, LOG_LEVEL_INF);
  * Secondary slot region (derived from flash map at compile time)
  * -------------------------------------------------------------------------- */
 
-#ifndef FLASH_AREA_ID
-#  error "FLASH_AREA_ID not available — ensure CONFIG_FLASH_MAP=y in prj.conf"
+#ifndef FIXED_PARTITION_ID
+#  error "FIXED_PARTITION_ID not available — ensure CONFIG_FLASH_MAP=y in prj.conf"
 #endif
 
 /** @brief ID of the MCUboot secondary slot (image_1). */
-#define ZEPHYR_FLASH_SECONDARY_SLOT  FLASH_AREA_ID(image_1)
+#define ZEPHYR_FLASH_SECONDARY_SLOT  FIXED_PARTITION_ID(image_1)
 
 /* --------------------------------------------------------------------------
  * Static memory map — single readable + writable region (secondary slot)
