@@ -13,7 +13,7 @@
  * PLATFORM IMPLEMENTATIONS:
  *   Zephyr  : platform/zephyr_flash_ops.c  — uses flash_area_erase /
  *             flash_area_write targeting the MCUboot secondary slot
- *             (FLASH_AREA_ID(image_1) from <storage/flash_map.h>).
+ *             (FIXED_PARTITION_ID(image_1) from <storage/flash_map.h>).
  *   Harness : platform/harness_flash_mock.c — RAM-backed implementation
  *             following the same pattern as nvm_store_mock.c.
  *             Compiled when HARNESS_FLASH_MOCK=1 is defined.

@@ -25,8 +25,8 @@ extern "C" {
 /**
  * @brief Initialize Zephyr flash operations for the UDS download services.
  *
- * Opens FLASH_AREA_ID(image_1), reads the base address and size into the
- * memory map descriptor, and registers the flash_ops_t table.
+ * Opens FIXED_PARTITION_ID(image_1), reads the base address and size into
+ * the memory map descriptor, and registers the flash_ops_t table.
  *
  * Must be called before uds_generated_init().
  *
