@@ -14,6 +14,10 @@
  *     your own application source tree and adapt it to your MCU's actual
  *     TRNG peripheral before use — the STM32 HAL calls below are a worked
  *     example, not a portable driver.
+ *   - This is why its SPDX header reads Apache-2.0, unlike every other file
+ *     in platform/ (GPL v2): it's licensed the same as examples/, for the
+ *     same reason — copy-and-adapt reference code, not linked into the
+ *     shipped runtime. See COMMERCIAL_NOTICE.md's named exception (#281).
  *   - Every shipped FreeRTOS example (examples/<name>_freertos/src/main.c) passes
  *     NULL to uds_security_algo_set_rng_cb() and logs a "no TRNG — CI/dev
  *     build" warning. That NULL is intentional for CI/simulation and is NOT

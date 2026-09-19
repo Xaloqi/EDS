@@ -356,17 +356,49 @@ void test_nvm_mock_data_survives_deinit_reinit(void)
     TEST_ASSERT_EQUAL_INT((int)sizeof(uint32_t),(int) len);
 }
 
-/* 12. nvm_store_erase_all wipes all records */
+/* 12. nvm_store_erase_all wipes ordinary records ... */
 void test_nvm_erase_all_wipes_records(void)
+{
+    uint32_t val = 0xCAFEF00DUL;
+    uint8_t  dtc_val = 0x42U;
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_LIFECYCLE_CNT, &val, sizeof(val)));
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_DTC_MIRROR, &dtc_val, sizeof(dtc_val)));
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_SESSION_STATS, &dtc_val, sizeof(dtc_val)));
+
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, nvm_store_erase_all());
+
+    uint32_t         readback = 0U;
+    size_t           len      = 0U;
+    uds_status_t     rc = nvm_store_read(NVM_KEY_LIFECYCLE_CNT, &readback,
+                                          sizeof(readback), &len);
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_DID_NOT_FOUND, rc);
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_DID_NOT_FOUND,
+        nvm_store_read(NVM_KEY_DTC_MIRROR, &dtc_val, sizeof(dtc_val), &len));
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_DID_NOT_FOUND,
+        nvm_store_read(NVM_KEY_SESSION_STATS, &dtc_val, sizeof(dtc_val), &len));
+}
+
+/* 12b. [#280] ... but NOT NVM_KEY_SEC_STATE — it has no authorization
+ * concept of its own, so this primitive must never be able to clear the
+ * SecurityAccess lockout record as an unreviewed side effect. Before the
+ * #280 fix this assertion failed: erase_all() wiped NVM_KEY_SEC_STATE
+ * along with everything else, exactly as test_nvm_erase_all_wipes_records
+ * (above) used to assert about it directly. */
+void test_nvm_erase_all_preserves_sec_state(void)
 {
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_security_nvm_save(2U, 9999U));
 
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, nvm_store_erase_all());
 
-    uint8_t out_a = 0U;
-    uint32_t out_l = 0U;
-    uds_status_t rc = uds_security_nvm_load(&out_a, &out_l);
-    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_DID_NOT_FOUND, rc);
+    uint8_t      out_a = 0U;
+    uint32_t     out_l = 0U;
+    uds_status_t rc    = uds_security_nvm_load(&out_a, &out_l);
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, rc);
+    TEST_ASSERT_EQUAL(2U, out_a);
+    TEST_ASSERT_EQUAL_UINT32(9999U, out_l);
 }
 
 /* 13. nvm_store_delete is idempotent (deleting non-existent key = OK) */
@@ -518,6 +550,7 @@ void run_all_tests(void)
     RUN_TEST(test_nvm_clear_removes_keys);
     RUN_TEST(test_nvm_mock_data_survives_deinit_reinit);
     RUN_TEST(test_nvm_erase_all_wipes_records);
+    RUN_TEST(test_nvm_erase_all_preserves_sec_state);
     RUN_TEST(test_nvm_delete_idempotent);
     RUN_TEST(test_lockout_expires_after_tick);
     RUN_TEST(test_load_reports_corrupt_on_bad_crc);

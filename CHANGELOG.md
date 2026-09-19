@@ -74,6 +74,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `service_0x36.c`/`service_0x37.c`, and calling `boot_request_upgrade()`)
   is tracked on #277/#278 and waits on a NUCLEO-H743ZI2 on the bench.
 
+### Fixed
+
+- **`nvm_store_erase_all()` no longer clears the SecurityAccess lockout
+  record** (#280). The primitive has no authorization concept of its
+  own — a future diagnostic-reachable reset routine calling it could have
+  silently cleared `NVM_KEY_SEC_STATE` (the attempt-counter/lockout
+  record, EDS#211) as an unreviewed side effect. Not a live bug (no such
+  call site exists today), but closed before one is added. The one
+  privileged path that still wipes it — Zephyr schema migration — is
+  unaffected; it calls `nvs_clear()` directly, not this function.
+- **`platform/` SPDX headers reconciled with `COMMERCIAL_NOTICE.md`**
+  (#281). Two files carried `Apache-2.0` against a directory documented
+  as wholesale `GPL-2.0-only`. `freertos_flash_ops.c` — shipped runtime
+  code, not example code — is now `GPL-2.0-only` like its Zephyr peer.
+  `freertos_rng_example.c` — genuinely copy-and-adapt reference code,
+  never compiled into the runtime — stays `Apache-2.0`, now as a named,
+  explained exception in `COMMERCIAL_NOTICE.md` rather than an
+  unreconciled mismatch.
+
 ## [1.15.0] — 2026-09-11
 
 ### Added

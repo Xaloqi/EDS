@@ -237,17 +237,33 @@ uds_status_t nvm_store_read(
 uds_status_t nvm_store_delete(uint16_t key);
 
 /**
- * @brief Erase all NVM records.
+ * @brief Erase all NVM records, EXCEPT NVM_KEY_SEC_STATE.
  *
  * Factory-reset the NVM partition — clears all diagnostics-related
  * persistent data. Must not be called during normal operation.
  *
+ * [#280] NVM_KEY_SEC_STATE (the SecurityAccess attempt-counter/lockout
+ * record, EDS#211) is deliberately EXCLUDED and survives this call. This
+ * primitive has no authorization concept of its own — it is a plain C
+ * function, not a UDS service with a SecurityAccess level attached — so
+ * any future diagnostic-reachable reset routine that calls it must not be
+ * able to clear the lockout state as an unreviewed side effect. Of this
+ * function's own callers, only the schema-migration path is privileged
+ * enough to still wipe it, and does so
+ * explicitly rather than relying on this function's blast radius — on
+ * Zephyr, nvm_migrate_schema() (platform/zephyr/nvm_store.c) calls
+ * nvs_clear() directly and never calls this function at all; on FreeRTOS,
+ * nvm_check_schema() (platform/freertos/freertos_nvm.c) calls this
+ * function for its general wipe and then separately re-asserts the
+ * NVM_KEY_SEC_STATE wipe itself. A caller that genuinely needs to reset
+ * NVM_KEY_SEC_STATE alongside a call to this one must do so explicitly,
+ * with nvm_store_delete(NVM_KEY_SEC_STATE) or nvm_store_write(), under its
+ * own authorization check — never implicitly via this primitive's blast
+ * radius.
+ *
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_PLATFORM if flash erase failed.
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if nvm_store_init() not called.
- *
- * @note SAFETY: Clears security attempt counters — invoke only after
- *               validated authorization (e.g. factory NRC sequence).
  */
 uds_status_t nvm_store_erase_all(void);
 

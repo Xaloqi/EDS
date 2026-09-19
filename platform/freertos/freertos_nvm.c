@@ -109,8 +109,31 @@ static void nvm_check_schema(void)
          * In production this should rarely occur (only after a firmware
          * update that changes the NVM layout). The customer's flash driver
          * erase is triggered indirectly by overwriting all keys.
+         *
+         * [#280] nvm_store_erase_all() deliberately preserves
+         * NVM_KEY_SEC_STATE — this call site is a schema MIGRATION, the
+         * one privileged case that must still wipe it (an old-format
+         * record under a new schema won't parse under the new one either).
+         * Zephyr's equivalent migration (nvm_migrate_schema() in
+         * platform/zephyr/nvm_store.c) gets this for free because it calls
+         * nvs_clear() directly rather than this function; this backend
+         * routes through nvm_store_erase_all() instead, so it must
+         * explicitly re-assert the wipe here — restoring exactly the
+         * pre-#280 behaviour for this call site (nvm_store_delete() is
+         * the same single-zero-byte write the old erase_all() loop used
+         * to perform on every key here, SEC_STATE included).
+         *
+         * NOTE: on this backend nvm_store_delete() is a sentinel write,
+         * not a true delete (see its own doc comment) — the next
+         * uds_security_nvm_load() reads back a too-short record and
+         * reports it as CORRUPT rather than DID_NOT_FOUND, which is a
+         * pre-existing wrinkle (not introduced here; the old erase_all()
+         * loop had the identical byte-for-byte effect on this key) and,
+         * with nvm_load_fail_closed configured true, reads as a lockout
+         * rather than a clean zero-state — tracked separately as #285.
          */
         (void)nvm_store_erase_all();
+        (void)nvm_store_delete((uint16_t)NVM_KEY_SEC_STATE);
     }
 
     /* First boot or after migration: write current version. */
@@ -214,10 +237,18 @@ uds_status_t nvm_store_delete(uint16_t key)
 
 uds_status_t nvm_store_erase_all(void)
 {
+    /* [#280] NVM_KEY_SEC_STATE is deliberately NOT in this list — see the
+     * contract in nvm_store.h. This primitive has no authorization concept
+     * of its own, so it must not be able to clear the SecurityAccess
+     * lockout record as an unreviewed side effect of a diagnostics-related
+     * reset. Formerly included [EDS#211]; removed here, not renamed.
+     *
+     * MAINTENANCE: unlike the Zephyr/mock backends (which wipe everything
+     * and restore NVM_KEY_SEC_STATE by exception), this backend wipes by
+     * explicit allowlist. A new NVM_KEY_* added to nvm_store.h that should
+     * be diagnostics-resettable must be added here too, or it silently
+     * survives every FreeRTOS erase_all() call. */
     uint16_t     keys[] = {
-        (uint16_t)NVM_KEY_SEC_STATE, /* [EDS#211] replaces the former
-                                       * NVM_KEY_SEC_ATTEMPT_CTR +
-                                       * NVM_KEY_SEC_LOCKOUT_MS pair. */
         (uint16_t)NVM_KEY_DTC_MIRROR,
         (uint16_t)NVM_KEY_SESSION_STATS,
         (uint16_t)NVM_KEY_LIFECYCLE_CNT,

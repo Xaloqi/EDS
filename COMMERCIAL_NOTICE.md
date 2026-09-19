@@ -38,6 +38,16 @@ License version 2 (`LICENSE` at repo root):
 | `config/` | DID database, DTC database, routine database |
 | `platform/` | Zephyr port, NVM store, flash ops, mutex, timer, watchdog |
 
+**One named exception:** `platform/freertos/freertos_rng_example.c` is
+licensed Apache 2.0, not GPL v2, like the rest of `platform/`. It is not
+compiled into the runtime by any build script — the file itself says so —
+and is meant to be copied into your own application and adapted to your
+MCU's TRNG peripheral, the same "copy-and-adapt, no GPL obligations"
+purpose as everything under `examples/`. It just happens to live in
+`platform/freertos/` rather than `examples/` because it's a companion to
+`freertos_flash_ops.c`, which — unlike this file — genuinely is shipped
+runtime code and is GPL v2 like its siblings.
+
 GPL v2 means: you may use, study, modify, and redistribute these files,
 provided that any combined work you distribute — including ECU firmware
 that links against this stack — is also distributed under GPL v2, with
