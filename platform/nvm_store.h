@@ -103,6 +103,33 @@ extern "C" {
 /** Maximum single record size in bytes. */
 #define NVM_MAX_RECORD_BYTES       (512U)
 
+/**
+ * [#285] A backend without a native delete primitive (see the
+ * nvm_store_delete() doc comment) may implement it as a sentinel write
+ * instead of true removal: a record consisting of exactly
+ * NVM_STORE_DELETE_SENTINEL_LEN byte(s), each equal to
+ * NVM_STORE_DELETE_SENTINEL_BYTE.
+ *
+ * Such a backend's OWN nvm_store_read() should translate that pattern
+ * back to UDS_STATUS_ERR_DID_NOT_FOUND itself, for the specific key(s) it
+ * is used on, so "deleted reads as absent" holds the same way it would
+ * with a true delete and callers do not need to know the backend faked
+ * it — see platform/freertos/freertos_nvm.c's nvm_store_read() for the
+ * one implementation that does this today, scoped to NVM_KEY_SEC_STATE
+ * (the only key nvm_store_delete() is ever called with in this
+ * codebase). Deliberately NOT applied to every key a backend might ever
+ * store: a customer application may define further keys of its own
+ * whose format this stack knows nothing about, one of which could
+ * legitimately be a real record equal to this exact pattern — the
+ * translation is safe only for a key whose fixed wire format is known
+ * wider than NVM_STORE_DELETE_SENTINEL_LEN (NVM_KEY_SEC_STATE's is
+ * UDS_SECURITY_NVM_RECORD_BYTES = 12 bytes — see
+ * core/uds_security_nvm.h), which is exactly the set of keys this
+ * translation should ever be applied to.
+ */
+#define NVM_STORE_DELETE_SENTINEL_LEN  ((size_t)1U)
+#define NVM_STORE_DELETE_SENTINEL_BYTE ((uint8_t)0x00U)
+
 /* --------------------------------------------------------------------------
  * Session statistics record (persisted as NVM_KEY_SESSION_STATS)
  * -------------------------------------------------------------------------- */
@@ -227,6 +254,15 @@ uds_status_t nvm_store_read(
  * @brief Delete a record from NVM.
  *
  * Marks the record as deleted. Reclaimed on next NVS garbage collection.
+ *
+ * [#285] On a backend without a native delete primitive, this may instead
+ * be a sentinel write — see NVM_STORE_DELETE_SENTINEL_LEN/_BYTE above. A
+ * well-behaved such backend translates that pattern back to
+ * UDS_STATUS_ERR_DID_NOT_FOUND inside its own nvm_store_read(), for the
+ * key(s) it is used on, so callers see the same "deleted reads as
+ * absent" contract regardless of backend — see
+ * platform/freertos/freertos_nvm.c for the one implementation that does
+ * this today.
  *
  * @param[in] key  Record key to delete.
  *

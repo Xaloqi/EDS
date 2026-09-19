@@ -124,13 +124,14 @@ static void nvm_check_schema(void)
          * to perform on every key here, SEC_STATE included).
          *
          * NOTE: on this backend nvm_store_delete() is a sentinel write,
-         * not a true delete (see its own doc comment) — the next
-         * uds_security_nvm_load() reads back a too-short record and
-         * reports it as CORRUPT rather than DID_NOT_FOUND, which is a
-         * pre-existing wrinkle (not introduced here; the old erase_all()
-         * loop had the identical byte-for-byte effect on this key) and,
-         * with nvm_load_fail_closed configured true, reads as a lockout
-         * rather than a clean zero-state — tracked separately as #285.
+         * not a true delete (see its own doc comment and
+         * NVM_STORE_DELETE_SENTINEL_LEN/_BYTE in nvm_store.h) — but
+         * nvm_store_read() above now translates that sentinel back to
+         * DID_NOT_FOUND itself (fixed by #285), so the subsequent
+         * uds_security_nvm_load() sees a clean zero-state exactly as it
+         * would after a true delete. Before #285, that read back as
+         * CORRUPT and, with nvm_load_fail_closed configured true, as a
+         * lockout rather than a clean zero-state.
          */
         (void)nvm_store_erase_all();
         (void)nvm_store_delete((uint16_t)NVM_KEY_SEC_STATE);
@@ -200,36 +201,82 @@ uds_status_t nvm_store_write(uint16_t key, const void *data, size_t len)
 uds_status_t nvm_store_read(uint16_t key, void *data, size_t len,
                              size_t *out_read_len)
 {
+    uds_status_t rc;
+    size_t       read_len = 0U;
+
     if (data == NULL) { return UDS_STATUS_ERR_NULL_PTR; }
     if (len == 0U)    { return UDS_STATUS_ERR_INVALID_PARAM; }
     if (!s_initialized) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
     if (s_ops.read == NULL) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
 
-    return s_ops.read(key, (uint8_t *)data, len, out_read_len);
+    rc = s_ops.read(key, (uint8_t *)data, len, &read_len);
+
+    /* [#285] This backend's nvm_store_delete() has no native delete
+     * primitive to call and instead overwrites the record with the
+     * documented sentinel pattern (NVM_STORE_DELETE_SENTINEL_LEN/_BYTE,
+     * nvm_store.h) — a raw pass-through read would return that sentinel
+     * as ordinary UDS_STATUS_OK data, indistinguishable to the caller
+     * from a genuine 1-byte record. Translate it back to
+     * UDS_STATUS_ERR_DID_NOT_FOUND here, at the one backend that actually
+     * produces this pattern, so nvm_store_delete()+nvm_store_read()
+     * honour the same "deleted reads as absent" contract every other
+     * backend gets for free from a true delete — no caller needs to know
+     * this backend fakes it.
+     *
+     * Scoped to key == NVM_KEY_SEC_STATE, not applied globally: that is
+     * the only key nvm_store_delete() is ever called with anywhere in
+     * this codebase, and this stack's "at least six keys" contract
+     * (see this file's own PURPOSE banner) leaves room for a customer
+     * application to define further keys of its own with formats this
+     * stack knows nothing about — one of which could legitimately be a
+     * real 1-byte record whose value happens to be 0x00 (a boolean
+     * default-off flag, say). Narrowing to the one key this stack
+     * itself ever deletes avoids reinterpreting a customer's own
+     * genuine data as "deleted".
+     */
+    if ((key == (uint16_t)NVM_KEY_SEC_STATE) &&
+        (rc == UDS_STATUS_OK) &&
+        (read_len == NVM_STORE_DELETE_SENTINEL_LEN) &&
+        (((const uint8_t *)data)[0] == NVM_STORE_DELETE_SENTINEL_BYTE)) {
+        rc = UDS_STATUS_ERR_DID_NOT_FOUND;
+    }
+
+    /* Only set *out_read_len on a genuine OK — matches
+     * platform/zephyr/nvm_store.c's convention of leaving it untouched on
+     * DID_NOT_FOUND (including the sentinel translation above, and
+     * whatever s_ops.read() itself already left it as on its own
+     * DID_NOT_FOUND path, which this must not override). */
+    if ((rc == UDS_STATUS_OK) && (out_read_len != NULL)) {
+        *out_read_len = read_len;
+    }
+
+    return rc;
 }
 
 uds_status_t nvm_store_delete(uint16_t key)
 {
-    uint8_t zero[1] = { 0U };
+    uint8_t sentinel[NVM_STORE_DELETE_SENTINEL_LEN];
 
     if (!s_initialized) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
+
+    (void)memset(sentinel, (int)NVM_STORE_DELETE_SENTINEL_BYTE, sizeof(sentinel));
 
     /*
      * FreeRTOS NVM does not have a native delete primitive — the customer's
      * flash backend may not support record-level deletion. We implement
-     * delete as a zero-length write sentinel by overwriting the record with
-     * a single zero byte. Subsequent reads will return the sentinel byte
-     * rather than UDS_STATUS_ERR_DID_NOT_FOUND.
+     * delete as a documented sentinel write (NVM_STORE_DELETE_SENTINEL_LEN/
+     * _BYTE in nvm_store.h) rather than true removal. nvm_store_read()
+     * above translates that sentinel back to UDS_STATUS_ERR_DID_NOT_FOUND
+     * itself ([#285]), so callers of this backend's read/delete pair never
+     * observe the raw sentinel bytes — "deleted reads as absent" holds the
+     * same way it would with a true delete, with no caller-side awareness
+     * needed of how this backend fakes it.
      *
      * For records that must truly be absent (e.g. after a factory reset),
      * call nvm_store_erase_all() instead.
-     *
-     * This is acceptable for the EDS use case: nvm_store_delete() is only
-     * called to clear the security lockout counter, which is subsequently
-     * re-initialised to zero on the next unlock cycle.
      */
     if (s_ops.write != NULL) {
-        (void)s_ops.write(key, zero, sizeof(zero));
+        (void)s_ops.write(key, sentinel, sizeof(sentinel));
     }
 
     return UDS_STATUS_OK;
@@ -254,16 +301,20 @@ uds_status_t nvm_store_erase_all(void)
         (uint16_t)NVM_KEY_LIFECYCLE_CNT,
         (uint16_t)NVM_KEY_SCHEMA_VERSION,
     };
-    uint8_t  zero[NVM_MAX_RECORD_BYTES];
-    uint8_t  i;
+    /* Same pattern nvm_store_delete() writes — see NVM_STORE_DELETE_
+     * SENTINEL_LEN/_BYTE in nvm_store.h. Named here rather than a raw
+     * literal so the one other producer of this exact byte pattern in
+     * this file stays discoverable by grepping for the constant. */
+    uint8_t      sentinel[NVM_STORE_DELETE_SENTINEL_LEN];
+    uint8_t      i;
 
     if (!s_initialized) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
     if (s_ops.write == NULL) { return UDS_STATUS_ERR_NOT_INITIALIZED; }
 
-    (void)memset(zero, 0, sizeof(zero));
+    (void)memset(sentinel, (int)NVM_STORE_DELETE_SENTINEL_BYTE, sizeof(sentinel));
 
     for (i = 0U; i < (uint8_t)(sizeof(keys) / sizeof(keys[0])); i++) {
-        (void)s_ops.write(keys[i], zero, (size_t)1U);
+        (void)s_ops.write(keys[i], sentinel, sizeof(sentinel));
     }
 
     /* Re-write schema version so the store is ready after erase. */

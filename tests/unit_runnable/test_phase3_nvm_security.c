@@ -533,6 +533,31 @@ void test_load_reports_corrupt_on_truncated_record(void)
     TEST_ASSERT_EQUAL(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc);
 }
 
+/* 19. [#285] On a backend with a TRUE delete (this host mock included —
+ * its nvm_store_delete() marks the slot unused, not a sentinel write),
+ * the FreeRTOS-only sentinel pattern (exactly one 0x00 byte) reaching
+ * this key by any other means must still be reported as CORRUPT, not
+ * mistaken for "no persisted state". The #285 fix belongs in
+ * platform/freertos/freertos_nvm.c's own nvm_store_read() — the one
+ * backend that actually produces this pattern via nvm_store_delete() —
+ * not here in the backend-agnostic core/uds_security_nvm.c, precisely so
+ * this fail-closed guarantee holds on every OTHER backend. */
+void test_load_reports_corrupt_on_sentinel_pattern_from_true_delete_backend(void)
+{
+    uint8_t sentinel[1] = { 0x00U };
+
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK,
+        nvm_store_write(NVM_KEY_SEC_STATE, sentinel, sizeof(sentinel)));
+
+    uint8_t      out_a = 99U;
+    uint32_t     out_l = 99U;
+    uds_status_t rc    = uds_security_nvm_load(&out_a, &out_l);
+    TEST_ASSERT_EQUAL(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc);
+    /* Nothing applied — out params left at their sentinel values. */
+    TEST_ASSERT_EQUAL_UINT8(99U, out_a);
+    TEST_ASSERT_EQUAL_UINT32(99U, out_l);
+}
+
 /* --------------------------------------------------------------------------
  * Test runner
  * -------------------------------------------------------------------------- */
@@ -557,4 +582,5 @@ void run_all_tests(void)
     RUN_TEST(test_load_reports_corrupt_on_bad_magic);
     RUN_TEST(test_load_reports_corrupt_on_bad_version);
     RUN_TEST(test_load_reports_corrupt_on_truncated_record);
+    RUN_TEST(test_load_reports_corrupt_on_sentinel_pattern_from_true_delete_backend);
 }
