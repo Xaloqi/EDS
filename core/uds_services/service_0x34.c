@@ -273,6 +273,15 @@ uds_status_t uds_service_0x34_handler(
     /* --- Erase the target flash region --- */
     status = ops->erase_cb(mem_address, mem_size);
     if (status != UDS_STATUS_OK) {
+        /* [#232 review fix] begin_cb (above) may already have started
+         * per-transfer policy state — a digest context, a reserved slot —
+         * on the expectation that either finalise_cb or abort_cb will
+         * eventually be called to close it out. Without this, an erase
+         * failure here left that state permanently orphaned: tctx itself
+         * was never marked ACTIVE, so the next 0x34's pre-emption check
+         * never saw an active download to abort, and no abort_cb call was
+         * reachable from any path until the next process restart. */
+        uds_image_policy_notify_abort();
         /* NRC 0x70 — uploadDownloadNotAccepted (erase failure). */
         return UDS_STATUS_ERR_PLATFORM;
     }

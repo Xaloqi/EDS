@@ -204,8 +204,17 @@ uds_status_t uds_service_0x37_handler(
         return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
 
+    /* [#232 review fix] RequestTransferExit is ISO 14229-1's single generic
+     * exit for BOTH directions — this handler is registered once and also
+     * terminates 0x35 RequestUpload transfers (core/uds_access_table.c),
+     * which the original Phase 1 patch did not account for anywhere in
+     * this file. Every #232 behaviour below — the relaxed param-record
+     * length, the finalise/commit gate, and the no-policy production
+     * refusal — must apply to DOWNLOAD exits only. tctx->direction is
+     * reliable here: the state != ACTIVE check above already guarantees
+     * 0x34 or 0x35 set it for the transfer this call is closing. */
     policy = uds_image_policy_get();
-    if (policy != NULL) {
+    if ((policy != NULL) && (tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD)) {
         param_record_required =
             ((policy->policy_flags & (uint8_t)UDS_IMAGE_POLICY_REQUIRE_PARAM_RECORD) != (uint8_t)0U);
     }
@@ -299,15 +308,33 @@ uds_status_t uds_service_0x37_handler(
             /* NRC 0x72 generalProgrammingFailure — CRC mismatch. */
             return UDS_STATUS_ERR_PLATFORM;
         }
-    } else if (tctx->crc_check_requested) {
+    } else if ((policy != NULL) &&
+               (tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD) &&
+               !param_record_required) {
         /* ------------------------------------------------------------------
-         * [#279] crc_check_requested is finally consulted.
+         * [#279] CRC-mandatory enforcement, recomputed live rather than
+         * trusting tctx->crc_check_requested.
          *
-         * Set at 0x34 when an image policy is registered and that policy
-         * has not claimed the parameter record for itself — see the long
-         * rationale at the assignment site in service_0x34.c.  A
-         * policy-armed ECU does not accept a transfer exit that carries no
-         * integrity evidence at all.
+         * [#232 review fix] That field is written once at 0x34 from
+         * whatever policy was registered when the download STARTED.
+         * uds_image_policy_register() has no guard against being called
+         * again mid-transfer (by design — see REQ-IMGPOL-004 in
+         * uds_image_policy.h), so a policy swapped in between 0x34 and
+         * this 0x37 left the field stale: it could wrongly demand a CRC a
+         * newer, param-record-based policy never asked for, or wrongly
+         * skip the check for a newer policy that does need it. Recomputing
+         * from the policy that is ACTUALLY registered right now — using
+         * the same policy/direction/param_record_required already derived
+         * above for the parsing decision — means the enforcement always
+         * matches whichever policy will receive finalise_cb a few lines
+         * below, which is the property that actually matters. The tctx
+         * field itself is left in place and still written at 0x34 (#279
+         * still wants it wired, and it remains a useful record of what
+         * applied when the transfer began), it is simply no longer the
+         * value this check trusts.
+         *
+         * A policy-armed ECU does not accept a transfer exit that carries
+         * no integrity evidence at all.
          *
          * NRC 0x13, and the transfer context is deliberately NOT reset:
          * this is the same class of fault as the malformed-record-length
@@ -343,8 +370,14 @@ uds_status_t uds_service_0x37_handler(
      * readback, so the policy is handed evidence about an image that is
      * fully written and self-consistent, and is the LAST word before a
      * positive response can be built.
+     *
+     * [#232 review fix] Download-only — see the param_record_required
+     * comment above. Applying this to an upload exit would run firmware
+     * verification (and potentially commit_cb / boot_request_upgrade in a
+     * future phase) against read-out data that was never a candidate
+     * image, on every 0x35 transfer once a policy is registered.
      * -------------------------------------------------------------------- */
-    if (policy != NULL) {
+    if ((policy != NULL) && (tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD)) {
         uds_image_evidence_t evidence;
         /* Fail-closed initial value: a finalise_cb that returns OK without
          * writing *out_verdict must not be read as an acceptance. */
@@ -402,9 +435,14 @@ uds_status_t uds_service_0x37_handler(
      * Development / CI builds fall straight through, which is what keeps
      * every existing example, harness test and unit test that downloads
      * without a policy behaving exactly as before.
+     *
+     * [#232 review fix] Download-only, same reason as above: an upload
+     * never needed a policy and must never be refused for lacking one —
+     * requiring one would turn every 0x35 on a production build into a
+     * guaranteed NRC 0x22 the moment SafeBoot is configured at all.
      * -------------------------------------------------------------------- */
 #if EDS_BUILD_IS_PRODUCTION
-    if (policy == NULL) {
+    if ((policy == NULL) && (tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD)) {
         uds_safety_record_platform_violation(UDS_STATUS_ERR_IMAGE_POLICY_ABSENT);
         uds_transfer_ctx_reset(tctx); /* REQ-DL-003 */
         /* NRC 0x22 — conditionsNotCorrect (no image policy registered). */

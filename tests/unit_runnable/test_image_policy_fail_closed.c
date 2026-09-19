@@ -408,6 +408,53 @@ ZTEST(image_policy_fail_closed, tc005_full_round_trip_with_policy)
     zassert_equal(0U, platform_violations(), "the good path records no violation");
 }
 
+/* --------------------------------------------------------------------------
+ * TC-IPFC-006 [#232 review fix] — the production-mode half of the review's
+ * finding 1. TC-IPFC-001/003 prove downloads correctly REFUSE with no
+ * policy on a production build; this proves uploads correctly do NOT —
+ * REQ-IMGPOL-001/002 are download-only, and before the fix an upload with
+ * no policy registered was refused NRC 0x22 exactly like a download would
+ * be, which would have broken every 0x35 on any production build with
+ * SafeBoot configured at all, the moment a policy was required for DFU to
+ * work. Confirmed to FAIL against the pre-review-fix code (see PR
+ * description). Hand-primes tctx as UPLOAD/complete, mirroring TC-IPFC-003's
+ * own technique for the download case.
+ * -------------------------------------------------------------------------- */
+ZTEST(image_policy_fail_closed, tc006_0x35_upload_never_needs_a_policy)
+{
+    uds_transfer_ctx_t *tctx = uds_transfer_ctx_get();
+
+    zassert_is_null(uds_image_policy_get(), "precondition: no policy registered");
+
+    /* --- 0x34's REQ-IMGPOL-001 gate must not apply to uploads at all: an
+     * upload is opened via 0x35, never via 0x34, so this is really just
+     * confirming 0x35 itself has no image-policy dependency introduced. */
+    uds_transfer_ctx_reset(tctx);
+    tctx->state                   = UDS_TRANSFER_ACTIVE;
+    tctx->direction               = UDS_TRANSFER_DIR_UPLOAD;
+    tctx->target_address          = MOCK_FLASH_BASE;
+    tctx->total_size_bytes        = (uint32_t)IMAGE_SIZE;
+    tctx->bytes_remaining         = 0U;   /* upload already fully read out */
+    tctx->crc_accumulator         = 0xFFFFFFFFUL;
+
+    s_req.data[0] = 0x37U;
+    s_req.length  = 1U;
+
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x37_handler(&s_srv, &s_req, &s_resp),
+                  "production build, NO policy registered: an upload's transfer "
+                  "exit must still succeed — REQ-IMGPOL-002 is download-only");
+    zassert_equal(0x77U, s_resp.data[0],
+                  "an upload must still receive its normal positive response");
+    zassert_equal(0U, platform_violations(),
+                  "an upload reaching transfer exit records no image-policy "
+                  "violation — it was never subject to the gate");
+    zassert_equal(0U, s_finalise_calls,
+                  "finalise_cb is a download-only hook; no policy is even "
+                  "registered here, but this also guards against a future "
+                  "regression that re-adds a policy without an upload guard");
+}
+
 /* ==========================================================================
  * run_all_tests
  * ========================================================================== */
@@ -419,4 +466,5 @@ void run_all_tests(void)
     RUN_TEST(image_policy_fail_closed__tc003_0x37_no_policy_refuses);
     RUN_TEST(image_policy_fail_closed__tc004_policy_lost_mid_transfer_still_refuses);
     RUN_TEST(image_policy_fail_closed__tc005_full_round_trip_with_policy);
+    RUN_TEST(image_policy_fail_closed__tc006_0x35_upload_never_needs_a_policy);
 }

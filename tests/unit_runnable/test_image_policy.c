@@ -185,6 +185,31 @@ static const uds_flash_ops_t k_mock_ops = {
     .max_block_length = (uint16_t)MOCK_BLOCK_LEN,
 };
 
+/* [#232 review fix] read_cb + an ops table that supplies it, so this file
+ * can also drive SID 0x35 RequestUpload — needed to prove the image policy
+ * gate stays out of the upload path, which is what the finding actually
+ * was. */
+static uds_status_t mock_read(uint32_t address, uint8_t *data, uint32_t length)
+{
+    uint32_t i;
+
+    (void)address;
+    for (i = 0U; i < length; i++) {
+        data[i] = (uint8_t)0xA5U;
+    }
+    return UDS_STATUS_OK;
+}
+
+static const uds_flash_ops_t k_mock_ops_with_read = {
+    .erase_cb         = mock_erase,
+    .write_cb         = mock_write,
+    .verify_cb        = mock_verify,
+    .read_cb          = mock_read,
+    .memory_map       = k_mock_region,
+    .region_count     = (uint8_t)1U,
+    .max_block_length = (uint16_t)MOCK_BLOCK_LEN,
+};
+
 /* ==========================================================================
  * Mock image policy state
  * ========================================================================== */
@@ -334,6 +359,17 @@ static void build_0x34_req(uint32_t mem_address, uint32_t mem_size)
     s_req.data[10] = (uint8_t)( mem_size         & 0xFFU);
 
     s_req.length = 11U;
+}
+
+/**
+ * @brief [#232 review fix] Build a well-formed [0x35] RequestUpload —
+ * byte-identical to build_0x34_req() apart from the SID, matching
+ * tests/unit_runnable/test_service_0x35.c's own request shape.
+ */
+static void build_0x35_req(uint32_t mem_address, uint32_t mem_size)
+{
+    build_0x34_req(mem_address, mem_size);
+    s_req.data[0] = 0x35U;
 }
 
 /**
@@ -1050,6 +1086,118 @@ ZTEST(image_policy, test_abort_cb_fires_on_abort_paths)
     zassert_equal(2U, s_begin_calls, "");
 }
 
+/* --------------------------------------------------------------------------
+ * [#232 review fixes] — findings from the code-review pass on the Phase 1
+ * implementation, before it was ever pushed as a PR. Each of these three
+ * was confirmed to FAIL against the pre-fix code before the corresponding
+ * fix landed (see the PR description for the exact mutation and failure).
+ * -------------------------------------------------------------------------- */
+
+/* TC-IMGPOL-060 [review finding 1] */
+ZTEST(image_policy, test_0x35_upload_never_reaches_image_policy)
+{
+    (void)uds_flash_ops_register(&k_mock_ops_with_read);
+
+    /* REQUIRE_PARAM_RECORD is the sharpest version of this finding: if the
+     * gate wrongly applied to uploads, finalise_cb would run with bogus
+     * "evidence" built from an upload's read-out bytes, and the relaxed
+     * param-record length parsing would apply to a service that has no
+     * parameter record shape of its own to relax. */
+    zassert_equal(UDS_STATUS_OK, uds_image_policy_register(&k_policy_param_record), "");
+
+    build_0x35_req(MOCK_FLASH_BASE, 0x40U);
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x35_handler(&s_srv, &s_req, &s_resp),
+                  "a normal upload must not be touched by the DFU image policy at all");
+    zassert_equal((uint8_t)0x75U, s_resp.data[0],
+                  "positive response to 0x35 is SID+0x40, not [0x77]");
+
+    /* Drain the upload via 0x36 — upload's own request shape is
+     * [0x36, blockSeq], no tester payload (service_0x36.c dispatches to
+     * s_handle_upload_block() before ever reaching the image-policy hook,
+     * so this leg is not part of what the review finding was about, but
+     * REQ-DL-002's "transfer must be complete" check at 0x37 still applies
+     * to either direction and the request must actually finish). 0x40
+     * bytes fits in a single block (MOCK_BLOCK_LEN is far larger). */
+    s_req.data[0] = 0x36U;
+    s_req.data[1] = 0x01U;
+    s_req.length  = 2U;
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_equal(0U, uds_transfer_ctx_get()->bytes_remaining,
+                  "the whole 64-byte upload must have been read in one block");
+
+    /* The transfer exit for that upload — plain bare [0x37], the shape a
+     * real upload-capable tester actually sends. Before the fix this was
+     * misrouted through the download-only finalise/commit gate. */
+    build_0x37_bare();
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x37_handler(&s_srv, &s_req, &s_resp),
+                  "upload transfer exit must not be gated by the image policy");
+    zassert_equal((uint8_t)0x77U, s_resp.data[0], "");
+    zassert_equal(0U, s_begin_calls,   "begin_cb is a 0x34-only hook, never reached from 0x35");
+    zassert_equal(0U, s_finalise_calls,
+                  "finalise_cb must never run against upload (read-out) data");
+    zassert_equal(0U, s_commit_calls,
+                  "commit_cb must never fire from an upload — nothing was verified");
+    zassert_equal(0U, s_abort_calls, "a clean upload exit is not an abort");
+}
+
+/* TC-IMGPOL-061 [review finding 2] */
+ZTEST(image_policy, test_0x34_erase_failure_after_begin_accepted_notifies_abort)
+{
+    zassert_equal(UDS_STATUS_OK, uds_image_policy_register(&k_policy_full), "");
+    s_erase_fail = true;
+
+    build_0x34_req(MOCK_FLASH_BASE, 0x100U);
+    zassert_equal(UDS_STATUS_ERR_PLATFORM,
+                  uds_service_0x34_handler(&s_srv, &s_req, &s_resp),
+                  "erase failure must still surface as NRC 0x70 (unchanged)");
+    zassert_equal(1U, s_begin_calls, "begin_cb ran and accepted before erase was attempted");
+    zassert_equal(1U, s_abort_calls,
+                  "begin_cb's state must be dropped when erase fails afterwards — "
+                  "otherwise it leaks until process restart");
+
+    /* The ECU must still be usable afterwards: a following 0x34 opens
+     * cleanly rather than being wedged by the previous failure. */
+    s_erase_fail = false;
+    build_0x34_req(MOCK_FLASH_BASE, 0x100U);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_equal(2U, s_begin_calls, "");
+}
+
+/* TC-IMGPOL-062 [review finding 3] */
+ZTEST(image_policy, test_0x37_crc_check_requested_recomputed_live_not_cached)
+{
+    uint8_t record[1] = { 0xAAU };
+
+    /* Policy A (k_policy_full: no REQUIRE_PARAM_RECORD) is registered when
+     * the download STARTS — this is what sets tctx->crc_check_requested,
+     * the field #279 wired. */
+    zassert_equal(UDS_STATUS_OK, uds_image_policy_register(&k_policy_full), "");
+    build_0x34_req(MOCK_FLASH_BASE, 0x40U);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_true(uds_transfer_ctx_get()->crc_check_requested,
+                 "sanity: policy A's registration must set the #279 field");
+
+    build_0x36_req(0x01U, 0x10U, 0x40U);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
+
+    /* Policy B replaces A before 0x37 — nothing in uds_image_policy_register()
+     * forbids this (REQ-IMGPOL-004 only concerns NULL). B claims the
+     * parameter record for itself, so a bare CRC-shaped 0x37 is no longer
+     * the right request shape; a record is. */
+    zassert_equal(UDS_STATUS_OK, uds_image_policy_register(&k_policy_param_record), "");
+
+    build_0x37_with_record(record, (uint16_t)sizeof(record));
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x37_handler(&s_srv, &s_req, &s_resp),
+                  "the CURRENTLY registered policy (B) does not require a CRC — "
+                  "the stale field from A's registration at 0x34 must not override it");
+    zassert_equal((uint8_t)0x77U, s_resp.data[0], "");
+    zassert_equal(1U, s_finalise_calls, "policy B's finalise_cb must be the one that ran");
+}
+
 /* ==========================================================================
  * run_all_tests
  * ========================================================================== */
@@ -1085,4 +1233,8 @@ void run_all_tests(void)
     RUN_TEST(image_policy__test_0x37_no_policy_strict_lengths_unchanged);
 
     RUN_TEST(image_policy__test_abort_cb_fires_on_abort_paths);
+
+    RUN_TEST(image_policy__test_0x35_upload_never_reaches_image_policy);
+    RUN_TEST(image_policy__test_0x34_erase_failure_after_begin_accepted_notifies_abort);
+    RUN_TEST(image_policy__test_0x37_crc_check_requested_recomputed_live_not_cached);
 }
