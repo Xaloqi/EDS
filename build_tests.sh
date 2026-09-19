@@ -302,6 +302,8 @@ STACK_SRCS=(
     "${ROOT}/core/uds_transfer_ctx.c"             # DFU transfer state machine
     "${ROOT}/platform/uds_flash_ops.c"            # Flash ops singleton
     "${ROOT}/platform/uds_image_policy.c"         # [#232] Image policy singleton
+    "${ROOT}/platform/uds_sha256.c"               # [#232 Phase 2] Streaming SHA-256
+    "${ROOT}/platform/uds_mcuboot_image.c"        # [#232 Phase 2] MCUboot hdr/TLV parser
     # Transport
     "${ROOT}/transport/isotp.c"
     "${ROOT}/transport/can_transport.c"
@@ -394,6 +396,18 @@ TESTS=(
     # CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 because those two refusals cannot
     # be reached from the default dev-configuration build.
     test_image_policy_fail_closed
+    # [#232 Phase 2] Hardware-independent DFU verification primitives.
+    # Both modules are DEAD CODE today on purpose: nothing in core/,
+    # transport/ or config/ calls platform/uds_sha256.c or
+    # platform/uds_mcuboot_image.c yet. They are the two pieces of the
+    # Phase 2 Zephyr/MCUboot reference policy that need no hardware, no
+    # Zephyr headers and no crypto library, so they can be written and
+    # proven correct on the host now — against the published FIPS 180-4
+    # vectors and against hand-built MCUboot byte buffers respectively —
+    # rather than being debugged later on a board alongside the flash
+    # driver and the ECDSA verification they will sit next to.
+    test_sha256
+    test_mcuboot_image
 )
 
 # ---------------------------------------------------------------------------

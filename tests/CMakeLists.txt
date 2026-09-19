@@ -384,6 +384,8 @@ set(DIAG_STACK_SRCS
     "${DIAG_CORE}/uds_transfer_ctx.c"   # DFU transfer state machine
     "${DIAG_PLATFORM}/uds_flash_ops.c"  # Flash ops singleton
     "${DIAG_PLATFORM}/uds_image_policy.c"  # [#232] Image verification policy singleton
+    "${DIAG_PLATFORM}/uds_sha256.c"        # [#232 Phase 2] Streaming SHA-256
+    "${DIAG_PLATFORM}/uds_mcuboot_image.c" # [#232 Phase 2] MCUboot hdr/TLV parser
     # Transport
     "${DIAG_TRANSPORT}/isotp.c"
     "${DIAG_TRANSPORT}/can_transport.c"
@@ -695,6 +697,39 @@ add_diag_test(test_image_policy_fail_closed
         "${TEST_UNIT_DIR}/test_image_policy_fail_closed.c"
     DEFINES
         CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0
+)
+
+# ---------------------------------------------------------------------------
+# test_sha256  [#232 Phase 2]
+#      Module under test: platform/uds_sha256.c — the streaming SHA-256
+#      (FIPS 180-4) primitive the Phase 2 reference image policy will use to
+#      digest a firmware image incrementally across 0x36 TransferData
+#      blocks.  Hardware-independent and unwired: nothing in core/,
+#      transport/ or config/ calls it yet, so this module is proven here on
+#      the host against the published NIST vectors and against chunk-split
+#      equivalence, well before the hardware-dependent half of Phase 2
+#      binds it into service_0x36.c.  Default build configuration.
+# ---------------------------------------------------------------------------
+add_diag_test(test_sha256
+    SOURCES
+        "${TEST_UNIT_DIR}/test_sha256.c"
+)
+
+# ---------------------------------------------------------------------------
+# test_mcuboot_image  [#232 Phase 2]
+#      Module under test: platform/uds_mcuboot_image.c — the defensive
+#      parser for the MCUboot image header and TLV trailer, which is where
+#      the Phase 2 reference policy finds the image's own SHA-256 digest and
+#      its signature.  Hardware-independent and unwired, for the same reason
+#      as test_sha256 above.  The fixtures are hand-built little-endian byte
+#      buffers, so the suite is weighted towards malformed input: truncated
+#      TLV areas, lying length fields and wrong magics must fail closed and
+#      must stay distinguishable from a clean end of area.  Default build
+#      configuration.
+# ---------------------------------------------------------------------------
+add_diag_test(test_mcuboot_image
+    SOURCES
+        "${TEST_UNIT_DIR}/test_mcuboot_image.c"
 )
 
 # ===========================================================================
