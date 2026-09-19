@@ -132,6 +132,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   primitive for `eds_nvm_ops_t` that would close it entirely is
   tracked separately as #287.
 
+- **CI now compile-verifies `safeboot_ecu` against `nucleo_h743zi`**
+  (#200). `examples/safeboot_ecu/src/main.c`'s `nvm_store_init()`
+  wiring (added by an earlier fix for this same issue) had never
+  actually been built by CI — the only existing job for this example
+  validates generated files, not a real `west build`. New
+  `zephyr-stm32-safeboot` job closes that gap, mirroring the existing
+  `basic_ecu`/`nucleo_h743zi` build job with the five deltas an
+  example-local board overlay/conf requires. Issue #200 itself stays
+  open pending real-hardware validation, unaffected by this change.
+
 ## [1.15.0] — 2026-09-11
 
 ### Added
