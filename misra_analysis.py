@@ -652,6 +652,16 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "generated/routine_handlers.h",
             "generated/did_safety_wrappers.h",
             "platform/nvm_store.h",
+            # [#232 review fix] uds_image_policy.h's include guard (cppcheck
+            # flags UDS_IMAGE_POLICY_H itself as an unused macro, same as
+            # every other header guard in this list) plus
+            # UDS_IMAGE_POLICY_REQUIRE_SIGNATURE / _REQUIRE_ANTIROLLBACK —
+            # public policy_flags bits reserved for the Phase 2/3 reference
+            # policies (each one's own doc comment says so: "core reads no
+            # behaviour from this bit today"). UDS_IMAGE_POLICY_REQUIRE_PARAM_RECORD,
+            # the third flag, IS read by service_0x37.c in Phase 1 and
+            # correctly does not appear here.
+            "platform/uds_image_policy.h",
             "platform/zephyr_port.h",
             "platform/zephyr_wdt.h",
             "platform/zephyr_flash_ops.h",
