@@ -91,6 +91,9 @@ _VALID_BASE = textwrap.dedent("""\
       p2_server_max_ms:      25
       p2_star_server_max_ms: 5000
       s3_server_timeout_ms:  5000
+    can:
+      rx_can_id: "0x7E0"
+      tx_can_id: "0x7E8"
     dids:
       - id:   "0xA001"
         name: "TestDID"
@@ -111,6 +114,9 @@ _VALID_WRITABLE_BASE = textwrap.dedent("""\
       p2_server_max_ms:      25
       p2_star_server_max_ms: 5000
       s3_server_timeout_ms:  5000
+    can:
+      rx_can_id: "0x7E0"
+      tx_can_id: "0x7E8"
     dids:
       - id:   "0xA001"
         name: "TestDIDWrite"
@@ -134,6 +140,9 @@ def _gen_n_dids_yaml(n: int, data_length: int = 4) -> str:
           p2_server_max_ms: 25
           p2_star_server_max_ms: 5000
           s3_server_timeout_ms: 5000
+        can:
+          rx_can_id: "0x7E0"
+          tx_can_id: "0x7E8"
         dids:
     """)
     for i in range(n):
@@ -208,6 +217,9 @@ class TestDuplicateAndReservedIDs:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id: "0xA001"
                 name: "DID_A"
@@ -239,6 +251,9 @@ class TestDuplicateAndReservedIDs:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id: "0xA001"
                 name: "BaseDID"
@@ -275,6 +290,9 @@ class TestDuplicateAndReservedIDs:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id: "0xA001"
                 name: "BaseDID"
@@ -353,6 +371,9 @@ class TestASILBWriteSecurityConstraints:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id:   "0xA001"
                 name: "UnsafeDID"
@@ -395,6 +416,9 @@ class TestMissingRequiredFields:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
         """)
         rc, _ = _codegen(yaml)
         assert rc != 0, "Missing 'dids' section must be rejected"
@@ -406,6 +430,9 @@ class TestMissingRequiredFields:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id: "0xA001"
                 name: "TestDID"
@@ -439,6 +466,9 @@ class TestMissingRequiredFields:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - name: "TestDID"
                 access: [read]

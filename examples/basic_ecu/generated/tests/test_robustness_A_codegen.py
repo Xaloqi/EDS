@@ -37,6 +37,9 @@ MINIMAL_VALID = textwrap.dedent("""\
       p2_server_max_ms:      25
       p2_star_server_max_ms: 5000
       s3_server_timeout_ms:  5000
+    can:
+      rx_can_id: "0x7E0"
+      tx_can_id: "0x7E8"
     dids:
       - id:   "0xF190"
         name: "VIN"
@@ -59,6 +62,9 @@ MINIMAL_WITH_WRITE = textwrap.dedent("""\
       p2_server_max_ms:      25
       p2_star_server_max_ms: 5000
       s3_server_timeout_ms:  5000
+    can:
+      rx_can_id: "0x7E0"
+      tx_can_id: "0x7E8"
     dids:
       - id:   "0xF190"
         name: "VIN"
@@ -141,6 +147,9 @@ class TestCodegenInvalidInputs:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id:   "0xF190"
                 name: "VIN"
@@ -174,6 +183,9 @@ class TestCodegenInvalidInputs:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id:   "0xF190"
                 name: "VIN"
@@ -206,6 +218,9 @@ class TestCodegenInvalidInputs:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id:   "0xF190"
                 name: "VIN"
@@ -257,6 +272,9 @@ class TestCodegenInvalidInputs:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id:   "0xF190"
                 access: [read]
@@ -281,6 +299,9 @@ class TestCodegenInvalidInputs:
               p2_server_max_ms: 25
               p2_star_server_max_ms: 5000
               s3_server_timeout_ms: 5000
+            can:
+              rx_can_id: "0x7E0"
+              tx_can_id: "0x7E8"
             dids:
               - id:   "0xF190"
                 name: "VIN"

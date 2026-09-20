@@ -7,8 +7,8 @@ commercial deliverable (#68), absent from a Developer-tier checkout (every
 public clone and CI run), which reports the harness suite **BLOCKED**, not a
 pass, per ADR-005 (execution-truth semantics — see `xaloqi-knowledge`'s
 `decisions/ADR-005-execution-truth-semantics.md`). The canonical Python suite
-(`run_python_tests.sh`) executes **1,958 of 2,981** collected cases in a
-Developer-tier checkout and **2,782 of 2,981** with the Professional harness
+(`run_python_tests.sh`) executes **2,105 of 3,019** collected cases in a
+Developer-tier checkout and **2,929 of 3,019** with the Professional harness
 present — see "Canonical whole-suite floors" below for the per-suite
 breakdown. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples
 all covered.
@@ -77,13 +77,13 @@ automatically by whether `harness/harness_main.c` exists:
 
 Both columns below were measured by running `run_python_tests.sh` once per
 profile, `XALOQI_LICENSE_SKIP=1`, under `bash --noprofile --norc -eo pipefail`
-(v1.14.0 Phase 4a). Of 2,981 total collected cases:
+(v1.14.0 Phase 4a). Of 3,019 total collected cases:
 
 | Suite | Developer executed (floor) | Professional executed (floor) |
 |---|---|---|
 | `tests/` | 0 — **no floor, always BLOCKED** (#260) | 0 — **no floor, always BLOCKED** (#260) |
 | `examples/ardep_ecu` | 312 | 450 |
-| `examples/basic_ecu` | 426 | 482 |
+| `examples/basic_ecu` | 573 | 629 |
 | `examples/basic_ecu_doip` | 99 | 155 |
 | `examples/basic_ecu_doip_freertos` | 99 | 155 |
 | `examples/basic_ecu_freertos` | 99 | 155 |
@@ -93,7 +93,7 @@ profile, `XALOQI_LICENSE_SKIP=1`, under `bash --noprofile --norc -eo pipefail`
 | `examples/safeboot_ecu` | 80 | 130 |
 | `examples/sensor_ecu` | 105 | 165 |
 | `examples/sensor_ecu_freertos` | 105 | 165 |
-| **Total** | **1,958 of 2,981** | **2,782 of 2,981** |
+| **Total** | **2,105 of 3,019** | **2,929 of 3,019** |
 
 `tests/` keeps no floor in either profile: it executes 0 cases in both (it
 needs `xaloqi-tester`'s firmware binary for the DoIP integration tests and

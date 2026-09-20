@@ -28,6 +28,7 @@ CHANGELOG.md is exempt: its entries are a historical record of what was true
 at the time and must not be rewritten.
 """
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -76,6 +77,15 @@ def docs():
             or ".git" in rel.parts
             or "node_modules" in rel.parts
             or ".claude" in rel.parts  # gitignored local agent-worktree scratch space
+            # [#294] The commercial overlay. tools/templates/ is gitignored
+            # here and absent from a public checkout, but INSTALL.md Step 2
+            # extracts it into *every* Developer/Professional install — so
+            # scanning it made this script pass in CI and fail for every
+            # paying customer who ran it, on prose this repo does not own.
+            # Those docs belong to Xaloqi/EDS-toolchain and are checked there.
+            or rel.parts[:2] == ("tools", "templates")
+            or "harness" in rel.parts     # Professional-tier overlay, same reason
+            or "safety_docs" in rel.parts # Professional-tier overlay, same reason
         ):
             continue
         yield rel, p.read_text(encoding="utf-8")
@@ -125,11 +135,41 @@ def declared_floor_totals() -> dict:
     return totals
 
 
+def measured_collected_total() -> int | None:
+    """The collected-case total from the last canonical run, if one is here.
+
+    ``run_python_tests.sh`` writes ``test-outcomes.json`` at the repo root
+    (ADR-005 rule 6). It is gitignored, so it is absent in a fresh CI
+    checkout and present on any machine that has run the canonical suite.
+
+    This is the only *ground truth* for the published denominator. Without
+    it the check below can compare the documents to each other and nothing
+    else — which is exactly how "of 2,981" survived two releases while the
+    real figure moved to 3,006 (O-100). Return None rather than guess.
+    """
+    outcomes = ROOT / "test-outcomes.json"
+    if not outcomes.is_file():
+        return None
+    try:
+        data = json.loads(outcomes.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    suites = data.get("suites")
+    if not isinstance(suites, list) or not suites:
+        return None
+    try:
+        return sum(int(s["executed"]) + int(s["not_executed"]) for s in suites)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def check_execution_figures(all_docs) -> list:
-    """Every 'N of M' execution figure must match a declared floor total,
-    and every M must agree with every other M."""
+    """Every 'N of M' execution figure must match a declared floor total, and
+    every M must agree with every other M — and, when a real run is available
+    to compare against, with that run."""
     totals = declared_floor_totals()
     valid = set(totals.values())
+    measured = measured_collected_total()
     problems, collected_seen = [], {}
 
     for rel, text in all_docs:
@@ -156,6 +196,18 @@ def check_execution_figures(all_docs) -> list:
         problems.append(
             f"documents disagree on the total collected-case count — {detail}"
         )
+
+    # Agreeing with each other is not the same as being right. When a real
+    # run is on this machine, the documents must agree with it too.
+    if measured is not None:
+        for stated, where in sorted(collected_seen.items()):
+            if stated != measured:
+                problems.append(
+                    f"documents state {stated:,} collected cases, but the last "
+                    f"canonical run (test-outcomes.json) collected "
+                    f"{measured:,} — at {', '.join(where)}. Re-run "
+                    f"./run_python_tests.sh and update the published figures."
+                )
     return problems
 
 

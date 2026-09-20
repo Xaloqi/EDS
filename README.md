@@ -296,8 +296,8 @@ bash run_python_tests.sh
 > `pytest.ini`) — every example's `generated/tests/` is its own
 > self-contained pytest project and must be run scoped to its own
 > directory, exactly as shown above. `run_python_tests.sh` runs all of them
-> for you. It executes **1,958 of 2,981** collected cases in a Developer-tier
-> checkout (this repo, as cloned) and **2,782 of 2,981** with the
+> for you. It executes **2,105 of 3,019** collected cases in a Developer-tier
+> checkout (this repo, as cloned) and **2,929 of 3,019** with the
 > Professional-tier `harness/` build present — the gap is cases gated on
 > commercial prerequisites (TestLab, the firmware harness, or the
 > `tools/templates` codegen ZIP), not failures. See
