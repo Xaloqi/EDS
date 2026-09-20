@@ -2402,7 +2402,7 @@ jobs:
   #             DTC severity bytes, and routine support flags
   # ──────────────────────────────────────────────────────────────────────────
   robustness-tests:
-    name: "Robustness Campaign (439 tests, 12 phases)"
+    name: "Robustness Campaign"
     runs-on: ubuntu-22.04
 
     steps:
