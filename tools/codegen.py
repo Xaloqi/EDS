@@ -1785,9 +1785,17 @@ def render_routine_handlers(
     Render routine_handlers.h/.c when routines: section is present in YAML.
     Falls back to inline generation if templates are absent.
     """
+    # Always emitted, including for a config with no routines: at all.
+    #
+    # This used to `return []` on an empty routine list, but uds_init.c
+    # includes routine_handlers.h and CMakeLists.txt compiles
+    # routine_handlers.c unconditionally — so skipping emission produced C
+    # that does not build, while codegen exited 0 printing "Generation
+    # complete."  Worse, on a regeneration it left the *previous* config's
+    # routine table on disk, so RoutineControl identifiers the engineer had
+    # just removed from the YAML still shipped in the image.
+    # The templates render a correct empty routine table; 2026-09-19 campaign.
     routines = _build_routine_list(cfg)
-    if not routines:
-        return []  # No routines configured — nothing to generate.
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1978,6 +1986,106 @@ def _write_routine_handlers_inline(
 # STEP 5 — Manifest
 # =============================================================================
 
+#: Every manifest filename codegen has ever written into an output directory.
+#: Exactly one of these may exist in a directory after a run.
+MANIFEST_FILENAMES: Tuple[str, ...] = (
+    "generated_files_phase3.json",
+    "generated_files_phase2A.json",
+)
+
+
+def _manifest_path_str(path: Path, output_dir: Path) -> str:
+    """Render a path for the manifest: relative to output_dir, else its name.
+
+    The previous implementation was ``relative_to(output_dir.parent.parent
+    .parent)`` — a hard-coded three-levels-up that only made sense for the
+    repo's own ``examples/*/generated/`` layout. Anywhere else it recorded an
+    unresolvable fragment or fell back to an absolute path, which is how three
+    committed example manifests came to carry a developer-machine path into
+    the public repo. Relative-to-output_dir is well-defined everywhere, and is
+    what makes the manifest usable as the reconciliation key below.
+    """
+    try:
+        return path.resolve().relative_to(output_dir.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _read_previous_manifest(output_dir: Path) -> List[Path]:
+    """Absolute paths recorded by the most recent run in this directory.
+
+    Tolerates manifests written by older codegen versions, whose ``files``
+    entries may be absolute or relative to some other root: an entry that does
+    not resolve inside output_dir is retried as a bare filename. Entries that
+    still do not resolve are ignored — pruning must never act on a guess.
+    """
+    out = output_dir.resolve()
+    recorded: List[Path] = []
+    for name in MANIFEST_FILENAMES:
+        manifest_path = output_dir / name
+        if not manifest_path.is_file():
+            continue
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue          # unreadable manifest: reconcile nothing
+        for entry in data.get("files", []):
+            if not isinstance(entry, str):
+                continue
+            candidate = (out / entry) if not Path(entry).is_absolute() else Path(entry)
+            if not candidate.is_file():
+                candidate = out / Path(entry).name
+            if candidate.is_file():
+                recorded.append(candidate.resolve())
+    return recorded
+
+
+def reconcile_output_dir(
+    written_files: List[str],
+    output_dir:    Path,
+) -> List[Path]:
+    """Delete files a previous run generated here that this run did not write.
+
+    Codegen's output is meant to be a pure function of the configuration, but
+    the output directory is persistent: conditional outputs (``tests/`` via
+    --test-gen, ``sovd_cda.json`` via --sovd, the GUI catalog via --gui-types)
+    survived a later run that no longer produced them, and were then compiled
+    or executed as if current. 2026-09-19 campaign.
+
+    Only files recorded in this directory's own previous manifest are ever
+    removed, and only if they still resolve inside output_dir — a hand-written
+    or hand-edited file that codegen never claimed is left alone.
+    """
+    out = output_dir.resolve()
+    kept = {Path(f).resolve() for f in written_files}
+    removed: List[Path] = []
+
+    for stale in _read_previous_manifest(output_dir):
+        if stale in kept:
+            continue
+        try:
+            stale.relative_to(out)      # never delete outside --out
+        except ValueError:
+            continue
+        try:
+            stale.unlink()
+            removed.append(stale)
+        except OSError:
+            continue
+
+    # Drop directories the pruning emptied (generated/tests/ is the live case).
+    for parent in sorted({p.parent for p in removed}, key=lambda p: -len(p.parts)):
+        if parent == out:
+            continue
+        try:
+            if parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+        except OSError:
+            continue
+
+    return removed
+
+
 def write_manifest(
     written_files:  List[str],
     config_path:    Path,
@@ -2012,28 +2120,30 @@ def write_manifest(
     )
     manifest_path = output_dir / manifest_filename
 
-    def _relative(f: str) -> str:
-        p = Path(f)
-        try:
-            return str(p.relative_to(output_dir.resolve().parent.parent.parent))
-        except ValueError:
-            return f
-
     manifest = {
         "phase":            "Phase 3" if safety_enabled else "Phase 2A",
         "generated_at":     _now_utc(),
-        "config_source":    str(config_path.resolve()),
-        "output_dir":       str(output_dir.resolve()),
+        "config_source":    _manifest_path_str(config_path, output_dir),
         "safety_wrappers":  safety_enabled,
         "asil_level":       asil_level.upper(),
-        "files": [_relative(f) for f in written_files],
-        "generator":        str(Path(__file__).resolve()),
+        "files": sorted(
+            {_manifest_path_str(Path(f), output_dir) for f in written_files}
+        ),
+        "generator":        "tools/codegen.py",
     }
 
     manifest_path.write_text(
         json.dumps(manifest, indent=2) + "\n",
         encoding="utf-8"
     )
+
+    # Only one manifest may describe a directory. Switching --safety-wrappers
+    # between runs used to leave Phase 2A and Phase 3 manifests side by side,
+    # disagreeing about what the directory contains.
+    for other in MANIFEST_FILENAMES:
+        if other != manifest_filename:
+            (output_dir / other).unlink(missing_ok=True)
+
     print(f"  [OK]     {manifest_path}")
     return manifest_path
 
@@ -2172,7 +2282,7 @@ def main() -> None:
         description=(
             "Xaloqi EDS — Code Generator (Phase 3).\n"
             "Generates C source from diagnostics_config.yaml.  "
-            "Pass --safety-wrappers to also emit ASIL-B safe accessor files."
+            "Pass --safety-wrappers to enforce ASIL-B validation of the config."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -2252,9 +2362,11 @@ def main() -> None:
         action="store_true",
         default=False,
         help=(
-            "Generate ASIL-B safety wrapper files in addition to standard "
-            "outputs:  safety_config.h, did_safety_wrappers.h, "
-            "did_safety_wrappers.c"
+            "Enforce ASIL safety validation of the configuration (Step 2B) "
+            "and report the run as Phase 3. The safety files themselves "
+            "(safety_config.h, did_safety_wrappers.h, did_safety_wrappers.c) "
+            "are always emitted, because uds_init.h includes safety_config.h "
+            "and the build compiles did_safety_wrappers.c unconditionally."
         ),
     )
     parser.add_argument(
@@ -2490,26 +2602,32 @@ def main() -> None:
     written = render_and_write(cfg, template_dir, output_dir)
     print(f"\n      {len(written)} standard file(s) written to {output_dir}")
 
-    # ── Step 4: Render safety wrappers (Phase 3, optional) ───────────────────
+    # ── Step 4: Render safety files (always) ─────────────────────────────────
+    # safety_config.h / did_safety_wrappers.{h,c} are emitted on every run,
+    # because uds_init.h includes safety_config.h and CMakeLists.txt compiles
+    # did_safety_wrappers.c unconditionally. --safety-wrappers gates ASIL
+    # validation *enforcement* (Step 2B above), not emission: omitting it used
+    # to produce C that does not build, and on a regeneration left the
+    # previous config's ASIL-B wrappers behind, wrapping DIDs that no longer
+    # existed. 2026-09-19 campaign.
+    safety_written = render_safety_wrappers(
+        cfg, template_dir, output_dir, asil_level=asil_level
+    )
+    written.extend(safety_written)
     if safety_wrappers:
         print(f"[4/5] Rendering ASIL-{asil_level} safety wrapper files...")
-        safety_written = render_safety_wrappers(
-            cfg, template_dir, output_dir, asil_level=asil_level
-        )
-        written.extend(safety_written)
         print(f"\n      {len(safety_written)} safety file(s) written to {output_dir}")
     else:
-        print("[4/5] Safety wrappers skipped (pass --safety-wrappers to enable).")
+        print(f"[4/5] {len(safety_written)} safety file(s) written "
+              f"(ASIL-{asil_level} macros); validation not enforced "
+              f"— pass --safety-wrappers to enforce it.")
 
-    # ── Step 4C: Routine handler generation ─────────────────────────────────
+    # ── Step 4C: Routine handler generation (always) ────────────────────────
     routine_written = render_routine_handlers(cfg, template_dir, output_dir)
     written.extend(routine_written)
-    if routine_written:
-        routine_count = len(cfg.get('routines', []))
-        print(f"[4C] {len(routine_written)} routine handler file(s) written "
-              f"({routine_count} routine(s)).")
-    else:
-        print("[4C] No routines configured — routine_handlers skipped.")
+    routine_count = len(cfg.get('routines', []) or [])
+    print(f"[4C] {len(routine_written)} routine handler file(s) written "
+          f"({routine_count} routine(s)).")
 
     # ── Step 4D: SOVD CDA generation (--sovd) ───────────────────────────────
     if args.sovd:
@@ -2582,6 +2700,18 @@ def main() -> None:
     else:
         print("[4C] GUI TypeScript catalog skipped (pass --gui-types to enable).")
 
+    # ── Step 4E: Reconcile the output directory ──────────────────────────────
+    # Remove what a previous run generated here and this run did not, so the
+    # directory is a description of this configuration and nothing else.
+    pruned = reconcile_output_dir(written, output_dir)
+    if pruned:
+        print(f"[4E] {len(pruned)} stale generated file(s) removed "
+              f"(not produced by this configuration):")
+        for p in sorted(pruned):
+            print(f"  [DEL]    {p}")
+    else:
+        print("[4E] No stale generated files to remove.")
+
     # ── Step 5: Manifest ──────────────────────────────────────────────────────
     if not args.no_manifest:
         print("[5/5] Writing manifest...")
@@ -2593,7 +2723,15 @@ def main() -> None:
             asil_level=asil_level,
         )
     else:
-        print("[5/5] Manifest skipped (--no-manifest).")
+        # Any existing manifest is deliberately left in place. --no-manifest is
+        # what EDS-toolchain's example-* CI jobs regenerate with, against an EDS
+        # checkout where three examples carry a *committed* manifest; deleting
+        # one there would dirty the working tree and fail a freshness check.
+        # Reconciliation above already used it, and re-reading it on a later run
+        # is idempotent — it can only name files this configuration no longer
+        # produces.
+        print("[5/5] Manifest skipped (--no-manifest); "
+              "existing manifest left untouched.")
 
     print()
     print("=" * 72)
