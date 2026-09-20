@@ -229,8 +229,8 @@ name: `XALOQI_LICENSE_KEY`, value: the full JWT string).
 
 ## What the Templates Unlock
 
-Without a license (`--safety-wrappers` omitted), codegen produces basic DID/DTC tables
-but skips the ASIL-B safety layer. With a Developer or Professional license:
+Without a license codegen cannot run at all — the templates are the commercial
+deliverable. With a Developer or Professional license:
 
 | Generated file | Community | Licensed |
 |---|:---:|:---:|

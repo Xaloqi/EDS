@@ -186,7 +186,8 @@ python3 tools/codegen.py \
 Options:
   --config, -c PATH       Path to diagnostics_config.yaml  [required]
   --out,    -o DIR        Output directory (default: generated/)
-  --safety-wrappers       Generate ASIL-B 5-step safety wrapper files
+  --safety-wrappers       Enforce ASIL-B validation of the config (the
+                          wrapper files are always generated)
   --asil-level [A|B]      ASIL target level (default: B)
   --test-gen              Also generate pytest test suite into <out>/tests/
   --gui-types             Also generate gui/src/generated/catalog.ts
@@ -203,7 +204,7 @@ Options:
 | `did_handlers.h` | DID handler function prototypes |
 | `did_handlers.c` | Static DID registration table + handler stubs |
 | `did_safety_wrappers.h` | ASIL-B 5-step wrapper prototypes |
-| `did_safety_wrappers.c` | 5-step wrapper implementations (with `--safety-wrappers`) |
+| `did_safety_wrappers.c` | 5-step wrapper implementations (always generated; `--safety-wrappers` enforces ASIL validation of the config) |
 | `routine_handlers.h` | Routine handler prototypes |
 | `routine_handlers.c` | Static routine registration table |
 | `safety_config.h` | ASIL compile-time macro configuration |

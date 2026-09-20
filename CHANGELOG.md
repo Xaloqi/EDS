@@ -90,6 +90,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Generated code that a routine-free or QM configuration could not build,
+  and stale generated code that survived regeneration.** Two halves of one
+  defect: codegen decided per-run which files to emit, but nothing else in
+  the system was conditional. `uds_init.c` includes `routine_handlers.h`
+  and `uds_init.h` includes `safety_config.h` unconditionally, and
+  `CMakeLists.txt` compiles `routine_handlers.c` and
+  `did_safety_wrappers.c` unconditionally — yet codegen skipped emitting
+  them for a config with no `routines:` block, or when `--safety-wrappers`
+  was not passed. **All 12 shipped examples reproduce it**; none exercised
+  it, because every example declares routines and every documented command
+  passes the flag.
+
+  The second half is the one that mattered. Because emission was
+  conditional, the *output directory* was never reconciled: regenerating
+  with a config that no longer declared routines left the previous
+  configuration's `routine_handlers.c` in place, still registering
+  RoutineControl identifiers the engineer had just removed from the YAML —
+  and CMake still compiled it in. On a BMS those are actuation routines
+  (`BMS_ForcePassiveBalance`, `BMS_ContactorFunctionalTest`). The same
+  mechanism left an unrelated ECU's `did_safety_wrappers.c` and
+  `safety_config.h` behind when `--safety-wrappers` was dropped, so the
+  ASIL-B chain in the image wrapped a DID set that no longer existed.
+  Codegen exited 0 printing "Generation complete" in every case.
+
+  **`--safety-wrappers` now gates ASIL validation enforcement, not
+  emission.** `safety_config.h`, `did_safety_wrappers.{h,c}` and
+  `routine_handlers.{h,c}` are emitted on every run; the templates render a
+  correct empty routine table. What stays conditional (`tests/` via
+  `--test-gen`, `sovd_cda.json` via `--sovd`, the GUI catalog) is now
+  reconciled against the output directory's own previous manifest in a new
+  Step 4E, which removes only files codegen itself recorded writing there
+  and never touches anything outside `--out`.
+
+  Verified as an identity transform on the shipped examples: all 12
+  regenerated, **363 files, zero substantive diffs** (timestamp lines only)
+  — which is also precisely why CI never saw the defect.
+
+  Also fixed in the same pass, because it is what made the manifest
+  unusable as a reconciliation key: `write_manifest()` recorded paths via a
+  hard-coded `output_dir.parent.parent.parent`, meaningful only for this
+  repo's `examples/*/generated/` layout and producing unresolvable
+  fragments anywhere else. Paths are now relative to the output directory,
+  a Phase 2A and a Phase 3 manifest can no longer coexist describing the
+  same directory, and the three committed example manifests no longer carry
+  a developer-machine absolute path into the public repo.
+
 - **`nvm_store_erase_all()` no longer clears the SecurityAccess lockout
   record** (#280). The primitive has no authorization concept of its
   own — a future diagnostic-reachable reset routine calling it could have

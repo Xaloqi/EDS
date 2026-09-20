@@ -447,7 +447,8 @@ export const ROUTINE_CATALOG: RoutineInfo[] = [
 python3 tools/codegen.py \
   --config  <yaml>         Path to diagnostics_config.yaml (required)
   --out     <dir>          Output directory for C files (default: generated/)
-  --safety-wrappers        Generate ASIL-B did_safety_wrappers.c/.h
+  --safety-wrappers        Enforce ASIL-B validation (did_safety_wrappers.c/.h
+                           and safety_config.h are always generated)
   --asil-level  B          ASIL level (default: B); enables stricter constraints
   --test-gen               Generate pytest suite in <out>/tests/
   --gui-types              Generate gui/src/generated/catalog.ts
