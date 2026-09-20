@@ -90,6 +90,66 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The Robustness Campaign failed 21 tests in any licensed install, while CI
+  reported it green** (#295). `examples/basic_ecu/generated/tests/
+  test_robustness_*.py` gate their codegen tests on `tools/templates/` being
+  present — the commercial deliverable, gitignored and absent from a public
+  checkout, present in **every** Developer/Professional install after
+  INSTALL.md Step 2. CI checks out the public repo, so they skip:
+
+  ```
+  CI (public checkout):          292 passed, 147 skipped   -> green
+  Licensed install (templates):  21 FAILED
+  ```
+
+  All 21 shared one cause: the fixtures declared no `can:` section, and
+  codegen has rejected that since the **#226 ASIL CAN-ID gate** shipped in
+  v1.13.4. Three releases of a suite a paying customer is invited to run,
+  red on their machine and green on ours.
+  `TestCustomerStartFromScratch::test_fresh_yaml_codegen_exits_0` is among
+  them — a test that models a new customer's first config.
+
+  **The quieter half was worse.** Sixteen `assert rc != 0` negative tests in
+  `test_robustness_F_codegen_limits.py` were **false passes**: the CAN gate
+  rejected the config before the condition under test — `data_length: 4096`,
+  a duplicate DID id — was ever evaluated. Proven by handing the old fixture
+  a perfectly valid `data_length: 17` and watching codegen still exit 1.
+  Those assertions proved nothing about the limits they name (run-014).
+
+  Every fixture now declares explicit CAN ids, uniformly — including phases
+  K and L, which do not invoke ASIL codegen today but would hit the same
+  trap the moment someone added a test that did. New
+  `tests/test_robustness_fixtures_are_valid.py` enforces it, and runs in a
+  plain public checkout because it reads the fixture text rather than
+  executing codegen — so CI can see the guard even though CI cannot see the
+  tests it protects.
+
+  A licensed install now runs **439 passed, 0 failed** across all 12 phases.
+
+- **Published execution figures were stale, and the guard could not tell**
+  (O-100). Every doc stated *1,958 / 2,782 of **2,981***; a real run collects
+  **3,019**. `scripts/verify_doc_counts.py` passed green throughout, because
+  it derived the executed halves from the floor tables but checked the
+  collected total only for *consistency between documents* — and they were
+  consistently wrong. It now cross-checks against `test-outcomes.json`
+  (ADR-005 rule 6) whenever a real run is on the machine, and says so
+  explicitly when it is not.
+
+  Fixing #295 raised the counts, since 21 previously-failing tests now
+  execute: **2,105 of 3,019** developer, **2,929 of 3,019** professional.
+  `basic_ecu`'s floors move 426 → 573 and 482 → 629.
+
+  Filed while fixing this: **#296** — `run_python_tests.sh`, the canonical
+  ADR-005 runner every published figure derives from, is executed by no CI
+  workflow at all. That is why the denominator could drift unnoticed.
+
+- **`verify_doc_counts.py` failed in every licensed install** (#294). It
+  walked `tools/templates/` — the commercial overlay, whose prose this repo
+  does not own — so the script passed in CI and reported 5 problems for any
+  customer who ran it. The overlay (plus `harness/` and `safety_docs/`) is
+  now excluded; those docs are checked in `Xaloqi/EDS-toolchain`.
+
+
 - **Generated code that a routine-free or QM configuration could not build,
   and stale generated code that survived regeneration.** Two halves of one
   defect: codegen decided per-run which files to emit, but nothing else in
