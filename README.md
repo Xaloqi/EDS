@@ -202,7 +202,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
 | **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |
 | **Wireshark dissector** | `extras/wireshark/eds.lua` — UDS service names · NRC descriptions · ISO-TP frame types · DoIP payload decode · load in 3 steps |
-| **CI pipeline** | GitHub Actions — unit tests · integration tests · Zephyr builds (native_sim + STM32) · FreeRTOS ARM · MISRA analysis · DoIP integration · SOVD CDA · full robustness campaign (439 tests) |
+| **CI pipeline** | GitHub Actions — unit tests · integration tests · Zephyr builds (native_sim + STM32) · FreeRTOS ARM · MISRA analysis · DoIP integration · SOVD CDA · full robustness campaign |
 
 **Safety properties verified by CI on every commit:**
 - Zero dynamic memory allocation (`malloc`/`free` grep gate)
