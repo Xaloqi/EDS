@@ -207,6 +207,13 @@ BLOCKED_SUITES=0
 TOTAL_EXECUTED=0
 TOTAL_NOT_EXECUTED=0
 TOTAL_COLLECTED=0
+# Claimable = suites with a declared floor. A suite without one is BLOCKED by
+# rule 3 and never counts toward a claim, so it must not appear in a claim's
+# denominator either. These are the figures README.md and
+# docs/TESTING_STRATEGY.md publish; printing them here means the published
+# number can be read straight out of any run, including a CI log.
+CLAIMABLE_EXECUTED=0
+CLAIMABLE_COLLECTED=0
 declare -a SUMMARY_LINES
 declare -a SUITE_JSON
 
@@ -267,6 +274,10 @@ run_suite() {
     TOTAL_EXECUTED=$((TOTAL_EXECUTED + executed))
     TOTAL_NOT_EXECUTED=$((TOTAL_NOT_EXECUTED + not_executed))
     TOTAL_COLLECTED=$((TOTAL_COLLECTED + executed + not_executed))
+    if [ "$floor" != "unknown" ]; then
+        CLAIMABLE_EXECUTED=$((CLAIMABLE_EXECUTED + executed))
+        CLAIMABLE_COLLECTED=$((CLAIMABLE_COLLECTED + executed + not_executed))
+    fi
 
     local outcome
     if [ "$failed" -gt 0 ] || [ "$errored" -eq 1 ] || [ "$abnormal" -eq 1 ]; then
@@ -355,6 +366,7 @@ done
 echo "----------------------------------------------------------------------"
 echo " ${FAIL_SUITES} failed, ${BLOCKED_SUITES} blocked, $((TOTAL_SUITES - FAIL_SUITES - BLOCKED_SUITES)) passed"
 echo " ${TOTAL_EXECUTED} of ${TOTAL_COLLECTED} cases executed across all suites (${TOTAL_NOT_EXECUTED} not executed)"
+echo " ${CLAIMABLE_EXECUTED} of ${CLAIMABLE_COLLECTED} across suites that can carry a claim — this is the published figure"
 echo "======================================================================"
 
 # ---------------------------------------------------------------------------
