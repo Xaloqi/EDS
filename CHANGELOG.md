@@ -10,6 +10,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`run_python_tests.sh` now runs in CI** — new `Canonical Python Suite
+  (ADR-005 floors)` job (#296). It owns the per-profile floor tables, decides
+  PASS/FAIL/BLOCKED and writes `test-outcomes.json`, and every published
+  execution figure derives from it — yet it ran in **no workflow at all**,
+  only when a human remembered.
+
+  The consequence was larger than the bookkeeping gap that surfaced it. CI
+  executed the generated suite for **`basic_ecu` only**; the other example
+  suites appeared in CI exclusively in *"Verify generated test files
+  present"* steps — file-existence checks. **1,532 of 2,105 developer-profile
+  cases, 72%, across 10 of 11 suites, ran nowhere.**
+
+  Deliberately **not** a required status check (founder decision): it has
+  never run in CI, so its flake profile is unknown, and adding a required
+  check means a branch-protection ruleset edit — which has already orphaned a
+  check once (`run-018`). It runs on every PR, in parallel with a critical
+  path already at ~338 s, so it costs roughly no wall-clock. Promotion to
+  required is a one-line ruleset edit once it has a track record.
+
+  Runs in the **developer** profile — a public checkout has no `harness/`
+  (Professional-tier, #68) — so it gates the developer floor table; the
+  professional floors stay covered by the release gate. The exit code alone
+  is not the assertion (`ADR-005` rule 5 permits `BLOCKED` on a public run),
+  so a second step reads `test-outcomes.json` and fails on any `FAIL`.
+
+
 - **Fail-closed DFU image verification policy gate — `platform/uds_image_policy.h/.c`**
   (#232 Phase 1, #279). Closes the authenticity/anti-rollback gap an external
   Tier-1 evaluator raised against the 0x34/0x36/0x37 (RequestDownload/
@@ -87,6 +113,51 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   existing customer code — including this codebase's own documented
   `.nvm = { my_read, my_write, my_is_ready }` positional example —
   keeps compiling unchanged, with `remove` defaulting to `NULL`.
+
+### Changed
+
+- **`examples/safeboot_freertos_ecu/generated/tests/` is now committed**, and
+  the codegen manifest is no longer tracked anywhere (#293, closing O-3's
+  "never decided"). Two inconsistencies, settled in opposite directions:
+
+  - `generated/tests/` was committed for **11 of 12** examples.
+    `run_python_tests.sh` globs `examples/*/generated/tests`, so
+    `safeboot_freertos_ecu` was absent from the canonical run purely because
+    its tests were missing — no deliberate exclusion existed anywhere in the
+    repo. Committing it adds a **12th suite** to both profiles, with floors
+    measured rather than guessed: **developer 80, professional 130**. On its
+    first run it correctly reported `BLOCKED` for having no declared floor,
+    which is ADR-005 rule 3 behaving exactly as designed.
+  - `generated_files_*.json` was committed for **3 of 12** — against the
+    repo's own intent, since it is per-run provenance regenerated with a
+    fresh timestamp and read by nothing in CI, the build or the ZIP. The
+    three are untracked and `.gitignore` now carries a rule, which it did
+    not: without one, any `git add -A` would have restored them.
+
+  Consequent figure update, from real runs in both profiles:
+  **2,038 of 3,102** developer and **3,059 of 3,102** professional.
+
+  **The denominator now counts only the suites that can contribute to a
+  claim** — the twelve example suites. It is identical in both profiles: the
+  same cases are collected either way, and the profile decides how many
+  *execute*. The repo-level `tests/` suite is excluded because it has no
+  declared floor, so ADR-005 rule 3 reports it BLOCKED and it never counts
+  toward a claim — and a suite that cannot count toward a claim does not
+  belong in a claim's denominator. It is also the only suite whose collected
+  count moves with the *environment* (Python version, optional packages)
+  rather than the product, which is what made this figure drift release after
+  release.
+
+  This correction was found by the new CI job **on its first run**, which is
+  a better argument for the job than anything written above it. The job
+  reported `BLOCKED examples/basic_ecu: 426 executed ... below declared floor
+  of 573`: `basic_ecu` executes **426** as cloned and **573** in a licensed
+  install, because the robustness suite's codegen phases skip without the
+  commercial `tools/templates/`. The floor had been derived on a machine
+  where those templates were installed and then published against a README
+  sentence that says *"this repo, as cloned"*. The developer floor is now
+  **426** — the minimum the declared environment guarantees. `lessons/run-037`
+  is the class, and this is it recurring one session after it was written.
 
 ### Fixed
 

@@ -7,8 +7,8 @@ commercial deliverable (#68), absent from a Developer-tier checkout (every
 public clone and CI run), which reports the harness suite **BLOCKED**, not a
 pass, per ADR-005 (execution-truth semantics — see `xaloqi-knowledge`'s
 `decisions/ADR-005-execution-truth-semantics.md`). The canonical Python suite
-(`run_python_tests.sh`) executes **2,105 of 3,019** collected cases in a
-Developer-tier checkout and **2,929 of 3,019** with the Professional harness
+(`run_python_tests.sh`) executes **2,038 of 3,102** collected cases in a
+Developer-tier checkout and **3,059 of 3,102** with the Professional harness
 present — see "Canonical whole-suite floors" below for the per-suite
 breakdown. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples
 all covered.
@@ -77,13 +77,13 @@ automatically by whether `harness/harness_main.c` exists:
 
 Both columns below were measured by running `run_python_tests.sh` once per
 profile, `XALOQI_LICENSE_SKIP=1`, under `bash --noprofile --norc -eo pipefail`
-(v1.14.0 Phase 4a). Of 3,019 total collected cases:
+(v1.14.0 Phase 4a). Of 3,102 collected cases:
 
 | Suite | Developer executed (floor) | Professional executed (floor) |
 |---|---|---|
 | `tests/` | 0 — **no floor, always BLOCKED** (#260) | 0 — **no floor, always BLOCKED** (#260) |
 | `examples/ardep_ecu` | 312 | 450 |
-| `examples/basic_ecu` | 573 | 629 |
+| `examples/basic_ecu` | 426 | 629 |
 | `examples/basic_ecu_doip` | 99 | 155 |
 | `examples/basic_ecu_doip_freertos` | 99 | 155 |
 | `examples/basic_ecu_freertos` | 99 | 155 |
@@ -91,9 +91,31 @@ profile, `XALOQI_LICENSE_SKIP=1`, under `bash --noprofile --norc -eo pipefail`
 | `examples/motor_controller_ecu` | 263 | 379 |
 | `examples/robot_joint_controller_ecu` | 142 | 215 |
 | `examples/safeboot_ecu` | 80 | 130 |
+| `examples/safeboot_freertos_ecu` | 80 | 130 |
 | `examples/sensor_ecu` | 105 | 165 |
 | `examples/sensor_ecu_freertos` | 105 | 165 |
-| **Total** | **2,105 of 3,019** | **2,929 of 3,019** |
+| **Total** | **2,038 of 3,102** | **3,059 of 3,102** |
+
+**What the denominator counts, and what it does not.** 3,102 is the total
+collected by the twelve example suites — the ones that can contribute to a
+claim. It is identical in both profiles: the same cases are collected either
+way, and the profile decides how many *execute*.
+
+The repo-level `tests/` suite is deliberately outside it. It has no declared
+floor in either profile, so ADR-005 rule 3 reports it BLOCKED and it never
+counts toward a claim — and a suite that cannot count toward a claim does not
+belong in a claim's denominator. It is also the one suite whose collected
+count varies with the *environment* rather than the product (Python version,
+which optional packages are installed), which is what made the published
+denominator drift in the first place.
+
+One consequence worth stating plainly: `examples/basic_ecu` executes **426**
+as cloned and **573** in a licensed install, because the robustness suite's
+codegen phases skip without the commercial `tools/templates/`. The developer
+floor is therefore 426 — the minimum the *declared* environment guarantees,
+which is what CI can verify on every PR. `lessons/run-037` is the underlying
+class: CI and a paying customer run different products, and a number measured
+in one must not be published as if it described the other.
 
 `tests/` keeps no floor in either profile: it executes 0 cases in both (it
 needs `xaloqi-tester`'s firmware binary for the DoIP integration tests and

@@ -78,6 +78,13 @@ misra_violations.csv
 # artefact regenerated on every run, never commit
 test-outcomes.json
 
+# codegen's per-run manifest — same class as test-outcomes.json above: it
+# records which config and codegen produced this output, regenerated on every
+# run with a fresh timestamp, and read by nothing in CI, the build or the ZIP.
+# Three of twelve examples had it committed and nine did not (#293/O-3); the
+# nine were right, and this makes that the rule rather than an accident.
+examples/*/generated/generated_files_*.json
+
 # Commercial tier — live in EDS-toolchain, not this repo
 gui/
 ide/
