@@ -132,6 +132,7 @@ declare -A FLOOR_DEVELOPER=(
     ["examples/motor_controller_ecu"]=263
     ["examples/robot_joint_controller_ecu"]=142
     ["examples/safeboot_ecu"]=80
+    ["examples/safeboot_freertos_ecu"]=80
     ["examples/sensor_ecu"]=105
     ["examples/sensor_ecu_freertos"]=105
 )
@@ -145,6 +146,7 @@ declare -A FLOOR_PROFESSIONAL=(
     ["examples/motor_controller_ecu"]=379
     ["examples/robot_joint_controller_ecu"]=215
     ["examples/safeboot_ecu"]=130
+    ["examples/safeboot_freertos_ecu"]=130
     ["examples/sensor_ecu"]=165
     ["examples/sensor_ecu_freertos"]=165
 )

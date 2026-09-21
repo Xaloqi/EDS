@@ -2604,3 +2604,70 @@ jobs:
           grep -q "ALL ${HARNESS_FLOOR} HARNESS TESTS PASSED" /tmp/harness_output.txt \
             || (echo "ERROR: Expected ALL ${HARNESS_FLOOR} HARNESS TESTS PASSED (declared floor) — got a different count or a failure" && exit 1)
           echo "PASS: executed >= declared floor of ${HARNESS_FLOOR} harness tests"
+
+  # ---------------------------------------------------------------------------
+  # [#296] The canonical ADR-005 runner, in CI at last.
+  #
+  # run_python_tests.sh owns the per-profile floor tables, decides
+  # PASS/FAIL/BLOCKED, writes test-outcomes.json, and is the source of every
+  # published execution figure. Until now it ran in no workflow at all — only
+  # when a human remembered. Two consequences, both observed:
+  #
+  #   * the published denominator drifted 2,981 -> 3,019 across two releases
+  #     with scripts/verify_doc_counts.py green throughout, because that guard
+  #     could only compare the documents to each other;
+  #   * and, more seriously, CI executed the generated suite for **basic_ecu
+  #     only**. The other example suites appeared in CI exclusively in
+  #     "Verify generated test files present" steps — file-existence checks.
+  #     1,532 of 2,105 developer-profile cases, 72%, ran nowhere.
+  #
+  # Deliberately NOT a required status check (founder decision, 2026-09-21).
+  # It has never run in CI, so its flake profile is unknown, and adding a
+  # required check means a branch-protection ruleset edit — which has already
+  # orphaned a check once (lessons/run-018). It runs on every PR, in parallel,
+  # and is visible at the moment of merge. Promote it to required once it has
+  # a track record: that is a one-line ruleset edit.
+  #
+  # Runs in the DEVELOPER profile: a public checkout has no harness/, which is
+  # a Professional-tier deliverable (#68). ADR-005 rule 3 picks the floors
+  # accordingly, so this gates the developer floor table only. The
+  # professional floors are still verified by the release gate.
+  # ---------------------------------------------------------------------------
+  canonical-python-suite:
+    name: "Canonical Python Suite (ADR-005 floors)"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: pip install pyyaml jinja2 pytest pycryptodome xaloqi-tester
+
+      - name: Run the canonical suite
+        env:
+          XALOQI_LICENSE_SKIP: "1"
+        run: bash run_python_tests.sh
+
+      - name: Assert no suite reported FAIL
+        run: |
+          # run_python_tests.sh exits 0 on a public/local run even with a
+          # BLOCKED suite (ADR-005 rule 5), so the exit code alone is not the
+          # assertion. FAIL must never appear.
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("test-outcomes.json"))
+          failed = [s["suite"] for s in d["suites"] if s["outcome"] == "FAIL"]
+          if failed:
+              print(f"FAIL: suites below their declared floor or with failures: {failed}")
+              sys.exit(1)
+          t = d["totals"]
+          print(f"PASS: {t['suites_pass']} pass, {t['suites_blocked']} blocked, "
+                f"{t['executed']} of {t['executed'] + t['not_executed']} cases executed")
+          PY
+
+      - name: Upload test-outcomes.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-suite-outcomes
+          path: test-outcomes.json
+          if-no-files-found: warn
