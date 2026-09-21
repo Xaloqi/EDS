@@ -33,11 +33,18 @@ inputs:
   sdk-version:
     description: >
       Zephyr SDK version, e.g. "0.16.8". Passed explicitly rather than read
-      from the workflow `env:` block: workflow-level environment variables are
+      from the workflow env block: workflow-level environment variables are
       not dependably visible inside a composite action's steps, and a silently
       empty version would build a nonsense download URL. The workflow's
-      ZEPHYR_SDK_VERSION remains the single source of truth — callers pass it
-      in as ${{ env.ZEPHYR_SDK_VERSION }}.
+      ZEPHYR_SDK_VERSION remains the single source of truth; callers pass it
+      in from there.
+
+      Note for anyone editing this file: do not write a GitHub expression in
+      this description, even as an illustration. The runner parses expressions
+      anywhere in the manifest, including prose, and the env context does not
+      exist there — an example written literally fails the whole action with
+      "Unrecognized named-value: 'env'". That is exactly how this file failed
+      its first CI run.
     required: true
 
 runs:

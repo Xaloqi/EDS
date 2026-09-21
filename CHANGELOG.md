@@ -141,6 +141,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   would build a malformed download URL. The action fails fast if it is empty.
   `ZEPHYR_SDK_VERSION` remains the single source of truth; callers pass it in.
 
+  The action failed its own first CI run, in a way worth recording: the
+  `${{ env.… }}` example written **inside the input's description** took the
+  whole manifest down with `Unrecognized named-value: 'env'`, failing all four
+  jobs in ~5 s with a template error. The runner parses expressions anywhere
+  in a manifest, prose included — so the comment explaining the design is what
+  broke it. New `tests/test_composite_action_expressions.py` asserts that
+  every expression in every composite-action manifest names a context that
+  exists there, and reproduces that failure locally in 0.01 s instead of a CI
+  round-trip.
+
 
 - **`examples/safeboot_freertos_ecu/generated/tests/` is now committed**, and
   the codegen manifest is no longer tracked anywhere (#293, closing O-3's
