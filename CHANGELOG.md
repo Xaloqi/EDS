@@ -135,8 +135,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
     not: without one, any `git add -A` would have restored them.
 
   Consequent figure update, from real runs in both profiles:
-  **2,185 of 3,153** developer (was 2,105 of 3,019) and **3,059 of 3,153**
-  professional (was 2,929 of 3,019).
+  **2,038 of 3,102** developer and **3,059 of 3,102** professional.
+
+  **The denominator now counts only the suites that can contribute to a
+  claim** — the twelve example suites. It is identical in both profiles: the
+  same cases are collected either way, and the profile decides how many
+  *execute*. The repo-level `tests/` suite is excluded because it has no
+  declared floor, so ADR-005 rule 3 reports it BLOCKED and it never counts
+  toward a claim — and a suite that cannot count toward a claim does not
+  belong in a claim's denominator. It is also the only suite whose collected
+  count moves with the *environment* (Python version, optional packages)
+  rather than the product, which is what made this figure drift release after
+  release.
+
+  This correction was found by the new CI job **on its first run**, which is
+  a better argument for the job than anything written above it. The job
+  reported `BLOCKED examples/basic_ecu: 426 executed ... below declared floor
+  of 573`: `basic_ecu` executes **426** as cloned and **573** in a licensed
+  install, because the robustness suite's codegen phases skip without the
+  commercial `tools/templates/`. The floor had been derived on a machine
+  where those templates were installed and then published against a README
+  sentence that says *"this repo, as cloned"*. The developer floor is now
+  **426** — the minimum the declared environment guarantees. `lessons/run-037`
+  is the class, and this is it recurring one session after it was written.
 
 ### Fixed
 

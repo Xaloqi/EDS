@@ -124,7 +124,7 @@ fi
 
 declare -A FLOOR_DEVELOPER=(
     ["examples/ardep_ecu"]=312
-    ["examples/basic_ecu"]=573
+    ["examples/basic_ecu"]=426
     ["examples/basic_ecu_doip"]=99
     ["examples/basic_ecu_doip_freertos"]=99
     ["examples/basic_ecu_freertos"]=99

@@ -157,9 +157,30 @@ def measured_collected_total() -> int | None:
     suites = data.get("suites")
     if not isinstance(suites, list) or not suites:
         return None
+    # Count only suites that can contribute to a claim. A suite with no
+    # declared floor is BLOCKED by ADR-005 rule 3 and never counts toward one,
+    # so it does not belong in a claim's denominator either. In practice that
+    # is the repo-level tests/ suite — which is also the only one whose
+    # collected count moves with the *environment* (Python version, optional
+    # packages) rather than the product, and is therefore exactly what made
+    # the published denominator drift.
     try:
-        return sum(int(s["executed"]) + int(s["not_executed"]) for s in suites)
+        claimable = [s for s in suites if s.get("floor") is not None]
+        if not claimable:
+            return None
+        return sum(int(s["executed"]) + int(s["not_executed"]) for s in claimable)
     except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _outcomes_profile() -> str | None:
+    """Which profile produced test-outcomes.json, for a clearer message."""
+    outcomes = ROOT / "test-outcomes.json"
+    if not outcomes.is_file():
+        return None
+    try:
+        return json.loads(outcomes.read_text(encoding="utf-8")).get("profile")
+    except (json.JSONDecodeError, OSError):
         return None
 
 
@@ -189,6 +210,16 @@ def check_execution_figures(all_docs) -> list:
                     )
                 collected_seen.setdefault(collected, []).append(f"{rel}:{lineno}")
 
+    # Two denominators are legitimate and expected, and exactly two:
+    #
+    #   developer   — this repo as cloned, no commercial tools/templates/
+    #   professional — a licensed install, where the robustness codegen
+    #                  phases actually execute
+    #
+    # They are different checkouts, not a discrepancy (docs/TESTING_STRATEGY.md
+    # explains it under the floor table; lessons/run-037 is the underlying
+    # class). More than two means a partial edit, which is the drift this
+    # check exists for.
     if len(collected_seen) > 1:
         detail = "; ".join(
             f"{c:,} at {', '.join(where)}" for c, where in sorted(collected_seen.items())
@@ -197,16 +228,23 @@ def check_execution_figures(all_docs) -> list:
             f"documents disagree on the total collected-case count — {detail}"
         )
 
-    # Agreeing with each other is not the same as being right. When a real
-    # run is on this machine, the documents must agree with it too.
+    # Agreeing with each other is not the same as being right. When a real run
+    # is on this machine, its own profile's figure must be among those stated.
+    #
+    # Deliberately "among", not "equal to every one": a single run can only
+    # measure one profile, so it cannot validate the other's denominator. This
+    # still catches the defect it was written for (O-100 — every document
+    # agreeing on 2,981 while the real figure was 3,019), because there the
+    # measured value appeared nowhere.
     if measured is not None:
         for stated, where in sorted(collected_seen.items()):
             if stated != measured:
                 problems.append(
                     f"documents state {stated:,} collected cases, but the last "
-                    f"canonical run (test-outcomes.json) collected "
-                    f"{measured:,} — at {', '.join(where)}. Re-run "
-                    f"./run_python_tests.sh and update the published figures."
+                    f"canonical run (test-outcomes.json, profile "
+                    f"{_outcomes_profile() or '?'}) collected {measured:,} "
+                    f"across the claimable suites — at {', '.join(where)}. "
+                    f"Re-run ./run_python_tests.sh and update the figures."
                 )
     return problems
 
