@@ -116,6 +116,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The Zephyr SDK + west setup is now one composite action** instead of four
+  copies (#290). `.github/actions/setup-zephyr-sdk/` replaces ~330 duplicated
+  lines across `zephyr-stm32`, `zephyr-stm32-safeboot`, `zephyr-nxp` and
+  `zephyr-nxp-s32k`. A change to the SDK-install or toolchain-verification
+  logic had to be replicated in each by hand, and missing one would silently
+  leave that job on stale logic.
+
+  **The copies were not byte-identical, despite the issue describing them
+  that way.** The STM32 pair carried a 23-line step-by-step comment and two
+  extra `ls` diagnostics in the toolchain-verification failure path; the NXP
+  pair did not. The action takes the richer variant, so the NXP jobs *gain*
+  those diagnostics — the success path is unchanged for all four.
+
+  `zephyr-native` is deliberately **not** a caller: its dependency list
+  genuinely differs (host `gcc`/`g++`/multilib for `native_sim`, no
+  `xz-utils` since it downloads no SDK tarball). Parameterising the apt list
+  to absorb one caller would add an input for no duplication saved, on the
+  longest-running job in the workflow.
+
+  `sdk-version` is an explicit input rather than a read of the workflow's
+  `env:` block — workflow-level environment variables are not dependably
+  visible inside a composite action's steps, and a silently empty version
+  would build a malformed download URL. The action fails fast if it is empty.
+  `ZEPHYR_SDK_VERSION` remains the single source of truth; callers pass it in.
+
+
 - **`examples/safeboot_freertos_ecu/generated/tests/` is now committed**, and
   the codegen manifest is no longer tracked anywhere (#293, closing O-3's
   "never decided"). Two inconsistencies, settled in opposite directions:

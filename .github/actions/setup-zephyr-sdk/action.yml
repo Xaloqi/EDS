@@ -1,0 +1,144 @@
+# =============================================================================
+# .github/actions/setup-zephyr-sdk — shared Zephyr toolchain + west setup
+#
+# [#290] This sequence was duplicated across four cross-compile jobs
+# (zephyr-stm32, zephyr-stm32-safeboot, zephyr-nxp, zephyr-nxp-s32k). A fix to
+# the SDK-install or toolchain-verification logic had to be replicated in every
+# copy by hand, and missing one would silently leave that job on stale logic —
+# the same "two copies of a fact drift apart" failure this repo has already
+# been bitten by elsewhere (see the [#151] comments in build_tests.sh).
+#
+# The copies were NOT byte-identical, despite the issue describing them that
+# way. zephyr-stm32 / zephyr-stm32-safeboot carried the step-by-step comment
+# below and two extra `ls` diagnostics in the failure path; zephyr-nxp /
+# zephyr-nxp-s32k did not. This action takes the richer variant, so the NXP
+# jobs gain those diagnostics. The success path is unchanged for all four.
+#
+# NOT used by zephyr-native. Its dependency list genuinely differs — it needs
+# host compilers (gcc/g++/multilib) for native_sim and no xz-utils, because it
+# downloads no SDK tarball. Parameterising the apt list to absorb one caller
+# would add an input for no duplication saved, on the longest-running and
+# most-depended-on job in the workflow. Left alone deliberately.
+#
+# The checkout stays in the caller: these jobs check out with `path: EDS`, and
+# `west init -l EDS` below depends on that layout.
+# =============================================================================
+name: "Set up Zephyr SDK and west workspace"
+description: >
+  Installs system dependencies, west, the Zephyr SDK with the arm-zephyr-eabi
+  toolchain, initialises the west workspace against the checked-out EDS repo,
+  and installs the Python requirements. Exports ZEPHYR_SDK_INSTALL_DIR.
+
+inputs:
+  sdk-version:
+    description: >
+      Zephyr SDK version, e.g. "0.16.8". Passed explicitly rather than read
+      from the workflow `env:` block: workflow-level environment variables are
+      not dependably visible inside a composite action's steps, and a silently
+      empty version would build a nonsense download URL. The workflow's
+      ZEPHYR_SDK_VERSION remains the single source of truth — callers pass it
+      in as ${{ env.ZEPHYR_SDK_VERSION }}.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+          cmake ninja-build device-tree-compiler \
+          python3 python3-pip libffi-dev libssl-dev git wget xz-utils
+
+    - name: Install west
+      shell: bash
+      run: pip install west
+
+    # [RC-7] Install Zephyr SDK — minimal bundle only, then setup.sh handles
+    # the ARM toolchain download and extraction with correct directory layout.
+    #
+    # Step-by-step:
+    #   1. Download zephyr-sdk-<ver>_linux-x86_64_minimal.tar.xz
+    #      This tarball has: zephyr-sdk-<ver>/ at root (version wrapper present).
+    #      --strip-components=1 removes the wrapper, placing setup.sh and cmake/
+    #      directly into SDK_DIR. This is correct for the minimal bundle.
+    #
+    #   2. Run setup.sh -t arm-zephyr-eabi
+    #      setup.sh checks: does SDK_DIR/arm-zephyr-eabi/ exist?
+    #      No → downloads toolchain_linux-x86_64_arm-zephyr-eabi.tar.xz from
+    #      GitHub and extracts it with: tar xf tarball -C SDK_DIR
+    #      (no --strip-components). The tarball has arm-zephyr-eabi/ at root
+    #      (no version wrapper), so extraction gives SDK_DIR/arm-zephyr-eabi/.
+    #      setup.sh also sets executable bits and creates the cmake config file.
+    #
+    #   3. Run setup.sh -c
+    #      Registers ~/.cmake/packages/Zephyr-sdk/ so find_package(Zephyr-sdk)
+    #      resolves without needing ZEPHYR_SDK_INSTALL_DIR in the environment.
+    #
+    #   4. Verify arm-zephyr-eabi-gcc exists and is executable before
+    #      handing off to west. Fail fast with a clear error if setup failed.
+    - name: Install Zephyr SDK (ARM toolchain via setup.sh)
+      shell: bash
+      env:
+        ZEPHYR_SDK_VERSION: ${{ inputs.sdk-version }}
+      run: |
+        if [ -z "${ZEPHYR_SDK_VERSION}" ]; then
+          echo "ERROR: sdk-version input is empty — the download URL would be malformed."
+          exit 1
+        fi
+        SDK_VER="${ZEPHYR_SDK_VERSION}"
+        SDK_DIR="${HOME}/zephyr-sdk-${SDK_VER}"
+        BASE_URL="https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VER}"
+
+        echo "=== Downloading minimal bundle ==="
+        wget -q --show-progress \
+          "${BASE_URL}/zephyr-sdk-${SDK_VER}_linux-x86_64_minimal.tar.xz" \
+          -O /tmp/zephyr-sdk-minimal.tar.xz
+
+        echo "=== Extracting minimal bundle ==="
+        mkdir -p "${SDK_DIR}"
+        tar -xf /tmp/zephyr-sdk-minimal.tar.xz --strip-components=1 -C "${SDK_DIR}"
+
+        if [ ! -f "${SDK_DIR}/setup.sh" ]; then
+          echo "ERROR: setup.sh not found in ${SDK_DIR}"
+          ls -la "${SDK_DIR}"
+          exit 1
+        fi
+
+        echo "=== Installing ARM toolchain via setup.sh ==="
+        cd "${SDK_DIR}"
+        bash setup.sh -t arm-zephyr-eabi -c
+
+        echo "=== Verifying toolchain binary ==="
+        GCC="${SDK_DIR}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc"
+        if [ ! -x "${GCC}" ]; then
+          echo "ERROR: ${GCC} not found or not executable"
+          echo "SDK_DIR contents:"
+          ls -la "${SDK_DIR}/"
+          echo "arm-zephyr-eabi (if present):"
+          ls -la "${SDK_DIR}/arm-zephyr-eabi/" 2>/dev/null || echo "  (absent)"
+          exit 1
+        fi
+        echo "PASS: ${GCC}"
+        echo "ZEPHYR_SDK_INSTALL_DIR=${SDK_DIR}" >> "${GITHUB_ENV}"
+
+    - name: Initialize west workspace
+      shell: bash
+      run: west init -l EDS
+
+    - name: Fetch Zephyr and modules
+      shell: bash
+      run: west update
+
+    - name: Export Zephyr CMake package
+      shell: bash
+      run: west zephyr-export
+
+    - name: Install Zephyr Python requirements
+      shell: bash
+      run: pip install -r zephyr/scripts/requirements.txt
+
+    - name: Install project Python dependencies
+      shell: bash
+      run: pip install pyyaml jinja2
