@@ -116,6 +116,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The Robustness Campaign CI job no longer states a case count in its
+  name** (#295, ADR-005 §7). It was `Robustness Campaign (439 tests, 12
+  phases)` and executed **292** of those 439 in CI — the codegen phases skip
+  without the commercial `tools/templates/`. ADR-005 §7 is explicit that
+  counts live in `test-outcomes.json`, never in a job name; the v1.14.0
+  execution-truth work stripped them from the names it audited and missed
+  this one.
+
+  It is a **required status check**, so the rename went with a
+  branch-protection ruleset edit in the same sitting — renaming one without
+  the other silently orphans the protection entry with no error
+  (`lessons/run-018`, which has already bitten this repo once).
+
+  `README.md`'s CI-pipeline row carried the same 439 and is now countless
+  too. The seven `example-*` jobs keep their DID counts: those are config
+  facts, verified by `verify_did_counts.py` inside those very jobs, not
+  qualification claims — and all seven were checked as accurate.
+
+
 - **The Zephyr SDK + west setup is now one composite action** instead of four
   copies (#290). `.github/actions/setup-zephyr-sdk/` replaces ~330 duplicated
   lines across `zephyr-stm32`, `zephyr-stm32-safeboot`, `zephyr-nxp` and
