@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **NUCLEO-H753ZI board support** (#277) — `boards/nucleo_h753zi/` and
+  `examples/safeboot_ecu/boards/nucleo_h753zi/`. Customer-requested substitution
+  for the NUCLEO-H743ZI2, which is heading toward discontinuation. Same
+  STM32H7 die family from this stack's point of view: 2 MB dual-bank flash,
+  identical FDCAN1 pinout (PD0/PD1), same Nucleo-144 form factor and on-board
+  ST-LINK. Zephyr v3.7.0 supports `nucleo_h753zi` as a first-class board.
+
+  Zephyr resolves board overlays by exact board-name path, so the H743ZI2
+  overlay does not apply to an H753ZI build — hence the separate directory
+  rather than a shared file.
+
+  **This is the first EDS board target validated by actually running the
+  firmware on hardware** rather than only cross-compiling it. Doing so
+  immediately surfaced #302, #306 and #304, none of which any existing CI job
+  could have caught.
+
 - **`run_python_tests.sh` now runs in CI** — new `Canonical Python Suite
   (ADR-005 floors)` job (#296). It owns the per-profile floor tables, decides
   PASS/FAIL/BLOCKED and writes `test-outcomes.json`, and every published
@@ -215,6 +231,53 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   is the class, and this is it recurring one session after it was written.
 
 ### Fixed
+
+- **`safeboot_ecu`'s flash layout left no room for MCUboot, and its partitions
+  straddled erase-sector boundaries** (#278). The overlay's `partitions` node
+  defined no `boot_partition` at all: `image-0` began at flash base
+  `0x08000000`, which is also where MCUboot's own build links, since
+  `zephyr,code-partition` falls back to `slot0_partition` when no
+  `boot_partition` node exists. Confirmed by inspecting a real MCUboot build:
+  `CONFIG_FLASH_LOAD_OFFSET=0x0`, identical to the application's. Flashing both
+  would have placed the bootloader on top of the application image.
+
+  Restoring the README's old 64 / 896 / 896 / 192 KB split would have
+  reintroduced a second defect: none of those sizes is a multiple of the
+  STM32H7's 128 KB hardware erase sector, so an erase of one partition could
+  corrupt the tail of its neighbour. The layout is now sector-aligned
+  throughout, with `image-0` and `image-1` kept equal as MCUboot's swap
+  requires:
+
+  | Partition | Base | Size | Sectors |
+  |---|---|---|---|
+  | `boot_partition` | 0x08000000 | 256 KB | 2 |
+  | `image-0` | 0x08040000 | 768 KB | 6 |
+  | `image-1` | 0x08100000 | 768 KB | 6 |
+  | `diag_nvs` | 0x081C0000 | 256 KB | 2 |
+
+  Verified on hardware: MCUboot links at `0x0`/`0x40000`, `west sign` targets
+  `image-0` at offset `0x40000` size `0xC0000`, and the board boots through
+  MCUboot into the signed application.
+
+- **`examples/safeboot_ecu/README.md` documented a procedure that does not
+  work, and wiring that is backwards** (#278). Corrected against what was
+  actually executed on hardware:
+  - the flash-layout table matches the overlay (the overlay is the source of
+    truth);
+  - the FDCAN1 wiring table had `TXD`/`RXD` crossed. On a CAN transceiver
+    `TXD` is an *input* driven by the controller's transmit pin, so PD1
+    (`FDCAN1_TX`) connects to `TXD` and PD0 (`FDCAN1_RX`) to `RXD` — straight
+    across, not crossed. The connector was also wrong: the CAN pins are on
+    **CN9** (Zio pins 27 and 25), not CN8, per ST UM1974 Table 20;
+  - both `west build` invocations now pass the board overlay and `.conf`
+    explicitly, without which the build fails (`DIAG_CAN_DEV undeclared`);
+  - the MCUboot build additionally needs its own `app.overlay` named
+    explicitly, and must **not** be given the application's `.conf` — doing so
+    arms a 100 ms watchdog inside the bootloader that nothing feeds, producing
+    a reboot loop in which MCUboot logs `Swap type: none` and the application
+    never starts;
+  - `west flash` selects the *unsigned* `zephyr.hex`, which MCUboot rejects;
+    the signed image must be named explicitly.
 
 - **The ASIL-B hardware watchdog was never active on any supported board, and
   STM32 targets reset every ~100 ms and could not boot** (#306). Found on real
