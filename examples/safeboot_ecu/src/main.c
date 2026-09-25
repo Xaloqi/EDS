@@ -71,6 +71,9 @@
 #include "zephyr_flash_ops.h"
 #include "zephyr_mcuboot_image_policy.h"
 #include "nvm_store.h"
+#if defined(DIAG_WCET_MEASURE)
+#include "zephyr_wcet.h"
+#endif
 
 /* --------------------------------------------------------------------------
  * Generated headers
@@ -304,7 +307,35 @@ static void on_isotp_rx_complete(
     (void)diag_mutex_lock(&s_session_lock);
     (void)diag_mutex_lock(&s_security_lock);
 
+#if defined(DIAG_WCET_MEASURE)
+    /* [#31] WCET measurement scaffolding — see platform/zephyr/zephyr_wcet.h.
+     * Deliberately measures uds_server_process_request() alone, not the
+     * mutex locks around it: the issue asks for this function's own WCET,
+     * not this example's particular locking strategy. */
+    static wcet_stats_t s_uds_server_wcet;
+    static bool         s_uds_server_wcet_init_done;
+    if (!s_uds_server_wcet_init_done) {
+        wcet_stats_init(&s_uds_server_wcet);
+        s_uds_server_wcet_init_done = true;
+    }
+    timing_t wcet_t0 = timing_counter_get();
+#endif
+
     status = uds_server_process_request(srv, &s_req_buf, &s_resp_buf);
+
+#if defined(DIAG_WCET_MEASURE)
+    timing_t wcet_t1 = timing_counter_get();
+    uint64_t wcet_cyc = timing_cycles_get(&wcet_t0, &wcet_t1);
+    bool wcet_new_max = wcet_stats_record(&s_uds_server_wcet, wcet_cyc);
+    if (wcet_new_max || ((s_uds_server_wcet.count % 50U) == 0U)) {
+        LOG_INF("[WCET] uds_server: n=%u cur=%llu min=%llu max=%llu avg=%llu cyc",
+                (unsigned)s_uds_server_wcet.count,
+                (unsigned long long)wcet_cyc,
+                (unsigned long long)s_uds_server_wcet.min_cycles,
+                (unsigned long long)s_uds_server_wcet.max_cycles,
+                (unsigned long long)(s_uds_server_wcet.sum_cycles / s_uds_server_wcet.count));
+    }
+#endif
 
     (void)diag_mutex_unlock(&s_security_lock);
     (void)diag_mutex_unlock(&s_session_lock);
@@ -434,12 +465,44 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
 
         } else if (frame_ready) {
 
+#if defined(DIAG_WCET_MEASURE)
+            /* [#31] WCET measurement scaffolding — see
+             * platform/zephyr/zephyr_wcet.h. This wraps isotp_process_rx_frame()
+             * end-to-end, per CAN frame: for a Consecutive Frame that
+             * completes a multi-frame message, that includes the nested
+             * on_isotp_rx_complete() -> uds_server_process_request() dispatch
+             * — already measured separately above — folded in here too,
+             * since that IS what happens on a real completing frame. See
+             * docs/PERFORMANCE.md for how the two are read together. */
+            static wcet_stats_t s_isotp_wcet;
+            static bool         s_isotp_wcet_init_done;
+            if (!s_isotp_wcet_init_done) {
+                wcet_stats_init(&s_isotp_wcet);
+                s_isotp_wcet_init_done = true;
+            }
+            timing_t wcet_isotp_t0 = timing_counter_get();
+#endif
+
             status = isotp_process_rx_frame(
                 tp,
                 &rx_frame,
                 on_isotp_rx_complete,
                 (void *)srv
             );
+
+#if defined(DIAG_WCET_MEASURE)
+            timing_t wcet_isotp_t1 = timing_counter_get();
+            uint64_t wcet_isotp_cyc = timing_cycles_get(&wcet_isotp_t0, &wcet_isotp_t1);
+            bool wcet_isotp_new_max = wcet_stats_record(&s_isotp_wcet, wcet_isotp_cyc);
+            if (wcet_isotp_new_max || ((s_isotp_wcet.count % 200U) == 0U)) {
+                LOG_INF("[WCET] isotp_rx: n=%u cur=%llu min=%llu max=%llu avg=%llu cyc",
+                        (unsigned)s_isotp_wcet.count,
+                        (unsigned long long)wcet_isotp_cyc,
+                        (unsigned long long)s_isotp_wcet.min_cycles,
+                        (unsigned long long)s_isotp_wcet.max_cycles,
+                        (unsigned long long)(s_isotp_wcet.sum_cycles / s_isotp_wcet.count));
+            }
+#endif
 
             if ((status != UDS_STATUS_OK) &&
                 (status != (uds_status_t)UDS_STATUS_ERR_TP_FRAME_INVALID)) {
@@ -507,6 +570,26 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
             }
         }
 
+#if defined(DIAG_WCET_MEASURE)
+        /* [#31] Runtime stack high-water-mark cross-check against the
+         * static -fstack-usage estimate in this file's header comment.
+         * k_thread_stack_space_get() reports the largest unused-since-
+         * creation region, i.e. (stack_size - unused) is the true observed
+         * worst case so far — logged periodically so a long stimulus run's
+         * final value is the worst case seen across the whole campaign. */
+        {
+            static uint32_t s_stack_log_tick;
+            if ((++s_stack_log_tick % 2000U) == 0U) {
+                size_t unused = 0U;
+                if (k_thread_stack_space_get(&s_diag_thread, &unused) == 0) {
+                    LOG_INF("[WCET] diag_task stack: used=%u/%u bytes",
+                            (unsigned)(CONFIG_DIAG_TASK_STACK_SIZE - unused),
+                            (unsigned)CONFIG_DIAG_TASK_STACK_SIZE);
+                }
+            }
+        }
+#endif
+
         /* ── [4] Watchdog feed ───────────────────────────────────────────── */
         (void)diag_wdt_feed(&s_wdt);
 
@@ -546,6 +629,12 @@ int main(void)
     can_transport_t  *can  = NULL;
     uds_server_ctx_t *srv  = NULL;
     isotp_ctx_t      *tp   = NULL;
+
+#if defined(DIAG_WCET_MEASURE)
+    /* [#31] Must run before any timing_counter_get() call site below. */
+    timing_init();
+    timing_start();
+#endif
 
     /* ── Banner ──────────────────────────────────────────────────────────── */
     LOG_INF("=============================================================");

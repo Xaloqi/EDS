@@ -343,8 +343,19 @@ Current status of ISO 26262-6:2018 Part 6 work products:
 
 **Remaining gaps before formal ASIL-B claim:**
 
-- WCET analysis on cross-compiled Cortex-M7 binary at -Os
 - Independent third-party safety assessment (not required for customer evaluation)
+
+**Closed:**
+
+- ~~WCET analysis on cross-compiled Cortex-M7 binary at -Os~~ — done on real
+  NUCLEO-H753ZI hardware (issue #31), not the simulator: `docs/PERFORMANCE.md`.
+  Every measured path (UDS server dispatch, ISO-TP multi-frame reassembly,
+  DoIP diagnostic message forwarding) stays inside the reference
+  configuration's P2 timing budget by at least ~68x; the report is explicit
+  that this is an empirically observed maximum over large trial counts plus
+  a structural (provably-O(N), no recursion, no dynamic allocation) argument
+  for extrapolating to a larger DID/DTC table, not a formally proven bound —
+  see `docs/PERFORMANCE.md` §7 for exactly what is and is not claimed.
 
 ---
 

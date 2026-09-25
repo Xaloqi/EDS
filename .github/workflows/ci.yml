@@ -1054,6 +1054,41 @@ jobs:
           test -f build/zephyr/zephyr.elf && echo "PASS: .elf" || exit 1
           test -f build/zephyr/zephyr.hex && echo "PASS: .hex" || exit 1
 
+      # [#31] Static stack-depth budget for the diag_task poll loop's hot
+      # chain, cross-checked against real NUCLEO-H753ZI hardware measurements
+      # in docs/PERFORMANCE.md (runtime high-water-mark: 688/4096 bytes;
+      # this file's own -fstack-usage-traced subtotal for the same chain:
+      # 360 bytes across on_isotp_rx_complete -> uds_server_process_request
+      # -> the deepest single service handler -> its deepest safety-wrapper
+      # call). 1024 bytes gives real headroom over both figures while still
+      # catching a regression (an accidentally-added large local buffer/array
+      # anywhere in this chain) long before it could threaten
+      # CONFIG_DIAG_TASK_STACK_SIZE (4096). Uses the ARM cross-compiler's own
+      # .su output (same toolchain/ABI as the h753zi build the measurements
+      # were taken on) — not a host-native figure, which would use a
+      # different ABI and not be comparable.
+      - name: Verify stack-depth budget (issue #31)
+        run: |
+          BUDGET=1024
+          TOTAL=0
+          for fn in on_isotp_rx_complete uds_server_process_request \
+                    uds_service_0x2F_handler uds_safety_validate_did_access; do
+            bytes=$(grep -rhE ":${fn}	" build/CMakeFiles/app.dir --include="*.su" -r 2>/dev/null \
+                      | awk -F'\t' '{print $2}' | sort -n | tail -1)
+            if [ -z "$bytes" ]; then
+              echo "ERROR: no .su entry found for ${fn} — did the call chain change?"
+              exit 1
+            fi
+            echo "  ${fn}: ${bytes} bytes"
+            TOTAL=$((TOTAL + bytes))
+          done
+          echo "Traced chain total: ${TOTAL} bytes (budget: ${BUDGET})"
+          if [ "$TOTAL" -gt "$BUDGET" ]; then
+            echo "ERROR: traced stack chain ${TOTAL} bytes exceeds ${BUDGET}-byte budget — see docs/PERFORMANCE.md §5"
+            exit 1
+          fi
+          echo "PASS: stack-depth budget"
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
