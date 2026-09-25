@@ -41,36 +41,69 @@ safety net for a broken update.
 
 | Part | Purpose |
 |---|---|
-| STM32 Nucleo-H743ZI2 | Target board |
-| TJA1051T/3 CAN transceiver (3.3 V) | CAN physical layer |
-| USB-CAN adapter (PEAK PCAN-USB, Kvaser Leaf, etc.) | Host-side CAN |
+| STM32 Nucleo-H743ZI2 **or** Nucleo-H753ZI | Target board |
+| 3.3 V CAN transceiver breakout (TJA1051T/3, SN65HVD230, …) | CAN physical layer |
+| USB-CAN adapter (PEAK PCAN-USB, Kvaser Leaf, CANable, etc.) | Host-side CAN |
 | 2× 120 Ω resistors | CAN bus termination |
+
+> The transceiver must be a **bare** transceiver — `TXD`/`RXD` logic pins
+> plus `CANH`/`CANL`. Boards that bundle a *CAN controller* (e.g. an MCP2515
+> behind SPI) will not work: this example drives the STM32's own FDCAN1
+> peripheral, which needs direct access to the transceiver's logic pins.
 
 ### Wiring (FDCAN1)
 
-| Nucleo CN8 | AF | Signal | TJA1051 |
-|---|---|---|---|
-| PD0 | AF9 | FDCAN1_RX | TXD |
-| PD1 | AF9 | FDCAN1_TX | RXD |
-| 3V3 | — | VCC | VCC |
-| GND | — | GND | GND |
+| Nucleo CN9 | Zio pin | AF | MCU signal | Transceiver |
+|---|---|---|---|---|
+| D66 | 27 | AF9 | PD1 / FDCAN1_TX | **TXD** |
+| D67 | 25 | AF9 | PD0 / FDCAN1_RX | **RXD** |
+| 3V3 | — | — | — | VCC |
+| GND | — | — | — | GND |
 
-Pin mapping is defined in `boards/nucleo_h743zi/nucleo_h743zi.overlay` — no changes needed.
+Both signals connect **straight across, not crossed**: on a CAN transceiver
+`TXD` is an *input* driven by the controller's transmit pin and `RXD` is an
+*output* feeding the controller's receive pin — the names are already written
+from the controller's point of view. (Connector and pin numbers per ST UM1974,
+Table 20, "CN9 Zio connector pinout".)
 
-Bus: 500 kbit/s, sample point 87.5%.
+Pin mapping is defined in the board's `.overlay` under `boards/` — no changes
+needed.
+
+Bus: 500 kbit/s, sample point 87.5%. Terminate **both** ends of the bus with
+120 Ω across CANH/CANL — many USB-CAN adapters have a switchable or
+solder-jumper terminator on board, in which case only one discrete resistor is
+needed at the transceiver end.
 
 ---
 
 ## Flash layout
 
-The Nucleo-H743ZI2 has 2 MB internal flash. Partition map (`nucleo_h743zi.overlay`):
+Both boards have 2 MB internal flash in two banks of 8 × 128 KB erase sectors.
+Partition map, as defined by the board `.overlay` — **the overlay is the source
+of truth; this table documents it** (#278):
 
-| Partition | DTS label | Base address | Size | Purpose |
-|---|---|---|---|---|
-| MCUboot | — | 0x08000000 | 64 KB | Bootloader (built separately) |
-| Primary slot | `image-0` | 0x08010000 | 896 KB | Active application |
-| Secondary slot | `image-1` | 0x080F0000 | 896 KB | OTA staging area |
-| NVS | `diag_nvs` | 0x081D0000 | 192 KB | UDS DTC + calibration NVM |
+| Partition | DTS label | Base address | Size | Sectors | Purpose |
+|---|---|---|---|---|---|
+| MCUboot | `boot_partition` | 0x08000000 | 256 KB | 2 | Bootloader (built separately) |
+| Primary slot | `image-0` | 0x08040000 | 768 KB | 6 | Active application |
+| Secondary slot | `image-1` | 0x08100000 | 768 KB | 6 | OTA staging area |
+| NVS | `diag_nvs` | 0x081C0000 | 256 KB | 2 | UDS DTC + calibration NVM |
+
+Three constraints fix these numbers, and all three are easy to get wrong:
+
+1. **Every boundary lands on a 128 KB erase-sector edge.** The hardware erases
+   in whole 128 KB sectors, so a partition that starts or ends mid-sector lets
+   an erase of one region corrupt the tail of its neighbour.
+2. **`image-0` and `image-1` must be the same size** — MCUboot swaps between
+   them.
+3. **MCUboot needs its own partition.** It links against whatever
+   `zephyr,code-partition` resolves to; with no `boot_partition` node it falls
+   back to `slot0_partition` and is linked at the same address as the
+   application image.
+
+Those three together are why the slots are 768 KB rather than a rounder-looking
+896 KB: 2 MB minus 2 sectors for MCUboot and 2 for NVS leaves 12 sectors, split
+evenly between two equal slots.
 
 ---
 
@@ -92,46 +125,128 @@ imgtool keygen --key root-rsa-2048.pem --type rsa-2048
 
 ## Build
 
-### 1. Build and flash MCUboot
+Set `BOARD` to whichever board you have; everything below is identical
+otherwise.
 
 ```sh
-west build -s bootloader/mcuboot/boot/zephyr \
-           -b nucleo_h743zi \
-           -d build-mcuboot \
+BOARD=nucleo_h753zi          # or nucleo_h743zi
+WS=$PWD                      # west workspace topdir (contains zephyr/, bootloader/)
+EDS=$WS/EDS                  # path to this repository inside the west workspace
+KEY=$WS/root-rsa-2048.pem
+```
+
+> **Both builds must be given the board overlay and conf explicitly.** This
+> repository keeps them at `examples/safeboot_ecu/boards/<board>/` rather than
+> a path Zephyr auto-detects, so a plain `west build -b <board>` silently omits
+> them and fails with `DIAG_CAN_DEV undeclared` (no `can0` alias) or an
+> undefined `eds_nvs_slot`. This is what `ci.yml` passes too.
+
+### 1. Build and flash MCUboot
+
+MCUboot gets the board **overlay** — it has to agree with the application about
+where the partitions are — plus its **own** `app.overlay`, which is what
+repoints `zephyr,code-partition` at `boot_partition` so MCUboot links at the
+start of flash instead of on top of `image-0`. `-DDTC_OVERLAY_FILE` *replaces*
+Zephyr's default overlay list rather than adding to it, so `app.overlay` has to
+be named explicitly or it is silently dropped.
+
+> **Do not pass the application's `.conf` to the bootloader.** MCUboot is a
+> separate application; the board `.conf` here is the *app's* Kconfig fragment.
+> Feeding it to MCUboot pulls in `CONFIG_WATCHDOG=y` / `CONFIG_IWDG_STM32=y`,
+> and since `CONFIG_WDT_DISABLE_AT_BOOT` is unset, Zephyr then arms a 100 ms
+> independent watchdog *inside the bootloader*. MCUboot does not feed it, so on
+> an image large enough that signature verification runs past the window, the
+> watchdog resets the board before the application is ever entered — an
+> endless reboot loop in which MCUboot logs `Swap type: none` and nothing else
+> ever starts.
+
+```sh
+west build --pristine -b $BOARD -d build-mcuboot \
+           -s $WS/bootloader/mcuboot/boot/zephyr \
            -- -DCONFIG_BOOT_SIGNATURE_TYPE_RSA=y \
-              -DCONFIG_BOOT_SIGNATURE_KEY_FILE=\"root-rsa-2048.pem\"
+              "-DCONFIG_BOOT_SIGNATURE_KEY_FILE=\"$KEY\"" \
+              "-DDTC_OVERLAY_FILE=$EDS/examples/safeboot_ecu/boards/$BOARD/$BOARD.overlay;$WS/bootloader/mcuboot/boot/zephyr/app.overlay"
 
 west flash --build-dir build-mcuboot
 ```
 
+Confirm MCUboot targeted its own partition before moving on:
+
+```sh
+grep -E 'CONFIG_FLASH_LOAD_(OFFSET|SIZE)' build-mcuboot/zephyr/.config
+# CONFIG_FLASH_LOAD_OFFSET=0x0
+# CONFIG_FLASH_LOAD_SIZE=0x40000
+```
+
+If `OFFSET` matches `image-0`'s base instead, `app.overlay` was dropped and
+MCUboot would be linked on top of the application.
+
 ### 2. Build the application
 
 ```sh
-west build -b nucleo_h743zi examples/safeboot_ecu -d build-safeboot
+west build --pristine -b $BOARD -d build-safeboot \
+           -s $EDS/examples/safeboot_ecu \
+           -- -DDIAG_SKIP_CODEGEN=ON \
+              "-DEXTRA_CONF_FILE=$EDS/examples/safeboot_ecu/boards/$BOARD/$BOARD.conf" \
+              "-DDTC_OVERLAY_FILE=$EDS/examples/safeboot_ecu/boards/$BOARD/$BOARD.overlay"
 ```
+
+`-DDIAG_SKIP_CODEGEN=ON` builds against the pre-committed
+`examples/safeboot_ecu/generated/` sources. Drop it only if you hold a
+Developer or Professional licence — regenerating requires `tools/templates/`,
+which is not part of a public checkout.
 
 ### 3. Sign the image
 
 ```sh
 west sign -t imgtool \
           --build-dir build-safeboot \
-          -- --key root-rsa-2048.pem \
+          -- --key $KEY \
              --version 1.0.0+0
 ```
 
 Signed binary: `build-safeboot/zephyr/zephyr.signed.bin`
 
+`west sign` prints the slot it targeted — check it matches `image-0` above:
+
+```
+partition offset: 262144 (0x40000)
+partition size:   786432 (0xc0000)
+```
+
 ### 4. Flash the initial application
 
+**Flash the signed image explicitly.** `west flash` selects
+`zephyr.hex` — the *unsigned* build product — which has no MCUboot image
+header, so MCUboot will reject it and refuse to boot the application. Point
+the runner at `zephyr.signed.hex` instead:
+
 ```sh
-west flash --build-dir build-safeboot
+west flash --build-dir build-safeboot --hex-file build-safeboot/zephyr/zephyr.signed.hex
 ```
+
+Or, with openocd directly (`verify` is worth having here):
+
+```sh
+openocd -f interface/stlink.cfg -f target/stm32h7x.cfg \
+        -c "program build-safeboot/zephyr/zephyr.signed.hex verify reset exit"
+```
+
+To tell the two apart: a signed image begins with the MCUboot magic
+`3D B8 F3 96`, an unsigned one begins with the vector table (typically zeros
+in the first record).
 
 On first boot, `main()` calls `boot_write_img_confirmed()`. Serial output
-(USART3, 115200 baud):
+(USART3, 115200 baud via the on-board ST-LINK VCP — `/dev/ttyACM0` on Linux):
 
 ```
-[OTA] New image confirmed — rollback guard cleared.
+*** Booting MCUboot v2.1.0 ***
+<inf> mcuboot: Image index: 0, Swap type: none
+*** Booting Zephyr OS build v3.7.0 ***
+<inf> safeboot_ecu: Xaloqi EDS  v1.0.0
+<inf> zephyr_wdt: WDT: Armed with 100 ms window (channel 0).
+<inf> safeboot_ecu: UDS stack ready.
+<inf> safeboot_ecu: Diagnostics task started (stack: 4096 bytes, priority: 5).
 ```
 
 ---
