@@ -216,6 +216,53 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The ASIL-B hardware watchdog was never active on any supported board, and
+  STM32 targets reset every ~100 ms and could not boot** (#306). Found on real
+  hardware during the H753ZI bring-up.
+
+  `platform/zephyr/zephyr_wdt.c` resolved the watchdog with
+  `DEVICE_DT_GET_OR_NULL(DT_NODELABEL(wdt0))`. **No board this project targets
+  defines a node label `wdt0`** — `nucleo_h743zi`/`nucleo_h753zi` use
+  `watchdog0 = &iwdg`, `frdm_mcxn947` uses `&wwdt0`, `mr_canhubk3` uses
+  `&fs26_wdt`. `DEVICE_DT_GET_OR_NULL()` resolves a nonexistent node to `NULL`
+  silently at compile time, so this built cleanly everywhere and took the
+  "no watchdog, degrade gracefully" path — intended for `native_sim` — on
+  **every real target**. `diag_wdt_feed()` has therefore been a permanent
+  no-op, and the ISO 26262-6 ASIL-B supervision claim in that file's own
+  header was unmet on hardware, with only a `<wrn>` to show for it.
+
+  On STM32 the consequence was worse than lost supervision: Zephyr's IWDG
+  driver arms the watchdog at boot (`CONFIG_IWDG_STM32_INITIAL_TIMEOUT`,
+  default 100 ms) unless `CONFIG_WDT_DISABLE_AT_BOOT=y`. Armed and never fed,
+  it reset the board every ~100 ms, forever — the ECU could not complete
+  boot. This masqueraded as an NVS crash (#304); it is not, and no CPU fault
+  is involved (GDB breakpoints on `z_arm_fault`/`z_fatal_error` are never
+  reached — it is a clean hardware reset).
+
+  A second, independent defect in the same function surfaced once the device
+  resolved: `wdt_install_timeout()` returned `-ENOTSUP` on every STM32 target,
+  because the IWDG has no pre-reset interrupt and
+  `drivers/watchdog/wdt_iwdg_stm32.c` rejects any non-NULL `callback` — which
+  EDS always set. The pre-reset callback only emits a log line (its own SAFETY
+  NOTE forbids doing anything else there), so it is now retried without the
+  callback when a driver refuses it: the diagnostic nicety degrades, the reset
+  stays armed.
+
+  Fixes: resolve via `DT_ALIAS(watchdog0)` with a `DT_NODELABEL(wdt0)`
+  fallback for boards using that convention; retry timeout installation
+  without the optional callback on `-ENOTSUP`; and a `BUILD_ASSERT` that
+  **refuses to compile** `CONFIG_WATCHDOG=y` against a devicetree exposing no
+  watchdog, so this cannot silently regress (mirrors the fail-closed precedent
+  in `platform/freertos/freertos_flash_ops.c`, EDS#215).
+
+  Verified on real NUCLEO-H753ZI hardware: the board now boots to
+  `UDS stack ready.` and runs stably, logging
+  `WDT: Armed with 100 ms window (channel 0).` — the watchdog is armed and
+  fed by the poll loop for the first time.
+
+  Neither CI nor host tests could have caught this: every Zephyr job is a
+  cross-compile that never executes the image.
+
 - **The Robustness Campaign failed 21 tests in any licensed install, while CI
   reported it green** (#295). `examples/basic_ecu/generated/tests/
   test_robustness_*.py` gate their codegen tests on `tools/templates/` being
