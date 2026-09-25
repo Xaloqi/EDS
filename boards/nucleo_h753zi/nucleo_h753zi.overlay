@@ -83,12 +83,23 @@
 	 *   phase-seg2            =  20 TQ
 	 *   Sample point = 140/160 = 87.5%
 	 *
-	 * FIX: bus-speed removed (deprecated in Zephyr 3.7 st,stm32h7-fdcan.yaml).
-	 *      Bus speed is configured via board DTS clock tree, not this property.
+	 * FIX (#309): `bus-speed` was REMOVED here, on the belief that it was
+	 *      deprecated-and-dropped and that bus speed comes from the clock
+	 *      tree. Both were wrong. Zephyr's dts/bindings/can/can-controller.yaml
+	 *      says bus-speed was "renamed to bitrate" — a rename, not a removal —
+	 *      and that when no bitrate property is present the controller falls
+	 *      back to CONFIG_CAN_DEFAULT_BITRATE, whose Zephyr default is
+	 *      125000. So this node silently ran the diagnostic bus at 125 kbit/s
+	 *      while every doc, comment and TestLab campaign specified 500 kbit/s,
+	 *      and no tester following the documentation could talk to the ECU.
+	 *      Measured on target before the fix: FDCAN1_NBTP = 0x12038A13, i.e.
+	 *      NBRP=3 (prescaler 4) x 160 tq @ 80 MHz = 125 kbit/s.
+	 *      Use `bitrate` (below); do not delete it to silence a deprecation.
 	 * FIX: rx-fifo0-elements and tx-fifo-elements removed — these properties are
 	 *      not declared in st,stm32h7-fdcan.yaml for Zephyr 3.7 and cause a
 	 *      fatal gen_defines.py error: "not declared in 'properties:'".
 	 */
+	bitrate      = <500000>;   /* ISO 15765-4 diagnostic bus speed */
 	sample-point = <875>;
 };
 
