@@ -119,6 +119,8 @@ target_sources(app PRIVATE
     # Platform
     ${DIAG_ROOT}/platform/uds_flash_ops.c
     ${DIAG_ROOT}/platform/uds_image_policy.c  # [#232] Image verification policy singleton
+    ${DIAG_ROOT}/platform/uds_sha256.c        # [#232 Phase 2] Streaming SHA-256
+    ${DIAG_ROOT}/platform/uds_mcuboot_image.c # [#232 Phase 2] MCUboot header/TLV parser
     ${DIAG_ROOT}/platform/zephyr/zephyr_port.c
     ${DIAG_ROOT}/platform/zephyr/zephyr_mutex.c
     ${DIAG_ROOT}/platform/zephyr/zephyr_timer.c
@@ -127,6 +129,9 @@ target_sources(app PRIVATE
     # SafeBoot: MCUboot secondary-slot flash ops
     # Called from generated/uds_init.c (zephyr_flash_ops_init())
     ${DIAG_ROOT}/platform/zephyr/zephyr_flash_ops.c
+    # SafeBoot: MCUboot reference image policy (digest verify + boot_request_upgrade)
+    # Called from src/main.c (zephyr_mcuboot_image_policy_init()) — [#277/#232 Phase 2]
+    ${DIAG_ROOT}/platform/zephyr/zephyr_mcuboot_image_policy.c
 
     # Generated
     ${DIAG_GENERATED_DIR}/did_handlers.c
@@ -155,3 +160,21 @@ endif()
 # Zephyr's native_sim gets this via the CMakeLists.txt native_sim block;
 # hardware targets need it here.
 target_compile_definitions(app PRIVATE EDS_MSG_BUF_MAX_STACK_BYTES=8192)
+
+# [#313] ISO-TP flow control the ECU advertises to the tester must not
+# promise a pace it cannot sustain. generated/uds_init.c configures
+# isotp_cfg.block_size/stmin_ms from ISOTP_DEFAULT_BLOCK_SIZE/
+# ISOTP_DEFAULT_STMIN_MS (transport/isotp.h, both guarded by #ifndef so a
+# compile definition here overrides the 0/0 "unlimited, tester decides
+# pace" default without touching the generated file). 0/0 let a 36-CF
+# TransferData block arrive faster than platform/zephyr/zephyr_can.c's
+# 8-frame CAN_RX_MSGQ_DEPTH can be drained at this ECU's ~1 ms poll
+# cadence, overflowing the queue and corrupting ISO-TP reassembly (issue
+# #313). BS=4/STmin=1ms caps any burst at 4 frames before the tester must
+# wait for the next FC, and paces individual frames to roughly the same
+# rate the poll loop drains them at — half the 8-deep queue's capacity,
+# leaving headroom for ordinary tick jitter.
+target_compile_definitions(app PRIVATE
+    ISOTP_DEFAULT_BLOCK_SIZE=4
+    ISOTP_DEFAULT_STMIN_MS=1
+)

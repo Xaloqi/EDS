@@ -270,6 +270,33 @@ uds_status_t uds_service_0x34_handler(
 );
 
 /**
+ * @brief [#312] Drive a chunked erase forward by one increment, if one is
+ *        pending.
+ *
+ * Call once per poll-loop iteration (the application's 1 ms tick), the same
+ * way uds_periodic_pop_due() is drained — see
+ * examples/safeboot_ecu/src/main.c. No-op (returns false, out_frame
+ * untouched) when no erase is pending, e.g. on every platform whose
+ * uds_flash_ops_t leaves erase_step_cb NULL.
+ *
+ * When an erase IS pending, this call erases one bounded increment (a
+ * single ops->erase_step_cb() call, which may itself block for that
+ * platform's own worst-case per-increment time) and always populates
+ * out_frame with something to transmit: NRC 0x78
+ * (requestCorrectlyReceived-ResponsePending) if more remains, the final
+ * [0x74] RequestDownload positive response once the whole region is
+ * erased, or a negative response if erase_step_cb fails.
+ *
+ * @param[out] out_frame  Populated with the frame to transmit when this
+ *                        function returns true. Untouched when it returns
+ *                        false.
+ *
+ * @return true if out_frame was populated and must be transmitted.
+ * @return false if no erase is pending (nothing to do this tick).
+ */
+bool uds_service_0x34_pending_tick(uds_msg_buf_t *out_frame);
+
+/**
  * @brief Handler for SID 0x35 — RequestUpload.
  *
  * Opens an upload transfer session for ECU-to-tester data readback.

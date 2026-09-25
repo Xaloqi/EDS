@@ -146,6 +146,44 @@ typedef uds_status_t (*uds_flash_read_cb_fn)(uint32_t  address,
                                               uint32_t  length);
 
 /**
+ * @brief Callback: erase ONE bounded increment of a flash region [#312].
+ *
+ * Erases at most one platform-native erase unit (e.g. one flash sector)
+ * starting at address, and reports how many bytes were actually erased in
+ * *out_erased_bytes (0 < *out_erased_bytes <= max_size).
+ *
+ * WHY THIS EXISTS: erase_cb erasing an entire multi-sector region in one
+ * call can legitimately block for seconds on hardware with a large
+ * documented worst-case erase time (STM32H7: 4000 ms PER 128 KB SECTOR,
+ * `max-erase-time` in its devicetree binding) — far longer than a typical
+ * ASIL-B poll-loop watchdog window (100 ms here). service_0x34.c uses this
+ * callback, when present, to erase a large region across multiple
+ * poll-loop iterations instead of one blocking call, answering with NRC
+ * 0x78 (requestCorrectlyReceived-ResponsePending) between chunks so the
+ * UDS P2/P2*max timing contract is honoured too — see issue #312.
+ *
+ * A single call may still block for the platform's own worst-case
+ * per-increment erase time; the watchdog must stay fed for that bounded
+ * duration by whatever mechanism the platform implementation uses (see
+ * platform/zephyr/zephyr_flash_ops.c for the Zephyr/STM32H7 approach). This
+ * callback does not eliminate that requirement, it BOUNDS it to one known,
+ * datasheet-documented increment instead of an unbounded multi-sector call.
+ *
+ * @param[in]  address          Start address of the remaining region.
+ * @param[in]  max_size         Bytes remaining to erase overall — a single
+ *                               call must not erase more than this, but may
+ *                               erase less (one increment).
+ * @param[out] out_erased_bytes Bytes actually erased this call (> 0 on
+ *                               UDS_STATUS_OK).
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_PLATFORM on driver failure.
+ */
+typedef uds_status_t (*uds_flash_erase_step_cb_fn)(uint32_t  address,
+                                                    uint32_t  max_size,
+                                                    uint32_t *out_erased_bytes);
+
+/**
  * @brief Flash operations table — registered at stack init.
  *
  * erase_cb, write_cb, and verify_cb must be non-NULL when the table is
@@ -161,6 +199,16 @@ typedef struct uds_flash_ops {
     uds_flash_verify_cb_fn  verify_cb;       /**< Verify callback. */
     uds_flash_read_cb_fn    read_cb;         /**< Read callback — required for 0x35 RequestUpload.
                                                *  May be NULL for download-only configurations. */
+
+    /**
+     * @brief Optional [#312]. When non-NULL, service_0x34.c erases the
+     * target region across multiple bounded increments (NRC 0x78 between
+     * them) instead of calling erase_cb once for the whole region. NULL
+     * preserves the original single-call erase_cb behaviour unchanged —
+     * every platform that does not need chunking (RAM-backed mocks,
+     * FreeRTOS targets not yet audited for this) is unaffected.
+     */
+    uds_flash_erase_step_cb_fn erase_step_cb;
 
     const uds_flash_region_t *memory_map;    /**< Array of permitted regions. */
     uint8_t                   region_count;  /**< Number of entries in memory_map[]. */

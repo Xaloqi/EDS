@@ -359,6 +359,7 @@ TESTS=(
     test_service_0x31
     test_service_0x23_0x3D
     test_service_0x34
+    test_service_0x34_chunked_erase  # [#312] chunked erase + NRC 0x78 responsePending
     test_service_0x35
     test_service_0x36
     test_service_0x37

@@ -84,6 +84,55 @@
 #include <string.h>
 
 /* --------------------------------------------------------------------------
+ * [#312] Chunked-erase pending state
+ *
+ * When ops->erase_step_cb is present, the handler below does not erase the
+ * target region synchronously — a single-call whole-region erase can block
+ * for seconds on hardware with a large per-sector worst-case erase time
+ * (STM32H7: up to 4000 ms/sector), which starves a short ASIL-B poll-loop
+ * watchdog window and starves the UDS P2/P2*max timing contract in the same
+ * stroke. See platform/uds_flash_ops.h's erase_step_cb doc and issue #312
+ * for the full evidence trail.
+ *
+ * Instead the handler answers immediately with NRC 0x78
+ * (requestCorrectlyReceived-ResponsePending) and records the erase job
+ * here. uds_service_0x34_pending_tick() — called once per poll-loop
+ * iteration by the application (see examples/safeboot_ecu/src/main.c) —
+ * drives it forward one bounded increment per call, repeating 0x78 between
+ * increments, until the whole region is erased, at which point it performs
+ * exactly the transfer-state-machine setup and [0x74] response the
+ * synchronous path below builds directly.
+ *
+ * Single static instance: only one erase can be pending at a time, exactly
+ * like uds_transfer_ctx_t's single-transfer design that already governs
+ * 0x34/0x36/0x37.
+ * -------------------------------------------------------------------------- */
+typedef struct {
+    bool     active;                 /**< An erase job is in progress.        */
+    uint32_t address;                /**< Erase cursor — advances per chunk.  */
+    uint32_t remaining;               /**< Bytes left to erase.                */
+    uint32_t target_address;         /**< Original requested address.         */
+    uint32_t total_size_bytes;       /**< Original requested size.            */
+    uint16_t write_buf_capacity;     /**< Precomputed for the eventual [0x74]
+                                       *   response and transfer_ctx setup.    */
+    bool     crc_check_requested;    /**< Precomputed — see #279 note below.  */
+} svc_0x34_erase_pending_t;
+
+static svc_0x34_erase_pending_t s_erase_pending;
+
+/**
+ * @brief Drop any in-progress chunked erase without completing it.
+ *
+ * Called wherever an active erase job must not be allowed to finish (a new
+ * 0x34 pre-empting it, session loss). Mirrors uds_image_policy_notify_abort()
+ * — safe to call when nothing is pending.
+ */
+static void s_erase_pending_abort(void)
+{
+    (void)memset(&s_erase_pending, 0, sizeof(s_erase_pending));
+}
+
+/* --------------------------------------------------------------------------
  * Constants
  * -------------------------------------------------------------------------- */
 
@@ -212,9 +261,16 @@ uds_status_t uds_service_0x34_handler(
     {
         const uds_transfer_ctx_t *prev_tctx = uds_transfer_ctx_get();
 
-        if ((prev_tctx->state == UDS_TRANSFER_ACTIVE) &&
-            (prev_tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD)) {
+        /* [#312] A chunked erase started by an EARLIER 0x34 leaves tctx
+         * untouched until it completes (see uds_service_0x34_pending_tick()),
+         * so prev_tctx->state alone would miss it here — s_erase_pending is
+         * the only record of that in-flight policy state until this check
+         * was added. */
+        if (((prev_tctx->state == UDS_TRANSFER_ACTIVE) &&
+             (prev_tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD)) ||
+            s_erase_pending.active) {
             uds_image_policy_notify_abort();
+            s_erase_pending_abort();
         }
     }
 
@@ -270,7 +326,57 @@ uds_status_t uds_service_0x34_handler(
         }
     }
 
-    /* --- Erase the target flash region --- */
+    /* ----------------------------------------------------------------------
+     * [#312] Chunked erase path — preferred whenever the platform supports
+     * it. See the svc_0x34_erase_pending_t comment above and
+     * platform/uds_flash_ops.h's erase_step_cb doc for why: a single
+     * whole-region erase_cb() call can block long enough to starve both the
+     * watchdog and the UDS P2/P2*max timing contract on this hardware.
+     *
+     * crc_check_requested and write_buf_capacity are computed HERE, before
+     * the erase (chunked or not) runs, in both paths — this mirrors the
+     * original synchronous code's own ordering (policy and ops were already
+     * fetched before the erase call), so pre-computing them into
+     * s_erase_pending changes nothing about what they observe.
+     * -------------------------------------------------------------------- */
+    if (ops->erase_step_cb != NULL) {
+        s_erase_pending.active           = true;
+        s_erase_pending.address          = mem_address;
+        s_erase_pending.remaining        = mem_size;
+        s_erase_pending.target_address   = mem_address;
+        s_erase_pending.total_size_bytes = mem_size;
+
+        {
+            uint16_t raw_cap = ops->max_block_length;
+            uds_transfer_ctx_t *sizing_tctx = uds_transfer_ctx_get();
+
+            if (raw_cap > (uint16_t)sizeof(sizing_tctx->write_buf)) {
+                raw_cap = (uint16_t)sizeof(sizing_tctx->write_buf);
+            }
+            s_erase_pending.write_buf_capacity = raw_cap;
+        }
+
+        if (policy != NULL) {
+            s_erase_pending.crc_check_requested =
+                ((policy->policy_flags & (uint8_t)UDS_IMAGE_POLICY_REQUIRE_PARAM_RECORD) == (uint8_t)0U);
+        } else {
+            s_erase_pending.crc_check_requested = false;
+        }
+
+        /* NRC 0x78 requestCorrectlyReceived-ResponsePending — answered as a
+         * positive return (UDS_STATUS_OK) with an NRC-shaped payload, so
+         * uds_server_process_request forwards it verbatim instead of
+         * re-wrapping it through srv_status_to_nrc(). The real [0x74] (or a
+         * failure NRC) follows asynchronously from
+         * uds_service_0x34_pending_tick() once the erase completes. */
+        return uds_server_build_negative_response(
+            (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
+            UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING,
+            resp);
+    }
+
+    /* --- Erase the target flash region (synchronous fallback — unchanged
+     * behaviour for any platform without erase_step_cb) --- */
     status = ops->erase_cb(mem_address, mem_size);
     if (status != UDS_STATUS_OK) {
         /* [#232 review fix] begin_cb (above) may already have started
@@ -374,4 +480,112 @@ uds_status_t uds_service_0x34_handler(
     resp->length = (uint16_t)4U;
 
     return UDS_STATUS_OK;
+}
+
+/* --------------------------------------------------------------------------
+ * [#312] Chunked-erase driver
+ * -------------------------------------------------------------------------- */
+
+bool uds_service_0x34_pending_tick(uds_msg_buf_t *out_frame)
+{
+    const uds_flash_ops_t *ops;
+    uint32_t                erased = (uint32_t)0U;
+    uds_status_t            status;
+    uds_transfer_ctx_t     *tctx;
+
+    if (!s_erase_pending.active) {
+        return false;
+    }
+    if (out_frame == NULL) {
+        return false;
+    }
+
+    ops = uds_flash_ops_get();
+    if ((ops == NULL) || (ops->erase_step_cb == NULL)) {
+        /* Flash ops de-registered (or its erase_step_cb withdrawn) mid-erase
+         * — should not happen in any real integration, fail closed rather
+         * than spin forever answering nothing. */
+        uds_image_policy_notify_abort();
+        s_erase_pending_abort();
+        (void)uds_server_build_negative_response(
+            (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
+            UDS_NRC_CONDITIONS_NOT_CORRECT,
+            out_frame);
+        return true;
+    }
+
+    status = ops->erase_step_cb(s_erase_pending.address,
+                                s_erase_pending.remaining,
+                                &erased);
+    if ((status != UDS_STATUS_OK) || (erased == (uint32_t)0U) ||
+        (erased > s_erase_pending.remaining)) {
+        uds_image_policy_notify_abort();
+        s_erase_pending_abort();
+        /* Same NRC the synchronous erase_cb failure path above uses
+         * (UDS_STATUS_ERR_PLATFORM -> NRC 0x70 uploadDownloadNotAccepted). */
+        (void)uds_server_build_negative_response(
+            (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
+            UDS_NRC_UPLOAD_DOWNLOAD_NOT_ACCEPTED,
+            out_frame);
+        return true;
+    }
+
+    s_erase_pending.address   += erased;
+    s_erase_pending.remaining -= erased;
+
+    if (s_erase_pending.remaining > (uint32_t)0U) {
+        /* Still going — repeat NRC 0x78. Each chunk's own worst-case
+         * duration (STM32H7: <= 4000 ms/sector) is comfortably under
+         * P2*max (5000 ms on the reference configuration), so one 0x78 per
+         * completed chunk keeps the tester inside the timing contract
+         * without needing a separate keep-alive timer. */
+        (void)uds_server_build_negative_response(
+            (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
+            UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING,
+            out_frame);
+        return true;
+    }
+
+    /* --- Erase complete: finish exactly what the synchronous path does
+     * immediately after a successful erase_cb() call ---
+     *
+     * Read every s_erase_pending field into locals BEFORE
+     * s_erase_pending_abort() clears it — the abort has to happen before
+     * tctx is touched (uds_transfer_ctx_reset() below must not observe a
+     * still-active erase job), so the read order matters here. */
+    {
+        uint32_t done_target_address   = s_erase_pending.target_address;
+        uint32_t done_total_size_bytes = s_erase_pending.total_size_bytes;
+        bool     done_crc_requested    = s_erase_pending.crc_check_requested;
+        uint16_t done_write_buf_cap    = s_erase_pending.write_buf_capacity;
+
+        s_erase_pending_abort();
+
+        tctx = uds_transfer_ctx_get();
+        uds_transfer_ctx_reset(tctx);
+
+        tctx->state                   = UDS_TRANSFER_ACTIVE;
+        tctx->direction               = UDS_TRANSFER_DIR_DOWNLOAD;
+        tctx->target_address          = done_target_address;
+        tctx->total_size_bytes        = done_total_size_bytes;
+        tctx->bytes_remaining         = done_total_size_bytes;
+        tctx->next_write_address      = done_target_address;
+        tctx->next_expected_block_seq = (uint8_t)0x01U; /* REQ-DL-001 */
+        tctx->crc_accumulator         = (uint32_t)0xFFFFFFFFUL; /* CRC init */
+        tctx->write_buf_fill          = (uint16_t)0U;
+        tctx->crc_check_requested     = done_crc_requested;
+        tctx->write_buf_capacity      = done_write_buf_cap;
+    }
+
+    /* [0x74, lengthFormatIdentifier, maxNumberOfBlockLength_Hi/Lo] */
+    (void)uds_service_write_pos_sid((uint8_t)UDS_SID_REQUEST_DOWNLOAD, out_frame);
+    out_frame->data[1U] = (uint8_t)((uint8_t)SVC_0x34_MXBL_BYTE_COUNT << (uint8_t)4U);
+    {
+        uint16_t max_block = (uint16_t)(tctx->write_buf_capacity + (uint16_t)1U);
+        out_frame->data[2U] = (uint8_t)((max_block >> (uint16_t)8U) & (uint16_t)0xFFU);
+        out_frame->data[3U] = (uint8_t)( max_block                  & (uint16_t)0xFFU);
+    }
+    out_frame->length = (uint16_t)4U;
+
+    return true;
 }

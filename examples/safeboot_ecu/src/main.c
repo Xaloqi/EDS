@@ -68,6 +68,8 @@
 #include "zephyr_mutex.h"
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
+#include "zephyr_flash_ops.h"
+#include "zephyr_mcuboot_image_policy.h"
 #include "nvm_store.h"
 
 /* --------------------------------------------------------------------------
@@ -467,6 +469,44 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
             }
         }
 
+        /* ── [3b] Chunked DFU erase driver [#312] ────────────────────────── */
+        /*
+         * Drives one bounded erase increment forward per tick when a
+         * RequestDownload erase is pending (platform's erase_step_cb is
+         * non-NULL — see platform/zephyr/zephyr_flash_ops.c). No-op when
+         * nothing is pending. The erase_step_cb() call itself may block for
+         * up to this platform's worst-case per-increment erase time; the
+         * watchdog stays fed across that one bounded call via
+         * zephyr_flash_ops_set_wdt() (set up above, before
+         * uds_generated_init()), not via this loop's own per-iteration feed
+         * below, which cannot run while this call is still blocking.
+         */
+        {
+            static uds_msg_buf_t s_erase_frame;
+            static bool          s_erase_frame_pending = false;
+
+            /* A built-but-untransmitted frame must be retried AS-IS, not
+             * rebuilt: once uds_service_0x34_pending_tick() has returned the
+             * FINAL [0x74] (or a failure NRC), s_erase_pending.active is
+             * already false, so calling it again would just return false
+             * and that last frame — the tester's only notification that a
+             * real, already-completed erase succeeded — would be silently
+             * lost on a transient ISO-TP busy. */
+            if (!s_erase_frame_pending) {
+                s_erase_frame_pending = uds_service_0x34_pending_tick(&s_erase_frame);
+            }
+            if (s_erase_frame_pending) {
+                if (isotp_transmit(tp, s_erase_frame.data,
+                                   (uint32_t)s_erase_frame.length) == UDS_STATUS_OK) {
+                    s_erase_frame_pending = false;
+                } else {
+                    LOG_WRN("[DFU] Failed to transmit erase-progress frame "
+                            "(ISO-TP busy) — will retry the same frame next "
+                            "tick.");
+                }
+            }
+        }
+
         /* ── [4] Watchdog feed ───────────────────────────────────────────── */
         (void)diag_wdt_feed(&s_wdt);
 
@@ -535,6 +575,14 @@ int main(void)
         LOG_ERR("WDT init failed: 0x%02X", (unsigned)status);
         /* Non-fatal in this example — continue without WDT. */
     }
+
+    /* [#312] Give the flash-ops layer the same watchdog instance so its
+     * chunked erase_step_cb() can bridge the watchdog across one bounded
+     * sector-erase call (STM32H7: up to 4000 ms worst case). Safe to pass
+     * unconditionally: diag_wdt_feed() on a WDT that failed to init above
+     * is already a documented no-op. Must run before uds_generated_init()
+     * below, which calls zephyr_flash_ops_init(). */
+    zephyr_flash_ops_set_wdt(&s_wdt);
 
     /* ── 1 ms timer initialization ───────────────────────────────────────── */
     /*
@@ -660,6 +708,30 @@ int main(void)
         } else {
             LOG_DBG("[OTA] Image already confirmed.");
         }
+    }
+
+    /* ── DFU image policy registration [#277] ────────────────────────────── */
+    /*
+     * Must be registered before the diagnostics thread starts accepting CAN
+     * traffic (0x34 RequestDownload otherwise proceeds with no policy — see
+     * platform/uds_image_policy.h REQ-IMGPOL-001) and after
+     * uds_generated_init() above, which already registered the flash ops
+     * table this policy reads the MCUboot secondary slot through.
+     *
+     * Without this, a successful 0x34->0x36->0x37 DFU sequence answered
+     * [0x77] but never armed the swap: the new image sat in image_1
+     * indefinitely and MCUboot booted the old image again on reset. See
+     * issue #277.
+     */
+    status = zephyr_mcuboot_image_policy_init();
+    if (status != UDS_STATUS_OK) {
+        LOG_ERR("[DFU] Image policy registration failed: 0x%02X — "
+                "0x34 RequestDownload will be refused.", (unsigned)status);
+        /* Non-fatal: diagnostics still start. DFU is simply unavailable
+         * this power cycle, exactly as with a NULL flash ops table. */
+    } else {
+        LOG_INF("[DFU] Image policy registered (SHA-256 digest verify, "
+                "boot_request_upgrade on accept).");
     }
 
     /* ── Start diagnostics thread ────────────────────────────────────────── */

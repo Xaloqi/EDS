@@ -46,10 +46,12 @@
  */
 
 #include "zephyr_flash_ops.h"
+#include "zephyr_wdt.h"
 #include "uds_flash_ops.h"
 #include "uds_transfer_ctx.h"
 #include "uds_types.h"
 
+#include <zephyr/kernel.h>
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/logging/log.h>
 
@@ -79,6 +81,56 @@ static uds_flash_region_t s_flash_region;   /* populated at init */
 static const uds_flash_ops_t *sp_registered_ops = NULL;
 
 /* --------------------------------------------------------------------------
+ * [#312] Chunked erase + bounded watchdog bridge
+ *
+ * STM32H7's own devicetree binding (stm32h743.dtsi etc.) declares this
+ * board's flash: erase-block-size = 128 KB, max-erase-time = 4000 ms —
+ * both manufacturer-documented, not measured guesses. A single sector
+ * erase can legitimately run for up to 4 seconds; this ECU's ASIL-B
+ * watchdog window is 100 ms (CONFIG_DIAG_WDT_WINDOW_MS). z_flash_erase()
+ * below (whole-region, one call) starves that window on any region larger
+ * than a small fraction of one sector — see issue #312 for the full
+ * evidence trail (RequestDownload never answering, a clean unprompted
+ * MCUboot/Zephyr reboot appearing mid-transfer).
+ *
+ * z_flash_erase_step() erases exactly one bounded increment (<= one
+ * sector) per call, so service_0x34.c can spread a large erase across
+ * multiple poll-loop iterations with NRC 0x78 between them (UDS timing
+ * contract) and a watchdog feed between them (poll-loop liveness). That
+ * still leaves ONE increment's own worst-case duration (up to 4000 ms)
+ * unfed from the poll loop's normal per-iteration feed — s_erase_feed_timer
+ * bridges exactly that one bounded call: started immediately before
+ * flash_area_erase(), stopped immediately after. It is not a standing
+ * bypass of watchdog supervision — outside this one call (including if the
+ * poll loop itself later hangs for an unrelated reason) the watchdog
+ * behaves exactly as before.
+ * -------------------------------------------------------------------------- */
+
+/** One STM32H7 flash sector — see stm32h743.dtsi's erase-block-size. */
+#define ZEPHYR_FLASH_ERASE_UNIT_SIZE       (128UL * 1024UL)
+
+/** Feed period while bridging one erase_step_cb() call. Comfortably under
+ *  the 100 ms window with margin for jitter. */
+#define ZEPHYR_FLASH_ERASE_FEED_PERIOD_MS  (20U)
+
+static diag_wdt_t *sp_erase_wdt = NULL;
+
+static void s_erase_feed_timer_expiry(struct k_timer *timer)
+{
+    ARG_UNUSED(timer);
+    if (sp_erase_wdt != NULL) {
+        (void)diag_wdt_feed(sp_erase_wdt);
+    }
+}
+
+K_TIMER_DEFINE(s_erase_feed_timer, s_erase_feed_timer_expiry, NULL);
+
+void zephyr_flash_ops_set_wdt(diag_wdt_t *wdt)
+{
+    sp_erase_wdt = wdt;
+}
+
+/* --------------------------------------------------------------------------
  * Callback implementations
  * -------------------------------------------------------------------------- */
 
@@ -103,6 +155,55 @@ static uds_status_t z_flash_erase(uint32_t address, uint32_t size_bytes)
     }
 
     LOG_INF("Flash erased: addr=0x%08X size=%u", address, size_bytes);
+    return UDS_STATUS_OK;
+}
+
+static uds_status_t z_flash_erase_step(uint32_t   address,
+                                        uint32_t   max_size,
+                                        uint32_t  *out_erased_bytes)
+{
+    const struct flash_area *fa = NULL;
+    uint32_t                 chunk;
+    int                       rc;
+
+    if ((out_erased_bytes == NULL) || (max_size == (uint32_t)0U)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    chunk = (max_size < (uint32_t)ZEPHYR_FLASH_ERASE_UNIT_SIZE)
+                ? max_size
+                : (uint32_t)ZEPHYR_FLASH_ERASE_UNIT_SIZE;
+
+    rc = flash_area_open(ZEPHYR_FLASH_SECONDARY_SLOT, &fa);
+    if (rc != 0) {
+        LOG_ERR("z_flash_erase_step: flash_area_open(image_1) failed: %d", rc);
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+
+    /* Bridge the watchdog across this one bounded call — see the [#312]
+     * block comment above s_erase_feed_timer. */
+    if (sp_erase_wdt != NULL) {
+        k_timer_start(&s_erase_feed_timer,
+                      K_MSEC(ZEPHYR_FLASH_ERASE_FEED_PERIOD_MS),
+                      K_MSEC(ZEPHYR_FLASH_ERASE_FEED_PERIOD_MS));
+    }
+
+    rc = flash_area_erase(fa, (off_t)(address - s_flash_region.base_address),
+                          (size_t)chunk);
+
+    if (sp_erase_wdt != NULL) {
+        k_timer_stop(&s_erase_feed_timer);
+    }
+
+    flash_area_close(fa);
+
+    if (rc != 0) {
+        LOG_ERR("z_flash_erase_step failed: %d (addr=0x%08X chunk=%u)",
+                rc, address, (unsigned)chunk);
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+
+    *out_erased_bytes = chunk;
     return UDS_STATUS_OK;
 }
 
@@ -200,6 +301,7 @@ static uds_flash_ops_t s_zephyr_flash_ops = {
     .erase_cb        = z_flash_erase,
     .write_cb        = z_flash_write,
     .verify_cb       = z_flash_verify,
+    .erase_step_cb   = z_flash_erase_step,  /* [#312] chunked erase, preferred by service_0x34.c */
     .memory_map      = &s_flash_region,
     .region_count    = (uint8_t)1U,
     .max_block_length = (uint16_t)256U,   /* 256 bytes payload per TransferData block */
