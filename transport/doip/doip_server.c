@@ -33,6 +33,18 @@
 #include "uds_server.h"
 #include "uds_types.h"
 
+/* [#31] WCET measurement scaffolding — see platform/zephyr/zephyr_wcet.h's
+ * header comment. DIAG_WCET_MEASURE is never defined by any real build; this
+ * is the one place this otherwise-portable file becomes Zephyr-specific,
+ * accepted here as a deliberate, clearly-marked, temporary trade-off rather
+ * than build a cross-platform timing abstraction for a one-off measurement
+ * campaign that touches no shipped code path. */
+#if defined(DIAG_WCET_MEASURE)
+#include "zephyr_wcet.h"
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(doip_wcet, LOG_LEVEL_INF);
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -566,10 +578,33 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
             }
 
             /* --- Dispatch --- */
+#if defined(DIAG_WCET_MEASURE)
+            static wcet_stats_t s_doip_forward_wcet;
+            static bool         s_doip_forward_wcet_init_done;
+            if (!s_doip_forward_wcet_init_done) {
+                wcet_stats_init(&s_doip_forward_wcet);
+                s_doip_forward_wcet_init_done = true;
+            }
+            timing_t wcet_t0 = timing_counter_get();
+#endif
             uds_status_t dispatch_status = doip_handle_frame(
                 s, uds_ctx, payload_type,
                 (payload_len > 0U) ? s->rx_buf : NULL,
                 payload_len);
+#if defined(DIAG_WCET_MEASURE)
+            timing_t wcet_t1 = timing_counter_get();
+            uint64_t wcet_cyc = timing_cycles_get(&wcet_t0, &wcet_t1);
+            bool wcet_new_max = wcet_stats_record(&s_doip_forward_wcet, wcet_cyc);
+            if (wcet_new_max || ((s_doip_forward_wcet.count % 50U) == 0U)) {
+                LOG_INF("[WCET] doip_forward: n=%u cur=%llu min=%llu max=%llu avg=%llu cyc",
+                        (unsigned)s_doip_forward_wcet.count,
+                        (unsigned long long)wcet_cyc,
+                        (unsigned long long)s_doip_forward_wcet.min_cycles,
+                        (unsigned long long)s_doip_forward_wcet.max_cycles,
+                        (unsigned long long)(s_doip_forward_wcet.sum_cycles /
+                                             s_doip_forward_wcet.count));
+            }
+#endif
             if (dispatch_status != UDS_STATUS_OK) {
                 /* [Issue #105 follow-up] doip_handle_frame() reports non-OK
                  * here only when a response send inside it failed (s and

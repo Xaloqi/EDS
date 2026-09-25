@@ -68,6 +68,9 @@
 #include "platform_doip.h"   /* eds_doip_platform_start() */
 #include "doip_server.h"     /* DOIP_PORT */
 #include "nvm_store.h"
+#if defined(DIAG_WCET_MEASURE)
+#include "zephyr_wcet.h"     /* [#31] see header comment */
+#endif
 
 /* --------------------------------------------------------------------------
  * Generated headers (from diagnostics_config.yaml via codegen.py)
@@ -229,6 +232,13 @@ int main(void)
 {
     uds_status_t      status;
     uds_server_ctx_t *srv = NULL;
+
+#if defined(DIAG_WCET_MEASURE)
+    /* [#31] Must run before any timing_counter_get() call site — see
+     * transport/doip/doip_server.c's instrumented dispatch call. */
+    timing_init();
+    timing_start();
+#endif
 
     LOG_INF("Xaloqi EDS BasicECU_DoIP starting (v1.6.0)");
     LOG_INF("DoIP logical address: 0x%04X  port: %u",

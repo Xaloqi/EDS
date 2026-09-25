@@ -141,8 +141,17 @@ target_sources(app PRIVATE
     ${DIAG_GENERATED_DIR}/routine_handlers.c
 )
 
-# NVM mock for native_sim (no NVS flash on simulator)
-if(CONFIG_BOARD_NATIVE_SIM)
+# NVM mock for native_sim (no NVS flash on simulator).
+#
+# [#31] DIAG_USE_MOCK_NVM: explicit opt-in escape hatch for a real board that
+# doesn't (yet) define the eds_nvs_slot partition nvm_store.c needs — e.g. a
+# one-off WCET measurement bring-up where persistent NVM is irrelevant to
+# what's being measured and not worth a real flash-partition overlay for.
+# Defaults OFF: every existing real-hardware board keeps linking the real
+# nvm_store.c exactly as before unless a build explicitly passes this.
+option(DIAG_USE_MOCK_NVM "Link the RAM-backed NVM mock instead of real NVS, even on real hardware" OFF)
+
+if(CONFIG_BOARD_NATIVE_SIM OR DIAG_USE_MOCK_NVM)
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
 else()
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store.c)
