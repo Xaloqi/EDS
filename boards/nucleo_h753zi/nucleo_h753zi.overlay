@@ -171,27 +171,46 @@
  * FIXED_PARTITION_DEVICE(diag_nvs) and FIXED_PARTITION_OFFSET(diag_nvs)
  * DTS accessor macros.
  *
- * NOTE: The application firmware image must remain below 1.75 MB (0x1C0000
- * bytes) to avoid overwriting this partition. The basic_ecu firmware is
- * comfortably within this limit (< 256 KB for a typical Zephyr application).
+ * NOTE: The application firmware image must remain below 768 KB (0xC0000
+ * bytes, the image-0 slot size below) to avoid overwriting image-1. The
+ * basic_ecu firmware is comfortably within this limit (< 256 KB for a
+ * typical Zephyr application).
  * =============================================================================
  */
 /* ── Flash partition table ───────────────────────────────────────────────────
  *
- * STM32H743ZI dual-bank flash: 2 MB total, base 0x08000000.
+ * STM32H753ZI dual-bank flash: 2 MB total, base 0x08000000.
  *   Bank 1: sectors 0–7  → 0x08000000–0x080FFFFF  (8 × 128 KB)
  *   Bank 2: sectors 8–15 → 0x08100000–0x081FFFFF  (8 × 128 KB)
  *
- * Layout (exactly 2 MB):
+ * Layout (exactly 2 MB, every boundary on a 128 KB sector edge):
  *
- *   Offset     Size    Label        Purpose
- *   ─────────  ──────  ───────────  ────────────────────────────────────────
- *   0x000000   896 KB  image-0      Primary firmware slot — app is flashed here.
- *   0x0E0000   896 KB  image-1      Secondary / OTA staging slot.
- *                                   platform/zephyr_flash_ops.c writes DFU
- *                                   payloads here via FLASH_AREA_ID(image_1).
- *   0x1C0000   256 KB  diag_nvs     Zephyr NVS (security counters, DTC mirror,
- *                                   session stats). Needs ≥ 2 sectors for WL.
+ *   Offset     Size    Sectors  Label        Purpose
+ *   ─────────  ──────  ───────  ───────────  ─────────────────────────────
+ *   0x000000   256 KB  2        boot_partition  MCUboot itself (measured
+ *                                                ~44.8 KB signed w/ RSA-2048;
+ *                                                256 KB leaves headroom).
+ *   0x040000   768 KB  6        image-0      Primary firmware slot.
+ *   0x100000   768 KB  6        image-1      Secondary / OTA staging slot.
+ *                                            platform/zephyr_flash_ops.c
+ *                                            writes DFU payloads here via
+ *                                            FLASH_AREA_ID(image_1).
+ *   0x1C0000   256 KB  2        diag_nvs     Zephyr NVS (security counters,
+ *                                            DTC mirror, session stats).
+ *                                            Needs ≥ 2 sectors for WL.
+ *
+ * FIX (H753ZI bring-up, 2026-09-25): previous layout had NO boot_partition —
+ * image-0 started at flash base 0x0, identical to where MCUboot's own build
+ * also links (zephyr,code-partition resolves to whatever &boot_partition or
+ * &slot0_partition points at; with no boot_partition node, MCUboot silently
+ * fell back to slot0_partition and would have overwritten the app image on
+ * flash, confirmed by inspecting a real MCUboot build's .config
+ * (CONFIG_FLASH_LOAD_OFFSET=0x0, same as the app). image-0/image-1 shrank
+ * from 896 KB to 768 KB each to make room while keeping every partition
+ * boundary sector-aligned — 896/192/64 KB splits are NOT multiples of the
+ * 128 KB hardware sector size, which would let a sector erase (NVS wear-
+ * levelling, or MCUboot's own writes) corrupt the tail of the neighbouring
+ * partition. slot0/slot1 MUST stay equal size (MCUboot swap requirement).
  *
  * FIX (CI 2026-03-30): previous layout had label "mcuboot" on the app slot and
  * no image-1 partition. FLASH_AREA_ID(image_1) in zephyr_flash_ops.c requires
@@ -217,18 +236,33 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		/* Primary firmware image slot — 896 KB at flash base.
+		/* MCUboot itself — 256 KB (2 sectors) at flash base. Required so
+		 * zephyr,code-partition resolves to &boot_partition (not
+		 * &slot0_partition) when MCUboot's OWN build applies its
+		 * bootloader/mcuboot/boot/zephyr/app.overlay, which sets exactly
+		 * that chosen override. Without this node that override dangles
+		 * and MCUboot silently falls back to whatever /chosen already
+		 * pointed at (slot0_partition) — linking MCUboot at the same
+		 * address as the app image. See the FIX note above the flash
+		 * partition table for how this was caught on real hardware. */
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 0x00040000>;
+		};
+
+		/* Primary firmware image slot — 768 KB, starting after boot_partition.
 		 * Dual-labelled: eds_app_slot (unique, avoids base-DTS conflict at @40000)
 		 * AND slot0_partition (satisfies the Zephyr base board DTS /chosen node:
 		 *   zephyr,code-partition = &slot0_partition
 		 * Without the slot0_partition label here that /chosen reference is
 		 * "undefined node label 'slot0_partition'" after our /delete-node/). */
-		slot0_partition: eds_app_slot: partition@0 {
+		slot0_partition: eds_app_slot: partition@40000 {
 			label = "image-0";
-			reg = <0x00000000 0x000E0000>;
+			reg = <0x00040000 0x000C0000>;
 		};
 
-		/* Secondary / OTA staging slot — 896 KB after image-0.
+		/* Secondary / OTA staging slot — 768 KB after image-0. MUST stay the
+		 * same size as image-0 (MCUboot swap requirement).
 		 * platform/zephyr_flash_ops.c targets this via
 		 * FIXED_PARTITION_ID(image_1) (see that file's own history note —
 		 * this was FLASH_AREA_ID before the actual Zephyr v3.7.0 API was
@@ -252,9 +286,9 @@
 		 * kept identical here since both files are meant to be exact
 		 * copies). This node was simply never given ANY of them until
 		 * now. */
-		eds_ota_slot: image_1: slot1_partition: partition@e0000 {
+		eds_ota_slot: image_1: slot1_partition: partition@100000 {
 			label = "image-1";
-			reg = <0x000E0000 0x000E0000>;
+			reg = <0x00100000 0x000C0000>;
 		};
 
 		/* NVS key-value store — last 256 KB (2 × 128 KB sectors). */
