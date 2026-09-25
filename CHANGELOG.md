@@ -10,6 +10,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`safeboot_ecu` now actually arms the MCUboot swap** (#277) — the
+  documented DFU sequence (`0x34` → `0x36` × N → `0x37`) previously answered
+  `[0x77]` and reset, but nothing ever told MCUboot a new image was staged:
+  `boot_request_upgrade()` / `boot_set_pending()` / `BOOT_SWAP` appeared zero
+  times anywhere in the repo. A customer following the README got a positive
+  response and a reset, and the new firmware never ran.
+
+  Adds `platform/zephyr/zephyr_mcuboot_image_policy.c` — a
+  `uds_image_policy_t` (the #232 Phase 1 gate, previously unimplemented for
+  any target) that streams a SHA-256 digest over the image header+body
+  during `0x36` (`platform/uds_sha256.c`, merged unwired in #284), compares
+  it at `0x37` against the image's own SHA256 TLV
+  (`platform/uds_mcuboot_image.c`, same PR), and on a match calls
+  `boot_request_upgrade(BOOT_UPGRADE_TEST)` from `commit_cb` — `TEST` rather
+  than `PERMANENT` because `main.c` already implements the other half of
+  MCUboot's revert safety net (`boot_write_img_confirmed()` on the new
+  image's own first successful boot).
+
+  Deliberately does NOT re-verify the image's RSA-2048-PSS signature at the
+  application layer: this board's MCUboot (`CONFIG_BOOT_SIGNATURE_TYPE_RSA=y`)
+  already verifies that signature under its own embedded key before it will
+  boot a swapped image, which is the correct, already-proven trust anchor for
+  this single-tenant configuration — duplicating it here would add a new
+  RSA-PSS primitive to a security-relevant path for no additional guarantee.
+
+  Verified end-to-end on NUCLEO-H753ZI hardware: a full `0x10`→`0x27`→`0x34`→
+  `0x36`×425→`0x37`→`0x11` sequence over CAN, correct digest match, swap
+  armed, MCUboot performed the swap (`magic=good`), the new image booted
+  (`Xaloqi EDS v1.1.0-dfu-test`), self-confirmed (`image_ok=1`), and
+  persisted across a subsequent reset.
+
 - **NUCLEO-H753ZI board support** (#277) — `boards/nucleo_h753zi/` and
   `examples/safeboot_ecu/boards/nucleo_h753zi/`. Customer-requested substitution
   for the NUCLEO-H743ZI2, which is heading toward discontinuation. Same
@@ -231,6 +262,91 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   is the class, and this is it recurring one session after it was written.
 
 ### Fixed
+
+- **`RequestDownload`'s flash erase starved the 100 ms watchdog and
+  self-reset the board mid-erase** (#312). Found while proving #277's swap
+  end-to-end on hardware: `0x34` never answered — the ECU's serial console
+  showed an unprompted, complete MCUboot→Zephyr reboot in the window where a
+  response should have arrived, and the freshly-unlocked UDS session was
+  gone afterward.
+
+  `platform/zephyr/zephyr_flash_ops.c`'s `z_flash_erase()` issued one
+  synchronous `flash_area_erase()` call spanning the entire 768 KB secondary
+  slot (6 × 128 KB sectors, #278's layout). STM32H7's own devicetree binding
+  declares `erase-block-size = 128 KB` and `max-erase-time = 4000` (ms) —
+  manufacturer-documented, not a guess — and the diagnostics poll loop feeds
+  the watchdog once per 1 ms tick, between iterations, which it cannot do
+  while blocked inside a service handler it called synchronously. A single
+  call erasing 6 sectors was essentially guaranteed to exceed the 100 ms
+  `CONFIG_DIAG_WDT_WINDOW_MS` before it returned.
+
+  Fixed with a new optional `erase_step_cb` on `uds_flash_ops_t`
+  (`platform/uds_flash_ops.h`): erases one bounded increment (≤ one sector)
+  per call. `service_0x34.c` now answers `0x34` immediately with NRC `0x78`
+  (`requestCorrectlyReceived-ResponsePending`) when the platform supplies
+  this callback, then drives the erase across multiple poll-loop iterations
+  via the new `uds_service_0x34_pending_tick()` — called once per tick from
+  `main.c`, exactly like the existing `uds_periodic_pop_due()` drain —
+  repeating `0x78` between chunks (each chunk's own worst case, ≤4000 ms, is
+  comfortably under the reference configuration's 5000 ms `P2*max`) and
+  sending the real `[0x74]` once the whole region is erased.
+
+  `platform/zephyr/zephyr_flash_ops.c`'s `z_flash_erase_step()` still blocks
+  for up to one sector's own worst-case erase time inside a single call —
+  bridged by a `k_timer` (`zephyr_flash_ops_set_wdt()`, wired from `main.c`
+  right after `diag_wdt_init()`) that feeds the watchdog only for the
+  duration of that one bounded HAL call, started immediately before it and
+  stopped immediately after. This is a scoped exception for one
+  datasheet-bounded operation, not a standing bypass: outside that one call
+  — including a genuine diag_task hang elsewhere — the watchdog behaves
+  exactly as before.
+
+  New regression coverage: `tests/unit_runnable/test_service_0x34_chunked_erase.c`
+  (6 cases: immediate `0x78`, multi-chunk completion and correct
+  `transfer_ctx` setup, mid-erase failure, a defensive bound check against an
+  `erase_step_cb` that over-reports bytes erased, and pre-emption by a second
+  `0x34`). Verified to catch a real defect: a first draft read
+  `s_erase_pending`'s fields *after* the call that clears them — caught by
+  self-review, then confirmed the new test actually fails against that
+  exact bug before confirming it passes against the fix.
+
+  Whole-region `erase_cb` is unchanged and still required — platforms
+  without `erase_step_cb` (RAM-backed mocks, FreeRTOS targets not yet
+  audited for this) are unaffected.
+
+- **`TransferData`'s first multi-frame block overflowed the CAN RX queue**
+  (#313). Found immediately after #312's fix, proving the DFU sequence
+  further: `RequestDownload` now completed cleanly, but the very next
+  request — a 257-byte `TransferData` block, needing 36 Consecutive Frames —
+  never got a response. The board's log showed `can_common: Msgq ...
+  overflowed` followed by a run of ISO-TP `UNEXPECTED_PDU` errors as
+  Consecutive Frames arrived with no live reassembly context.
+
+  `examples/safeboot_ecu/generated/uds_init.c` configured ISO-TP with
+  `block_size = 0` / `stmin_ms = 0` — "tester decides pace, no limit" — which
+  is echoed back to the tester in the Flow Control frame as an explicit
+  promise the ECU can absorb Consecutive Frames back-to-back with zero
+  required spacing. `platform/zephyr/zephyr_can.c`'s 8-frame `k_msgq`
+  between the FDCAN ISR and the diagnostics poll loop, drained once per
+  ~1 ms tick, could not actually sustain a real 36-frame burst arriving
+  faster than that — the ECU was advertising an absorption rate its own
+  software queue could not keep.
+
+  This is the first point in the whole #277 hardware bring-up where a real
+  multi-frame CF burst was exercised — every earlier CAN test (#311's smoke
+  test, #312's own `RequestDownload`) was single-frame or short enough to
+  fit in a handful of frames, so this rate mismatch was never exercised
+  before.
+
+  Fixed in `examples/safeboot_ecu/CMakeLists.txt` (not the generated file):
+  `ISOTP_DEFAULT_BLOCK_SIZE=4` / `ISOTP_DEFAULT_STMIN_MS=1`, both already
+  `#ifndef`-guarded in `transport/isotp.h` for exactly this kind of
+  per-target override. Caps any burst at 4 frames before the tester must
+  wait for the next FC and paces individual frames to roughly the poll
+  loop's own drain rate — half the 8-deep queue's capacity, leaving headroom
+  for ordinary tick jitter. Verified on hardware: all 425 blocks of a
+  108132-byte image transferred cleanly (28.4 s, 3.7 KB/s) with zero queue
+  overflows.
 
 - **The STM32H7 Nucleo targets ran the diagnostic CAN bus at 125 kbit/s, not
   the documented 500 kbit/s** (#309). Found on the bench during the #277

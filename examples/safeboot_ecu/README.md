@@ -105,6 +105,17 @@ Those three together are why the slots are 768 KB rather than a rounder-looking
 896 KB: 2 MB minus 2 sectors for MCUboot and 2 for NVS leaves 12 sectors, split
 evenly between two equal slots.
 
+> **RequestDownload's `memoryAddress` is flash-DEVICE-relative, not the
+> Cortex-M memory-mapped address.** `platform/zephyr/zephyr_flash_ops.c`
+> populates its memory-map region straight from Zephyr's `flash_area` API
+> (`fa->fa_off`), which reports offsets relative to the flash controller —
+> the same convention `west sign`'s own "partition offset" printout uses
+> (`0x40000` for `image-0`, not `0x08040000`). `image-1`'s `0x08100000` in
+> the table above is therefore sent over UDS as **`0x00100000`**, confirmed
+> by reading `s_flash_region` live via GDB on real hardware — anything else
+> is refused with NRC 0x31 (requestOutOfRange). The examples below use the
+> correct relative value throughout.
+
 ---
 
 ## Prerequisites
@@ -275,7 +286,7 @@ campaigns:
         args: { type: start, rid: 0xFF00 }
       - service: RequestDownload
         args:
-          address: 0x080F0000
+          address: 0x00100000  # image-1, flash-device-relative — see note above
           length: !filesize build-safeboot/zephyr/zephyr.signed.bin
       - service: TransferData
         args:
@@ -292,28 +303,48 @@ testlab run campaigns/safeboot_dfu.yaml
 
 ### Manual UDS bytes (500 kbit/s, 0x7DF → 0x7E8)
 
+Byte values below are a real capture from a NUCLEO-H753ZI (`fix/277-312-313-dfu-swap`)
+except where shown symbolic (`<...>`) because they depend on the image being sent.
+
 ```
 # 1. Programming session
-10 02  →  50 02 00 19 01 F4
+10 02  →  50 02 00 32 01 F4              (P2max=50ms, P2*max=5000ms)
 
-# 2. RequestSeed
-27 01  →  67 01 <4-byte seed>
+# 2. RequestSeed — seed is 8 bytes (UDS_ALGO_SEED_LEN, core/uds_security_algo.h)
+27 01  →  67 01 <8-byte seed>
 
-# 3. SendKey (AES-128-CMAC of seed using level-1 key)
+# 3. SendKey — first 4 bytes of AES-128-CMAC(level-1 key, seed)
 27 02 <4-byte key>  →  67 02
 
-# 4. CheckProgrammingPreconditions
+# 4. CheckProgrammingPreconditions (optional — not enforced by 0x34 itself)
 31 01 FF 00  →  71 01 FF 00 01 00      (0x01 0x00 = PASS)
 
-# 5. RequestDownload  (ALFID 0x44 = 4-byte addr + 4-byte len)
-34 00 44  08 0F 00 00  <len3> <len2> <len1> <len0>
-→  74 20 01 00                          (maxBlockLen = 256)
+# 5. RequestDownload (ALFID 0x44 = 4-byte addr + 4-byte len)
+#    Address is flash-device-relative — see the callout above the flash
+#    layout table. This ECU's erase_step_cb (issue #312) means 0x34 answers
+#    immediately with NRC 0x78 while the secondary slot erases in the
+#    background, one 128 KB sector per poll-loop iteration — expect one or
+#    more 0x78 frames (one per completed sector) before the real [0x74].
+34 00 44  00 10 00 00  <len3> <len2> <len1> <len0>
+→  7F 34 78                              (responsePending — repeats per sector)
+→  74 20 01 01                          (maxNumberOfBlockLength = 257)
 
-# 6. TransferData — repeat for each block (blk_seq wraps 0x01–0xFF)
-36 <blk_seq> <256 bytes>  →  76 <blk_seq>
+# 6. TransferData — repeat for each block (blk_seq wraps 0x01→0xFF→0x01,
+#    0x00 is always invalid). maxNumberOfBlockLength above INCLUDES the
+#    1-byte block counter, so the payload here is 255 bytes, not 256.
+#    Needs multi-frame ISO-TP for any block over 7 bytes — this ECU
+#    advertises block_size=4 / STmin=1ms in its Flow Control (issue #313);
+#    a sender that ignores that and blasts frames unpaced will overflow the
+#    8-frame CAN RX queue.
+36 <blk_seq> <up to 255 bytes>  →  76 <blk_seq>
 
-# 7. RequestTransferExit
-37  →  77
+# 7. RequestTransferExit — the CRC-32 record is MANDATORY here once any
+#    image policy is registered without REQUIRE_PARAM_RECORD, which is
+#    this ECU's default (platform/zephyr/zephyr_mcuboot_image_policy.c,
+#    issue #277) — a bare [0x37] gets NRC 0x13. CRC-32 (poly 0xEDB88320,
+#    init/final XOR 0xFFFFFFFF — the same algorithm Python's zlib.crc32()
+#    implements) over every TransferData payload byte sent, in order.
+37 <crc3> <crc2> <crc1> <crc0>  →  77
 
 # 8. Hard reset — MCUboot swaps and boots new image
 11 01  →  51 01  (then device resets)

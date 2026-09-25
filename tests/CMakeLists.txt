@@ -549,6 +549,11 @@ add_diag_test(test_service_0x34
         "${TEST_UNIT_DIR}/test_service_0x34.c"
 )
 
+add_diag_test(test_service_0x34_chunked_erase
+    SOURCES
+        "${TEST_UNIT_DIR}/test_service_0x34_chunked_erase.c"
+)
+
 add_diag_test(test_service_0x35
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x35.c"
