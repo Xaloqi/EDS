@@ -232,6 +232,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The STM32H7 Nucleo targets ran the diagnostic CAN bus at 125 kbit/s, not
+  the documented 500 kbit/s** (#309). Found on the bench during the #277
+  bring-up: a `DiagnosticSessionControl` request drew no response at all.
+
+  The FDCAN node carried `sample-point` but **no bitrate property**, so Zephyr
+  fell back to `CONFIG_CAN_DEFAULT_BITRATE`, whose default is 125000. Read off
+  the running target before the fix, `FDCAN1_NBTP = 0x12038A13` — NBRP=3
+  (prescaler 4) x 160 tq at an 80 MHz kernel clock = exactly 125 kbit/s, with
+  the sample point correct at 87.5%. `FDCAN1_ECR` was `0x0` (TEC=0, REC=0) and
+  `FDCAN1_PSR` LEC="no change" across 494 frames transmitted at 500 kbit/s by
+  the host adapter: at a 4x bitrate mismatch the controller never even saw a
+  frame boundary to count as an error.
+
+  The property was lost to a misread deprecation. A previous change removed
+  `bus-speed` with the comment *"deprecated in Zephyr 3.7 ... bus speed is
+  configured via board DTS clock tree, not this property"* — both halves wrong.
+  Zephyr's `dts/bindings/can/can-controller.yaml` says `bus-speed` was
+  *"renamed to bitrate"*, and that an absent `bitrate` falls back to the
+  Kconfig default. Deleting the property silenced the warning and changed the
+  bus speed.
+
+  Fixed by adding `bitrate = <500000>;` to the four affected overlays
+  (`nucleo_h743zi` and `nucleo_h753zi`, repo-level and `safeboot_ecu` copies)
+  and correcting the comment. Verified on target: `FDCAN1_NBTP` is now
+  `0x12008A13` — prescaler 1 x 160 tq = 500 kbit/s, sample point still 87.5%.
+
+  Unaffected: `native_sim`, `ardep_ecu` and the other per-example overlays,
+  which still carry the deprecated-but-functional `bus-speed = <500000>` and
+  therefore do run at 500 kbit/s. Renaming those to `bitrate` would clear their
+  deprecation warnings and is worth doing separately.
+
 - **`safeboot_ecu`'s flash layout left no room for MCUboot, and its partitions
   straddled erase-sector boundaries** (#278). The overlay's `partitions` node
   defined no `boot_partition` at all: `image-0` began at flash base
