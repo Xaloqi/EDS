@@ -732,6 +732,19 @@ add_diag_test(test_mcuboot_image
         "${TEST_UNIT_DIR}/test_mcuboot_image.c"
 )
 
+# ---------------------------------------------------------------------------
+# test_platform_opaque_alignment  [#302]
+#      diag_mutex_t/diag_timer_t/diag_wdt_t opaque-storage alignment —
+#      host-testable via plain C11 _Alignof even though the actual fault
+#      (Usage Fault, unaligned LDRD/STRD in sys_dlist_init()) only ever
+#      manifested on real Cortex-M7 hardware. See that test file's own
+#      header comment for the full story.
+# ---------------------------------------------------------------------------
+add_diag_test(test_platform_opaque_alignment
+    SOURCES
+        "${TEST_UNIT_DIR}/test_platform_opaque_alignment.c"
+)
+
 # ===========================================================================
 # Summary target: print all registered tests
 # ===========================================================================
