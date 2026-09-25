@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.15.0  
-**Status:** 50/50 unit test modules passing. 24/24 CI jobs green. 68/68 harness
+**Status:** 51/51 unit test modules passing. 24/24 CI jobs green. 68/68 harness
 tests passing — **Professional tier only**: `harness/` sources are a gitignored
 commercial deliverable (#68), absent from a Developer-tier checkout (every
 public clone and CI run), which reports the harness suite **BLOCKED**, not a
@@ -209,7 +209,7 @@ bash build_tests.sh
 # Expected: 45 passed, 0 failed
 ```
 
-### Coverage — 50 unit test modules
+### Coverage — 51 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -593,7 +593,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          50 Unity modules via build_tests.sh
+   ├── unit-tests          51 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── cmake-ctest-build   The same modules via cmake -S tests + ctest
@@ -639,7 +639,7 @@ drifted twice (#91, #119) — this line claimed 8.
 
 Added in v1.3.0. Builds `examples/basic_ecu_freertos` with `-DEDS_PLATFORM=freertos`
 targeting QEMU ARM Cortex-M4. Downloads FreeRTOS-Kernel from GitHub, runs codegen,
-builds the ELF, and verifies it exists. The same 50 unit tests run against the FreeRTOS
+builds the ELF, and verifies it exists. The same 51 unit tests run against the FreeRTOS
 platform HAL (they mock the platform layer and are platform-independent).
 
 ### SafeBoot CI job (within `unit-tests`)
@@ -659,7 +659,7 @@ matches the YAML, builds the ELF, and checks binary size.
 
 Added in v1.8.0. Compile-only build of `examples/safeboot_freertos_ecu/` targeting
 QEMU Cortex-M4 with the RAM stub flash backend (`freertos_flash_ops.c` — no STM32
-HAL required). Verifies all 50 translation units compile and `eds_safeboot_freertos.elf`
+HAL required). Verifies all 51 translation units compile and `eds_safeboot_freertos.elf`
 is produced. Real hardware (STM32H743ZI) path is covered by customer integration.
 
 ### DoIP integration CI job (`doip-integration`)

@@ -218,14 +218,14 @@ embedded-diagnostics-suite/
 │   └── ...                     # + 8 more (DoIP, FreeRTOS, SafeBoot, sensor, robot variants)
 │
 ├── tests/
-│   ├── unit_runnable/          # Canonical Unity unit tests (50 modules)
+│   ├── unit_runnable/          # Canonical Unity unit tests (51 modules)
 │   ├── runner/                 # Shared Unity test-main scaffolding — build_tests.sh
 │   │                           # and tests/CMakeLists.txt each link one module's
 │   │                           # object against libeds_testable.a (built once) + this
 │   ├── mocks/                  # Zephyr port mock + NVM mock for host builds
 │   └── CMakeLists.txt          # CTest path — mirrors build_tests.sh's source list
 │
-├── build_tests.sh              # Runs all 50 unit test modules (repo root, not scripts/)
+├── build_tests.sh              # Runs all 51 unit test modules (repo root, not scripts/)
 ├── build_harness.sh            # Runs all 68 harness tests (repo root, not scripts/;
 │                                # Professional tier — harness/ sources are gitignored)
 └── run_python_tests.sh         # Canonical entrypoint for the whole Python suite —
