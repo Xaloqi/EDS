@@ -30,6 +30,14 @@ BUILD_ASSERT(sizeof(struct k_mutex) <= DIAG_MUTEX_OPAQUE_SIZE,
              "DIAG_MUTEX_OPAQUE_SIZE is too small for struct k_mutex — "
              "increase DIAG_MUTEX_OPAQUE_SIZE in zephyr_mutex.h");
 
+/* [FIX #302] _opaque's forced alignment (zephyr_mutex.h) must cover whatever
+ * struct k_mutex actually needs — catches a future Zephyr change requiring
+ * stricter alignment at compile time, under the real target, rather than as
+ * a Usage Fault discovered on hardware. */
+BUILD_ASSERT(_Alignof(diag_mutex_t) >= _Alignof(struct k_mutex),
+             "diag_mutex_t's _opaque alignment is insufficient for "
+             "struct k_mutex — see issue #302");
+
 /* --------------------------------------------------------------------------
  * Helper: extract embedded k_mutex pointer from opaque handle
  * -------------------------------------------------------------------------- */

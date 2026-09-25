@@ -39,13 +39,23 @@
 extern "C" {
 #endif
 
+/* [FIX #302] Same alignment defect as diag_mutex_t (see zephyr_mutex.h) —
+ * this storage is cast to diag_timer_internal_t* (embedding struct k_timer)
+ * and Zephyr's k_timer/k_sem init paths perform dual-word accesses on it.
+ * A plain uint8_t[] array has 1-byte alignment, which faults on Cortex-M7. */
+#if defined(__cplusplus)
+#define DIAG_TIMER_ALIGN alignas(8)
+#else
+#define DIAG_TIMER_ALIGN _Alignas(8)
+#endif
+
 /* --------------------------------------------------------------------------
  * Timer context (opaque to callers)
  * -------------------------------------------------------------------------- */
 #define DIAG_TIMER_OPAQUE_SIZE   (128U)
 
 typedef struct diag_timer {
-    uint8_t _opaque[DIAG_TIMER_OPAQUE_SIZE]; /**< Storage for k_timer + k_sem. */
+    DIAG_TIMER_ALIGN uint8_t _opaque[DIAG_TIMER_OPAQUE_SIZE]; /**< Storage for k_timer + k_sem. */
 } diag_timer_t;
 
 /* --------------------------------------------------------------------------

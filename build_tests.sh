@@ -408,6 +408,10 @@ TESTS=(
     # driver and the ECDSA verification they will sit next to.
     test_sha256
     test_mcuboot_image
+    # [#302] diag_mutex_t/diag_timer_t/diag_wdt_t opaque-storage alignment —
+    # host-testable via plain C11 _Alignof even though the actual fault only
+    # ever manifested on real Cortex-M7 hardware.
+    test_platform_opaque_alignment
 )
 
 # ---------------------------------------------------------------------------
