@@ -39,6 +39,21 @@
 extern "C" {
 #endif
 
+/* [FIX #302] _opaque must be at least pointer/word-aligned: struct k_mutex
+ * is reconstructed by casting this storage directly (see to_kmutex() in the
+ * .c file), and Zephyr's sys_dlist_init() performs an LDRD/STRD dual-word
+ * access on it. A plain uint8_t[] array has 1-byte alignment, which faults
+ * with a Usage Fault ("Unaligned memory access") on Cortex-M7 the first
+ * time this ever ran on real hardware — never caught by host tests or a
+ * plain compile check, since neither exercises real ARM alignment traps.
+ * _Alignas is the C11 keyword (no <stdalign.h> needed); alignas is the C++11
+ * keyword — this header is included under extern "C" by C++ callers too. */
+#if defined(__cplusplus)
+#define DIAG_MUTEX_ALIGN alignas(8)
+#else
+#define DIAG_MUTEX_ALIGN _Alignas(8)
+#endif
+
 /* --------------------------------------------------------------------------
  * Opaque mutex handle
  *
@@ -52,7 +67,7 @@ extern "C" {
 #define DIAG_MUTEX_OPAQUE_SIZE   (64U)
 
 typedef struct diag_mutex {
-    uint8_t _opaque[DIAG_MUTEX_OPAQUE_SIZE]; /**< Storage for struct k_mutex. */
+    DIAG_MUTEX_ALIGN uint8_t _opaque[DIAG_MUTEX_OPAQUE_SIZE]; /**< Storage for struct k_mutex. */
 } diag_mutex_t;
 
 /* --------------------------------------------------------------------------

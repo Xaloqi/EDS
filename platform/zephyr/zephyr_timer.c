@@ -43,6 +43,11 @@ typedef struct diag_timer_internal {
 BUILD_ASSERT(sizeof(diag_timer_internal_t) <= DIAG_TIMER_OPAQUE_SIZE,
              "DIAG_TIMER_OPAQUE_SIZE too small — increase in zephyr_timer.h");
 
+/* [FIX #302] See the matching guard in zephyr_mutex.c. */
+BUILD_ASSERT(_Alignof(diag_timer_t) >= _Alignof(diag_timer_internal_t),
+             "diag_timer_t's _opaque alignment is insufficient for "
+             "diag_timer_internal_t (embeds struct k_timer) — see issue #302");
+
 static diag_timer_internal_t *intern(diag_timer_t *t)
 {
     return (diag_timer_internal_t *)(void *)t->_opaque;  /* NOLINT */

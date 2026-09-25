@@ -45,6 +45,11 @@ typedef struct diag_wdt_internal {
 BUILD_ASSERT(sizeof(diag_wdt_internal_t) <= DIAG_WDT_OPAQUE_SIZE,
              "DIAG_WDT_OPAQUE_SIZE too small — increase in zephyr_wdt.h");
 
+/* [FIX #302] See the matching guard in zephyr_mutex.c. */
+BUILD_ASSERT(_Alignof(diag_wdt_t) >= _Alignof(diag_wdt_internal_t),
+             "diag_wdt_t's _opaque alignment is insufficient for "
+             "diag_wdt_internal_t — see issue #302");
+
 static diag_wdt_internal_t *intern(diag_wdt_t *w)
 {
     return (diag_wdt_internal_t *)(void *)w->_opaque;  /* NOLINT */

@@ -37,6 +37,17 @@
 extern "C" {
 #endif
 
+/* [FIX #302] Same alignment defect as diag_mutex_t (see zephyr_mutex.h) —
+ * this storage is cast to diag_wdt_internal_t* (embedding a pointer field).
+ * A plain uint8_t[] array has 1-byte alignment, which is undefined behaviour
+ * to reinterpret as a pointer-containing struct regardless of whether it
+ * happens to fault on a given target. */
+#if defined(__cplusplus)
+#define DIAG_WDT_ALIGN alignas(8)
+#else
+#define DIAG_WDT_ALIGN _Alignas(8)
+#endif
+
 /* --------------------------------------------------------------------------
  * Default WDT window
  * -------------------------------------------------------------------------- */
@@ -50,7 +61,7 @@ extern "C" {
 #define DIAG_WDT_OPAQUE_SIZE   (32U)
 
 typedef struct diag_wdt {
-    uint8_t _opaque[DIAG_WDT_OPAQUE_SIZE];
+    DIAG_WDT_ALIGN uint8_t _opaque[DIAG_WDT_OPAQUE_SIZE];
 } diag_wdt_t;
 
 /* --------------------------------------------------------------------------
