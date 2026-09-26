@@ -71,6 +71,9 @@
 #include "zephyr_flash_ops.h"
 #include "zephyr_mcuboot_image_policy.h"
 #include "nvm_store.h"
+#if defined(DIAG_NVM_BACKEND_APPEND)
+#include "nvm_store_append.h"
+#endif
 #if defined(DIAG_WCET_MEASURE)
 #include "zephyr_wcet.h"
 #endif
@@ -672,6 +675,14 @@ int main(void)
      * is already a documented no-op. Must run before uds_generated_init()
      * below, which calls zephyr_flash_ops_init(). */
     zephyr_flash_ops_set_wdt(&s_wdt);
+
+#if defined(DIAG_NVM_BACKEND_APPEND)
+    /* [#304] Same reasoning as zephyr_flash_ops_set_wdt() above, for the
+     * append-only NVM backend's own one bounded bank-erase call (see
+     * platform/zephyr/nvm_store_append.c). Must run before nvm_store_init()
+     * below. */
+    nvm_store_append_set_wdt(&s_wdt);
+#endif
 
     /* ── 1 ms timer initialization ───────────────────────────────────────── */
     /*

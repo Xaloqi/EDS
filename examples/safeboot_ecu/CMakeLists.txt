@@ -140,11 +140,18 @@ target_sources(app PRIVATE
     ${DIAG_GENERATED_DIR}/routine_handlers.c
 )
 
-# NVM store — mock on native_sim, real NVS on hardware
-# Note: safeboot_ecu only targets real hardware (nucleo_h743zi)
-# native_sim does not have flash partitions; use basic_ecu for simulation.
+# NVM store — mock on native_sim; on hardware, the append-only backend
+# (issue #304) for STM32H7 boards, whose 128 KB / up-to-4000ms-erase
+# sectors make platform/zephyr/nvm_store.c's NVS backend architecturally
+# unsound (nvs_mount() fails outright — #200/#304's real-hardware
+# evidence), and plain NVS elsewhere until a board is confirmed to need
+# the same treatment. native_sim does not have flash partitions at all;
+# use basic_ecu for simulation.
 if(CONFIG_BOARD_NATIVE_SIM)
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
+elseif(CONFIG_BOARD_NUCLEO_H743ZI OR CONFIG_BOARD_NUCLEO_H753ZI)
+    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_append.c)
+    target_compile_definitions(app PRIVATE DIAG_NVM_BACKEND_APPEND=1)
 else()
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store.c)
 endif()

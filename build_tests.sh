@@ -413,7 +413,43 @@ TESTS=(
     # host-testable via plain C11 _Alignof even though the actual fault only
     # ever manifested on real Cortex-M7 hardware.
     test_platform_opaque_alignment
+    # [#304] Append-only NVM backend for STM32H7. Bypasses the shared stack
+    # archive entirely — see direct_link_srcs_for_test() below for why.
+    test_nvm_store_append
 )
+
+# ---------------------------------------------------------------------------
+# [#304] test_nvm_store_append defines the exact same public nvm_store_*
+# symbols as platform/zephyr/nvm_store_mock.c, which STACK_SRCS above already
+# includes and which every other test links in via --whole-archive — that
+# flag pulls in EVERY archive member regardless of what the test actually
+# references, so this one module cannot selectively exclude it. Linking both
+# is a duplicate-symbol error, not a missing-wiring bug.
+#
+# This module is therefore built and linked directly against only the
+# sources its own test needs, bypassing the shared archive completely —
+# the exact same reasoning, and the same pattern, as tests/CMakeLists.txt's
+# own standalone add_executable() target for this module (see that file's
+# comment at the target definition, and test_nvm_store_append.c's own
+# header comment).
+#
+# Prints one path per line (rather than returning an array) so callers can
+# use `mapfile` — matches this file's existing STACK_LINK_ARGS convention.
+direct_link_srcs_for_test() {
+    case "$1" in
+        test_nvm_store_append)
+            # test_main.c and unity.c are normally supplied by STACK_SRCS
+            # (below) via the shared archive every other test links against;
+            # bypassing that archive means bringing both along explicitly.
+            echo "${ROOT}/tests/runner/test_main.c"
+            echo "${ROOT}/project/unity/unity.c"
+            echo "${ROOT}/platform/zephyr/nvm_store_append.c"
+            echo "${ROOT}/core/uds_transfer_ctx.c"
+            ;;
+        *)
+            ;;
+    esac
+}
 
 # ---------------------------------------------------------------------------
 # Sanity check: ensure generated files exist
@@ -565,8 +601,15 @@ CASES_RUN=0
 CASES_FAILED=0
 ZERO_CASE_MODULES=()
 
-# Group the modules by the archive variant each one needs.
+# Group the modules by the archive variant each one needs. [#304] Direct-
+# link tests (see direct_link_srcs_for_test() above) never touch any archive
+# variant, so they are excluded here — otherwise the per-archive module
+# counts printed below would claim a module that was never actually linked
+# against it.
 for t in "${TESTS[@]}"; do
+    if [[ -n "$(direct_link_srcs_for_test "${t}")" ]]; then
+        continue
+    fi
     v="$(variant_id_for_test "${t}")"
     VARIANT_FLAGS["${v}"]="$(extra_flags_for_test "${t}")"
     VARIANT_TESTS["${v}"]="${VARIANT_TESTS[${v}]:-}${t} "
@@ -620,9 +663,18 @@ for t in "${TESTS[@]}"; do
 
     # [SEC-TRNG-FAILCLOSED-01] Per-test extra flags (empty for most tests).
     read -r -a extra_flags <<< "$(extra_flags_for_test "${t}")"
-    # [#151] ...and the stack archive built with those very same flags.
-    variant="$(variant_id_for_test "${t}")"
-    mapfile -t stack_link_args <<< "${STACK_LINK_ARGS[${variant}]}"
+
+    # [#304] direct_link_srcs_for_test() opts a module OUT of the shared
+    # stack archive entirely (duplicate-symbol conflict — see that function's
+    # comment); every other module keeps linking the archive as before.
+    mapfile -t direct_link_srcs <<< "$(direct_link_srcs_for_test "${t}")"
+    if [[ -n "${direct_link_srcs[0]:-}" ]]; then
+        link_args=("${direct_link_srcs[@]}")
+    else
+        # [#151] ...and the stack archive built with those very same flags.
+        variant="$(variant_id_for_test "${t}")"
+        mapfile -t link_args <<< "${STACK_LINK_ARGS[${variant}]}"
+    fi
 
     # ── Build ──────────────────────────────────────────────────────────
     # [FIX-SETE] With set -euo pipefail active, `var=$(failing_cmd)` exits
@@ -632,7 +684,7 @@ for t in "${TESTS[@]}"; do
     build_out=$(
         gcc "${CFLAGS[@]}" "${extra_flags[@]}" ${SHIM_INCLUDE} "${INCLUDES[@]}" \
             "${test_src}" \
-            "${stack_link_args[@]}" \
+            "${link_args[@]}" \
             -o "${bin}" 2>&1
     ) && build_rc=0 || build_rc=$?
 
