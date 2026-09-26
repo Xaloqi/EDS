@@ -750,6 +750,55 @@ add_diag_test(test_platform_opaque_alignment
         "${TEST_UNIT_DIR}/test_platform_opaque_alignment.c"
 )
 
+# ---------------------------------------------------------------------------
+# test_nvm_store_append  [#304]
+#
+# DELIBERATELY NOT an add_diag_test() call, and DELIBERATELY not present in
+# build_tests.sh's TESTS array either — both of those share ONE fixed
+# STACK_SRCS/DIAG_STACK_SRCS list that already links
+# platform/zephyr/nvm_store_mock.c. platform/zephyr/nvm_store_append.c (the
+# module this test exercises) defines the exact same public symbols
+# (nvm_store_init/write/read/delete/erase_all/is_ready) — linking both into
+# one binary is a duplicate-symbol error, not a wiring gap to close. This
+# module needs the small subset of the stack it actually depends on
+# (itself + core/uds_transfer_ctx.c for the shared CRC-32 helper), built as
+# its own standalone target instead.
+#
+# See test_nvm_store_append.c's own header comment for what this backend is
+# and the real hardware-caught regression (schema check always wiping
+# NVM_KEY_SEC_STATE on every boot) TC-005 specifically proves against.
+# ---------------------------------------------------------------------------
+add_executable(test_nvm_store_append
+    "${TEST_RUNNER_DIR}/test_main.c"
+    "${TEST_UNIT_DIR}/test_nvm_store_append.c"
+    "${DIAG_PLATFORM_ZEPHYR}/nvm_store_append.c"
+    "${DIAG_CORE}/uds_transfer_ctx.c"
+)
+
+target_include_directories(test_nvm_store_append PRIVATE
+    ${DIAG_INCLUDE_DIRS}
+)
+
+target_compile_options(test_nvm_store_append PRIVATE
+    ${DIAG_TEST_COMPILE_OPTIONS}
+)
+
+target_compile_definitions(test_nvm_store_append PRIVATE
+    UNIT_TEST=1
+    NVM_STORE_HOST_MOCK=1
+    EDS_MSG_BUF_MAX_STACK_BYTES=8192
+)
+
+target_link_libraries(test_nvm_store_append PRIVATE unity)
+
+add_test(NAME test_nvm_store_append COMMAND test_nvm_store_append)
+
+set_tests_properties(test_nvm_store_append PROPERTIES
+    PASS_REGULAR_EXPRESSION "PASS"
+    FAIL_REGULAR_EXPRESSION "FAIL;ERROR;Segmentation fault"
+    TIMEOUT 30
+)
+
 # ===========================================================================
 # Summary target: print all registered tests
 # ===========================================================================

@@ -263,6 +263,66 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`safeboot_ecu` on STM32H7 silently wiped its own NVM on every single
+  boot, destroying the SecurityAccess lockout counter each time** (#304).
+  Zephyr's NVS filesystem (`platform/zephyr/nvm_store.c`) is architecturally
+  unsound on this SoC: `max-erase-time = 4000` ms per 128 KB sector (the
+  STM32H7 devicetree binding's own figure) means a single
+  reclamation-triggered erase can legitimately block for up to 4 seconds —
+  40x the 100 ms ASIL-B watchdog window — and NVS may trigger that
+  reclamation from *any* write, including `core/uds_security.c`'s
+  by-design write of `NVM_KEY_SEC_STATE` on every failed SecurityAccess
+  attempt (the EDS#211 lockout-bypass-by-reset fix). An attacker sending
+  enough bad keys could eventually force a reclamation cycle during a
+  security-relevant write — the same watchdog-starvation shape as #312,
+  on a path #312's own fix didn't touch.
+
+  Adds `platform/zephyr/nvm_store_append.c/h` — a two-bank (128 KB each),
+  log-structured, append-only NVM backend purpose-built for this
+  constraint: writes only ever append a framed record
+  (`key`/`len`/payload/`crc32`), never erase; erasing happens only during
+  compaction, exactly once per compaction, of exactly one whole bank (this
+  hardware's own erase-block-size), and is bridged across the watchdog
+  with the same bounded `k_timer` technique #312 established in
+  `zephyr_flash_ops.c` — scoped to that one call, not a standing bypass.
+  Active bank on boot is chosen by a generation counter in each bank's
+  32-byte header; a corrupt or missing header on both banks means first
+  boot, and both are formatted fresh. Every record's CRC-32 is checked on
+  read; a corrupt record is never trusted. Wired into `safeboot_ecu`'s
+  build for `nucleo_h743zi`/`nucleo_h753zi` only (`examples/safeboot_ecu/CMakeLists.txt`);
+  `native_sim` and other targets are unaffected.
+
+  Found and fixed a second, more severe defect while hardware-verifying
+  this new backend: `nvm_store_init()`'s schema-version check called the
+  *public* `nvm_store_read()`, which refuses to run before
+  `s_initialized` is set — but that flag is only set *after* the schema
+  check completes. The check therefore always observed
+  "not initialized", always concluded the schema was missing, and called
+  `full_wipe()` on every boot, not just the first — silently destroying
+  `NVM_KEY_SEC_STATE` on every single reset. Fixed by extracting an
+  internal `read_internal()` (no `s_initialized` gate) and using it for
+  the schema check, with the public `nvm_store_read()` now a thin gated
+  wrapper around it.
+
+  New regression coverage: `tests/unit_runnable/test_nvm_store_append.c`
+  (8 cases covering init, round-trip, delete, compaction, CRC-corruption
+  rejection, and `erase_all()`'s #280 sec-state exclusion). One case,
+  `test_persists_across_reinit`, is written specifically against the
+  schema-check defect above; confirmed it fails with a message naming
+  that exact defect before confirming it passes against the fix. Built as
+  a standalone CMake target rather than through `add_diag_test()`/
+  `build_tests.sh`'s shared-stack mechanism, which links one fixed object
+  set (already including `nvm_store_mock.c`) into every test and has no
+  way to swap out one same-symbol backend for another — documented at
+  both the test file and its `tests/CMakeLists.txt` target.
+
+  Verified end-to-end on NUCLEO-H753ZI hardware: NVM now mounts
+  successfully on every boot (`NVM store ready`), and a real security
+  property that never held on this hardware before now does — two failed
+  SecurityAccess attempts, a genuine UDS `ECUReset`, then a third attempt
+  correctly returns NRC `0x36` (`exceededNumberOfAttempts`) instead of
+  `0x35`, proving the lockout counter survives a real reboot.
+
 - **`RequestDownload`'s flash erase starved the 100 ms watchdog and
   self-reset the board mid-erase** (#312). Found while proving #277's swap
   end-to-end on hardware: `0x34` never answered — the ECU's serial console

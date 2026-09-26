@@ -351,6 +351,23 @@ void nvm_mock_reset(void);
  * declaration; guarded so the symbol is unreachable in production.
  */
 void nvm_mock_deinit(void);
+
+/**
+ * @brief Flip one bit of one byte of the mock's raw backing store.
+ *
+ * FOR HOST/TEST USE ONLY (NVM_STORE_HOST_MOCK builds). Not linked in
+ * production firmware. Lets a test corrupt a specific byte of whatever the
+ * backend under test has already written, to exercise its CRC/integrity
+ * checking on the next read or re-init — see
+ * platform/zephyr/nvm_store_append.c's implementation (issue #304).
+ * platform/zephyr/nvm_store_mock.c does not implement this; only link it
+ * into a test binary that doesn't also link that file.
+ * [MISRA 8.7] Prototype provided here so all callers have a visible
+ * declaration; guarded so the symbol is unreachable in production.
+ *
+ * @param[in] byte_offset  Offset into the mock's raw backing buffer.
+ */
+void nvm_mock_corrupt_byte(uint32_t byte_offset);
 #endif /* NVM_STORE_HOST_MOCK */
 
 #ifdef __cplusplus
