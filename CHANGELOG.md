@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.16.0] — 2026-09-26
+
 ### Added
 
 - **`safeboot_ecu` now actually arms the MCUboot swap** (#277) — the
