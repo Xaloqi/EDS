@@ -722,6 +722,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   comment named as the remaining blocker, not the hardware-validation
   bar it's actually waiting on.
 
+### Documentation
+
+- **DFU firmware authenticity and anti-rollback boundary explicitly
+  documented** (#232), per an external Tier-1 PoC review flagging it as a
+  P1 gap: EDS's own `0x34`/`0x36`/`0x37` integrity checks (CRC-32 on both
+  platforms; SHA-256 digest match on Zephyr, #277) prove a transferred
+  image is internally self-consistent, not that it is authentic or came
+  from a trusted source. Real authenticity on `safeboot_ecu` is delegated
+  entirely to MCUboot's own RSA-2048-PSS signature check, which is active
+  only if the integrator's separate MCUboot build actually enables it
+  (`-DCONFIG_BOOT_SIGNATURE_TYPE_RSA=y` with a real key) — nothing fails
+  closed if that step is skipped or a test key is left in place. Anti-
+  rollback / downgrade protection is not implemented or wired in at all
+  today, on either platform; MCUboot's own hardware security counter is
+  available to integrators who need it but is not enabled by anything
+  this repo ships. `safeboot_freertos_ecu` has neither guarantee — no
+  bootloader ships with it, and `platform/freertos/freertos_flash_ops.c`
+  is CRC-32 transport integrity only.
+
+  This is a deliberate integration-boundary decision, not a gap EDS
+  intends to close by becoming a bootloader itself, but the boundary was
+  previously only informal (an internal roadmap note) and undocumented in
+  the public repo. Documented in `examples/safeboot_ecu/README.md` (a new
+  "Security boundary" section, plus inline call-outs at the MCUboot-build
+  and image-signing steps) and `docs/Safety_Model.md` §10 (a new
+  Safety-Boundaries table entry for the ASIL-B safety-case audience). No
+  code change — the underlying behaviour (and the #277 digest check's
+  actual guarantee) is unchanged; only the documented boundary is new.
+
 ## [1.15.0] — 2026-09-11
 
 ### Added
