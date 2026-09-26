@@ -7,17 +7,19 @@
  *
  * MODULE UNDER TEST: platform/zephyr/nvm_store_append.c (issue #304)
  *
- * BUILD NOTE: this test is wired ONLY into tests/CMakeLists.txt, as its own
- * standalone target — NOT into build_tests.sh's shared-stack-archive
- * mechanism every other unit_runnable/ test uses. That mechanism compiles
- * ONE fixed STACK_SRCS list (which already includes
- * platform/zephyr/nvm_store_mock.c) once per compile-flag "variant" and
- * links every test against it; it has no way to swap OUT one shared-stack
- * source for another per test. This module under test defines the exact
- * same public symbols (nvm_store_init/write/read/...) as nvm_store_mock.c —
- * linking both into the same binary is a duplicate-symbol error, not a
- * missing-wiring bug to fix. See tests/CMakeLists.txt's own comment at this
- * test's target definition for the standalone build it uses instead.
+ * BUILD NOTE: this test bypasses the shared-stack-archive mechanism every
+ * other unit_runnable/ test uses (build_tests.sh's STACK_SRCS /
+ * tests/CMakeLists.txt's DIAG_STACK_SRCS) — both compile ONE fixed source
+ * list, which already includes platform/zephyr/nvm_store_mock.c, once per
+ * compile-flag "variant" and link every test against it; neither has a way
+ * to swap OUT one shared-stack source for another per test. This module
+ * under test defines the exact same public symbols
+ * (nvm_store_init/write/read/...) as nvm_store_mock.c — linking both into
+ * the same binary is a duplicate-symbol error, not a missing-wiring bug to
+ * fix. It is still built and run by both: build_tests.sh via its
+ * direct_link_srcs_for_test() special case, tests/CMakeLists.txt via a
+ * standalone add_executable() target — see each file's own comment at this
+ * test for the details.
  *
  * Coverage:
  *   TC-001  First-ever init: fresh bank 0, generation 1, schema written

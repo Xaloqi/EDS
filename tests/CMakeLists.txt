@@ -753,16 +753,19 @@ add_diag_test(test_platform_opaque_alignment
 # ---------------------------------------------------------------------------
 # test_nvm_store_append  [#304]
 #
-# DELIBERATELY NOT an add_diag_test() call, and DELIBERATELY not present in
-# build_tests.sh's TESTS array either — both of those share ONE fixed
-# STACK_SRCS/DIAG_STACK_SRCS list that already links
+# DELIBERATELY NOT an add_diag_test() call: that macro links the ONE fixed
+# DIAG_STACK_SRCS object library into every test, which already includes
 # platform/zephyr/nvm_store_mock.c. platform/zephyr/nvm_store_append.c (the
 # module this test exercises) defines the exact same public symbols
 # (nvm_store_init/write/read/delete/erase_all/is_ready) — linking both into
 # one binary is a duplicate-symbol error, not a wiring gap to close. This
-# module needs the small subset of the stack it actually depends on
+# module needs only the small subset of the stack it actually depends on
 # (itself + core/uds_transfer_ctx.c for the shared CRC-32 helper), built as
 # its own standalone target instead.
+#
+# build_tests.sh IS present in its TESTS array, via the analogous
+# direct_link_srcs_for_test() special case — see that function's comment for
+# the same reasoning applied there.
 #
 # See test_nvm_store_append.c's own header comment for what this backend is
 # and the real hardware-caught regression (schema check always wiping

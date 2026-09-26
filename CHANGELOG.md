@@ -309,12 +309,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   rejection, and `erase_all()`'s #280 sec-state exclusion). One case,
   `test_persists_across_reinit`, is written specifically against the
   schema-check defect above; confirmed it fails with a message naming
-  that exact defect before confirming it passes against the fix. Built as
-  a standalone CMake target rather than through `add_diag_test()`/
-  `build_tests.sh`'s shared-stack mechanism, which links one fixed object
-  set (already including `nvm_store_mock.c`) into every test and has no
-  way to swap out one same-symbol backend for another — documented at
-  both the test file and its `tests/CMakeLists.txt` target.
+  that exact defect before confirming it passes against the fix. This
+  module defines the same public symbols as `nvm_store_mock.c`, which
+  `build_tests.sh`'s and `tests/CMakeLists.txt`'s shared-stack mechanisms
+  both already link into every other test — linking both would be a
+  duplicate-symbol error, so this one module bypasses that shared archive
+  in both build paths (`build_tests.sh`'s new `direct_link_srcs_for_test()`
+  case; a standalone `add_executable()` in `tests/CMakeLists.txt`), still
+  built and run — under ASan+UBSan included — like every other module.
 
   Verified end-to-end on NUCLEO-H753ZI hardware: NVM now mounts
   successfully on every boot (`NVM store ready`), and a real security
