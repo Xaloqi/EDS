@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
-**Version:** v1.15.0  
-**Status:** 52/52 unit test modules passing. 24/24 CI jobs green. 68/68 harness
+**Version:** v1.16.0  
+**Status:** 52/52 unit test modules passing. 25/25 CI jobs green. 68/68 harness
 tests passing — **Professional tier only**: `harness/` sources are a gitignored
 commercial deliverable (#68), absent from a Developer-tier checkout (every
 public clone and CI run), which reports the harness suite **BLOCKED**, not a
@@ -20,7 +20,7 @@ all covered.
 EDS uses a four-layer testing strategy: unit tests, harness tests, integration tests, and system
 tests. All four layers run automatically in CI on every push and pull request.
 
-**Current test counts (v1.15.0):**
+**Current test counts (v1.16.0):**
 
 | Layer | Count | Framework | Status |
 |---|---|---|---|
@@ -40,7 +40,7 @@ tests. All four layers run automatically in CI on every push and pull request.
 ### What "the generated pytest suite" (row above) actually runs on a clean checkout
 
 `cd examples/basic_ecu/generated/tests && pytest --collect-only -q` reports **632 tests
-collected** for `basic_ecu` (v1.15.0). That is a *collection* count, not a claim that
+collected** for `basic_ecu` (v1.16.0). That is a *collection* count, not a claim that
 632 tests execute — and pass — right after `pip install -r tools/requirements.txt`. A
 meaningful share need TestLab (the commercial `xaloqi-tester` package), the
 (not-publicly-included) `firmware_bus` harness, or the commercial `tools/templates/`
