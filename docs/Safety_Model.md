@@ -304,6 +304,33 @@ The EDS safety model makes the following assumptions about the integration envir
 
 These assumptions are documented in the Safety Manual (EDS-SM-001 Rev 1.1), available to Professional tier licensees at **https://xaloqi.com**.
 
+### DFU Firmware Authenticity and Anti-Rollback Boundary ([#232](https://github.com/Xaloqi/EDS/issues/232))
+
+EDS's `0x34`/`0x36`/`0x37` DFU transport provides a CRC-32 (all platforms)
+and, on Zephyr `safeboot_ecu`, a SHA-256 digest check
+(`platform/zephyr/zephyr_mcuboot_image_policy.c`, #277) between the streamed
+image and its own embedded digest TLV. **This is a transport-integrity check,
+not a firmware-authenticity check** — it proves the received bytes are
+self-consistent, not that they came from a trusted source or were not
+maliciously crafted.
+
+| Guarantee | Zephyr (`safeboot_ecu`) | FreeRTOS (`safeboot_freertos_ecu`) |
+|---|---|---|
+| Transfer integrity (corruption/truncation) | CRC-32 + SHA-256 digest match | CRC-32 readback only |
+| Cryptographic authenticity | Delegated to MCUboot's RSA-2048-PSS signature check — **only if** the integrator built MCUboot with `CONFIG_BOOT_SIGNATURE_TYPE_RSA=y` and a real key (`examples/safeboot_ecu/README.md` step 1) | Not provided; no bootloader ships with this example |
+| Anti-rollback / downgrade protection | Not implemented or documented; MCUboot's hardware security counter (`CONFIG_MCUBOOT_HW_ROLLBACK_PROT` + `imgtool --security-counter`) is available but not wired in by anything here | Not provided |
+
+Nothing in EDS fails closed if the Zephyr integrator's MCUboot build omits
+the signature flag or uses a test key — the DFU sequence completes exactly
+as it would with real signing configured, with no runtime indication that
+authenticity is unenforced. This is a deliberate integration boundary, not a
+roadmap item to close by EDS becoming a bootloader itself: cryptographic
+trust decisions belong to the platform bootloader (MCUboot on Zephyr; the
+integrator's own choice on FreeRTOS), and EDS's own checks are limited to
+proving the transferred image is internally consistent. See
+`examples/safeboot_ecu/README.md`'s "Security boundary" section for the
+integrator-facing detail.
+
 ---
 
 ## 11. MISRA C:2012 Alignment

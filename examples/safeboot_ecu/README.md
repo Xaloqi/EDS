@@ -35,6 +35,50 @@ safety net for a broken update.
 
 ---
 
+## Security boundary: what this actually guarantees ([#232](https://github.com/Xaloqi/EDS/issues/232))
+
+Read this before treating any build of this example as production-ready.
+
+**The SHA-256 digest check EDS performs during `0x36`/`0x37` is an integrity
+check, not an authenticity check.** `platform/zephyr/zephyr_mcuboot_image_policy.c`
+streams a digest over the transferred bytes and compares it against the
+image's *own* embedded SHA-256 TLV — proving the transfer wasn't corrupted or
+truncated, nothing more. An attacker who crafts a malicious image with a
+self-consistent header gets a byte-for-byte matching digest; the digest check
+does not know or care who built the image.
+
+**Cryptographic authenticity comes entirely from MCUboot's own RSA-2048-PSS
+signature check**, and only if MCUboot was actually built that way. Step 1
+above (`-DCONFIG_BOOT_SIGNATURE_TYPE_RSA=y` plus a real, non-test
+`CONFIG_BOOT_SIGNATURE_KEY_FILE`) is not a cosmetic flag — it is the entire
+trust anchor for this example. Omit it, or leave a test/sample key in place,
+and MCUboot will happily swap in and boot *any* correctly-framed image,
+signed or not, with no indication anything is wrong.
+
+**Anti-rollback / downgrade protection is not implemented here at all.**
+Nothing above enables MCUboot's hardware security counter
+(`CONFIG_MCUBOOT_HW_ROLLBACK_PROT` + `imgtool sign --security-counter <N>`).
+As shipped, a tester with valid SecurityAccess credentials — the same
+credentials the DFU sequence above already requires — can flash an older,
+previously-superseded signed image (including one with a known, since-fixed
+vulnerability) and MCUboot will accept it. If your product needs downgrade
+protection, you must wire in MCUboot's security counter yourself; nothing in
+this repository does it for you or warns you at build time if you skip it.
+
+**`safeboot_freertos_ecu` has none of this.** It ships no bootloader at all
+— `platform/freertos/freertos_flash_ops.c`'s `verify_cb` is a CRC-32 readback
+check, transport integrity only. Signature verification and anti-rollback are
+entirely the integrator's own responsibility on that platform, with no
+reference implementation provided.
+
+This is a deliberate integration boundary, not an oversight EDS intends to
+close by becoming a bootloader itself: EDS's job ends at transporting the
+image faithfully and handing MCUboot (or your own bootloader) a syntactically
+valid, internally-consistent image. The cryptographic trust decision belongs
+to the bootloader. See issue #232 for the full analysis.
+
+---
+
 ## Hardware setup
 
 ### Required
@@ -154,6 +198,11 @@ KEY=$WS/root-rsa-2048.pem
 
 ### 1. Build and flash MCUboot
 
+**`-DCONFIG_BOOT_SIGNATURE_TYPE_RSA=y` below is the entire authenticity
+guarantee of this example, not a cosmetic flag — see "Security boundary"
+above ([#232](https://github.com/Xaloqi/EDS/issues/232)) before shipping
+anything built without it, or with a test/sample key.**
+
 MCUboot gets the board **overlay** — it has to agree with the application about
 where the partitions are — plus its **own** `app.overlay`, which is what
 repoints `zephyr,code-partition` at `boot_partition` so MCUboot links at the
@@ -208,6 +257,12 @@ Developer or Professional licence — regenerating requires `tools/templates/`,
 which is not part of a public checkout.
 
 ### 3. Sign the image
+
+No `--security-counter` here — this example has no anti-rollback protection
+(see "Security boundary" above, [#232](https://github.com/Xaloqi/EDS/issues/232)).
+If you need downgrade protection, that flag plus MCUboot's
+`CONFIG_MCUBOOT_HW_ROLLBACK_PROT` are where to start; wiring both in is on
+you.
 
 ```sh
 west sign -t imgtool \
