@@ -722,24 +722,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   comment named as the remaining blocker, not the hardware-validation
   bar it's actually waiting on.
 
+### Security
+
+- **`safeboot_ecu` now enforces anti-rollback / downgrade protection**
+  (#232 Phase 3): MCUboot's `CONFIG_MCUBOOT_DOWNGRADE_PREVENTION` (SW-based,
+  compatible with this board's default `BOOT_SWAP_USING_MOVE` swap mode —
+  no `scratch_partition` is defined) refuses to swap in an image whose
+  version is not strictly greater than the currently-running one. Closes
+  the threat #232's own review flagged: a tester with valid SecurityAccess
+  credentials — the same credentials the `0x34`-`0x37` DFU sequence already
+  requires — flashing an older, previously-superseded signed image
+  (including one with a known, since-fixed vulnerability).
+
+  No new imgtool flag needed: the check uses the `--version` value the
+  signing step (`examples/safeboot_ecu/README.md` step 3) already sets on
+  every image. Residual limits, both inherent to any *software* rollback
+  check: it compares a declared version number, not a tamper-proof counter;
+  and a physical-access attacker with a JTAG/SWD probe can write flash
+  directly, bypassing the check entirely. A hardware monotonic counter
+  (`CONFIG_MCUBOOT_HW_DOWNGRADE_PREVENTION`) is available in MCUboot for
+  products that need to close that gap too, but needs a counter backend
+  this SoC doesn't have wired up today.
+
+  Verified end-to-end on NUCLEO-H753ZI hardware: a genuine upgrade
+  (v2.0.0 → v3.0.0) swapped correctly and booted; an attempted downgrade
+  (v2.0.0 → v1.0.0), pushed through the full UDS DFU sequence exactly as a
+  real tester would, was refused by MCUboot — confirmed by reading the
+  primary slot's image header directly from flash post-reset (version
+  field unchanged at 2.0.0) — and the board continued running normally
+  afterward (no bricking, no reboot loop).
+
 ### Documentation
 
-- **DFU firmware authenticity and anti-rollback boundary explicitly
-  documented** (#232), per an external Tier-1 PoC review flagging it as a
-  P1 gap: EDS's own `0x34`/`0x36`/`0x37` integrity checks (CRC-32 on both
-  platforms; SHA-256 digest match on Zephyr, #277) prove a transferred
-  image is internally self-consistent, not that it is authentic or came
-  from a trusted source. Real authenticity on `safeboot_ecu` is delegated
-  entirely to MCUboot's own RSA-2048-PSS signature check, which is active
-  only if the integrator's separate MCUboot build actually enables it
+- **DFU firmware authenticity boundary explicitly documented** (#232), per
+  an external Tier-1 PoC review flagging the *original* gap as P1: EDS's
+  own `0x34`/`0x36`/`0x37` integrity checks (CRC-32 on both platforms;
+  SHA-256 digest match on Zephyr, #277) prove a transferred image is
+  internally self-consistent, not that it is authentic or came from a
+  trusted source. Real authenticity on `safeboot_ecu` is delegated entirely
+  to MCUboot's own RSA-2048-PSS signature check, which is active only if
+  the integrator's separate MCUboot build actually enables it
   (`-DCONFIG_BOOT_SIGNATURE_TYPE_RSA=y` with a real key) — nothing fails
-  closed if that step is skipped or a test key is left in place. Anti-
-  rollback / downgrade protection is not implemented or wired in at all
-  today, on either platform; MCUboot's own hardware security counter is
-  available to integrators who need it but is not enabled by anything
-  this repo ships. `safeboot_freertos_ecu` has neither guarantee — no
-  bootloader ships with it, and `platform/freertos/freertos_flash_ops.c`
-  is CRC-32 transport integrity only.
+  closed if that step is skipped or a test key is left in place.
+  Anti-rollback is now implemented (see the Security entry above);
+  `safeboot_freertos_ecu` has neither guarantee — no bootloader ships with
+  it, and `platform/freertos/freertos_flash_ops.c` is CRC-32 transport
+  integrity only.
 
   This is a deliberate integration-boundary decision, not a gap EDS
   intends to close by becoming a bootloader itself, but the boundary was

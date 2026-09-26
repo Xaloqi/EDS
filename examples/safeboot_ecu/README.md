@@ -55,15 +55,28 @@ trust anchor for this example. Omit it, or leave a test/sample key in place,
 and MCUboot will happily swap in and boot *any* correctly-framed image,
 signed or not, with no indication anything is wrong.
 
-**Anti-rollback / downgrade protection is not implemented here at all.**
-Nothing above enables MCUboot's hardware security counter
-(`CONFIG_MCUBOOT_HW_ROLLBACK_PROT` + `imgtool sign --security-counter <N>`).
-As shipped, a tester with valid SecurityAccess credentials — the same
-credentials the DFU sequence above already requires — can flash an older,
-previously-superseded signed image (including one with a known, since-fixed
-vulnerability) and MCUboot will accept it. If your product needs downgrade
-protection, you must wire in MCUboot's security counter yourself; nothing in
-this repository does it for you or warns you at build time if you skip it.
+**Anti-rollback / downgrade protection: enabled by default as of this
+revision**, via MCUboot's own `CONFIG_MCUBOOT_DOWNGRADE_PREVENTION` (step 1
+below) — a SW-based check that refuses to swap in an image whose version is
+not greater than the currently-running one. This directly closes the threat
+this section originally warned about: a tester with valid SecurityAccess
+credentials — the same credentials the DFU sequence above already requires —
+flashing an older, previously-superseded signed image (including one with a
+known, since-fixed vulnerability). MCUboot now logs `insufficient version`
+and refuses the swap instead.
+
+Two residual limits, both inherent to any *software* rollback check, not
+specific to this implementation: (1) it compares the image's declared
+version number, not a tamper-proof counter — a party who can also forge a
+validly-signed image (a different problem; see the authenticity paragraph
+above) could sign a "new" version number onto old, vulnerable code; (2) a
+physical-access attacker with a JTAG/SWD probe can write flash directly,
+bypassing MCUboot's check entirely — this is a software mitigation against
+the DFU/UDS attack surface, not a hardware root of trust. A tamper-proof
+hardware counter (`CONFIG_MCUBOOT_HW_DOWNGRADE_PREVENTION`) is available in
+MCUboot for products that need to close that gap too, but needs a hardware
+monotonic-counter backend this SoC doesn't have wired up today — track under
+[#232](https://github.com/Xaloqi/EDS/issues/232) if you need it.
 
 **`safeboot_freertos_ecu` has none of this.** It ships no bootloader at all
 — `platform/freertos/freertos_flash_ops.c`'s `verify_cb` is a CRC-32 readback
@@ -225,10 +238,17 @@ west build --pristine -b $BOARD -d build-mcuboot \
            -s $WS/bootloader/mcuboot/boot/zephyr \
            -- -DCONFIG_BOOT_SIGNATURE_TYPE_RSA=y \
               "-DCONFIG_BOOT_SIGNATURE_KEY_FILE=\"$KEY\"" \
+              -DCONFIG_MCUBOOT_DOWNGRADE_PREVENTION=y \
               "-DDTC_OVERLAY_FILE=$EDS/examples/safeboot_ecu/boards/$BOARD/$BOARD.overlay;$WS/bootloader/mcuboot/boot/zephyr/app.overlay"
 
 west flash --build-dir build-mcuboot
 ```
+
+`CONFIG_MCUBOOT_DOWNGRADE_PREVENTION=y` is [#232](https://github.com/Xaloqi/EDS/issues/232)'s
+anti-rollback protection (`!BOOT_DIRECT_XIP` only — this board's default swap
+mode, `BOOT_SWAP_USING_MOVE`, qualifies since no `scratch_partition` node is
+defined). See "Security boundary" above for exactly what it does and doesn't
+cover.
 
 Confirm MCUboot targeted its own partition before moving on:
 
@@ -258,11 +278,10 @@ which is not part of a public checkout.
 
 ### 3. Sign the image
 
-No `--security-counter` here — this example has no anti-rollback protection
-(see "Security boundary" above, [#232](https://github.com/Xaloqi/EDS/issues/232)).
-If you need downgrade protection, that flag plus MCUboot's
-`CONFIG_MCUBOOT_HW_ROLLBACK_PROT` are where to start; wiring both in is on
-you.
+`CONFIG_MCUBOOT_DOWNGRADE_PREVENTION` (step 1) checks this `--version`
+against the currently-running image's — no separate `--security-counter`
+flag needed for it. Bump the version on every real release; MCUboot will
+refuse to swap in anything that doesn't increase it.
 
 ```sh
 west sign -t imgtool \

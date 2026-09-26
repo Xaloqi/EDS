@@ -318,7 +318,7 @@ maliciously crafted.
 |---|---|---|
 | Transfer integrity (corruption/truncation) | CRC-32 + SHA-256 digest match | CRC-32 readback only |
 | Cryptographic authenticity | Delegated to MCUboot's RSA-2048-PSS signature check — **only if** the integrator built MCUboot with `CONFIG_BOOT_SIGNATURE_TYPE_RSA=y` and a real key (`examples/safeboot_ecu/README.md` step 1) | Not provided; no bootloader ships with this example |
-| Anti-rollback / downgrade protection | Not implemented or documented; MCUboot's hardware security counter (`CONFIG_MCUBOOT_HW_ROLLBACK_PROT` + `imgtool --security-counter`) is available but not wired in by anything here | Not provided |
+| Anti-rollback / downgrade protection | `CONFIG_MCUBOOT_DOWNGRADE_PREVENTION` (SW-based, enabled by default in step 1) — MCUboot refuses to swap in an image whose version does not exceed the running one. Verified on NUCLEO-H753ZI hardware: a downgrade attempt was refused (primary slot unchanged) and a genuine upgrade still swapped correctly. Residual: version-number based, not a tamper-proof counter; a hardware monotonic counter (`CONFIG_MCUBOOT_HW_DOWNGRADE_PREVENTION`) is available in MCUboot but needs a counter backend this SoC doesn't have wired up | Not provided |
 
 Nothing in EDS fails closed if the Zephyr integrator's MCUboot build omits
 the signature flag or uses a test key — the DFU sequence completes exactly
