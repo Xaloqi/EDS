@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.16.1] — 2026-09-27
+
 ### Fixed
 
 - **Generated test suites could never drive real CAN hardware.** The generated
@@ -28,6 +30,46 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `--can-interface simulator` (the default) and `virtual` were never affected:
   both use the free Apache-2.0 core directly. Verified unchanged —
   `bms_ecu` 69 passed / 2 skipped, `basic_ecu_doip` 155 passed / 3 skipped.
+
+
+- **`INSTALL.md`'s CI integration example could not work as published.** Its
+  `Run diagnostic jobs` step invoked `tools/jobrunner.py` with no licence
+  available at all, so a customer copying the recipe hit a licence failure on
+  the first step. The key is now set once at workflow level for every step.
+  Guarded by `tests/test_install_md_ci_recipe.py`.
+
+- **Corrected licensing claims in `.github/workflows/ci.yml`,
+  `docs/ARCHITECTURE.md`, `docs/AI_CONTEXT.md` and `docs/TESTING_STRATEGY.md`.**
+  Each described the CI licence allowance as unconditional, which no longer
+  matches `codegen.py`, and `AI_CONTEXT.md` pointed at it as the way to run the
+  MCP server rather than at a licence key.
+
+- **`metadata.ecu_name` was emitted unescaped into generated C, CAPL, and
+  TypeScript output** — the same vulnerability class `_c_safe_text()` fixed
+  for DID/DTC/routine names, but never applied to the ECU name itself. A
+  quote or `*/` in `ecu_name` (uncontrolled input: `arxml_parser.py` copies
+  AUTOSAR SHORT-NAME straight through) produced C that does not compile,
+  reachable through the exact `GEN_ECU_NAME` usage already shipping in
+  `examples/safeboot_ecu/src/main.c` and `examples/ardep_ecu/src/main.c`
+  (`LOG_INF("... : " GEN_ECU_NAME)`). Only a non-fatal warning guarded it;
+  codegen exited 0 either way. Fixed by routing `ecu_name` through
+  `_c_safe_text()` at every context builder and the routine-handler /
+  GUI-catalog inline generators — identity for every real example's
+  committed `generated/` output (6 examples verified, timestamp-line-only
+  diff). Found by the 2026-09-27 validation campaign.
+
+- **`metadata.version` had the identical unescaped-C-output defect as
+  `metadata.ecu_name` above, in the same file** — found during that fix's
+  own verification. Emitted raw into `GEN_ECU_VERSION` and every generated
+  header comment; only validated as a non-empty string (no character
+  restriction at all, unlike `ecu_name`'s advisory warning). Reachable the
+  same way, and `GEN_ECU_VERSION` is consumed by the identical
+  string-concatenation pattern in `examples/sensor_ecu/src/main.c`,
+  `examples/ardep_ecu/src/main.c`,
+  `examples/robot_joint_controller_ecu/src/main.c`, and
+  `examples/safeboot_ecu/src/main.c`. Fixed the same way — `version` now
+  routed through `_c_safe_text()` at every site `ecu_name` was — identity
+  verified across the same 6 examples.
 
 ### Changed
 
@@ -70,47 +112,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
   This is a deliberate narrowing, not a new restriction on what your licence
   permits.
-
-### Fixed
-
-- **`INSTALL.md`'s CI integration example could not work as published.** Its
-  `Run diagnostic jobs` step invoked `tools/jobrunner.py` with no licence
-  available at all, so a customer copying the recipe hit a licence failure on
-  the first step. The key is now set once at workflow level for every step.
-  Guarded by `tests/test_install_md_ci_recipe.py`.
-
-- **Corrected licensing claims in `.github/workflows/ci.yml`,
-  `docs/ARCHITECTURE.md`, `docs/AI_CONTEXT.md` and `docs/TESTING_STRATEGY.md`.**
-  Each described the CI licence allowance as unconditional, which no longer
-  matches `codegen.py`, and `AI_CONTEXT.md` pointed at it as the way to run the
-  MCP server rather than at a licence key.
-
-- **`metadata.ecu_name` was emitted unescaped into generated C, CAPL, and
-  TypeScript output** — the same vulnerability class `_c_safe_text()` fixed
-  for DID/DTC/routine names, but never applied to the ECU name itself. A
-  quote or `*/` in `ecu_name` (uncontrolled input: `arxml_parser.py` copies
-  AUTOSAR SHORT-NAME straight through) produced C that does not compile,
-  reachable through the exact `GEN_ECU_NAME` usage already shipping in
-  `examples/safeboot_ecu/src/main.c` and `examples/ardep_ecu/src/main.c`
-  (`LOG_INF("... : " GEN_ECU_NAME)`). Only a non-fatal warning guarded it;
-  codegen exited 0 either way. Fixed by routing `ecu_name` through
-  `_c_safe_text()` at every context builder and the routine-handler /
-  GUI-catalog inline generators — identity for every real example's
-  committed `generated/` output (6 examples verified, timestamp-line-only
-  diff). Found by the 2026-09-27 validation campaign.
-
-- **`metadata.version` had the identical unescaped-C-output defect as
-  `metadata.ecu_name` above, in the same file** — found during that fix's
-  own verification. Emitted raw into `GEN_ECU_VERSION` and every generated
-  header comment; only validated as a non-empty string (no character
-  restriction at all, unlike `ecu_name`'s advisory warning). Reachable the
-  same way, and `GEN_ECU_VERSION` is consumed by the identical
-  string-concatenation pattern in `examples/sensor_ecu/src/main.c`,
-  `examples/ardep_ecu/src/main.c`,
-  `examples/robot_joint_controller_ecu/src/main.c`, and
-  `examples/safeboot_ecu/src/main.c`. Fixed the same way — `version` now
-  routed through `_c_safe_text()` at every site `ecu_name` was — identity
-  verified across the same 6 examples.
 
 ## [1.16.0] — 2026-09-26
 
