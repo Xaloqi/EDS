@@ -32,7 +32,7 @@ now gates ASIL validation *enforcement*, not emission) and reconciles the
 output directory against the previous manifest for what stays conditional
 (``tests/``, ``sovd_cda.json``, the GUI catalog).
 
-Run:  XALOQI_LICENSE_SKIP=1 pytest tests/test_codegen_output_contract.py -v
+Run:  pytest tests/test_codegen_output_contract.py -v
 """
 
 from __future__ import annotations

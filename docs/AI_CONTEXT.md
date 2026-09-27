@@ -980,7 +980,7 @@ License is checked at startup via `_license.py`.
 ### Start the server
 
 ```bash
-# License key required (XALOQI_LICENSE_SKIP=1 for CI/testing only)
+# License key required (set XALOQI_LICENSE_KEY, or activate a key file)
 python3 tools/mcp_server.py
 ```
 
@@ -1036,7 +1036,7 @@ All four tools available on Developer and Professional tiers — no tier gating.
 ### CI
 
 The `validate-mcp` job in the **EDS-toolchain** repo's `.github/workflows/ci.yml`
-runs `tools/ci_mcp_test.py` with `XALOQI_LICENSE_SKIP=1`. 50 protocol and
+runs `tools/ci_mcp_test.py`. 50 protocol and
 tool-level assertions. Requires `pyyaml` only. (The MCP server is commercial
 tooling and lives in EDS-toolchain — it is not part of this repo's public CI.)
 

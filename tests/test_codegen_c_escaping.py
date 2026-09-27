@@ -16,7 +16,7 @@ text round-trips cleanly into codegen and breaks at the C layer instead):
                         ^ literal ends here
         error: expected '}' before 'Hello'
 
-Run:  XALOQI_LICENSE_SKIP=1 pytest tests/test_codegen_c_escaping.py -v
+Run:  pytest tests/test_codegen_c_escaping.py -v
 """
 
 from __future__ import annotations

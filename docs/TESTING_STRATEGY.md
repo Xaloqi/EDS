@@ -76,7 +76,7 @@ automatically by whether `harness/harness_main.c` exists:
 - **Professional** — `harness/` present. The commercial-tier checkout.
 
 Both columns below were measured by running `run_python_tests.sh` once per
-profile, `XALOQI_LICENSE_SKIP=1`, under `bash --noprofile --norc -eo pipefail`
+profile, under `bash --noprofile --norc -eo pipefail`
 (v1.14.0 Phase 4a). Of 3,102 collected cases:
 
 | Suite | Developer executed (floor) | Professional executed (floor) |

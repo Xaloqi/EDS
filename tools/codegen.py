@@ -2482,13 +2482,33 @@ def main() -> None:
     # If absent → print purchase URL and exit 1.
     # If present but key missing/invalid/expired → exit 1 (or warn on grace).
     #
-    # CI BYPASS: set XALOQI_LICENSE_SKIP=1 in the CI environment to skip the
-    # license check entirely. This allows the public repo CI jobs to run
-    # codegen without a license key. In the public repo, _license.py is absent
-    # and the templates are also absent — but CI generates from the committed
-    # generated/ directory and skips the template step (DIAG_SKIP_CODEGEN=ON),
-    # so codegen is run in test-harness mode where it is pre-configured.
-    _license_skip = os.environ.get("XALOQI_LICENSE_SKIP") == "1"
+    # CI allowance, deliberately narrow: XALOQI_LICENSE_SKIP=1 is honoured ONLY
+    # in a checkout that has neither _license.py nor the commercial Jinja2
+    # template set. That is a plain public clone, where codegen cannot emit
+    # anything regardless — it exits 2 at the render step — so the allowance
+    # grants no commercial capability. It exists so this repo's CI can exercise
+    # codegen's argument and validation paths with no licence installed.
+    #
+    # A licensed install has both, so the licence check below is MANDATORY
+    # there and no environment variable can waive it. Deleting _license.py to
+    # re-enable the allowance does not work: the templates are still present, so
+    # the condition stays false. Deleting the templates as well loses the
+    # generator, which is the thing being protected.
+    #
+    # Before this (O-47), the variable waived the check unconditionally, and it
+    # was documented in this repo — including in INSTALL.md's CI recipe — so a
+    # licensed install could run with no key by following our own docs.
+    try:
+        import importlib.util as _ilu_gate
+        _have_license_mod = _ilu_gate.find_spec("_license") is not None
+    except (ImportError, ValueError):
+        _have_license_mod = False
+    _have_templates = template_dir.is_dir() and any(template_dir.glob("*.j2"))
+    _license_skip = (
+        not _have_license_mod
+        and not _have_templates
+        and os.environ.get("XALOQI_LICENSE_SKIP") == "1"
+    )
 
     _lic_result = None
     if not _license_skip:

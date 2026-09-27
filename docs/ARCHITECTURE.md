@@ -653,7 +653,7 @@ required status check, and renaming it whenever the count changes silently
 strands the requirement (#119). The count is asserted inside the job's
 `Verify test count` step instead.
 
-Global env: `XALOQI_LICENSE_SKIP=1` (codegen bypasses license check in CI — `_license.py` and templates are not present in the public repo).
+Global env: `XALOQI_LICENSE_SKIP=1`. This is honoured by `codegen.py` **only** when neither `_license.py` nor `tools/templates/` is present — i.e. a plain public clone, where codegen cannot generate anything regardless. Both are delivered with a purchased licence, and in a licensed install the licence check is mandatory and no environment variable waives it.
 
 ---
 

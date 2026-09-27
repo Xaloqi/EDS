@@ -49,8 +49,8 @@
 #   ci.yml's harness-tests job uses):
 #     developer     harness/ absent — what CI and a community clone see.
 #     professional  harness/ present — the commercial-tier checkout.
-#   Both floor tables below were derived by running this exact script,
-#   `XALOQI_LICENSE_SKIP=1`, under `bash --noprofile --norc -eo pipefail`,
+#   Both floor tables below were derived by running this exact script under
+#   `bash --noprofile --norc -eo pipefail`,
 #   once per profile, and reading off the real executed counts (issue
 #   #234/#230 scoping, v1.14.0 Phase 4). They are declared constants, not
 #   re-derived on every run — re-deriving from whatever happens to execute
@@ -107,6 +107,11 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${SCRIPT_DIR}"
+# Only meaningful in a plain public clone, where codegen.py honours it because
+# neither _license.py nor the templates are present and it therefore grants
+# nothing (the codegen robustness suites assert exit codes that depend on
+# reaching the render step). In a licensed checkout this is inert: the licence
+# check there is mandatory and needs a real key. See codegen.py's gate comment.
 export XALOQI_LICENSE_SKIP=1
 
 # -----------------------------------------------------------------------
