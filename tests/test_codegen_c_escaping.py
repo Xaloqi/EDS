@@ -231,6 +231,85 @@ def test_hostile_ecu_name_produces_compilable_c(tmp_path: Path) -> None:
     )
 
 
+_HOSTILE_VERSION_CONFIG = textwrap.dedent(
+    """\
+    schema_version: 1
+    metadata:
+      ecu_name: "HostileECU"
+      version: "1.0.0 \\"Bank\\" #7\\\\Test"
+      description: "version escaping regression fixture"
+    timing:
+      p2_server_max_ms: 25
+      p2_star_server_max_ms: 5000
+      s3_server_timeout_ms: 5000
+    can:
+      interface: vcan0
+      rx_can_id: "0x7E0"
+      tx_can_id: "0x7E8"
+    sessions:
+      - name: default
+        id: "0x01"
+    dids:
+      - id: "0x4001"
+        name: "PlainDid"
+        data_length: 1
+        access: ["read"]
+        min_session: default
+        read_security_level: 0
+        write_security_level: 0
+    """
+)
+
+
+@pytest.mark.skipif(not _TEMPLATES_OK, reason=f"templates not found at {_TEMPLATE_DIR}")
+@pytest.mark.skipif(shutil.which("gcc") is None, reason="gcc not available")
+def test_hostile_version_produces_compilable_c(tmp_path: Path) -> None:
+    """metadata.version has the exact same shape as metadata.ecu_name (both
+    validated as merely non-empty strings, codegen.py:452) but was found
+    unfixed alongside it in the same 2026-09-27 campaign review: emitted raw
+    into GEN_ECU_VERSION and every header comment. GEN_ECU_VERSION is
+    consumed the same string-concatenation way by real shipped examples —
+    examples/sensor_ecu/src/main.c, examples/ardep_ecu/src/main.c,
+    examples/robot_joint_controller_ecu/src/main.c, and
+    examples/safeboot_ecu/src/main.c all do
+    `LOG_INF("... v" GEN_ECU_VERSION ...)`.
+    """
+    cfg = tmp_path / "diagnostics_config.yaml"
+    cfg.write_text(_HOSTILE_VERSION_CONFIG, encoding="utf-8")
+    out = tmp_path / "generated"
+
+    env = dict(os.environ, XALOQI_LICENSE_SKIP="1")
+    proc = subprocess.run(
+        [sys.executable, str(_CODEGEN), "--config", str(cfg), "--out", str(out),
+         "--template-dir", str(_TEMPLATE_DIR), "--no-manifest"],
+        capture_output=True, text=True, timeout=120, env=env,
+    )
+    assert proc.returncode == 0, f"codegen failed:\n{proc.stdout}\n{proc.stderr}"
+
+    header = out / "generated_config.h"
+    assert header.is_file(), "generated_config.h was not generated"
+
+    tu = tmp_path / "tu.c"
+    tu.write_text(
+        '#include "generated_config.h"\n'
+        '#define LOG_INF(fmt) do { (void)(fmt); } while (0)\n'
+        "int main(void) {\n"
+        '    LOG_INF("Xaloqi EDS  v" GEN_ECU_VERSION "  —  Test");\n'
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    cc = subprocess.run(
+        ["gcc", "-x", "c", "-fsyntax-only", "-std=c11", f"-I{out}", str(tu)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert cc.returncode == 0, (
+        "generated_config.h's GEN_ECU_VERSION does not compile with a "
+        f"hostile version — the escaping regressed:\n{cc.stderr}"
+    )
+
+
 @pytest.mark.skipif(not _TEMPLATES_OK, reason=f"templates not found at {_TEMPLATE_DIR}")
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="gcc not available")
 def test_hostile_names_produce_compilable_c(tmp_path: Path) -> None:
