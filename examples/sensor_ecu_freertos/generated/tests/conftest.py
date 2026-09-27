@@ -4,7 +4,7 @@
 #
 # ECU       : SensorECU
 # Version   : 1.0.0
-# Generated : 2026-09-27T16:26:10Z
+# Generated : 2026-09-27T17:13:09Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -461,6 +461,24 @@ def _fail_needs_testlab_licence(can_interface: str, exc: Exception) -> None:
     )
 
 
+def _fail_needs_testlab_pro(can_interface: str, exc: Exception) -> None:
+    """Fail loudly when a real-transport mode has no TestLab pro installed.
+
+    Distinct from a licence refusal: here the package providing the transport
+    is absent, so telling the customer to check their licence would be wrong.
+    """
+    pytest.fail(
+        f"--can-interface {can_interface} needs Xaloqi TestLab installed "
+        f"(the xaloqi-tester-pro package provides real CAN transports).\n"
+        f"  {exc}\n"
+        f"  Run these same tests with no extra package using the default: "
+        f"pytest --can-interface simulator\n"
+        f"  See https://xaloqi.com for the Developer + TestLab and "
+        f"Professional + TestLab bundles.",
+        pytrace=False,
+    )
+
+
 @pytest.fixture(scope='function')
 def uds_bus(
     can_interface: str,
@@ -538,20 +556,40 @@ def uds_bus(
         if can_interface == 'virtual':
             bus, _ = VirtualBus.pair('testgen')
             rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
-        elif can_interface == 'socketcan':
-            from xaloqi.tester.transport.socketcan import SocketCanBus
-            bus = SocketCanBus(channel); rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
-        elif can_interface == 'pcan':
-            from xaloqi.tester.transport.hardware import PcanBus
-            bus = PcanBus(channel, bitrate=bitrate); rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
-        elif can_interface == 'kvaser':
-            from xaloqi.tester.transport.hardware import KvaserBus
-            ch = int(channel) if channel.isdigit() else 0
-            bus = KvaserBus(ch, bitrate=bitrate); rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
+        elif can_interface in ('socketcan', 'pcan', 'kvaser'):
+            # Real transports come from Xaloqi TestLab (the xaloqi-tester-pro
+            # package) through the core plugin registry.
+            #
+            # These were once importable as xaloqi.tester.transport.socketcan /
+            # .transport.hardware. Those module paths no longer exist — the
+            # open-core split moved the classes into xaloqi_tester_pro — so the
+            # direct imports this branch used raised ModuleNotFoundError, which
+            # the handler below turned into a skip. Every hardware run was a
+            # silent skip rather than a test.
+            from xaloqi.tester import _plugins
+            factory = _plugins.get_transport(can_interface)
+            if can_interface == 'socketcan':
+                bus = factory(channel)
+            elif can_interface == 'pcan':
+                bus = factory(channel, bitrate=bitrate)
+            else:
+                bus = factory(int(channel) if channel.isdigit() else 0,
+                              bitrate=bitrate)
+            # The registry contract hands back an UNOPENED bus; opening it is the
+            # caller's job. UdsTester does this itself only for a string
+            # interface — given a bus object it calls open(), which the pro buses
+            # do not define (their opener is the async _open()). So open it here,
+            # preferring _open exactly as UdsTester's string path does.
+            _opener = getattr(bus, '_open', None) or getattr(bus, 'open', None)
+            if _opener is not None:
+                loop.run_until_complete(_opener())
+            rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
         else:
             loop.close(); pytest.skip(f'Unknown CAN interface: {can_interface!r}'); return
     except LicenseError as exc:
         loop.close(); _fail_needs_testlab_licence(can_interface, exc)
+    except TransportError as exc:
+        loop.close(); _fail_needs_testlab_pro(can_interface, exc)
     except (ImportError, Exception) as exc:
         loop.close(); pytest.skip(str(exc)); return
     try:

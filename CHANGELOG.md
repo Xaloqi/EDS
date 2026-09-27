@@ -8,6 +8,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **Generated test suites could never drive real CAN hardware.** The generated
+  `conftest.py` resolved `--can-interface socketcan|pcan|kvaser` by importing
+  `xaloqi.tester.transport.socketcan` / `.transport.hardware` — module paths that
+  have not existed since Xaloqi TestLab's open-core split moved those classes
+  into the `xaloqi-tester-pro` package. The resulting `ModuleNotFoundError` was
+  caught and turned into a `pytest.skip`, so **every hardware run reported as a
+  skip rather than running any test**, whether or not you held a TestLab licence.
+
+  Now resolved through the supported plugin registry
+  (`xaloqi.tester._plugins.get_transport`), and the returned bus is opened
+  explicitly — the registry hands back an unopened bus, and `UdsTester` opens one
+  itself only when given a string interface, not a bus object. Missing TestLab
+  and unlicensed TestLab now produce distinct, loud failures instead of a silent
+  skip with a cryptic import message.
+
+  `--can-interface simulator` (the default) and `virtual` were never affected:
+  both use the free Apache-2.0 core directly. Verified unchanged —
+  `bms_ecu` 69 passed / 2 skipped, `basic_ecu_doip` 155 passed / 3 skipped.
+
 ### Changed
 
 - **Generated example test suites no longer waive the Xaloqi TestLab licence.**
