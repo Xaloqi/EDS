@@ -43,7 +43,7 @@ This runs in a plain public checkout, because it reads the fixture text
 rather than executing codegen — so CI sees it even though CI cannot see the
 tests it protects. That asymmetry is the whole point.
 
-Run:  XALOQI_LICENSE_SKIP=1 pytest tests/test_robustness_fixtures_are_valid.py -v
+Run:  pytest tests/test_robustness_fixtures_are_valid.py -v
 """
 
 from __future__ import annotations

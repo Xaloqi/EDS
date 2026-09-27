@@ -12,7 +12,7 @@ a shell script and watching it stop after the report step (2026-09-27
 campaign).
 
 Run:
-    XALOQI_LICENSE_SKIP=1 pytest tests/test_install_md_ci_recipe.py -v
+    pytest tests/test_install_md_ci_recipe.py -v
 """
 
 from __future__ import annotations
@@ -35,8 +35,41 @@ def test_ci_recipe_report_step_tolerates_a_failing_run():
         text, re.S,
     )
     assert m, "CI integration example YAML block not found in INSTALL.md"
-    steps = yaml.safe_load(m.group(1))
-    assert isinstance(steps, list) and steps, "expected a list of GitHub Actions steps"
+    raw = m.group(1)
+
+    # ── Licensing (O-47) — asserted on the raw block, so it holds whatever
+    # shape the recipe takes. Until 2026-09-27 this recipe told customers to
+    # set a licence-skip variable in their own CI: that variable waived every
+    # commercial gate, so we were publishing instructions for disabling the
+    # licence people had paid for. No tool honours it now, which also means a
+    # recipe still carrying it would silently stop working.
+    assert "LICENSE_SKIP" not in raw, (
+        "the CI integration example must not mention any licence-skip variable "
+        "— no tool honours one, and publishing it told customers how to "
+        "disable their own licence check (O-47)"
+    )
+    assert "XALOQI_LICENSE_KEY" in raw, (
+        "the CI integration example must show XALOQI_LICENSE_KEY coming from a "
+        "repository secret — every commercial tool it invokes (jobrunner.py, "
+        "testlab.py) verifies a licence, so a recipe with no key fails for the "
+        "customer on the very first step"
+    )
+    assert "secrets." in raw, (
+        "the licence key in the CI example must come from a repository secret, "
+        "not be written inline"
+    )
+
+    block = yaml.safe_load(raw)
+    # The recipe carries a workflow-level `env:` (the licence key) with its
+    # steps under `steps:`; a bare list of steps is also accepted.
+    if isinstance(block, dict):
+        steps = block.get("steps")
+        assert isinstance(steps, list) and steps, (
+            "the CI recipe maps to a dict but has no non-empty 'steps:' list"
+        )
+    else:
+        steps = block
+        assert isinstance(steps, list) and steps, "expected a list of GitHub Actions steps"
 
     by_name = {s.get("name"): s for s in steps if isinstance(s, dict)}
 

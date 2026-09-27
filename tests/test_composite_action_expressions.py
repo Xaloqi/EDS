@@ -27,7 +27,7 @@ Every expression in every composite action manifest references a context
 that actually exists there. Cheap, static, needs no runner — and it turns a
 CI round-trip into a local failure.
 
-Run:  XALOQI_LICENSE_SKIP=1 pytest tests/test_composite_action_expressions.py -v
+Run:  pytest tests/test_composite_action_expressions.py -v
 """
 
 from __future__ import annotations

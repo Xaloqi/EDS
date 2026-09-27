@@ -232,10 +232,14 @@ on:
 
 env:
   ZEPHYR_SDK_VERSION: "0.16.8"
-  # CI bypass: codegen.py skips the license check when this is set.
-  # The public repo does not ship _license.py or the Jinja2 templates —
-  # both are delivered with purchased licenses. CI uses pre-committed
-  # generated/ output and does not need live codegen to pass.
+  # Narrow CI allowance for codegen.py, and only here: it is honoured ONLY in a
+  # checkout that has neither _license.py nor the Jinja2 templates — both are
+  # delivered with a purchased licence and neither is in this repo. In that
+  # state codegen cannot emit anything anyway (it exits 2 at the render step),
+  # so this grants no commercial capability; it just lets the argument and
+  # validation paths run. A licensed install has both, and there the licence
+  # check cannot be waived by any environment variable. CI otherwise builds
+  # from the pre-committed generated/ output and needs no live codegen.
   XALOQI_LICENSE_SKIP: "1"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 

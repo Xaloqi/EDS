@@ -361,6 +361,21 @@ Accumulate results in CI and generate a weekly report as a build artifact:
 
 ```yaml
 # .github/workflows/weekly-diagnostics.yml
+#
+# The commercial tools (jobrunner.py, testlab.py, testgen.py, codegen.py,
+# arxml_parser.py, mcp_server.py, eds_ai.py) each verify your licence before
+# running. Store your key as a repository secret and expose it once, at
+# workflow level, so every step below can see it:
+#
+#   env:
+#     XALOQI_LICENSE_KEY: ${{ secrets.XALOQI_LICENSE_KEY }}
+#
+# Verification is entirely offline — no network call, nothing phones home.
+# `--mode harness` additionally requires a Professional-tier key.
+env:
+  XALOQI_LICENSE_KEY: ${{ secrets.XALOQI_LICENSE_KEY }}
+
+steps:
 - name: Run diagnostic jobs
   run: |
     python3 tools/jobrunner.py \
@@ -380,8 +395,6 @@ Accumulate results in CI and generate a weekly report as a build artifact:
       --results results/sensor_ecu_*.json \
       --config  examples/sensor_ecu/diagnostics_config.yaml \
       --out     reports/weekly_$(date +%V).html
-  env:
-    XALOQI_LICENSE_SKIP: "1"
 
 - name: Upload report
   if: always()

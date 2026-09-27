@@ -8,7 +8,40 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Security
+
+- **Hardened the CI licence allowance in `tools/codegen.py`.** The
+  `XALOQI_LICENSE_SKIP` environment variable is now honoured only in a checkout
+  that has neither `_license.py` nor the commercial Jinja2 templates — that is,
+  a plain public clone, where codegen cannot generate anything in any case (it
+  exits 2 at the render step). In a licensed install, where both are present,
+  the licence check is **mandatory** and no environment variable waives it.
+  Removing one of the two to re-enable the allowance does not work; removing
+  both loses the generator.
+
+  Behavioural note for licensed users: if your CI relied on that variable to
+  run the commercial tools without a key, it will now refuse. Supply your
+  licence key instead — `XALOQI_LICENSE_KEY` from a CI secret, which the tools
+  verify offline with no network call. `INSTALL.md`'s CI integration example has
+  been corrected to show this, at workflow level so every step sees it, and now
+  notes that `--mode harness` needs a Professional-tier key.
+
+  This is a deliberate narrowing, not a new restriction on what your licence
+  permits.
+
 ### Fixed
+
+- **`INSTALL.md`'s CI integration example could not work as published.** Its
+  `Run diagnostic jobs` step invoked `tools/jobrunner.py` with no licence
+  available at all, so a customer copying the recipe hit a licence failure on
+  the first step. The key is now set once at workflow level for every step.
+  Guarded by `tests/test_install_md_ci_recipe.py`.
+
+- **Corrected licensing claims in `.github/workflows/ci.yml`,
+  `docs/ARCHITECTURE.md`, `docs/AI_CONTEXT.md` and `docs/TESTING_STRATEGY.md`.**
+  Each described the CI licence allowance as unconditional, which no longer
+  matches `codegen.py`, and `AI_CONTEXT.md` pointed at it as the way to run the
+  MCP server rather than at a licence key.
 
 - **`metadata.ecu_name` was emitted unescaped into generated C, CAPL, and
   TypeScript output** — the same vulnerability class `_c_safe_text()` fixed
