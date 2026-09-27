@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **`metadata.ecu_name` was emitted unescaped into generated C, CAPL, and
+  TypeScript output** — the same vulnerability class `_c_safe_text()` fixed
+  for DID/DTC/routine names, but never applied to the ECU name itself. A
+  quote or `*/` in `ecu_name` (uncontrolled input: `arxml_parser.py` copies
+  AUTOSAR SHORT-NAME straight through) produced C that does not compile,
+  reachable through the exact `GEN_ECU_NAME` usage already shipping in
+  `examples/safeboot_ecu/src/main.c` and `examples/ardep_ecu/src/main.c`
+  (`LOG_INF("... : " GEN_ECU_NAME)`). Only a non-fatal warning guarded it;
+  codegen exited 0 either way. Fixed by routing `ecu_name` through
+  `_c_safe_text()` at every context builder and the routine-handler /
+  GUI-catalog inline generators — identity for every real example's
+  committed `generated/` output (6 examples verified, timestamp-line-only
+  diff). Found by the 2026-09-27 validation campaign.
+
 ## [1.16.0] — 2026-09-26
 
 ### Added
