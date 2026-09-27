@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-08-31T12:18:59Z
+# Generated : 2026-09-27T17:13:07Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -46,7 +46,7 @@ pytest_plugins = ["conftest_firmware"]
 try:
     from xaloqi.tester import (
         UdsTester, NrcError,
-        TimeoutError as UdsTimeoutError, TransportError,
+        TimeoutError as UdsTimeoutError, TransportError, LicenseError,
     )
     from xaloqi.tester.transport.virtual import VirtualBus
     from xaloqi.tester._security import aes_cmac, derive_key
@@ -423,6 +423,47 @@ def aes_keys(request: pytest.FixtureRequest) -> dict:
     return keys
 
 
+def _fail_needs_testlab_licence(can_interface: str, exc: Exception) -> None:
+    """Fail loudly when a real-transport mode has no Xaloqi TestLab licence.
+
+    A hard failure, not a skip. A skip here would report as a pass on a run the
+    customer explicitly asked to drive real hardware with — the same class of
+    false green that let a suite look healthy while executing nothing.
+
+    The default --can-interface simulator needs no licence at all: it runs these
+    same tests against the built-in ECU simulator over a virtual bus, which is
+    free (Apache-2.0 xaloqi-tester core).
+    """
+    pytest.fail(
+        f"--can-interface {can_interface} drives a real transport, which "
+        f"requires a Xaloqi TestLab licence.\n"
+        f"  {exc}\n"
+        f"  Run these same tests with no licence using the default: "
+        f"pytest --can-interface simulator\n"
+        f"  For real CAN hardware, the Developer + TestLab and "
+        f"Professional + TestLab bundles at https://xaloqi.com include it.",
+        pytrace=False,
+    )
+
+
+def _fail_needs_testlab_pro(can_interface: str, exc: Exception) -> None:
+    """Fail loudly when a real-transport mode has no TestLab pro installed.
+
+    Distinct from a licence refusal: here the package providing the transport
+    is absent, so telling the customer to check their licence would be wrong.
+    """
+    pytest.fail(
+        f"--can-interface {can_interface} needs Xaloqi TestLab installed "
+        f"(the xaloqi-tester-pro package provides real CAN transports).\n"
+        f"  {exc}\n"
+        f"  Run these same tests with no extra package using the default: "
+        f"pytest --can-interface simulator\n"
+        f"  See https://xaloqi.com for the Developer + TestLab and "
+        f"Professional + TestLab bundles.",
+        pytrace=False,
+    )
+
+
 @pytest.fixture(scope='function')
 def uds_bus(
     can_interface: str,
@@ -442,7 +483,6 @@ def uds_bus(
     channel = request.config.getoption('--can-channel')
     bitrate = request.config.getoption('--can-bitrate')
     loop    = asyncio.new_event_loop()
-    os.environ.setdefault('XALOQI_LICENSE_SKIP', '1')
 
     if can_interface == 'simulator':
         tester_bus, ecu_bus = VirtualBus.pair('testgen_sim')
@@ -501,24 +541,48 @@ def uds_bus(
         if can_interface == 'virtual':
             bus, _ = VirtualBus.pair('testgen')
             rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
-        elif can_interface == 'socketcan':
-            from xaloqi.tester.transport.socketcan import SocketCanBus
-            bus = SocketCanBus(channel); rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
-        elif can_interface == 'pcan':
-            from xaloqi.tester.transport.hardware import PcanBus
-            bus = PcanBus(channel, bitrate=bitrate); rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
-        elif can_interface == 'kvaser':
-            from xaloqi.tester.transport.hardware import KvaserBus
-            ch = int(channel) if channel.isdigit() else 0
-            bus = KvaserBus(ch, bitrate=bitrate); rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
+        elif can_interface in ('socketcan', 'pcan', 'kvaser'):
+            # Real transports come from Xaloqi TestLab (the xaloqi-tester-pro
+            # package) through the core plugin registry.
+            #
+            # These were once importable as xaloqi.tester.transport.socketcan /
+            # .transport.hardware. Those module paths no longer exist — the
+            # open-core split moved the classes into xaloqi_tester_pro — so the
+            # direct imports this branch used raised ModuleNotFoundError, which
+            # the handler below turned into a skip. Every hardware run was a
+            # silent skip rather than a test.
+            from xaloqi.tester import _plugins
+            factory = _plugins.get_transport(can_interface)
+            if can_interface == 'socketcan':
+                bus = factory(channel)
+            elif can_interface == 'pcan':
+                bus = factory(channel, bitrate=bitrate)
+            else:
+                bus = factory(int(channel) if channel.isdigit() else 0,
+                              bitrate=bitrate)
+            # The registry contract hands back an UNOPENED bus; opening it is the
+            # caller's job. UdsTester does this itself only for a string
+            # interface — given a bus object it calls open(), which the pro buses
+            # do not define (their opener is the async _open()). So open it here,
+            # preferring _open exactly as UdsTester's string path does.
+            _opener = getattr(bus, '_open', None) or getattr(bus, 'open', None)
+            if _opener is not None:
+                loop.run_until_complete(_opener())
+            rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
         else:
             loop.close(); pytest.skip(f'Unknown CAN interface: {can_interface!r}'); return
+    except LicenseError as exc:
+        loop.close(); _fail_needs_testlab_licence(can_interface, exc)
+    except TransportError as exc:
+        loop.close(); _fail_needs_testlab_pro(can_interface, exc)
     except (ImportError, Exception) as exc:
         loop.close(); pytest.skip(str(exc)); return
     try:
         tester = UdsTester(bus, rx_id=rx_id, tx_id=tx_id,
                            timeout=RESPONSE_TIMEOUT_S, keepalive=False)
         loop.run_until_complete(tester.__aenter__())
+    except LicenseError as exc:
+        loop.close(); _fail_needs_testlab_licence(can_interface, exc)
     except Exception as exc:
         loop.close(); pytest.skip(f'Cannot open CAN bus ({can_interface}/{channel}): {exc}'); return
     transport = IsoTpTransport(tester, loop)
