@@ -327,6 +327,14 @@ python3 tools/testlab.py report \
 
 When more than one results file is given, the report includes an inline SVG trend chart showing pass rate per step across all runs.
 
+**Exit code reflects the underlying data, not just report generation:**
+the HTML file is written either way, but `report` exits 1 if any run in
+the results contains a failure (0 only if every run passed) — so it can
+double as a simple CI gate on its own. If you chain a dedicated `compare`
+step after it (see the CI integration example below), give the report step
+`continue-on-error: true` so a failing run's report still gets uploaded
+instead of the job stopping before `compare` ever runs.
+
 ### Compare two runs (regression diff)
 
 Identifies which steps regressed (was passing, now failing), recovered, are new, or were removed:
@@ -362,6 +370,11 @@ Accumulate results in CI and generate a weekly report as a build artifact:
       --json results/sensor_ecu_$(date +%Y%m%d_%H%M%S).json
 
 - name: Generate TestLab AI report
+  # report's own exit code mirrors whether the underlying run(s) passed —
+  # continue-on-error so a red run's report still gets uploaded and the
+  # dedicated regression gate below still runs, instead of the job
+  # stopping right here on exactly the build you most want the report for.
+  continue-on-error: true
   run: |
     python3 tools/testlab.py report \
       --results results/sensor_ecu_*.json \
@@ -371,12 +384,14 @@ Accumulate results in CI and generate a weekly report as a build artifact:
     XALOQI_LICENSE_SKIP: "1"
 
 - name: Upload report
+  if: always()
   uses: actions/upload-artifact@v4
   with:
     name: testlab-report-week-${{ env.WEEK }}
     path: reports/
 
 - name: Fail on regressions (compare with last baseline)
+  if: always()
   run: |
     python3 tools/testlab.py compare \
       --before results/baseline.json \
