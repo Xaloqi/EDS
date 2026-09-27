@@ -1007,7 +1007,7 @@ def build_generated_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     can    = _build_can_context(cfg)
     return {
         "ecu_name":              _c_safe_text(meta["ecu_name"]),
-        "version":               meta["version"],
+        "version":               _c_safe_text(meta["version"]),
         "generated":             _now_utc(),
         "p2_server_max_ms":      timing["p2_server_max_ms"],
         "p2_star_server_max_ms": timing["p2_star_server_max_ms"],
@@ -1028,7 +1028,7 @@ def build_did_handlers_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     meta = cfg["metadata"]
     return {
         "ecu_name":  _c_safe_text(meta["ecu_name"]),
-        "version":   meta["version"],
+        "version":   _c_safe_text(meta["version"]),
         "generated": _now_utc(),
         "dids":      _build_did_list(cfg),
     }
@@ -1047,7 +1047,7 @@ def build_dtc_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     meta = cfg["metadata"]
     return {
         "ecu_name":  _c_safe_text(meta["ecu_name"]),
-        "version":   meta["version"],
+        "version":   _c_safe_text(meta["version"]),
         "generated": _now_utc(),
         "dtcs":      _build_dtc_list(cfg),
     }
@@ -1079,7 +1079,7 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "ecu_name":              _c_safe_text(meta["ecu_name"]),
-        "version":               meta["version"],
+        "version":               _c_safe_text(meta["version"]),
         "generated":             _now_utc(),
         "p2_server_max_ms":      timing["p2_server_max_ms"],
         "p2_star_server_max_ms": timing["p2_star_server_max_ms"],
@@ -1278,7 +1278,7 @@ def build_safety_config_context(
 
     return {
         "ecu_name":                   _c_safe_text(meta["ecu_name"]),
-        "version":                    meta["version"],
+        "version":                    _c_safe_text(meta["version"]),
         "stack_version":              __version__,
         "generated":                  _now_utc(),
         "asil_level":                 asil_level.upper(),
@@ -1324,7 +1324,7 @@ def build_did_safety_wrappers_context(
 
     return {
         "ecu_name":    _c_safe_text(meta["ecu_name"]),
-        "version":     meta["version"],
+        "version":     _c_safe_text(meta["version"]),
         "generated":   _now_utc(),
         "asil_level":  asil_level.upper(),
         "dids":        dids,
@@ -1757,7 +1757,7 @@ ROUTINE_RENDER_PLAN: List[Tuple[str, Any, str]] = [
         "routine_handlers.c.j2",
         lambda cfg: {
             "ecu_name":  _c_safe_text(cfg["metadata"]["ecu_name"]),
-            "version":   cfg["metadata"]["version"],
+            "version":   _c_safe_text(cfg["metadata"]["version"]),
             "generated": _now_utc(),
             "routines":  _build_routine_list(cfg),
         },
@@ -1767,7 +1767,7 @@ ROUTINE_RENDER_PLAN: List[Tuple[str, Any, str]] = [
         "routine_handlers.h.j2",
         lambda cfg: {
             "ecu_name":  _c_safe_text(cfg["metadata"]["ecu_name"]),
-            "version":   cfg["metadata"]["version"],
+            "version":   _c_safe_text(cfg["metadata"]["version"]),
             "generated": _now_utc(),
             "routines":  _build_routine_list(cfg),
         },
@@ -1810,7 +1810,7 @@ def render_routine_handlers(
 
     written: List[str] = []
     ecu_name  = _c_safe_text(cfg["metadata"]["ecu_name"])
-    version   = cfg["metadata"]["version"]
+    version   = _c_safe_text(cfg["metadata"]["version"])
     timestamp = _now_utc()
 
     for template_name, context_fn, output_name in ROUTINE_RENDER_PLAN:
@@ -2232,7 +2232,8 @@ def generate_gui_types(cfg: Dict[str, Any], gui_out_dir: "Path") -> List[str]:
         "// =============================================================================\n"
         "// GENERATED — DO NOT EDIT MANUALLY\n"
         "//\n"
-        f"// Source  : diagnostics_config.yaml (ECU: {_c_safe_text(ecu)}, version: {version})\n"
+        f"// Source  : diagnostics_config.yaml "
+        f"(ECU: {_c_safe_text(ecu)}, version: {_c_safe_text(version)})\n"
         "// Tool    : tools/codegen.py --gui-types\n"
         f"// Generated: {now}\n"
         "//\n"

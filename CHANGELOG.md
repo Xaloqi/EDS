@@ -24,6 +24,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   committed `generated/` output (6 examples verified, timestamp-line-only
   diff). Found by the 2026-09-27 validation campaign.
 
+- **`metadata.version` had the identical unescaped-C-output defect as
+  `metadata.ecu_name` above, in the same file** — found during that fix's
+  own verification. Emitted raw into `GEN_ECU_VERSION` and every generated
+  header comment; only validated as a non-empty string (no character
+  restriction at all, unlike `ecu_name`'s advisory warning). Reachable the
+  same way, and `GEN_ECU_VERSION` is consumed by the identical
+  string-concatenation pattern in `examples/sensor_ecu/src/main.c`,
+  `examples/ardep_ecu/src/main.c`,
+  `examples/robot_joint_controller_ecu/src/main.c`, and
+  `examples/safeboot_ecu/src/main.c`. Fixed the same way — `version` now
+  routed through `_c_safe_text()` at every site `ecu_name` was — identity
+  verified across the same 6 examples.
+
 ## [1.16.0] — 2026-09-26
 
 ### Added
