@@ -1006,7 +1006,7 @@ def build_generated_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     dtcs   = cfg.get("dtcs", [])
     can    = _build_can_context(cfg)
     return {
-        "ecu_name":              meta["ecu_name"],
+        "ecu_name":              _c_safe_text(meta["ecu_name"]),
         "version":               meta["version"],
         "generated":             _now_utc(),
         "p2_server_max_ms":      timing["p2_server_max_ms"],
@@ -1027,7 +1027,7 @@ def build_did_handlers_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Build the template context for did_handlers.h and did_handlers.c."""
     meta = cfg["metadata"]
     return {
-        "ecu_name":  meta["ecu_name"],
+        "ecu_name":  _c_safe_text(meta["ecu_name"]),
         "version":   meta["version"],
         "generated": _now_utc(),
         "dids":      _build_did_list(cfg),
@@ -1046,7 +1046,7 @@ def build_dtc_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """
     meta = cfg["metadata"]
     return {
-        "ecu_name":  meta["ecu_name"],
+        "ecu_name":  _c_safe_text(meta["ecu_name"]),
         "version":   meta["version"],
         "generated": _now_utc(),
         "dtcs":      _build_dtc_list(cfg),
@@ -1078,7 +1078,7 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     is_doip = transport in ("doip", "both")
 
     return {
-        "ecu_name":              meta["ecu_name"],
+        "ecu_name":              _c_safe_text(meta["ecu_name"]),
         "version":               meta["version"],
         "generated":             _now_utc(),
         "p2_server_max_ms":      timing["p2_server_max_ms"],
@@ -1277,7 +1277,7 @@ def build_safety_config_context(
     )
 
     return {
-        "ecu_name":                   meta["ecu_name"],
+        "ecu_name":                   _c_safe_text(meta["ecu_name"]),
         "version":                    meta["version"],
         "stack_version":              __version__,
         "generated":                  _now_utc(),
@@ -1323,7 +1323,7 @@ def build_did_safety_wrappers_context(
     dids = _build_did_list(cfg)
 
     return {
-        "ecu_name":    meta["ecu_name"],
+        "ecu_name":    _c_safe_text(meta["ecu_name"]),
         "version":     meta["version"],
         "generated":   _now_utc(),
         "asil_level":  asil_level.upper(),
@@ -1756,7 +1756,7 @@ ROUTINE_RENDER_PLAN: List[Tuple[str, Any, str]] = [
     (
         "routine_handlers.c.j2",
         lambda cfg: {
-            "ecu_name":  cfg["metadata"]["ecu_name"],
+            "ecu_name":  _c_safe_text(cfg["metadata"]["ecu_name"]),
             "version":   cfg["metadata"]["version"],
             "generated": _now_utc(),
             "routines":  _build_routine_list(cfg),
@@ -1766,7 +1766,7 @@ ROUTINE_RENDER_PLAN: List[Tuple[str, Any, str]] = [
     (
         "routine_handlers.h.j2",
         lambda cfg: {
-            "ecu_name":  cfg["metadata"]["ecu_name"],
+            "ecu_name":  _c_safe_text(cfg["metadata"]["ecu_name"]),
             "version":   cfg["metadata"]["version"],
             "generated": _now_utc(),
             "routines":  _build_routine_list(cfg),
@@ -1809,7 +1809,7 @@ def render_routine_handlers(
     )
 
     written: List[str] = []
-    ecu_name  = cfg["metadata"]["ecu_name"]
+    ecu_name  = _c_safe_text(cfg["metadata"]["ecu_name"])
     version   = cfg["metadata"]["version"]
     timestamp = _now_utc()
 
@@ -2232,7 +2232,7 @@ def generate_gui_types(cfg: Dict[str, Any], gui_out_dir: "Path") -> List[str]:
         "// =============================================================================\n"
         "// GENERATED — DO NOT EDIT MANUALLY\n"
         "//\n"
-        f"// Source  : diagnostics_config.yaml (ECU: {ecu}, version: {version})\n"
+        f"// Source  : diagnostics_config.yaml (ECU: {_c_safe_text(ecu)}, version: {version})\n"
         "// Tool    : tools/codegen.py --gui-types\n"
         f"// Generated: {now}\n"
         "//\n"
