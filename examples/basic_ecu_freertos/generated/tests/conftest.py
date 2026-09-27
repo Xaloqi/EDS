@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-08-31T12:21:25Z
+# Generated : 2026-09-27T16:26:08Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -46,7 +46,7 @@ pytest_plugins = ["conftest_firmware"]
 try:
     from xaloqi.tester import (
         UdsTester, NrcError,
-        TimeoutError as UdsTimeoutError, TransportError,
+        TimeoutError as UdsTimeoutError, TransportError, LicenseError,
     )
     from xaloqi.tester.transport.virtual import VirtualBus
     from xaloqi.tester._security import aes_cmac, derive_key
@@ -423,6 +423,29 @@ def aes_keys(request: pytest.FixtureRequest) -> dict:
     return keys
 
 
+def _fail_needs_testlab_licence(can_interface: str, exc: Exception) -> None:
+    """Fail loudly when a real-transport mode has no Xaloqi TestLab licence.
+
+    A hard failure, not a skip. A skip here would report as a pass on a run the
+    customer explicitly asked to drive real hardware with — the same class of
+    false green that let a suite look healthy while executing nothing.
+
+    The default --can-interface simulator needs no licence at all: it runs these
+    same tests against the built-in ECU simulator over a virtual bus, which is
+    free (Apache-2.0 xaloqi-tester core).
+    """
+    pytest.fail(
+        f"--can-interface {can_interface} drives a real transport, which "
+        f"requires a Xaloqi TestLab licence.\n"
+        f"  {exc}\n"
+        f"  Run these same tests with no licence using the default: "
+        f"pytest --can-interface simulator\n"
+        f"  For real CAN hardware, the Developer + TestLab and "
+        f"Professional + TestLab bundles at https://xaloqi.com include it.",
+        pytrace=False,
+    )
+
+
 @pytest.fixture(scope='function')
 def uds_bus(
     can_interface: str,
@@ -442,7 +465,6 @@ def uds_bus(
     channel = request.config.getoption('--can-channel')
     bitrate = request.config.getoption('--can-bitrate')
     loop    = asyncio.new_event_loop()
-    os.environ.setdefault('XALOQI_LICENSE_SKIP', '1')
 
     if can_interface == 'simulator':
         tester_bus, ecu_bus = VirtualBus.pair('testgen_sim')
@@ -513,12 +535,16 @@ def uds_bus(
             bus = KvaserBus(ch, bitrate=bitrate); rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
         else:
             loop.close(); pytest.skip(f'Unknown CAN interface: {can_interface!r}'); return
+    except LicenseError as exc:
+        loop.close(); _fail_needs_testlab_licence(can_interface, exc)
     except (ImportError, Exception) as exc:
         loop.close(); pytest.skip(str(exc)); return
     try:
         tester = UdsTester(bus, rx_id=rx_id, tx_id=tx_id,
                            timeout=RESPONSE_TIMEOUT_S, keepalive=False)
         loop.run_until_complete(tester.__aenter__())
+    except LicenseError as exc:
+        loop.close(); _fail_needs_testlab_licence(can_interface, exc)
     except Exception as exc:
         loop.close(); pytest.skip(f'Cannot open CAN bus ({can_interface}/{channel}): {exc}'); return
     transport = IsoTpTransport(tester, loop)

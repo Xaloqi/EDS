@@ -8,6 +8,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **Generated example test suites no longer waive the Xaloqi TestLab licence.**
+  Every `examples/*/generated/tests/conftest.py` set a licence-skip environment
+  variable at fixture setup, process-wide. Real-transport modes
+  (`--can-interface socketcan|pcan|kvaser`) now require a TestLab licence, and a
+  refusal **fails the test with a clear message** naming the free alternative and
+  the Developer + TestLab / Professional + TestLab bundles — rather than skipping,
+  which would report as a pass on a run you asked to drive real hardware with.
+
+  **The default `--can-interface simulator` is unchanged and needs no licence at
+  all.** It runs the same tests against the built-in ECU simulator over a virtual
+  bus, on the Apache-2.0 `xaloqi-tester` core — the mode the documentation
+  advertises as "runnable without hardware". Verified: 69 passed / 2 skipped on
+  `bms_ecu`'s regenerated suite.
+
+  All 12 examples regenerated. The change was verified by regenerating every
+  example from the *previous* template first and confirming it reproduced the
+  committed output byte-for-byte apart from the timestamp, so the diff is
+  provably only this change.
+
 ### Security
 
 - **Hardened the CI licence allowance in `tools/codegen.py`.** The
