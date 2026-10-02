@@ -75,6 +75,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   links against the stack; they are not a claim that any example runs on its
   intended board. `README.md`'s Evidence column states what each label means.
 
+  **All twelve examples are now at least compile-verified**, and the README's
+  Evidence column was updated from the actual CI results rather than from the
+  expectation of them — the `codegen-validated only` and `no CI coverage` states
+  it defined on 2026-10-02 are now both empty. The README records that this
+  became true on 2026-10-02 rather than presenting it as always-so, including
+  what the first real compile found.
+
 ### Documentation
 
 - **Every example now states whether it has ever been flashed

@@ -389,36 +389,53 @@ inspect without a license.
 | `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947, MR-CANHUBK3 | **compile-verified** (3 board targets + native\_sim) |
 | `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU | **compile-verified** (QEMU Cortex-M4) |
 | `basic_ecu_doip` | 5 | 2 | 3 | NUCLEO-H753ZI, native\_sim (loopback), any Zephyr Ethernet board | **hardware-validated** (NUCLEO-H753ZI, real Ethernet) |
-| `basic_ecu_doip_freertos` | 5 | 2 | 3 | Any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) | ⚠️ **no CI coverage** |
-| `sensor_ecu` | 7 | 4 | 2 | native\_sim, any Zephyr sensor board | codegen-validated only |
-| `sensor_ecu_freertos` | 7 | 4 | 2 | QEMU Cortex-M4, STM32F4, Nucleo-H743ZI2 | codegen-validated only |
+| `basic_ecu_doip_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) | **compile-verified** (QEMU Cortex-M4) |
+| `sensor_ecu` | 7 | 4 | 2 | native\_sim, any Zephyr sensor board | **compile-verified** (native\_sim) |
+| `sensor_ecu_freertos` | 7 | 4 | 2 | QEMU Cortex-M4, STM32F4, Nucleo-H743ZI2 | **compile-verified** (QEMU Cortex-M4) |
 | `safeboot_ecu` | 5 | 3 | 2 | NUCLEO-H753ZI, Nucleo-H743ZI2 (MCUboot required) | **hardware-validated** (NUCLEO-H753ZI, CAN) |
 | `safeboot_freertos_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (FreeRTOS, no MCUboot) | **compile-verified** (QEMU Cortex-M4) |
-| `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim, any Zephyr CAN board | codegen-validated only |
-| `bms_ecu` | 24 | 10 | 5 | native\_sim | codegen-validated only |
-| `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | codegen-validated only |
-| `ardep_ecu` | 35 | 19 | 6 | ardep (custom board, ARDEP Zephyr workspace), native\_sim | codegen-validated only |
+| `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim, any Zephyr CAN board | **compile-verified** (native\_sim) |
+| `bms_ecu` | 24 | 10 | 5 | native\_sim | **compile-verified** (native\_sim) |
+| `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | **compile-verified** (native\_sim) |
+| `ardep_ecu` | 35 | 19 | 6 | ardep (custom board, ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim) |
 
 **What the Evidence column means** (added for
 [#329](https://github.com/Xaloqi/EDS/issues/329) — before it, nothing in this
-repo said which targets had ever been flashed). The three states are strictly
-ordered, and each example is labelled with the strongest one that is true of it:
+repo said which targets had ever been flashed). Each example carries the
+strongest label that is true of it:
 
 | Label | Means | Proof |
 |---|---|---|
 | **hardware-validated** | Flashed onto real silicon and exercised, with measurements recorded | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — DWT cycle-counter figures from a NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, `-Os`): `safeboot_ecu` over CAN/ISO-TP, `basic_ecu_doip` over the board's onboard MAC+PHY |
-| **compile-verified** | Cross-compiled in CI for the named board target, and **never flashed** | CI jobs `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-stm32-safeboot`, `freertos-qemu`, `freertos-safeboot` |
-| **codegen-validated only** | CI validates its YAML and its committed `generated/` files — schema, safety markers, required symbols — but **never compiles it**, for any board | CI jobs `example-ardep`, `example-bms`, `example-motor`, `example-sensor`, `example-sensor-frtos`, `example-robot`; all are named "generated file validation" |
-| ⚠️ **no CI coverage** | No CI job references this example at all | `basic_ecu_doip_freertos` |
+| **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
 
-`sensor_ecu_freertos` is new to this table — the example has existed all along
-but the table listed only 11 of the 12 examples. Read the bottom two rows
-literally. A *codegen-validated* example is not known
-to compile: six of the twelve are in that state, and the "Boards" column for
-them names an intended target, not a tested one. `basic_ecu_doip_freertos` has
-no automated coverage whatsoever. All twelve ship complete, committed generated
-code and are architecturally identical in how they wire the stack — that is why
-they are useful as references — but only two have been on a bench.
+**All twelve examples are now at least compile-verified, and two have been on a
+bench.** That became true on 2026-10-02 and was not true before, which is worth
+stating rather than quietly presenting as always-so:
+
+- Until then, **six of the twelve had never been compiled for any target** and a
+  seventh, `basic_ecu_doip_freertos`, had no CI coverage at all. Their
+  `example-*` jobs validate YAML and committed `generated/` files and never
+  invoke a compiler — [#98](https://github.com/Xaloqi/EDS/issues/98) ("7 of 12
+  examples are never built by any CI job") was closed by adding exactly those
+  jobs, so the gap it named outlived its own fix.
+- Compiling them for the first time ([#332](https://github.com/Xaloqi/EDS/pull/332))
+  immediately found **three real defects in two examples**
+  ([#333](https://github.com/Xaloqi/EDS/issues/333)): `ardep_ecu` used an enum
+  deleted by an earlier MISRA cleanup, and `sensor_ecu` listed a source file
+  that does not exist *and* guarded its device lookups with `DT_HAS_ALIAS`, which
+  is not a Zephyr macro. All three are fixed; the jobs now keep them honest.
+
+Read **compile-verified** literally: it means the committed generated code
+compiles and links against the stack on that target. It is not a claim that the
+example has run anywhere, and for the `native_sim` entries it is not a claim
+about the physical board named in the Boards column. All twelve ship complete,
+committed generated code and are architecturally identical in how they wire the
+stack — that is why they are useful as references — but only two have been on a
+bench.
+
+`sensor_ecu_freertos` joined this table on 2026-10-02; the example has existed
+all along but the table listed only 11 of the 12.
 
 Cross-transport behaviour against a real bus is proven separately, not here:
 [`xaloqi-compatibility-tests`](https://github.com/Xaloqi/xaloqi-compatibility-tests)
