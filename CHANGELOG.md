@@ -10,6 +10,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Documentation
 
+- **Every example now states whether it has ever been flashed
+  ([#329](https://github.com/Xaloqi/EDS/issues/329)).** The README's example
+  table listed board targets with no indication of what had been built or run,
+  so a reader could not distinguish an example measured on real silicon from one
+  that has never been compiled. Neither `hardware-validated` nor
+  `compile-verified` appeared anywhere in the repository.
+
+  The table gains an **Evidence** column with three ordered states, each defined
+  in a new legend naming the CI job or document that proves it:
+
+  - **hardware-validated** — `safeboot_ecu` (CAN) and `basic_ecu_doip` (real
+    Ethernet), both measured on a NUCLEO-H753ZI per `docs/PERFORMANCE.md`.
+  - **compile-verified** — cross-compiled in CI for the named target, never
+    flashed: `basic_ecu` (3 board targets + native_sim), `basic_ecu_freertos`,
+    `safeboot_freertos_ecu`.
+  - **codegen-validated only** — CI validates the YAML and committed
+    `generated/` files but **never compiles the example**, for any board. Six of
+    the twelve are in this state: `ardep_ecu`, `bms_ecu`,
+    `motor_controller_ecu`, `sensor_ecu`, `sensor_ecu_freertos`,
+    `robot_joint_controller_ecu`. Their `example-*` CI jobs are named
+    "generated file validation" and do exactly that.
+
+  Also flagged: **`basic_ecu_doip_freertos` is referenced by no CI job at all.**
+
+  Two table errors fixed in the same pass — `sensor_ecu_freertos` was missing
+  entirely (the table listed 11 of 12 examples), and the boards column did not
+  mention the NUCLEO-H753ZI that the hardware measurements actually used.
+
 - **SecurityAccess replay protection is now described accurately
   ([#328](https://github.com/Xaloqi/EDS/issues/328)).** Five places claimed, in
   one wording or another, that a "16-bit monotonic sequence counter" is what
