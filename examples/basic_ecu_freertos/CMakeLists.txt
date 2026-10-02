@@ -72,6 +72,23 @@ if(NOT DEFINED FREERTOS_DIR)
         "Example: -DFREERTOS_DIR=/opt/freertos-kernel")
 endif()
 
+# [EDS#331] FREERTOS_DIR must be absolute before any if(EXISTS) test below.
+# if(EXISTS) is only well-defined for absolute paths, so a relative
+# FREERTOS_DIR silently satisfies the FreeRTOS-port check further down and
+# then fails much later at add_executable() with "Cannot find source file:
+# <rel>/tasks.c" plus a misleading "No SOURCES given to target". Reject it
+# here with the actual cause rather than guessing a base directory - a guess
+# could silently resolve to the wrong tree, which is worse than an error.
+if(NOT IS_ABSOLUTE "${FREERTOS_DIR}")
+    message(FATAL_ERROR
+        "FREERTOS_DIR must be an absolute path (got: ${FREERTOS_DIR}).\n"
+        "  -DFREERTOS_DIR=/opt/freertos-kernel\n"
+        "  -DFREERTOS_DIR=\"$ENV{PWD}/../FreeRTOS-Kernel\" (shell-expanded)")
+endif()
+if(NOT IS_DIRECTORY "${FREERTOS_DIR}")
+    message(FATAL_ERROR "FREERTOS_DIR does not exist: ${FREERTOS_DIR}")
+endif()
+
 # Board selection: defaults to qemu_cortex_m4 for CI.
 if(NOT DEFINED BOARD)
     set(BOARD "qemu_cortex_m4")
@@ -142,6 +159,18 @@ endif()
 if(NOT DEFINED FREERTOS_CONFIG_DIR)
     # Default: ship a minimal config for QEMU Cortex-M4 CI builds
     set(FREERTOS_CONFIG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/boards/qemu_cortex_m4")
+endif()
+
+# [EDS#331] Same absolute-path requirement as FREERTOS_DIR. The default set
+# above derives from CMAKE_CURRENT_SOURCE_DIR and is always absolute; this
+# only constrains a user-supplied value.
+if(NOT IS_ABSOLUTE "${FREERTOS_CONFIG_DIR}")
+    message(FATAL_ERROR
+        "FREERTOS_CONFIG_DIR must be an absolute path (got: ${FREERTOS_CONFIG_DIR}).")
+endif()
+if(NOT EXISTS "${FREERTOS_CONFIG_DIR}/FreeRTOSConfig.h")
+    message(FATAL_ERROR
+        "No FreeRTOSConfig.h in FREERTOS_CONFIG_DIR: ${FREERTOS_CONFIG_DIR}")
 endif()
 
 # ---------------------------------------------------------------------------

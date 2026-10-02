@@ -8,6 +8,43 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **A relative `FREERTOS_DIR` no longer fails with a misleading error
+  ([#331](https://github.com/Xaloqi/EDS/issues/331)).** `if(EXISTS)` is only
+  well-defined for absolute paths, so a relative `FREERTOS_DIR` silently
+  satisfied the FreeRTOS-port check and then died at `add_executable()` with
+  `Cannot find source file: <rel>/tasks.c` followed by a confusing
+  `No SOURCES given to target`. All four FreeRTOS examples now reject a
+  non-absolute `FREERTOS_DIR` or `FREERTOS_CONFIG_DIR` up front, naming the
+  actual cause, and check that the directory (and `FreeRTOSConfig.h`) exists.
+
+  The guard rejects rather than guesses: resolving a relative path against an
+  assumed base could silently pick the wrong tree, which is worse than an
+  error. Verified both ways — a relative path now fails with the new message,
+  and all four examples still build with absolute paths.
+
+### Changed
+
+- **Seven examples are now actually compiled by CI
+  ([#329](https://github.com/Xaloqi/EDS/issues/329)).** Two new matrixed jobs
+  close the gap that [#98](https://github.com/Xaloqi/EDS/issues/98) described
+  but did not fix: the `example-*` jobs added when #98 closed validate YAML and
+  committed `generated/` files and never invoke a compiler, so six of twelve
+  examples had never been built for any target, and `basic_ecu_doip_freertos`
+  had no CI coverage at all.
+
+  - `freertos-examples` — compiles `sensor_ecu_freertos` and
+    `basic_ecu_doip_freertos` for QEMU Cortex-M4. Both were verified to build
+    locally before the job was written.
+  - `zephyr-examples-native` — compiles `sensor_ecu`, `bms_ecu`,
+    `motor_controller_ecu`, `robot_joint_controller_ecu` and `ardep_ecu` on
+    `native_sim`, with `fail-fast: false` so one run reports each independently.
+
+  These are compile-only. They prove the committed generated code builds and
+  links against the stack; they are not a claim that any example runs on its
+  intended board. `README.md`'s Evidence column states what each label means.
+
 ### Documentation
 
 - **Every example now states whether it has ever been flashed
