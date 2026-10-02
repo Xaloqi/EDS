@@ -23,7 +23,7 @@ Replaced the Phase 5 XOR reference stub with a production-grade algorithm:
 | Key length | 4 bytes | **4 bytes** (first 4 bytes of AES-128-CMAC output) |
 | Key derivation | `key[i] = seed[i] ^ 0xAA` | **AES-128-CMAC(level_key, seed)**, truncated to 4 bytes |
 | Entropy source | None (deterministic) | **Hardware TRNG** via pluggable callback |
-| Replay protection | None | **16-bit monotonic sequence counter** embedded in seed bytes [6:7] |
+| Replay protection | None | **Fresh 48-bit TRNG nonce per seed request**, validated against the server-held seed. A 16-bit sequence counter in seed bytes [6:7] is a secondary consistency check — it is per-power-cycle, **not** monotonic across resets (corrected [EDS#328](https://github.com/Xaloqi/EDS/issues/328)) |
 | OEM key injection | Not supported | `uds_security_algo_set_level_key()` |
 | OEM algo override | Not supported | `uds_security_algo_set_derive_cb()` |
 

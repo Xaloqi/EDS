@@ -384,19 +384,46 @@ inspect without a license.
 **Using FreeRTOS?** → [`examples/basic_ecu_freertos/`](examples/basic_ecu_freertos/) ·
 **Need safe firmware update?** → [`examples/safeboot_ecu/`](examples/safeboot_ecu/)
 
-| Example | DIDs | DTCs | Routines | Boards |
-|---|---|---|---|---|
-| `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947 |
-| `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU |
-| `basic_ecu_doip` | 5 | 2 | 3 | native\_sim (loopback), any Zephyr Ethernet board |
-| `basic_ecu_doip_freertos` | 5 | 2 | 3 | Any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) |
-| `sensor_ecu` | 7 | 4 | 2 | native\_sim, any Zephyr sensor board |
-| `safeboot_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 (MCUboot required) |
-| `safeboot_freertos_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (FreeRTOS, no MCUboot) |
-| `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim, any Zephyr CAN board |
-| `bms_ecu` | 24 | 10 | 5 | native\_sim |
-| `motor_controller_ecu` | 27 | 8 | 6 | native\_sim |
-| `ardep_ecu` | 35 | 19 | 6 | native\_sim |
+| Example | DIDs | DTCs | Routines | Boards | Evidence |
+|---|---|---|---|---|---|
+| `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947, MR-CANHUBK3 | **compile-verified** (3 board targets + native\_sim) |
+| `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU | **compile-verified** (QEMU Cortex-M4) |
+| `basic_ecu_doip` | 5 | 2 | 3 | NUCLEO-H753ZI, native\_sim (loopback), any Zephyr Ethernet board | **hardware-validated** (NUCLEO-H753ZI, real Ethernet) |
+| `basic_ecu_doip_freertos` | 5 | 2 | 3 | Any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) | ⚠️ **no CI coverage** |
+| `sensor_ecu` | 7 | 4 | 2 | native\_sim, any Zephyr sensor board | codegen-validated only |
+| `sensor_ecu_freertos` | 7 | 4 | 2 | QEMU Cortex-M4, STM32F4, Nucleo-H743ZI2 | codegen-validated only |
+| `safeboot_ecu` | 5 | 3 | 2 | NUCLEO-H753ZI, Nucleo-H743ZI2 (MCUboot required) | **hardware-validated** (NUCLEO-H753ZI, CAN) |
+| `safeboot_freertos_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (FreeRTOS, no MCUboot) | **compile-verified** (QEMU Cortex-M4) |
+| `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim, any Zephyr CAN board | codegen-validated only |
+| `bms_ecu` | 24 | 10 | 5 | native\_sim | codegen-validated only |
+| `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | codegen-validated only |
+| `ardep_ecu` | 35 | 19 | 6 | ardep (custom board, ARDEP Zephyr workspace), native\_sim | codegen-validated only |
+
+**What the Evidence column means** (added for
+[#329](https://github.com/Xaloqi/EDS/issues/329) — before it, nothing in this
+repo said which targets had ever been flashed). The three states are strictly
+ordered, and each example is labelled with the strongest one that is true of it:
+
+| Label | Means | Proof |
+|---|---|---|
+| **hardware-validated** | Flashed onto real silicon and exercised, with measurements recorded | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — DWT cycle-counter figures from a NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, `-Os`): `safeboot_ecu` over CAN/ISO-TP, `basic_ecu_doip` over the board's onboard MAC+PHY |
+| **compile-verified** | Cross-compiled in CI for the named board target, and **never flashed** | CI jobs `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-stm32-safeboot`, `freertos-qemu`, `freertos-safeboot` |
+| **codegen-validated only** | CI validates its YAML and its committed `generated/` files — schema, safety markers, required symbols — but **never compiles it**, for any board | CI jobs `example-ardep`, `example-bms`, `example-motor`, `example-sensor`, `example-sensor-frtos`, `example-robot`; all are named "generated file validation" |
+| ⚠️ **no CI coverage** | No CI job references this example at all | `basic_ecu_doip_freertos` |
+
+`sensor_ecu_freertos` is new to this table — the example has existed all along
+but the table listed only 11 of the 12 examples. Read the bottom two rows
+literally. A *codegen-validated* example is not known
+to compile: six of the twelve are in that state, and the "Boards" column for
+them names an intended target, not a tested one. `basic_ecu_doip_freertos` has
+no automated coverage whatsoever. All twelve ship complete, committed generated
+code and are architecturally identical in how they wire the stack — that is why
+they are useful as references — but only two have been on a bench.
+
+Cross-transport behaviour against a real bus is proven separately, not here:
+[`xaloqi-compatibility-tests`](https://github.com/Xaloqi/xaloqi-compatibility-tests)
+runs the UDS matrix over a real host `vcan0` and a real DoIP/TCP bridge on
+Zephyr targets, and its `COVERAGE.md` states exactly what is and is not claimed.
 
 Each example ships with a complete generated test suite. Run `pytest` against the simulator in under 60 seconds, no CAN hardware needed.
 

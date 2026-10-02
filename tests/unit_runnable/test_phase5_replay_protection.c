@@ -29,6 +29,11 @@
  *   TC-RPL-013  Validate_key with stale sequence (seq-2) is rejected
  *   TC-RPL-014  Sequence bytes are big-endian (HI byte first in seed[2])
  *   TC-RPL-015  Rapid cycling: 10 seed/validate cycles all succeed without interference
+ *   TC-RPL-016  [EDS#328] With a TRNG (the only production-permitted config), a pair
+ *               captured before a power cycle is rejected after it — and the sequence
+ *               counter is demonstrably not what rejects it
+ *   TC-RPL-017  [EDS#328] Characterisation: in an LFSR build the same replay SUCCEEDS,
+ *               because s_sequence and s_lfsr both restart from fixed constants
  *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h)
  * =============================================================================
@@ -418,6 +423,169 @@ ZTEST(test_phase5_replay_protection, tc015_rapid_cycling)
 }
 
 /* =========================================================================
+ * [EDS#328] Power-cycle replay — what actually stops it, and where it does not
+ * ========================================================================= */
+
+/*
+ * A per-boot TRNG stand-in. Returns a different byte pattern on each
+ * "power cycle" (each g_trng_boot value), modelling a real platform entropy
+ * source — which a PRODUCTION build is required to have, because
+ * ALGO_ENTROPY_FAIL_CLOSED refuses to satisfy a seed request from the LFSR.
+ */
+static uint8_t g_trng_boot = 0U;
+
+static uds_status_t trng_per_boot(uint8_t *buf, uint8_t len)
+{
+    uint8_t i;
+    for (i = 0U; i < len; i++) {
+        buf[i] = (uint8_t)(0xA0U + g_trng_boot + i);
+    }
+    return UDS_STATUS_OK;
+}
+
+/**
+ * TC-RPL-016 [EDS#328]: with a real entropy source — i.e. the only
+ * configuration a production build permits — a (seed, key) pair captured
+ * before a power cycle is rejected after it, and the sequence counter is
+ * demonstrably NOT what rejects it.
+ *
+ * The counter lives in RAM and uds_security_algo_reset() zeroes it, so after
+ * a power cycle the first seed request reuses the very same sequence number
+ * the captured pair carries. This test asserts that explicitly, then asserts
+ * the replay fails anyway — because the nonce is fresh and because
+ * uds_security_send_key() validates against its own ctx->seed rather than
+ * anything an attacker can supply.
+ *
+ * Fails if someone makes the pending seed survive a reset, or lets a
+ * caller-supplied seed reach uds_security_algo_validate_key().
+ */
+ZTEST(test_phase5_replay_protection, tc016_power_cycle_replay_rejected_with_trng)
+{
+    uint8_t  seed_boot1[UDS_ALGO_SEED_LEN];
+    uint8_t  seed_boot2[UDS_ALGO_SEED_LEN];
+    uint8_t  key_boot1[UDS_ALGO_KEY_LEN];
+    uint8_t  len = 0U;
+    uint16_t seq1;
+    uint16_t seq2;
+
+    /* --- Boot 1: capture a pair that genuinely unlocks. --- */
+    g_trng_boot = 0U;
+    setup();
+    uds_security_algo_set_rng_cb(trng_per_boot);
+    zassert_equal(uds_security_request_seed(&g_sec, 0x01U, seed_boot1,
+                                           (uint8_t)sizeof(seed_boot1), &len),
+        UDS_STATUS_OK, "boot-1 seed request must succeed");
+    zassert_equal(uds_security_algo_derive_key(0x02U, seed_boot1, key_boot1),
+        UDS_STATUS_OK, "boot-1 key derivation must succeed");
+
+    /*
+     * --- Power cycle. Note setup() calls uds_security_algo_reset(), which
+     * also clears the registered TRNG callback, so a real integrator has to
+     * re-register it at boot exactly as done here.
+     */
+    g_trng_boot = 1U;
+    setup();
+    uds_security_algo_set_rng_cb(trng_per_boot);
+    zassert_equal(uds_security_request_seed(&g_sec, 0x01U, seed_boot2,
+                                           (uint8_t)sizeof(seed_boot2), &len),
+        UDS_STATUS_OK, "boot-2 seed request must succeed");
+
+    /*
+     * The counter offers NO protection: it restarted from zero, so boot 2's
+     * first seed carries boot 1's sequence number. If a future change makes
+     * the counter persistent this assertion fails, and the REPLAY PROTECTION
+     * block in uds_security_algo.c must be revisited with it.
+     */
+    seq1 = (uint16_t)(((uint16_t)seed_boot1[UDS_ALGO_SEED_SEQ_HI_OFFSET] << 8U)
+                      | (uint16_t)seed_boot1[UDS_ALGO_SEED_SEQ_OFFSET]);
+    seq2 = (uint16_t)(((uint16_t)seed_boot2[UDS_ALGO_SEED_SEQ_HI_OFFSET] << 8U)
+                      | (uint16_t)seed_boot2[UDS_ALGO_SEED_SEQ_OFFSET]);
+    zassert_equal(seq1, seq2,
+        "sequence counter is per-power-cycle: boot 2 must reuse boot 1's value");
+
+    /* The nonce is fresh — that is the actual defence. */
+    zassert_true(memcmp(&seed_boot1[UDS_ALGO_SEED_NONCE_OFFSET],
+                        &seed_boot2[UDS_ALGO_SEED_NONCE_OFFSET],
+                        (size_t)UDS_ALGO_SEED_NONCE_LEN) != 0,
+        "boot-2 TRNG nonce must differ from boot-1's");
+
+    /* --- The replay must fail, and must not unlock anything. --- */
+    zassert_not_equal(uds_security_send_key(&g_sec, 0x02U, key_boot1,
+                                           (uint8_t)UDS_ALGO_KEY_LEN),
+        UDS_STATUS_OK, "a key captured before the power cycle must be rejected");
+    {
+        bool unlocked = true;
+        zassert_equal(uds_security_is_unlocked(&g_sec, 0x01U, &unlocked),
+            UDS_STATUS_OK, "is_unlocked query must succeed");
+        zassert_false(unlocked, "a rejected replay must leave Level 1 locked");
+    }
+}
+
+/**
+ * TC-RPL-017 [EDS#328]: CHARACTERISATION TEST — in a build with no entropy
+ * source, where the LFSR fallback is permitted, the same replay SUCCEEDS.
+ *
+ * This is not a security property being endorsed. It is the measured
+ * consequence of two pieces of state that both restart from a fixed constant
+ * on reset: s_sequence (zeroed) and s_lfsr (restored to 0xACE1). An LFSR build
+ * therefore regenerates a byte-identical seed stream from power-up, so a
+ * (seed, key) pair captured in a previous power cycle unlocks again.
+ *
+ * It is pinned here deliberately, because it was invisible: the predictability
+ * of LFSR seeds was documented, but the consequence — cross-power-cycle
+ * SecurityAccess replay — was not stated anywhere and no test showed it.
+ *
+ * Why this is not a production vulnerability: ALGO_ENTROPY_FAIL_CLOSED (an
+ * alias for EDS_BUILD_IS_PRODUCTION, SEC-BUILD-MODE-01) makes a production
+ * build refuse the seed request outright rather than satisfy it from the LFSR,
+ * so this configuration cannot exist in production firmware. See
+ * test_trng_fail_closed.c.
+ *
+ * If this test ever starts FAILING, that is good news, not a regression —
+ * it means the LFSR path stopped being deterministic across resets. Update
+ * the EDS#328 notes in uds_security_algo.c and docs/Safety_Model.md with it.
+ */
+ZTEST(test_phase5_replay_protection, tc017_lfsr_build_power_cycle_replay_succeeds)
+{
+    uint8_t seed_boot1[UDS_ALGO_SEED_LEN];
+    uint8_t seed_boot2[UDS_ALGO_SEED_LEN];
+    uint8_t key_boot1[UDS_ALGO_KEY_LEN];
+    uint8_t len = 0U;
+
+    /* --- Boot 1, no TRNG registered: the LFSR supplies the nonce. --- */
+    setup();
+    zassert_equal(uds_security_request_seed(&g_sec, 0x01U, seed_boot1,
+                                           (uint8_t)sizeof(seed_boot1), &len),
+        UDS_STATUS_OK, "boot-1 seed request must succeed in an LFSR build");
+    zassert_equal(uds_security_algo_derive_key(0x02U, seed_boot1, key_boot1),
+        UDS_STATUS_OK, "boot-1 key derivation must succeed");
+
+    /* --- Power cycle, still no TRNG. --- */
+    setup();
+    zassert_equal(uds_security_request_seed(&g_sec, 0x01U, seed_boot2,
+                                           (uint8_t)sizeof(seed_boot2), &len),
+        UDS_STATUS_OK, "boot-2 seed request must succeed in an LFSR build");
+
+    /* Both halves of the seed restart from a fixed constant: identical seed. */
+    zassert_true(memcmp(seed_boot1, seed_boot2, (size_t)UDS_ALGO_SEED_LEN) == 0,
+        "an LFSR build must regenerate the identical seed after a power cycle "
+        "- if this fails, the LFSR or counter reset behaviour changed");
+
+    /* And therefore the captured key is accepted again. */
+    zassert_equal(uds_security_send_key(&g_sec, 0x02U, key_boot1,
+                                       (uint8_t)UDS_ALGO_KEY_LEN),
+        UDS_STATUS_OK,
+        "characterisation: an LFSR build re-accepts a pre-power-cycle key");
+    {
+        bool unlocked = false;
+        zassert_equal(uds_security_is_unlocked(&g_sec, 0x01U, &unlocked),
+            UDS_STATUS_OK, "is_unlocked query must succeed");
+        zassert_true(unlocked,
+            "characterisation: the replayed key unlocks Level 1 in an LFSR build");
+    }
+}
+
+/* =========================================================================
  * run_all_tests
  * ========================================================================= */
 
@@ -436,6 +604,8 @@ extern void test_phase5_replay_protection__tc012_level2_replay_blocked(void);
 extern void test_phase5_replay_protection__tc013_stale_seq_rejected(void);
 extern void test_phase5_replay_protection__tc014_sequence_big_endian(void);
 extern void test_phase5_replay_protection__tc015_rapid_cycling(void);
+extern void test_phase5_replay_protection__tc016_power_cycle_replay_rejected_with_trng(void);
+extern void test_phase5_replay_protection__tc017_lfsr_build_power_cycle_replay_succeeds(void);
 
 void run_all_tests(void)
 {
@@ -454,4 +624,6 @@ void run_all_tests(void)
     RUN_TEST(test_phase5_replay_protection__tc013_stale_seq_rejected);
     RUN_TEST(test_phase5_replay_protection__tc014_sequence_big_endian);
     RUN_TEST(test_phase5_replay_protection__tc015_rapid_cycling);
+    RUN_TEST(test_phase5_replay_protection__tc016_power_cycle_replay_rejected_with_trng);
+    RUN_TEST(test_phase5_replay_protection__tc017_lfsr_build_power_cycle_replay_succeeds);
 }

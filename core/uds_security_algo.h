@@ -18,8 +18,12 @@
  *   ───────────────
  *   The 8-byte seed is structured as:
  *     Byte 0..5 : 48-bit TRNG nonce (from hardware RNG)
- *     Byte 6    : sequence_hi    (upper 8 bits of monotonic counter)
- *     Byte 7    : sequence_lo    (lower 8 bits of monotonic counter)
+ *     Byte 6    : sequence_hi    (upper 8 bits of the sequence counter)
+ *     Byte 7    : sequence_lo    (lower 8 bits of the sequence counter)
+ *
+ *   The sequence counter is per-power-cycle, NOT monotonic across resets,
+ *   and it is not what provides replay resistance — see the REPLAY
+ *   PROTECTION block in uds_security_algo.c [EDS#328].
  *
  *   [#94] security_level is NOT embedded in the seed — domain separation
  *   between levels comes entirely from using a different AES key per level
@@ -215,8 +219,14 @@ extern "C" {
  *
  * Layout:
  *   Byte 0..5 : TRNG nonce (48 bits)
- *   Byte 6    : security_level (domain separator)
- *   Byte 7    : sequence_lo (anti-replay counter, lower 8 bits)
+ *   Byte 6    : sequence_hi (upper 8 bits of the sequence counter)
+ *   Byte 7    : sequence_lo (lower 8 bits of the sequence counter)
+ *
+ * [EDS#328] This block previously still described the pre-#94 layout, where
+ * byte 6 held security_level and only byte 7 held counter bits. #94 corrected
+ * that in this file's top comment but left this copy behind; both now agree
+ * with the code. security_level is NOT embedded in the seed — domain
+ * separation comes from a different AES key per level.
  */
 #define UDS_ALGO_SEED_LEN              (8U)
 

@@ -215,7 +215,41 @@ key  = OEM_AES_128_key[level]
 response = CMAC(key, seed)[0:4]   # 4-byte truncated MAC
 ```
 
-The sequence counter is embedded in the seed to prevent replay attacks: a captured seed/key exchange cannot be replayed because the counter will have advanced (REQ-SAFE — see the Security Integration Guide (Professional tier — xaloqi.com) §3 for full replay protection design).
+A captured seed/key exchange cannot be replayed, but the mechanism is **not**
+the sequence counter — an earlier version of this paragraph attributed it to the
+counter, which does not survive a power cycle ([EDS#328](https://github.com/Xaloqi/EDS/issues/328)).
+Replay resistance rests on three properties of the seed/key state machine in
+`core/uds_security.c`:
+
+1. **A fresh 48-bit TRNG nonce** occupies seed bytes 0..5 on every seed request,
+   so no two seeds are related.
+2. **The seed never comes from the wire.** ISO 14229 SendKey (0x27) carries only
+   the key; `uds_security_send_key()` validates it against `ctx->seed`, the seed
+   this ECU itself issued. A captured pair is therefore accepted only if the ECU
+   independently regenerates the identical seed, i.e. on a 48-bit nonce
+   collision.
+3. **One seed accepts at most one key.** `ctx->seed_pending` is cleared on every
+   key attempt, on unlock, and on reset.
+
+The 16-bit sequence counter embedded in seed bytes 6..7 is a secondary
+consistency check on a seed the algorithm module issued itself. It is
+per-power-cycle: it lives in RAM and `uds_security_algo_reset()` zeroes it. No
+safety or security requirement may depend on it being monotonic or persistent
+across resets.
+
+> **Development builds are replayable across a power cycle.** Property 1 above
+> holds only where a real entropy source is present. In a build permitting the
+> LFSR fallback (`ALGO_ENTROPY_FAIL_CLOSED = 0` — development and CI only),
+> `uds_security_algo_reset()` restores the LFSR to a fixed constant and zeroes
+> the counter, so the whole seed stream regenerates identically from power-up
+> and a captured pair unlocks again. This is measured and pinned by TC-RPL-017
+> in `tests/unit_runnable/test_phase5_replay_protection.c`. It **cannot** occur
+> in production firmware, where `EDS_BUILD_IS_PRODUCTION` (SEC-BUILD-MODE-01)
+> makes the seed request fail closed instead of using the LFSR. Do not run a
+> development-mode build on a vehicle network.
+
+(REQ-SAFE — see the Security Integration Guide (Professional
+tier — xaloqi.com) §3 for full replay protection design).
 
 The AES implementation (`core/uds_aes_cmac.c`) is table-free and cache-timing-attack resistant — appropriate for an ECU security subsystem where shared-cache timing attacks are a realistic concern.
 

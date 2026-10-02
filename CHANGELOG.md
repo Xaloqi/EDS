@@ -8,6 +8,87 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Documentation
+
+- **Every example now states whether it has ever been flashed
+  ([#329](https://github.com/Xaloqi/EDS/issues/329)).** The README's example
+  table listed board targets with no indication of what had been built or run,
+  so a reader could not distinguish an example measured on real silicon from one
+  that has never been compiled. Neither `hardware-validated` nor
+  `compile-verified` appeared anywhere in the repository.
+
+  The table gains an **Evidence** column with three ordered states, each defined
+  in a new legend naming the CI job or document that proves it:
+
+  - **hardware-validated** — `safeboot_ecu` (CAN) and `basic_ecu_doip` (real
+    Ethernet), both measured on a NUCLEO-H753ZI per `docs/PERFORMANCE.md`.
+  - **compile-verified** — cross-compiled in CI for the named target, never
+    flashed: `basic_ecu` (3 board targets + native_sim), `basic_ecu_freertos`,
+    `safeboot_freertos_ecu`.
+  - **codegen-validated only** — CI validates the YAML and committed
+    `generated/` files but **never compiles the example**, for any board. Six of
+    the twelve are in this state: `ardep_ecu`, `bms_ecu`,
+    `motor_controller_ecu`, `sensor_ecu`, `sensor_ecu_freertos`,
+    `robot_joint_controller_ecu`. Their `example-*` CI jobs are named
+    "generated file validation" and do exactly that.
+
+  Also flagged: **`basic_ecu_doip_freertos` is referenced by no CI job at all.**
+
+  Two table errors fixed in the same pass — `sensor_ecu_freertos` was missing
+  entirely (the table listed 11 of 12 examples), and the boards column did not
+  mention the NUCLEO-H753ZI that the hardware measurements actually used.
+
+- **SecurityAccess replay protection is now described accurately
+  ([#328](https://github.com/Xaloqi/EDS/issues/328)).** Five places claimed, in
+  one wording or another, that a "16-bit monotonic sequence counter" is what
+  prevents replay of a captured seed/key exchange — `docs/Safety_Model.md`
+  (against REQ-SAFE), `docs/PHASE1_SECURITY_CHANGES.md`, `core/uds_aes_cmac.h`,
+  and two comment blocks in `core/uds_security_algo.{c,h}`. Both halves of that
+  claim were wrong:
+
+  - The counter is **not monotonic across a reset.** It is a RAM-resident
+    `static uint16_t` that `uds_security_algo_reset()` zeroes, so after a power
+    cycle it counts up from 1 again.
+  - The counter is **not what prevents replay.** Replay resistance comes from
+    the seed/key state machine in `core/uds_security.c`: a fresh 48-bit TRNG
+    nonce per seed request, validation against the server's own `ctx->seed`
+    (ISO 14229 SendKey carries only the key — an attacker cannot present a
+    captured seed at all), and `ctx->seed_pending` allowing one key submission
+    per issued seed. The counter is a secondary consistency check.
+
+  Also corrected in the same pass: the validator comment said only the lower 8
+  bits of the counter were compared, when the code has compared all 16 since
+  v1.7.0; and `uds_security_algo.h`'s `UDS_ALGO_SEED_LEN` block still described
+  the pre-[#94](https://github.com/Xaloqi/EDS/issues/94) seed layout (byte 6 =
+  `security_level`) that #94 corrected in the file's top comment but left behind
+  here.
+
+  **No code behaviour changed.** Two tests were added to pin the behaviour that
+  the prose now describes: `TC-RPL-016` proves a pair captured before a power
+  cycle is rejected after it when a real entropy source is present, and asserts
+  that the sequence counter demonstrably is *not* what rejects it (boot 2 reuses
+  boot 1's sequence number).
+
+### Security
+
+- **Documented: development builds are replayable across a power cycle
+  ([#328](https://github.com/Xaloqi/EDS/issues/328)).** Found while writing the
+  tests above. Where the LFSR fallback is permitted
+  (`ALGO_ENTROPY_FAIL_CLOSED = 0` — development and CI builds only),
+  `uds_security_algo_reset()` restores `s_lfsr` to the fixed constant `0xACE1`
+  **and** zeroes `s_sequence`, so the entire seed stream is regenerated
+  byte-identically from power-up and a SecurityAccess key captured in an earlier
+  power cycle unlocks the level again. Measured, not theorised — pinned as the
+  characterisation test `TC-RPL-017`.
+
+  This **cannot occur in production firmware**: `ALGO_ENTROPY_FAIL_CLOSED` is an
+  alias for `EDS_BUILD_IS_PRODUCTION` (SEC-BUILD-MODE-01), so a production build
+  refuses the seed request outright rather than satisfying it from the LFSR. The
+  predictability of LFSR seeds was already documented; this specific consequence
+  of it was not stated anywhere and no test exercised it. `docs/Safety_Model.md`
+  now carries it as an explicit warning, with the instruction not to run a
+  development-mode build on a vehicle network.
+
 ## [1.16.1] — 2026-09-27
 
 ### Fixed
