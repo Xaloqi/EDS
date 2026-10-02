@@ -26,7 +26,11 @@
  *   - A correct key cannot be guessed from the MAC output (unlike XOR).
  *   - Per-level 128-bit keys ensure Level-1 and Level-2 are cryptographically
  *     independent.
- *   - Sequence counter embedded in the input prevents replay.
+ *   - A fresh 48-bit TRNG nonce in the input makes every seed unrelated to
+ *     the last, which is what prevents replay. The sequence counter also in
+ *     the input is a secondary consistency check, not the defence, and is not
+ *     monotonic across a reset — see uds_security_algo.c's REPLAY PROTECTION
+ *     block [EDS#328].
  *
  * INTEGRATION:
  *   This header is consumed only by uds_security_algo.c.
