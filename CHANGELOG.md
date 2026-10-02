@@ -30,6 +30,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
     this would have been a duplicate-symbol link failure instead of a
     missing-file error. The FreeRTOS variant documents that exact hazard. Line
     removed, with a comment recording why it must stay removed.
+  - `examples/sensor_ecu/src/sensor_monitor.c` then failed on a second,
+    independent defect: `#if DT_HAS_ALIAS(temp_sensor_0)` (and the voltage
+    equivalent). **`DT_HAS_ALIAS` is not a Zephyr macro.** Undefined in `#if`
+    it evaluates as `0`, leaving `0 (temp_sensor_0)` and
+    `error: missing binary operator before token "("`. `sensor_ecu` was the only
+    place in the tree using that name; the repo's own working idiom, in
+    `platform/zephyr/zephyr_wdt.c`, is `DT_NODE_EXISTS(DT_ALIAS(...))`, which is
+    what both guards now use. Two independent defects in one never-compiled
+    example is the point of the CI jobs below.
 
 - **A relative `FREERTOS_DIR` no longer fails with a misleading error
   ([#331](https://github.com/Xaloqi/EDS/issues/331)).** `if(EXISTS)` is only
