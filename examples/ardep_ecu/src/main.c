@@ -466,7 +466,7 @@ uds_status_t ardep_write_can_busbitrate_kbps(const uint8_t *buf)
     /* Validate: only 125, 250, 500, 1000 kbps are valid. */
     if ((rate != 125U) && (rate != 250U) &&
         (rate != 500U) && (rate != 1000U)) {
-        return UDS_STATUS_ERR_CONDITIONS_NOT_CORRECT;
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
     s_can_bitrate_kbps = rate;
     LOG_INF("CAN bitrate set to %u kbps (applied on next reset)", (unsigned)rate);
@@ -484,7 +484,7 @@ uds_status_t ardep_write_lin_busbaudrate_bps(const uint8_t *buf)
 {
     uint16_t baud = (uint16_t)(((uint16_t)buf[0] << 8U) | buf[1]);
     if ((baud != 2400U) && (baud != 9600U) && (baud != 19200U)) {
-        return UDS_STATUS_ERR_CONDITIONS_NOT_CORRECT;
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
     s_lin_baudrate_bps = baud;
     return UDS_STATUS_OK;
@@ -501,7 +501,7 @@ uds_status_t ardep_write_powerio_overcurrentthreshold_ma(const uint8_t *buf)
 {
     uint16_t val = (uint16_t)(((uint16_t)buf[0] << 8U) | buf[1]);
     if ((val < 500U) || (val > 3000U)) {
-        return UDS_STATUS_ERR_CONDITIONS_NOT_CORRECT;
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
     s_oc_threshold_ma = val;
     return UDS_STATUS_OK;
@@ -518,7 +518,7 @@ uds_status_t ardep_write_watchdogtimeout_ms(const uint8_t *buf)
 {
     uint16_t val = (uint16_t)(((uint16_t)buf[0] << 8U) | buf[1]);
     if ((val < 50U) || (val > 1000U)) {
-        return UDS_STATUS_ERR_CONDITIONS_NOT_CORRECT;
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
     s_wdt_timeout_ms = val;
     return UDS_STATUS_OK;

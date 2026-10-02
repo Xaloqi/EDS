@@ -293,7 +293,7 @@ void sensor_monitor_init(void)
     s_sensor_state.temp_threshold_low_deg_c  = SENSOR_TEMP_THRESHOLD_LOW_DEFAULT_DEG_C;
 
     /* Resolve sensor devices from Device Tree aliases */
-#if DT_HAS_ALIAS(temp_sensor_0)
+#if DT_NODE_EXISTS(DT_ALIAS(temp_sensor_0))
     s_temp_dev = DEVICE_DT_GET(DT_ALIAS(temp_sensor_0));
     if (!device_is_ready(s_temp_dev)) {
         LOG_WRN("Temperature sensor not ready: %s", s_temp_dev->name);
@@ -305,7 +305,7 @@ void sensor_monitor_init(void)
     LOG_WRN("No 'temp-sensor-0' alias in DTS — temperature sensor disabled.");
 #endif
 
-#if DT_HAS_ALIAS(voltage_sensor_0)
+#if DT_NODE_EXISTS(DT_ALIAS(voltage_sensor_0))
     s_voltage_dev = DEVICE_DT_GET(DT_ALIAS(voltage_sensor_0));
     if (!device_is_ready(s_voltage_dev)) {
         LOG_WRN("Voltage sensor not ready: %s", s_voltage_dev->name);

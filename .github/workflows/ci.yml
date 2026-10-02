@@ -1884,6 +1884,173 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
 
   # ──────────────────────────────────────────────────────────────────────────
+  # Job: freertos-examples
+  #
+  # [EDS#329] Compile-only builds of the two FreeRTOS examples that no CI job
+  # built before this one. Both were verified to build locally before the job
+  # was written, so a red result here means a regression, not an unknown.
+  #
+  #   sensor_ecu_freertos       was "codegen-validated only" — its example-*
+  #                             job checks YAML and committed generated/ files
+  #                             and never invokes a compiler.
+  #   basic_ecu_doip_freertos   had NO CI coverage of any kind.
+  #
+  # Matrixed rather than copied: these differ only by directory and ELF name.
+  # ──────────────────────────────────────────────────────────────────────────
+  freertos-examples:
+    name: "FreeRTOS Build — ${{ matrix.example }} (QEMU Cortex-M4)"
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - example: sensor_ecu_freertos
+            elf: eds_sensor_freertos.elf
+          - example: basic_ecu_doip_freertos
+            elf: eds_freertos_doip.elf
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi libnewlib-arm-none-eabi \
+            cmake ninja-build python3 python3-pip
+
+      - name: Clone FreeRTOS-Kernel
+        run: |
+          git clone --depth=1 \
+            https://github.com/FreeRTOS/FreeRTOS-Kernel.git \
+            /opt/freertos-kernel
+
+      - name: Verify pre-committed generated files
+        run: |
+          for f in examples/${{ matrix.example }}/generated/uds_init.c \
+                   examples/${{ matrix.example }}/generated/did_handlers.c \
+                   examples/${{ matrix.example }}/generated/safety_config.h \
+                   examples/${{ matrix.example }}/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
+
+      # FREERTOS_DIR and FREERTOS_CONFIG_DIR are absolute deliberately — a
+      # relative path is now rejected up front (EDS#331).
+      - name: CMake configure
+        run: |
+          cmake -B build_${{ matrix.example }} \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchain/arm-none-eabi.cmake" \
+            -DEDS_PLATFORM=freertos \
+            -DFREERTOS_DIR=/opt/freertos-kernel \
+            -DBOARD=qemu_cortex_m4 \
+            -DFREERTOS_CONFIG_DIR="${GITHUB_WORKSPACE}/examples/${{ matrix.example }}/boards/qemu_cortex_m4" \
+            -GNinja \
+            examples/${{ matrix.example }}
+
+      - name: Build
+        run: ninja -C build_${{ matrix.example }}
+
+      - name: Verify ELF and report size
+        run: |
+          elf="build_${{ matrix.example }}/${{ matrix.elf }}"
+          test -f "$elf" || (echo "FAIL: $elf not produced" && exit 1)
+          arm-none-eabi-size "$elf"
+          text_size=$(arm-none-eabi-size "$elf" | tail -1 | awk '{print $1}')
+          [ "${text_size}" -gt 0 ] \
+            || (echo "FAIL: text segment is empty" && exit 1)
+          echo "PASS: ${{ matrix.example }} built, text=${text_size} bytes"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job: zephyr-examples-native
+  #
+  # [EDS#329] Compile-only native_sim builds of the Zephyr examples that no
+  # CI job ever compiled. Their existing example-* jobs validate YAML and
+  # committed generated/ files only — #98 ("7 of 12 examples are never built
+  # by any CI job") was closed by adding those jobs, which build nothing, so
+  # the gap it described survived.
+  #
+  # native_sim because it needs no SDK download and proves what matters here:
+  # that the committed generated/ code compiles and links against the stack.
+  # It is NOT a claim that these examples run on their intended board — see
+  # the Evidence column in README.md for what each label means.
+  #
+  # fail-fast: false so one run reports every example independently rather
+  # than stopping at the first failure.
+  # ──────────────────────────────────────────────────────────────────────────
+  zephyr-examples-native:
+    name: "Zephyr Build — ${{ matrix.example }} (native_sim)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          - sensor_ecu
+          - bms_ecu
+          - motor_controller_ecu
+          - robot_joint_controller_ecu
+          - ardep_ecu
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget
+
+      - name: Install west
+        run: pip install west
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: Install project Python dependencies
+        run: pip install pyyaml jinja2
+
+      - name: Verify pre-committed generated files are present
+        working-directory: EDS
+        run: |
+          for f in examples/${{ matrix.example }}/generated/uds_init.c \
+                   examples/${{ matrix.example }}/generated/did_handlers.c \
+                   examples/${{ matrix.example }}/generated/safety_config.h \
+                   examples/${{ matrix.example }}/generated/generated_config.h; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
+
+      - name: West build — native_sim
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          west build \
+            --pristine \
+            -b native_sim \
+            EDS/examples/${{ matrix.example }} \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.overlay"
+
+      - name: Verify binary exists
+        run: |
+          test -f build/zephyr/zephyr.exe \
+            && echo "PASS: ${{ matrix.example }} built zephyr.exe" \
+            || (echo "FAIL: zephyr.exe not found" && exit 1)
+
+  # ──────────────────────────────────────────────────────────────────────────
   # Job: doip-integration
   #
   # Builds basic_ecu_doip on native_sim, runs the 20 DoIP Unity unit tests

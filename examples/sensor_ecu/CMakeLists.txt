@@ -94,7 +94,11 @@ target_sources(app PRIVATE
     # Application
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor_monitor.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/did_handlers_impl.c
+    # [#333] src/did_handlers_impl.c is deliberately NOT listed. It does not
+    # exist in this example (only in sensor_ecu_freertos), and the generated
+    # did_handlers.c below already defines did_handlers_register_all() and
+    # s_did_table — listing both would be a duplicate-symbol link failure.
+    # See sensor_ecu_freertos/CMakeLists.txt for the same hazard documented.
 
     # UDS core
     ${DIAG_ROOT}/core/uds_server.c
