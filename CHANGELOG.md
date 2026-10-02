@@ -10,6 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`ardep_ecu` and `sensor_ecu` have never compiled; both now do
+  ([#333](https://github.com/Xaloqi/EDS/issues/333)).** Found the moment the new
+  CI jobs below gave these examples a compiler for the first time. Neither
+  failure was a CI-configuration problem — both were latent breakage in
+  committed code.
+
+  - `examples/ardep_ecu/src/main.c` used `UDS_STATUS_ERR_CONDITIONS_NOT_CORRECT`
+    at four sites. That alias was deliberately deleted for MISRA C:2012 Rule
+    4.2, and `core/uds_types.h` names its replacement in the comment left in its
+    place. Every other caller in the tree was updated; these four were not, so
+    the MISRA cleanup left the repository's largest example (35 DIDs, 19 DTCs)
+    unbuildable. Now `UDS_STATUS_ERR_CONDITIONS_NOT_MET` — same value (0x55),
+    same meaning.
+  - `examples/sensor_ecu/CMakeLists.txt` listed `src/did_handlers_impl.c`, which
+    exists only under `sensor_ecu_freertos/`. It should not be listed either:
+    the generated `did_handlers.c` already in the source list defines the same
+    `did_handlers_register_all()` and `s_did_table`, so had the file been present
+    this would have been a duplicate-symbol link failure instead of a
+    missing-file error. The FreeRTOS variant documents that exact hazard. Line
+    removed, with a comment recording why it must stay removed.
+
 - **A relative `FREERTOS_DIR` no longer fails with a misleading error
   ([#331](https://github.com/Xaloqi/EDS/issues/331)).** `if(EXISTS)` is only
   well-defined for absolute paths, so a relative `FREERTOS_DIR` silently
