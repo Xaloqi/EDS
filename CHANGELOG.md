@@ -10,158 +10,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **`ardep_ecu` and `sensor_ecu` have never compiled; both now do
-  ([#333](https://github.com/Xaloqi/EDS/issues/333)).** Found the moment the new
-  CI jobs below gave these examples a compiler for the first time. Neither
-  failure was a CI-configuration problem — both were latent breakage in
-  committed code.
+- **`sovd_cda.json` and `catalog.ts` shipped double-escaped names.**
+  `_c_safe_text()` is a *C source* escaper (`\`→`\\`, `"`→`\"`, `*/`→`* /`).
+  It was applied to three SOVD fields (DID name, DTC description, routine
+  name) and — via the shared C template context builders — to the GUI
+  catalogue's names, all of which are then serialised with `json.dumps`,
+  which escapes them a second time. A DID named `Sensor "A"` reached an OEM
+  SOVD client as `Sensor \"A\"`: valid JSON, exit 0, no warning, wrong data.
+  `ecuIdentification` in the same document was always correct and is the
+  pattern the rest now follows — JSON/TS consumers get the raw value and let
+  `json.dumps` own the escaping. `_c_safe_text()` is unchanged and still
+  required for C, CAPL and Python output. No shipped example was affected
+  (0 mismatches across 180 names in all 12); the reachable trigger is an
+  ARXML import, where names and descriptions come from uncontrolled
+  SHORT-NAME/LONG-NAME text. Guarded by
+  `tests/test_codegen_structured_output_fidelity.py`.
 
-  - `examples/ardep_ecu/src/main.c` used `UDS_STATUS_ERR_CONDITIONS_NOT_CORRECT`
-    at four sites. That alias was deliberately deleted for MISRA C:2012 Rule
-    4.2, and `core/uds_types.h` names its replacement in the comment left in its
-    place. Every other caller in the tree was updated; these four were not, so
-    the MISRA cleanup left the repository's largest example (35 DIDs, 19 DTCs)
-    unbuildable. Now `UDS_STATUS_ERR_CONDITIONS_NOT_MET` — same value (0x55),
-    same meaning.
-  - `examples/sensor_ecu/CMakeLists.txt` listed `src/did_handlers_impl.c`, which
-    exists only under `sensor_ecu_freertos/`. It should not be listed either:
-    the generated `did_handlers.c` already in the source list defines the same
-    `did_handlers_register_all()` and `s_did_table`, so had the file been present
-    this would have been a duplicate-symbol link failure instead of a
-    missing-file error. The FreeRTOS variant documents that exact hazard. Line
-    removed, with a comment recording why it must stay removed.
-  - `examples/sensor_ecu/src/sensor_monitor.c` then failed on a second,
-    independent defect: `#if DT_HAS_ALIAS(temp_sensor_0)` (and the voltage
-    equivalent). **`DT_HAS_ALIAS` is not a Zephyr macro.** Undefined in `#if`
-    it evaluates as `0`, leaving `0 (temp_sensor_0)` and
-    `error: missing binary operator before token "("`. `sensor_ecu` was the only
-    place in the tree using that name; the repo's own working idiom, in
-    `platform/zephyr/zephyr_wdt.c`, is `DT_NODE_EXISTS(DT_ALIAS(...))`, which is
-    what both guards now use. Two independent defects in one never-compiled
-    example is the point of the CI jobs below.
-
-- **A relative `FREERTOS_DIR` no longer fails with a misleading error
-  ([#331](https://github.com/Xaloqi/EDS/issues/331)).** `if(EXISTS)` is only
-  well-defined for absolute paths, so a relative `FREERTOS_DIR` silently
-  satisfied the FreeRTOS-port check and then died at `add_executable()` with
-  `Cannot find source file: <rel>/tasks.c` followed by a confusing
-  `No SOURCES given to target`. All four FreeRTOS examples now reject a
-  non-absolute `FREERTOS_DIR` or `FREERTOS_CONFIG_DIR` up front, naming the
-  actual cause, and check that the directory (and `FreeRTOSConfig.h`) exists.
-
-  The guard rejects rather than guesses: resolving a relative path against an
-  assumed base could silently pick the wrong tree, which is worse than an
-  error. Verified both ways — a relative path now fails with the new message,
-  and all four examples still build with absolute paths.
-
-### Changed
-
-- **Seven examples are now actually compiled by CI
-  ([#329](https://github.com/Xaloqi/EDS/issues/329)).** Two new matrixed jobs
-  close the gap that [#98](https://github.com/Xaloqi/EDS/issues/98) described
-  but did not fix: the `example-*` jobs added when #98 closed validate YAML and
-  committed `generated/` files and never invoke a compiler, so six of twelve
-  examples had never been built for any target, and `basic_ecu_doip_freertos`
-  had no CI coverage at all.
-
-  - `freertos-examples` — compiles `sensor_ecu_freertos` and
-    `basic_ecu_doip_freertos` for QEMU Cortex-M4. Both were verified to build
-    locally before the job was written.
-  - `zephyr-examples-native` — compiles `sensor_ecu`, `bms_ecu`,
-    `motor_controller_ecu`, `robot_joint_controller_ecu` and `ardep_ecu` on
-    `native_sim`, with `fail-fast: false` so one run reports each independently.
-
-  These are compile-only. They prove the committed generated code builds and
-  links against the stack; they are not a claim that any example runs on its
-  intended board. `README.md`'s Evidence column states what each label means.
-
-  **All twelve examples are now at least compile-verified**, and the README's
-  Evidence column was updated from the actual CI results rather than from the
-  expectation of them — the `codegen-validated only` and `no CI coverage` states
-  it defined on 2026-10-02 are now both empty. The README records that this
-  became true on 2026-10-02 rather than presenting it as always-so, including
-  what the first real compile found.
-
-### Documentation
-
-- **Every example now states whether it has ever been flashed
-  ([#329](https://github.com/Xaloqi/EDS/issues/329)).** The README's example
-  table listed board targets with no indication of what had been built or run,
-  so a reader could not distinguish an example measured on real silicon from one
-  that has never been compiled. Neither `hardware-validated` nor
-  `compile-verified` appeared anywhere in the repository.
-
-  The table gains an **Evidence** column with three ordered states, each defined
-  in a new legend naming the CI job or document that proves it:
-
-  - **hardware-validated** — `safeboot_ecu` (CAN) and `basic_ecu_doip` (real
-    Ethernet), both measured on a NUCLEO-H753ZI per `docs/PERFORMANCE.md`.
-  - **compile-verified** — cross-compiled in CI for the named target, never
-    flashed: `basic_ecu` (3 board targets + native_sim), `basic_ecu_freertos`,
-    `safeboot_freertos_ecu`.
-  - **codegen-validated only** — CI validates the YAML and committed
-    `generated/` files but **never compiles the example**, for any board. Six of
-    the twelve are in this state: `ardep_ecu`, `bms_ecu`,
-    `motor_controller_ecu`, `sensor_ecu`, `sensor_ecu_freertos`,
-    `robot_joint_controller_ecu`. Their `example-*` CI jobs are named
-    "generated file validation" and do exactly that.
-
-  Also flagged: **`basic_ecu_doip_freertos` is referenced by no CI job at all.**
-
-  Two table errors fixed in the same pass — `sensor_ecu_freertos` was missing
-  entirely (the table listed 11 of 12 examples), and the boards column did not
-  mention the NUCLEO-H753ZI that the hardware measurements actually used.
-
-- **SecurityAccess replay protection is now described accurately
-  ([#328](https://github.com/Xaloqi/EDS/issues/328)).** Five places claimed, in
-  one wording or another, that a "16-bit monotonic sequence counter" is what
-  prevents replay of a captured seed/key exchange — `docs/Safety_Model.md`
-  (against REQ-SAFE), `docs/PHASE1_SECURITY_CHANGES.md`, `core/uds_aes_cmac.h`,
-  and two comment blocks in `core/uds_security_algo.{c,h}`. Both halves of that
-  claim were wrong:
-
-  - The counter is **not monotonic across a reset.** It is a RAM-resident
-    `static uint16_t` that `uds_security_algo_reset()` zeroes, so after a power
-    cycle it counts up from 1 again.
-  - The counter is **not what prevents replay.** Replay resistance comes from
-    the seed/key state machine in `core/uds_security.c`: a fresh 48-bit TRNG
-    nonce per seed request, validation against the server's own `ctx->seed`
-    (ISO 14229 SendKey carries only the key — an attacker cannot present a
-    captured seed at all), and `ctx->seed_pending` allowing one key submission
-    per issued seed. The counter is a secondary consistency check.
-
-  Also corrected in the same pass: the validator comment said only the lower 8
-  bits of the counter were compared, when the code has compared all 16 since
-  v1.7.0; and `uds_security_algo.h`'s `UDS_ALGO_SEED_LEN` block still described
-  the pre-[#94](https://github.com/Xaloqi/EDS/issues/94) seed layout (byte 6 =
-  `security_level`) that #94 corrected in the file's top comment but left behind
-  here.
-
-  **No code behaviour changed.** Two tests were added to pin the behaviour that
-  the prose now describes: `TC-RPL-016` proves a pair captured before a power
-  cycle is rejected after it when a real entropy source is present, and asserts
-  that the sequence counter demonstrably is *not* what rejects it (boot 2 reuses
-  boot 1's sequence number).
-
-### Security
-
-- **Documented: development builds are replayable across a power cycle
-  ([#328](https://github.com/Xaloqi/EDS/issues/328)).** Found while writing the
-  tests above. Where the LFSR fallback is permitted
-  (`ALGO_ENTROPY_FAIL_CLOSED = 0` — development and CI builds only),
-  `uds_security_algo_reset()` restores `s_lfsr` to the fixed constant `0xACE1`
-  **and** zeroes `s_sequence`, so the entire seed stream is regenerated
-  byte-identically from power-up and a SecurityAccess key captured in an earlier
-  power cycle unlocks the level again. Measured, not theorised — pinned as the
-  characterisation test `TC-RPL-017`.
-
-  This **cannot occur in production firmware**: `ALGO_ENTROPY_FAIL_CLOSED` is an
-  alias for `EDS_BUILD_IS_PRODUCTION` (SEC-BUILD-MODE-01), so a production build
-  refuses the seed request outright rather than satisfying it from the LFSR. The
-  predictability of LFSR seeds was already documented; this specific consequence
-  of it was not stated anywhere and no test exercised it. `docs/Safety_Model.md`
-  now carries it as an explicit warning, with the instruction not to run a
-  development-mode build on a vehicle network.
+- **Codegen accepted DID and routine names that collide as C identifiers.**
+  `_c_identifier()` lowercases and collapses non-alphanumeric runs, so
+  `Foo-Bar`, `Foo_Bar` and `Foo Bar` all become `foo_bar`. Codegen exited 0
+  and emitted C with duplicate `did_read_*`/`s_mock_*` (and
+  `routine_start_*`/`routine_results_*`) definitions that do not compile.
+  Now a validation error naming both entries, consistent with the existing
+  duplicate-DID check. A name with no alphanumeric characters (empty
+  identifier) is rejected too. Known deferred item from the 2026-08-31
+  campaign; fixed alongside the escaping work as the same defect class.
 
 ## [1.16.1] — 2026-09-27
 

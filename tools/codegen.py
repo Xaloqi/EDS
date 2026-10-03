@@ -512,6 +512,9 @@ def validate_config(cfg: Dict[str, Any]) -> None:
         _fatal(f"VALIDATION: {len(dids)} DIDs exceed maximum of {MAX_DID_COUNT}.")
 
     seen_dids: Dict[str, int] = {}
+    # Maps the generated C identifier back to the dids[] index that claimed
+    # it. Distinct names can normalise to one identifier (see the check below).
+    seen_did_c_names: Dict[str, int] = {}
 
     for idx, did in enumerate(dids):
         pfx = f"VALIDATION: dids[{idx}]"
@@ -548,6 +551,35 @@ def validate_config(cfg: Dict[str, Any]) -> None:
         # name — non-empty string
         if not isinstance(did.get("name"), str) or not did["name"].strip():
             _fatal(f"{pfx}: 'name' must be a non-empty string.")
+
+        # name — must yield a usable, unique C identifier.
+        #
+        # _c_identifier() lowercases and collapses every run of non-alphanumeric
+        # characters to "_", so names that differ only by separator ("Foo-Bar",
+        # "Foo_Bar", "Foo Bar") all become "foo_bar". Codegen used to accept
+        # them and emit C with duplicate definitions:
+        #     error: redefinition of 's_mock_foo_bar'
+        #     error: redefinition of 'did_read_foo_bar'
+        # — exit 0, broken build. Reachable from an ARXML import, where
+        # SHORT-NAMEs come from different AUTOSAR packages. 2026-10-03 campaign.
+        did_c_name = _c_identifier(did["name"])
+        if not did_c_name:
+            _fatal(
+                f"{pfx}: 'name' {did['name']!r} contains no alphanumeric "
+                "characters, so it yields an empty C identifier. Give the DID "
+                "a name containing at least one letter or digit."
+            )
+        if did_c_name in seen_did_c_names:
+            other = seen_did_c_names[did_c_name]
+            _fatal(
+                f"{pfx}: 'name' {did['name']!r} and dids[{other}] "
+                f"{dids[other]['name']!r} both generate the C identifier "
+                f"'{did_c_name}', which would emit duplicate definitions "
+                "(did_read_*, s_mock_*) that do not compile. Names must be "
+                "unique after lowercasing and replacing non-alphanumeric "
+                "characters with '_'."
+            )
+        seen_did_c_names[did_c_name] = idx
 
         # access — list of 'read' / 'write'
         access = did.get("access", [])
@@ -648,6 +680,9 @@ def validate_config(cfg: Dict[str, Any]) -> None:
         _fatal(f"VALIDATION: {len(routines)} routines exceed maximum of {MAX_ROUTINE_COUNT}.")
 
     seen_rids: Dict[str, int] = {}
+    # See the matching DID check: distinct names can collapse to one
+    # C identifier (routine_start_*, routine_results_*).
+    seen_routine_c_names: Dict[str, int] = {}
 
     for idx, routine in enumerate(routines):
         pfx = f"VALIDATION: routines[{idx}]"
@@ -675,6 +710,23 @@ def validate_config(cfg: Dict[str, Any]) -> None:
 
         if not routine.get("name"):
             _fatal(f"{pfx}: 'name' field is required.")
+
+        routine_c_name = _c_identifier(routine["name"])
+        if not routine_c_name:
+            _fatal(
+                f"{pfx}: 'name' {routine['name']!r} contains no alphanumeric "
+                "characters, so it yields an empty C identifier."
+            )
+        if routine_c_name in seen_routine_c_names:
+            other = seen_routine_c_names[routine_c_name]
+            _fatal(
+                f"{pfx}: 'name' {routine['name']!r} and routines[{other}] "
+                f"{routines[other]['name']!r} both generate the C identifier "
+                f"'{routine_c_name}', which would emit duplicate "
+                "routine_start_*/routine_results_* definitions that do not "
+                "compile."
+            )
+        seen_routine_c_names[routine_c_name] = idx
 
         session = routine.get("min_session", "default")
         if session not in SESSION_MAP:
@@ -790,6 +842,11 @@ def _build_did_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "id":                         norm_id,
             "id_int":                     int(raw_id, 16),
             "name":                       _c_safe_text(did["name"]),
+            # Unescaped original, for consumers that are NOT C/CAPL/Python —
+            # notably generate_gui_types(), which emits TypeScript via
+            # json.dumps and would otherwise double-escape. See the
+            # "structured output" note on _c_safe_text().
+            "name_raw":                   did["name"],
             "c_name":                     c_name,
             "access_read":                "read"  in did.get("access", []),
             "access_write":               "write" in did.get("access", []),
@@ -853,6 +910,9 @@ def _build_routine_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "id":                      norm_id,
             "id_int":                  int(raw_id, 16),
             "name":                    _c_safe_text(routine["name"]),
+            # Unescaped original — see the matching note in _build_did_list().
+            "name_raw":                routine["name"],
+            "description_raw":         routine.get("description", ""),
             "c_name":                  c_name,
             "min_session":             SESSION_MAP.get(
                                            routine.get("min_session", "extended"),
@@ -914,6 +974,14 @@ def build_sovd_cda(cfg):
     Serialised with json.dumps(indent=2) into generated/sovd_cda.json.
     Building a Python dict avoids JSON escaping issues that a Jinja2
     template would introduce for JSON output.
+
+    Every string below is the **raw** config value. json.dumps owns the
+    escaping; pre-escaping with _c_safe_text() (a C-source escaper) doubles
+    every backslash and quote, so an OEM SOVD client reads a name that does
+    not match the ECU's own configuration. That defect shipped in the DID
+    name, DTC description and routine name until 2026-10-03 — while
+    ecuIdentification, three lines apart, was always correct. Guarded by
+    tests/test_codegen_structured_output_fidelity.py.
     """
     meta       = cfg["metadata"]
     ecu_block  = cfg.get("ecu", {}) or {}
@@ -927,7 +995,7 @@ def build_sovd_cda(cfg):
         access = did.get("access", [])
         entry = {
             "id":              _normalise_hex(did["id"]),
-            "name":            _c_safe_text(did["name"]),
+            "name":            did["name"],
             "dataLengthBytes": did.get("data_length", 4),
             "access":          list(access),
             "minSession":      did.get("min_session", "default"),
@@ -941,7 +1009,7 @@ def build_sovd_cda(cfg):
     for dtc in cfg.get("dtcs", []):
         dtc_entries.append({
             "code":        _normalise_hex(dtc["code"]),
-            "description": _c_safe_text(dtc.get("description", "")),
+            "description": dtc.get("description", ""),
             "severity":    dtc.get("severity", "check_at_next_halt"),
         })
 
@@ -950,7 +1018,7 @@ def build_sovd_cda(cfg):
         support = list(routine.get("support", ["start"]))
         routine_entries.append({
             "id":                    _normalise_hex(routine["id"]),
-            "name":                  _c_safe_text(routine["name"]),
+            "name":                  routine["name"],
             "minSession":            routine.get("min_session", "extended"),
             "securityLevel":         routine.get("security_level", 0),
             "supportedSubFunctions": support,
@@ -2194,7 +2262,7 @@ def generate_gui_types(cfg: Dict[str, Any], gui_out_dir: "Path") -> List[str]:
 
         fields: List[str] = [
             f"hex: '{d['id']}'",
-            f"name: {json.dumps(d.get('name', d['id']))}",
+            f"name: {json.dumps(d.get('name_raw', d.get('name', d['id'])))}",
             f"length: {d.get('data_length', 1)}",
             f"type: '{did_type}'",
         ]
@@ -2216,8 +2284,8 @@ def generate_gui_types(cfg: Dict[str, Any], gui_out_dir: "Path") -> List[str]:
             r_min_sess = r_min_sess[len("UDS_SESSION_"):].lower()
         fields = [
             f"id: '{r['id']}'",
-            f"name: {json.dumps(r.get('name', r['id']))}",
-            f"description: {json.dumps(r.get('description', ''))}",
+            f"name: {json.dumps(r.get('name_raw', r.get('name', r['id'])))}",
+            f"description: {json.dumps(r.get('description_raw', r.get('description', '')))}",
             f"minSession: '{r_min_sess}'",
             f"securityLevel: {r.get('security_level', 0)}",
             f"support: [{support_ts}]",
