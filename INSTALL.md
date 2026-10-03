@@ -605,7 +605,10 @@ A 14-day grace period applies after expiry before codegen stops working.
 ## Support
 
 **Email:** contact@xaloqi.com  
-**Response time:** 2 business days (Developer) / 5 business days SLA (Professional)  
+**Response time:** Developer — community support via GitHub Issues, no
+response-time guarantee. Professional — initial response within 5 business
+days for issues affecting production use.  
+These are the terms in `LICENSE_COMMERCIAL.txt` §Support, which governs.  
 **License issues:** contact@xaloqi.com  
 
 For MISRA or safety documentation questions (Professional), include your ECU project context and the specific requirement in question.

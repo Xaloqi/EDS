@@ -36,6 +36,182 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   identifier) is rejected too. Known deferred item from the 2026-08-31
   campaign; fixed alongside the escaping work as the same defect class.
 
+### Changed
+
+- **Customer-facing support terms reconciled to `LICENSE_COMMERCIAL.txt`,
+  which governs.** The Professional SLA was stated four different ways:
+  `INSTALL.md` promised Developer 2 business days / Professional 5 — making
+  the EUR 1,990 tier look slower than the cheaper one, and inventing a
+  Developer guarantee the contract explicitly denies — while
+  `docs/COMMERCIAL_ONBOARDING.md` promised 1 business day against a contract
+  that says 5, and routed customers to `support@xaloqi.com`, an address used
+  nowhere else in the product or on the website. All now state the
+  contract's terms and point at it. Guarded by
+  `tests/test_support_terms_consistency.py`.
+
+- **`LICENSE_COMMERCIAL.txt` misidentified every Professional deliverable it
+  enumerates.** It named Safety Manual `Rev1.0` (ships as `Rev1.3`) and
+  placed the MISRA log and RTM under `docs/` (they ship in `safety_docs/`).
+  A safety assessor cites evidence by document ID, revision and location, so
+  the binding document disagreeing with the box is exactly what gets picked
+  up. The manual is now referenced without a revision number — the revision
+  ships in the package, so the contract no longer carries a fact that drifts
+  at every Safety Manual revision.
+
+### Fixed
+
+- **`ardep_ecu` and `sensor_ecu` have never compiled; both now do
+  ([#333](https://github.com/Xaloqi/EDS/issues/333)).** Found the moment the new
+  CI jobs below gave these examples a compiler for the first time. Neither
+  failure was a CI-configuration problem — both were latent breakage in
+  committed code.
+
+  - `examples/ardep_ecu/src/main.c` used `UDS_STATUS_ERR_CONDITIONS_NOT_CORRECT`
+    at four sites. That alias was deliberately deleted for MISRA C:2012 Rule
+    4.2, and `core/uds_types.h` names its replacement in the comment left in its
+    place. Every other caller in the tree was updated; these four were not, so
+    the MISRA cleanup left the repository's largest example (35 DIDs, 19 DTCs)
+    unbuildable. Now `UDS_STATUS_ERR_CONDITIONS_NOT_MET` — same value (0x55),
+    same meaning.
+  - `examples/sensor_ecu/CMakeLists.txt` listed `src/did_handlers_impl.c`, which
+    exists only under `sensor_ecu_freertos/`. It should not be listed either:
+    the generated `did_handlers.c` already in the source list defines the same
+    `did_handlers_register_all()` and `s_did_table`, so had the file been present
+    this would have been a duplicate-symbol link failure instead of a
+    missing-file error. The FreeRTOS variant documents that exact hazard. Line
+    removed, with a comment recording why it must stay removed.
+  - `examples/sensor_ecu/src/sensor_monitor.c` then failed on a second,
+    independent defect: `#if DT_HAS_ALIAS(temp_sensor_0)` (and the voltage
+    equivalent). **`DT_HAS_ALIAS` is not a Zephyr macro.** Undefined in `#if`
+    it evaluates as `0`, leaving `0 (temp_sensor_0)` and
+    `error: missing binary operator before token "("`. `sensor_ecu` was the only
+    place in the tree using that name; the repo's own working idiom, in
+    `platform/zephyr/zephyr_wdt.c`, is `DT_NODE_EXISTS(DT_ALIAS(...))`, which is
+    what both guards now use. Two independent defects in one never-compiled
+    example is the point of the CI jobs below.
+
+- **A relative `FREERTOS_DIR` no longer fails with a misleading error
+  ([#331](https://github.com/Xaloqi/EDS/issues/331)).** `if(EXISTS)` is only
+  well-defined for absolute paths, so a relative `FREERTOS_DIR` silently
+  satisfied the FreeRTOS-port check and then died at `add_executable()` with
+  `Cannot find source file: <rel>/tasks.c` followed by a confusing
+  `No SOURCES given to target`. All four FreeRTOS examples now reject a
+  non-absolute `FREERTOS_DIR` or `FREERTOS_CONFIG_DIR` up front, naming the
+  actual cause, and check that the directory (and `FreeRTOSConfig.h`) exists.
+
+  The guard rejects rather than guesses: resolving a relative path against an
+  assumed base could silently pick the wrong tree, which is worse than an
+  error. Verified both ways — a relative path now fails with the new message,
+  and all four examples still build with absolute paths.
+
+### Changed
+
+- **Seven examples are now actually compiled by CI
+  ([#329](https://github.com/Xaloqi/EDS/issues/329)).** Two new matrixed jobs
+  close the gap that [#98](https://github.com/Xaloqi/EDS/issues/98) described
+  but did not fix: the `example-*` jobs added when #98 closed validate YAML and
+  committed `generated/` files and never invoke a compiler, so six of twelve
+  examples had never been built for any target, and `basic_ecu_doip_freertos`
+  had no CI coverage at all.
+
+  - `freertos-examples` — compiles `sensor_ecu_freertos` and
+    `basic_ecu_doip_freertos` for QEMU Cortex-M4. Both were verified to build
+    locally before the job was written.
+  - `zephyr-examples-native` — compiles `sensor_ecu`, `bms_ecu`,
+    `motor_controller_ecu`, `robot_joint_controller_ecu` and `ardep_ecu` on
+    `native_sim`, with `fail-fast: false` so one run reports each independently.
+
+  These are compile-only. They prove the committed generated code builds and
+  links against the stack; they are not a claim that any example runs on its
+  intended board. `README.md`'s Evidence column states what each label means.
+
+  **All twelve examples are now at least compile-verified**, and the README's
+  Evidence column was updated from the actual CI results rather than from the
+  expectation of them — the `codegen-validated only` and `no CI coverage` states
+  it defined on 2026-10-02 are now both empty. The README records that this
+  became true on 2026-10-02 rather than presenting it as always-so, including
+  what the first real compile found.
+
+### Documentation
+
+- **Every example now states whether it has ever been flashed
+  ([#329](https://github.com/Xaloqi/EDS/issues/329)).** The README's example
+  table listed board targets with no indication of what had been built or run,
+  so a reader could not distinguish an example measured on real silicon from one
+  that has never been compiled. Neither `hardware-validated` nor
+  `compile-verified` appeared anywhere in the repository.
+
+  The table gains an **Evidence** column with three ordered states, each defined
+  in a new legend naming the CI job or document that proves it:
+
+  - **hardware-validated** — `safeboot_ecu` (CAN) and `basic_ecu_doip` (real
+    Ethernet), both measured on a NUCLEO-H753ZI per `docs/PERFORMANCE.md`.
+  - **compile-verified** — cross-compiled in CI for the named target, never
+    flashed: `basic_ecu` (3 board targets + native_sim), `basic_ecu_freertos`,
+    `safeboot_freertos_ecu`.
+  - **codegen-validated only** — CI validates the YAML and committed
+    `generated/` files but **never compiles the example**, for any board. Six of
+    the twelve are in this state: `ardep_ecu`, `bms_ecu`,
+    `motor_controller_ecu`, `sensor_ecu`, `sensor_ecu_freertos`,
+    `robot_joint_controller_ecu`. Their `example-*` CI jobs are named
+    "generated file validation" and do exactly that.
+
+  Also flagged: **`basic_ecu_doip_freertos` is referenced by no CI job at all.**
+
+  Two table errors fixed in the same pass — `sensor_ecu_freertos` was missing
+  entirely (the table listed 11 of 12 examples), and the boards column did not
+  mention the NUCLEO-H753ZI that the hardware measurements actually used.
+
+- **SecurityAccess replay protection is now described accurately
+  ([#328](https://github.com/Xaloqi/EDS/issues/328)).** Five places claimed, in
+  one wording or another, that a "16-bit monotonic sequence counter" is what
+  prevents replay of a captured seed/key exchange — `docs/Safety_Model.md`
+  (against REQ-SAFE), `docs/PHASE1_SECURITY_CHANGES.md`, `core/uds_aes_cmac.h`,
+  and two comment blocks in `core/uds_security_algo.{c,h}`. Both halves of that
+  claim were wrong:
+
+  - The counter is **not monotonic across a reset.** It is a RAM-resident
+    `static uint16_t` that `uds_security_algo_reset()` zeroes, so after a power
+    cycle it counts up from 1 again.
+  - The counter is **not what prevents replay.** Replay resistance comes from
+    the seed/key state machine in `core/uds_security.c`: a fresh 48-bit TRNG
+    nonce per seed request, validation against the server's own `ctx->seed`
+    (ISO 14229 SendKey carries only the key — an attacker cannot present a
+    captured seed at all), and `ctx->seed_pending` allowing one key submission
+    per issued seed. The counter is a secondary consistency check.
+
+  Also corrected in the same pass: the validator comment said only the lower 8
+  bits of the counter were compared, when the code has compared all 16 since
+  v1.7.0; and `uds_security_algo.h`'s `UDS_ALGO_SEED_LEN` block still described
+  the pre-[#94](https://github.com/Xaloqi/EDS/issues/94) seed layout (byte 6 =
+  `security_level`) that #94 corrected in the file's top comment but left behind
+  here.
+
+  **No code behaviour changed.** Two tests were added to pin the behaviour that
+  the prose now describes: `TC-RPL-016` proves a pair captured before a power
+  cycle is rejected after it when a real entropy source is present, and asserts
+  that the sequence counter demonstrably is *not* what rejects it (boot 2 reuses
+  boot 1's sequence number).
+
+### Security
+
+- **Documented: development builds are replayable across a power cycle
+  ([#328](https://github.com/Xaloqi/EDS/issues/328)).** Found while writing the
+  tests above. Where the LFSR fallback is permitted
+  (`ALGO_ENTROPY_FAIL_CLOSED = 0` — development and CI builds only),
+  `uds_security_algo_reset()` restores `s_lfsr` to the fixed constant `0xACE1`
+  **and** zeroes `s_sequence`, so the entire seed stream is regenerated
+  byte-identically from power-up and a SecurityAccess key captured in an earlier
+  power cycle unlocks the level again. Measured, not theorised — pinned as the
+  characterisation test `TC-RPL-017`.
+
+  This **cannot occur in production firmware**: `ALGO_ENTROPY_FAIL_CLOSED` is an
+  alias for `EDS_BUILD_IS_PRODUCTION` (SEC-BUILD-MODE-01), so a production build
+  refuses the seed request outright rather than satisfying it from the LFSR. The
+  predictability of LFSR seeds was already documented; this specific consequence
+  of it was not stated anywhere and no test exercised it. `docs/Safety_Model.md`
+  now carries it as an explicit warning, with the instruction not to run a
+  development-mode build on a vehicle network.
 ## [1.16.1] — 2026-09-27
 
 ### Fixed
