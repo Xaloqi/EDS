@@ -289,6 +289,7 @@ Open `http://localhost:3000`. The demo bridge simulates a live ECU with sensor d
 For real hardware, connect your ECU via CAN and run:
 
 ```bash
+cd gui
 bash start-can.sh
 ```
 
