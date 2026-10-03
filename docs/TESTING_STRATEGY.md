@@ -1,8 +1,11 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.16.1  
-**Status:** 52/52 unit test modules passing. 25/25 CI jobs green. 68/68 harness
-tests passing — **Professional tier only**: `harness/` sources are a gitignored
+**Status:** 52/52 unit test modules passing. All CI jobs green — the count is
+deliberately not restated here, because a hand-maintained one has now drifted
+twice (#97, then again while this line read "25"); `.github/workflows/ci.yml`'s
+`jobs:` block is the count. 68/68 harness tests passing — **Professional tier
+only**: `harness/` sources are a gitignored
 commercial deliverable (#68), absent from a Developer-tier checkout (every
 public clone and CI run), which reports the harness suite **BLOCKED**, not a
 pass, per ADR-005 (execution-truth semantics — see `xaloqi-knowledge`'s
