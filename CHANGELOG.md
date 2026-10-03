@@ -10,6 +10,56 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`sovd_cda.json` and `catalog.ts` shipped double-escaped names.**
+  `_c_safe_text()` is a *C source* escaper (`\`→`\\`, `"`→`\"`, `*/`→`* /`).
+  It was applied to three SOVD fields (DID name, DTC description, routine
+  name) and — via the shared C template context builders — to the GUI
+  catalogue's names, all of which are then serialised with `json.dumps`,
+  which escapes them a second time. A DID named `Sensor "A"` reached an OEM
+  SOVD client as `Sensor \"A\"`: valid JSON, exit 0, no warning, wrong data.
+  `ecuIdentification` in the same document was always correct and is the
+  pattern the rest now follows — JSON/TS consumers get the raw value and let
+  `json.dumps` own the escaping. `_c_safe_text()` is unchanged and still
+  required for C, CAPL and Python output. No shipped example was affected
+  (0 mismatches across 180 names in all 12); the reachable trigger is an
+  ARXML import, where names and descriptions come from uncontrolled
+  SHORT-NAME/LONG-NAME text. Guarded by
+  `tests/test_codegen_structured_output_fidelity.py`.
+
+- **Codegen accepted DID and routine names that collide as C identifiers.**
+  `_c_identifier()` lowercases and collapses non-alphanumeric runs, so
+  `Foo-Bar`, `Foo_Bar` and `Foo Bar` all become `foo_bar`. Codegen exited 0
+  and emitted C with duplicate `did_read_*`/`s_mock_*` (and
+  `routine_start_*`/`routine_results_*`) definitions that do not compile.
+  Now a validation error naming both entries, consistent with the existing
+  duplicate-DID check. A name with no alphanumeric characters (empty
+  identifier) is rejected too. Known deferred item from the 2026-08-31
+  campaign; fixed alongside the escaping work as the same defect class.
+
+### Changed
+
+- **Customer-facing support terms reconciled to `LICENSE_COMMERCIAL.txt`,
+  which governs.** The Professional SLA was stated four different ways:
+  `INSTALL.md` promised Developer 2 business days / Professional 5 — making
+  the EUR 1,990 tier look slower than the cheaper one, and inventing a
+  Developer guarantee the contract explicitly denies — while
+  `docs/COMMERCIAL_ONBOARDING.md` promised 1 business day against a contract
+  that says 5, and routed customers to `support@xaloqi.com`, an address used
+  nowhere else in the product or on the website. All now state the
+  contract's terms and point at it. Guarded by
+  `tests/test_support_terms_consistency.py`.
+
+- **`LICENSE_COMMERCIAL.txt` misidentified every Professional deliverable it
+  enumerates.** It named Safety Manual `Rev1.0` (ships as `Rev1.3`) and
+  placed the MISRA log and RTM under `docs/` (they ship in `safety_docs/`).
+  A safety assessor cites evidence by document ID, revision and location, so
+  the binding document disagreeing with the box is exactly what gets picked
+  up. The manual is now referenced without a revision number — the revision
+  ships in the package, so the contract no longer carries a fact that drifts
+  at every Safety Manual revision.
+
+### Fixed
+
 - **`ardep_ecu` and `sensor_ecu` have never compiled; both now do
   ([#333](https://github.com/Xaloqi/EDS/issues/333)).** Found the moment the new
   CI jobs below gave these examples a compiler for the first time. Neither
@@ -162,7 +212,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   of it was not stated anywhere and no test exercised it. `docs/Safety_Model.md`
   now carries it as an explicit warning, with the instruction not to run a
   development-mode build on a vehicle network.
-
 ## [1.16.1] — 2026-09-27
 
 ### Fixed

@@ -95,9 +95,10 @@ Developer tier (€690/year):
 
 Professional tier (€1,990/year):
   - Everything in Developer tier, plus:
-  - Safety Manual (EDS_Safety_Manual_EDS-SM-001_Rev1.0)
-  - MISRA C Deviation Log (docs/MISRA_DEVIATION_LOG.md)
-  - Requirements Traceability Matrix (docs/EDS_Requirements_
+  - Safety Manual (EDS_Safety_Manual_EDS-SM-001; the revision
+    current at the time of delivery ships in safety_docs/)
+  - MISRA C Deviation Log (safety_docs/MISRA_DEVIATION_LOG.md)
+  - Requirements Traceability Matrix (safety_docs/EDS_Requirements_
     Traceability_Matrix.csv)
   - Priority email support (response within 5 business days)
 

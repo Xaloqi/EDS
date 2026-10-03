@@ -347,6 +347,8 @@ For the full license text, see the `LICENSE_COMMERCIAL.txt` file included in you
 
 ## Support
 
-- **Email:** support@xaloqi.com
+- **Email:** contact@xaloqi.com
 - **GitHub Issues (community/bugs):** [github.com/Xaloqi/EDS/issues](https://github.com/Xaloqi/EDS/issues)
-- **Professional tier:** priority response within 1 business day
+- **Professional tier:** priority email support — initial response within 5
+  business days for issues affecting production use
+  (`LICENSE_COMMERCIAL.txt` §Support)
