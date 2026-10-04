@@ -1,0 +1,169 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/vehicle_state_ecu/diagnostics_config.yaml
+#
+# PURPOSE: Vehicle-state ECU — reads two vehicle-state inputs (vehicle speed,
+#          engine speed) and drives an indicator output stage derived from
+#          them. This file is the single source of truth: tools/codegen.py
+#          turns it into generated/ (the firmware's DID/DTC/routine tables),
+#          and the same file is passed to `testlab-run --config` as the
+#          campaign's ECU description.
+#
+# SHAPE:   Mirrors the input/output shape of a plain Zephyr vehicle-state demo
+#          application (two vehicle-state inputs -> one visual output stage),
+#          and adds the diagnostics layer such an application does not have:
+#          DIDs for both inputs, DTCs for the faults those inputs can produce,
+#          and a RoutineControl actuation path over the output stage.
+#
+# TARGET:  native_sim (primary). Portable to any Zephyr board with a CAN
+#          peripheral; this example ships no board-specific hardware target
+#          of its own.
+#
+# SAFETY CONTEXT : Example application — not safety-assessed.
+# CODING STANDARD: MISRA C:2012 alignment intended.
+# SPDX-License-Identifier: Apache-2.0
+# =============================================================================
+
+schema_version: 1
+
+metadata:
+  ecu_name: "VehicleStateECU"
+  version:  "0.1.0"
+  description: >
+    Vehicle-state ECU: consumes vehicle speed and engine speed, drives an
+    indicator output stage derived from both, and exposes the whole thing
+    over ISO 14229 — DIDs, DTCs and RoutineControl.
+
+# -----------------------------------------------------------------------------
+# CAN addressing — ISO 15765-4 PHYSICAL addressing (ECU #0), not the 0x7DF
+# functional (broadcast) request basic_ecu uses. An ECU listening on 0x7DF
+# answers every request addressed to every ECU on the bus; this example's
+# own address is a deliberate, explicit choice (ASIL-B requires one — see
+# ASIL_B_REQUIRE_EXPLICIT_CAN_IDS in tools/codegen.py).
+# -----------------------------------------------------------------------------
+can:
+  rx_can_id: "0x7E0"   # tester -> ECU (physical request, ECU address 0)
+  tx_can_id: "0x7E8"   # ECU -> tester (physical response)
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+dids:
+
+  # ── A. ECU identity (ISO 14229-1 Annex F) ─────────────────────────────────
+
+  - id:   "0xF190"
+    name: "VehicleIdentificationNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+  - id:   "0xF18C"
+    name: "ECUSerialNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 4
+
+  - id:   "0xF189"
+    name: "ECUSoftwareVersionNumber"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4            # major.minor.patch.build, one byte each
+
+  # ── B. Vehicle-state inputs ───────────────────────────────────────────────
+  #
+  # These are the two signals the application logic consumes. This ECU does
+  # not own the sensors — on a vehicle it would receive both over the bus —
+  # so the DIDs are the diagnostic view of received signals.
+  #
+  # DID IDs follow the OBD-II Mode 01 PID convention already used by
+  # examples/basic_ecu (PID 0x0C = engine RPM -> 0x0C00, PID 0x0D = vehicle
+  # speed -> 0x0D00). 0x0C00 keeps basic_ecu's exact width and scaling.
+  #
+  # WRITE ACCESS — READ THIS BEFORE SHIPPING:
+  #   'write' is the bench / HIL signal-injection path. On native_sim there is
+  #   no vehicle bus, so writing these DIDs is how a test campaign drives the
+  #   ECU's inputs and provokes its diagnostic monitors (see campaigns/).
+  #   It is gated behind a SecurityAccess level 1 challenge (0x27,
+  #   AES-128-CMAC). In a production configuration, remove 'write' from
+  #   'access' here, or compile the injection path out of the build.
+
+  - id:   "0x0C00"
+    name: "VehicleState_EngineSpeed_rpm"
+    access:
+      - read
+      - write
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1       # ASIL-B: writable DID must be >= 1
+    data_length: 2                 # uint16 big-endian, LSB = 1 rpm
+
+  - id:   "0x0D00"
+    name: "VehicleState_VehicleSpeed_kph"
+    access:
+      - read
+      - write
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 2                 # uint16 big-endian, LSB = 0.1 km/h
+
+# -----------------------------------------------------------------------------
+# DTCs — SAE J2012 codes, 3-byte form (2-byte DTC + failure type byte).
+# One fault per input, both detectable from these two signals alone.
+# Triggers are implemented in src/vehicle_state.c (100 ms monitor task).
+# -----------------------------------------------------------------------------
+dtcs:
+  - code:        "0xC10000"   # U0100-00
+    description: "Lost communication with engine control module - engine speed input not refreshed"
+    severity:    "check_at_next_halt"
+
+  - code:        "0x050064"   # P0500-64 (FTB 0x64 = signal plausibility failure)
+    description: "Vehicle speed signal implausible against engine speed"
+    severity:    "maintenance_only"
+
+# -----------------------------------------------------------------------------
+# Routines — the actuation path over the indicator output stage.
+# RIDs are in the ISO 14229-1 vehicleManufacturerSpecific range, distinct
+# from basic_ecu's 0xFF00/0xFF01 (near ISO's reserved EraseMemory /
+# CheckProgrammingDependencies range) — same convention as
+# motor_controller_ecu's 0xCC0x.
+#
+# Both routines are non-blocking: startRoutine returns within P2 (25 ms) and
+# the work runs in the application's 100 ms task. 0xC100 is polled via
+# requestRoutineResults; 0xC101 holds state until stopRoutine (or until the
+# session returns to Default, including on S3 timeout, which releases it).
+# -----------------------------------------------------------------------------
+routines:
+  - id:   "0xC100"
+    name: "IndicatorOutputSelfTest"
+    description: >
+      Walk the indicator output through all patterns, checking driver
+      feedback at each step, then restore the application state.
+      Asynchronous: start returns 'in progress'; poll
+      requestRoutineResults for the verdict.
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+  - id:   "0xC101"
+    name: "IndicatorLampCheck"
+    description: >
+      Take over the indicator output and hold the all-on lamp-check
+      pattern (start); release it and return control to the application
+      state machine (stop). Released automatically when the session
+      returns to Default.
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start", "stop"]

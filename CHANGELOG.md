@@ -8,6 +8,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **`examples/vehicle_state_ecu`** — a vehicle-state ECU example (speed and
+  engine-speed DIDs, two SAE J2012 DTCs, a RoutineControl actuation path
+  over an indicator output stage, and a TestLab campaign). Primary target
+  `native_sim`; `generated/` is pre-committed with one documented,
+  intentional departure from the usual stub pattern — see the banner at
+  the top of `generated/routine_handlers.c`.
+
 ### Fixed
 
 - **`sovd_cda.json` and `catalog.ts` shipped double-escaped names.**
