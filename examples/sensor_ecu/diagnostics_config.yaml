@@ -4,25 +4,26 @@
 #
 # PURPOSE: Zone controller ECU with real sensor integration.
 #
-#          Demonstrates the complete sensor → DID → DTC pattern:
+#          [EDS#339] The diagram below describes the INTENDED pattern, not
+#          the current state — it does not hold yet:
 #
 #            Zephyr sensor API
 #              └─ sensor_sample_fetch()   reads ambient temp + supply voltage
 #              └─ sensor_channel_get()    extracts measurement
 #                   │
 #                   ▼
-#            did_handlers_impl.c
-#              └─ sensor_ecu_read_ambient_temp()   → DID 0xD001
-#              └─ sensor_ecu_read_supply_voltage() → DID 0xD002
-#                   │
-#                   ▼
 #            sensor_monitor thread (sensor_monitor.c)
 #              └─ checks thresholds every 100 ms
-#              └─ calls dtc_database_set_status() when fault detected
+#              └─ calls dtc_database_set_status() when fault detected   [this part is real]
 #                   │
 #                   ▼
 #            UDS tester sends 0x19 ReadDTCInformation
-#              └─ returns active DTCs with status byte
+#              └─ returns active DTCs with status byte                  [this part is real]
+#
+#          The DID-facing half is not: there is no did_handlers_impl.c in
+#          this repo, and the registered DID 0xD001/0xD002/0xD003 read
+#          callbacks (generated/did_handlers.c) are the usual static-mock
+#          stubs, not wired to sensor_monitor.c's readings at all.
 #
 # TARGET HARDWARE:
 #   Any Zephyr-supported board with:
@@ -31,8 +32,10 @@
 #     - A voltage monitor (DT alias: voltage-sensor-0)
 #       Examples: INA219, ADC voltage divider, dedicated PMIC
 #
-#   On native_sim: stub implementations return synthetic values that
-#   cycle through normal → fault → recovery to demonstrate DTC behaviour.
+#   On native_sim: [EDS#339] currently fails to link — the stub sensor
+#   driver this section used to describe does not exist in the vendored
+#   Zephyr tree. See boards/native_sim/native_sim.overlay and
+#   src/sensor_monitor.c for the full finding.
 #
 # DID ADDRESS MAP:
 #   0xD0xx  — D0 = "Diagnostics/Data" : sensor measurements

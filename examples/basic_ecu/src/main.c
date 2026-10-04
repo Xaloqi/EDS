@@ -18,9 +18,13 @@
  *   diag_task    — 1 ms poll loop: CAN RX → ISO-TP → UDS dispatch → CAN TX
  *
  * DID HANDLERS:
- *   Stub implementations for all 5 DIDs. Each stub returns a deterministic
- *   value suitable for testing. Replace with real sensor reads before
- *   integration testing.
+ *   Live in generated/did_handlers.c, registered by did_handlers_register_all()
+ *   via uds_generated_init() below. Each returns a deterministic stub value
+ *   (see generated/did_handlers.c's own TODO markers) until replaced with real
+ *   sensor/NVM access. [EDS#340]: this file used to also declare CamelCase
+ *   did_read_* / did_write_* functions of its own — they were never registered
+ *   with anything and were unreachable dead code; removed rather than left to
+ *   mislead the next integrator copying this file as a starting point.
  *
  * BUILDING:
  *   west build -b native_sim examples/basic_ecu
@@ -82,18 +86,6 @@ LOG_MODULE_REGISTER(basic_ecu, LOG_LEVEL_INF);
 #ifndef CONFIG_DIAG_TASK_PRIORITY
 #define CONFIG_DIAG_TASK_PRIORITY     (5)
 #endif
-
-/* =============================================================================
- * Application state — BasicECU
- *
- * Stub values for the 5 DIDs. Replace with real sensor/NVM reads in production.
- * =============================================================================*/
-
-static const uint8_t s_vin[17]            = "BASICECUEDS00001";
-static const uint8_t s_ecu_serial[4]      = { 0x01U, 0x00U, 0x00U, 0x01U };
-static       uint8_t s_spare_part_num[11] = "EDS-BAS-001";
-static uint16_t      s_engine_speed_rpm   = 800U;   /* idle RPM */
-static int8_t        s_coolant_temp_degc  = 85;     /* normal operating temp */
 
 /* =============================================================================
  * Static allocations
@@ -224,76 +216,6 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
 
         (void)diag_wdt_feed(&s_wdt);
     }
-}
-
-/* =============================================================================
- * DID handler implementations (stubs — replace with real reads)
- * ============================================================================= */
-
-uds_status_t did_read_VehicleIdentificationNumber(
-    uint8_t *buf, uint16_t buf_len, uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) { return UDS_STATUS_ERR_NULL_PTR; }
-    if (buf_len < (uint16_t)17U) { return UDS_STATUS_ERR_BUFFER_OVERFLOW; }
-    /* TODO [APPLICATION]: Read VIN from NVM. */
-    for (uint16_t i = 0U; i < 17U; i++) { buf[i] = s_vin[i]; }
-    *out_len = 17U;
-    return UDS_STATUS_OK;
-}
-
-uds_status_t did_read_ECUSerialNumber(
-    uint8_t *buf, uint16_t buf_len, uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) { return UDS_STATUS_ERR_NULL_PTR; }
-    if (buf_len < (uint16_t)4U) { return UDS_STATUS_ERR_BUFFER_OVERFLOW; }
-    /* TODO [APPLICATION]: Read ECU serial from NVM/one-time-programmable area. */
-    for (uint16_t i = 0U; i < 4U; i++) { buf[i] = s_ecu_serial[i]; }
-    *out_len = 4U;
-    return UDS_STATUS_OK;
-}
-
-uds_status_t did_read_VehicleManufacturerSparePartNumber(
-    uint8_t *buf, uint16_t buf_len, uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) { return UDS_STATUS_ERR_NULL_PTR; }
-    if (buf_len < (uint16_t)11U) { return UDS_STATUS_ERR_BUFFER_OVERFLOW; }
-    /* TODO [APPLICATION]: Read part number from NVM. */
-    for (uint16_t i = 0U; i < 11U; i++) { buf[i] = (uint8_t)s_spare_part_num[i]; }
-    *out_len = 11U;
-    return UDS_STATUS_OK;
-}
-
-uds_status_t did_write_VehicleManufacturerSparePartNumber(
-    const uint8_t *data, uint16_t length)
-{
-    if (data == NULL) { return UDS_STATUS_ERR_NULL_PTR; }
-    if (length != (uint16_t)11U) { return UDS_STATUS_ERR_INVALID_PARAM; }
-    /* TODO [APPLICATION]: Validate and write to NVM. */
-    for (uint16_t i = 0U; i < 11U; i++) { s_spare_part_num[i] = data[i]; }
-    return UDS_STATUS_OK;
-}
-
-uds_status_t did_read_EngineSpeed(
-    uint8_t *buf, uint16_t buf_len, uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) { return UDS_STATUS_ERR_NULL_PTR; }
-    if (buf_len < (uint16_t)2U) { return UDS_STATUS_ERR_BUFFER_OVERFLOW; }
-    /* TODO [APPLICATION]: Read engine speed from CAN signal or sensor. */
-    buf[0] = (uint8_t)((s_engine_speed_rpm >> 8U) & 0xFFU);
-    buf[1] = (uint8_t)(s_engine_speed_rpm & 0xFFU);
-    *out_len = 2U;
-    return UDS_STATUS_OK;
-}
-
-uds_status_t did_read_CoolantTemperature(
-    uint8_t *buf, uint16_t buf_len, uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) { return UDS_STATUS_ERR_NULL_PTR; }
-    if (buf_len < (uint16_t)1U) { return UDS_STATUS_ERR_BUFFER_OVERFLOW; }
-    /* TODO [APPLICATION]: Read coolant temperature from ADC/sensor. */
-    buf[0] = (uint8_t)((int16_t)s_coolant_temp_degc + 40);  /* offset encoding */
-    *out_len = 1U;
-    return UDS_STATUS_OK;
 }
 
 /* =============================================================================

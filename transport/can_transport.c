@@ -114,8 +114,12 @@ uds_status_t can_transport_transmit(
     }
 
     /*
-     * Defensive check: DLC must not exceed CAN classical frame maximum.
-     * CAN FD support (up to 64 bytes) is deferred to a future phase.
+     * Defensive check: DLC must not exceed the maximum frame length for the
+     * configured mode (UDS_CAN_FRAME_MAX_LEN: 64 bytes under CAN FD, 8
+     * otherwise — see core/uds_types.h and platform_api.h's
+     * EDS_CAN_FRAME_MAX_DLEN). CAN FD itself is implemented, not deferred:
+     * uds_can_frame_t.is_fd, the Zephyr HAL's CAN_FRAME_FDF handling
+     * (platform/zephyr/zephyr_can.c), and ISOTP_ENABLE_CAN_FD are all wired.
      * MISRA C:2012 Rule 10.4: Comparison uses explicit cast.
      */
     if ((uint8_t)frame->dlc > (uint8_t)UDS_CAN_FRAME_MAX_LEN) {
