@@ -2,37 +2,29 @@
 # Xaloqi EDS
 # examples/sensor_ecu_freertos/diagnostics_config.yaml
 #
-# PURPOSE: Zone controller ECU with real sensor integration.
+# PURPOSE: Zone controller ECU with simulated sensor integration (FreeRTOS).
 #
-#          Demonstrates the complete sensor → DID → DTC pattern:
+#          [EDS#349, fixed] The diagram below is the actual, working
+#          pattern end to end:
 #
-#            Zephyr sensor API
-#              └─ sensor_sample_fetch()   reads ambient temp + supply voltage
-#              └─ sensor_channel_get()    extracts measurement
-#                   │
-#                   ▼
-#            did_handlers_impl.c
-#              └─ sensor_ecu_read_ambient_temp()   → DID 0xD001
-#              └─ sensor_ecu_read_supply_voltage() → DID 0xD002
-#                   │
-#                   ▼
-#            sensor_monitor thread (sensor_monitor.c)
-#              └─ checks thresholds every 100 ms
+#            sensor_monitor task (sensor_monitor_freertos.c, 100 ms, FreeRTOS)
+#              └─ cycles through normal → over-temp → under-voltage → recovery
+#              └─ checks thresholds every cycle
 #              └─ calls dtc_database_set_status() when fault detected
-#                   │
-#                   ▼
-#            UDS tester sends 0x19 ReadDTCInformation
-#              └─ returns active DTCs with status byte
+#              └─ sensor_state_get() / sensor_set_temp_threshold_*()
+#                   │                        │
+#                   ▼                        ▼
+#            UDS tester sends          generated/did_handlers.c [APP HOOK]
+#            0x19 ReadDTCInformation    bodies — UDS 0x22/0x2E read/write
+#              └─ active DTCs           the same live sensor_monitor state
 #
 # TARGET HARDWARE:
-#   Any Zephyr-supported board with:
-#     - A temperature sensor (DT alias: temp-sensor-0)
-#       Examples: SHTC3, LM75A, MCP9808, NTC on ADC channel
-#     - A voltage monitor (DT alias: voltage-sensor-0)
-#       Examples: INA219, ADC voltage divider, dedicated PMIC
-#
-#   On native_sim: stub implementations return synthetic values that
-#   cycle through normal → fault → recovery to demonstrate DTC behaviour.
+#   This example is a software-only cyclic simulation (no real sensor API,
+#   no hardware dependency) — see sensor_monitor_freertos.c's header
+#   comment for the exact phase pattern. On real FreeRTOS hardware,
+#   replace sensor_read_temperature()/sensor_read_voltage() in that file
+#   with your MCU's ADC/I2C sensor driver calls; the threshold logic and
+#   DID/routine wiring are unchanged.
 #
 # DID ADDRESS MAP:
 #   0xD0xx  — D0 = "Diagnostics/Data" : sensor measurements
@@ -56,9 +48,10 @@ metadata:
   ecu_name:    "SensorECU"
   version:     "1.0.0"
   description: >
-    Zone controller ECU demonstrating real sensor integration with Xaloqi EDS.
-    Reads ambient temperature and supply voltage via the Zephyr sensor API,
-    exposes measurements as UDS DIDs, and raises DTCs on out-of-range conditions.
+    Zone controller ECU demonstrating sensor integration with Xaloqi EDS on
+    FreeRTOS. Simulates ambient temperature and supply voltage via a cyclic
+    fault pattern, exposes measurements as UDS DIDs, and raises DTCs on
+    out-of-range conditions.
 
 
 can:

@@ -31,9 +31,9 @@
 #       -GNinja .
 #   ninja -C build
 #
-# CI JOB: sensor-freertos-qemu (added to .github/workflows/ci.yml)
+# CI JOB: freertos-examples (matrix, .github/workflows/ci.yml, EDS#329)
 #   Builds this example with QEMU ARM Cortex-M4 and verifies the ELF is
-#   produced. Same pattern as the freertos-qemu job for basic_ecu_freertos.
+#   produced.
 # =============================================================================
 
 cmake_minimum_required(VERSION 3.20)
@@ -198,7 +198,49 @@ if(NOT EXISTS "${GENERATED_DIR}/uds_init.c")
         "  python3 ${DIAG_ROOT}/tools/codegen.py \\\n"
         "    --config ${CMAKE_CURRENT_SOURCE_DIR}/diagnostics_config.yaml \\\n"
         "    --out ${GENERATED_DIR}/ \\\n"
-        "    --safety-wrappers --asil-level B --no-manifest")
+        "    --safety-wrappers --asil-level B --no-manifest\n"
+        "  then reapply the [APP HOOK] bodies in generated/did_handlers.c "
+        "and generated/routine_handlers.c (EDS#349) before building.")
+endif()
+
+# ---------------------------------------------------------------------------
+# [APP HOOK] guard — fail loudly, at configure time, if generated/
+# did_handlers.c or generated/routine_handlers.c were ever regenerated
+# without reapplying the hand-written delegations to
+# sensor_monitor_freertos.c. Codegen here is a manual step (no CMake
+# custom_command, unlike examples/sensor_ecu and examples/vehicle_state_ecu)
+# so this is the only automatic check that would catch a forgotten reapply.
+# ---------------------------------------------------------------------------
+if(EXISTS "${GENERATED_DIR}/did_handlers.c")
+    file(STRINGS "${GENERATED_DIR}/did_handlers.c" DIAG_DID_APP_HOOK_LINES
+         REGEX "\\[APP HOOK\\]")
+    list(LENGTH DIAG_DID_APP_HOOK_LINES DIAG_DID_APP_HOOK_COUNT)
+    if(DIAG_DID_APP_HOOK_COUNT LESS 5)
+        message(FATAL_ERROR
+            "\n"
+            "[sensor_ecu_freertos] ERROR: generated/did_handlers.c is missing\n"
+            "       its [APP HOOK] markers (found ${DIAG_DID_APP_HOOK_COUNT}, expected >= 5).\n"
+            "       This file was regenerated and the hand-written delegations to\n"
+            "       sensor_monitor_freertos.c were lost. See EDS#349 and reapply\n"
+            "       them before building.\n"
+        )
+    endif()
+endif()
+
+if(EXISTS "${GENERATED_DIR}/routine_handlers.c")
+    file(STRINGS "${GENERATED_DIR}/routine_handlers.c" DIAG_RTN_APP_HOOK_LINES
+         REGEX "\\[APP HOOK\\]")
+    list(LENGTH DIAG_RTN_APP_HOOK_LINES DIAG_RTN_APP_HOOK_COUNT)
+    if(DIAG_RTN_APP_HOOK_COUNT LESS 2)
+        message(FATAL_ERROR
+            "\n"
+            "[sensor_ecu_freertos] ERROR: generated/routine_handlers.c is missing\n"
+            "       its [APP HOOK] markers (found ${DIAG_RTN_APP_HOOK_COUNT}, expected >= 2).\n"
+            "       This file was regenerated and the hand-written delegations to\n"
+            "       sensor_monitor_freertos.c were lost. See EDS#349 and reapply\n"
+            "       them before building.\n"
+        )
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -216,10 +258,10 @@ add_executable(eds_sensor_freertos
     # Application
     src/main.c
     src/sensor_monitor_freertos.c
-    # NOTE: did_handlers_impl.c is NOT listed here.
-    # The CI step "Install sensor DID implementations" copies it to
-    # generated/did_handlers.c before the build, so it is compiled once
-    # via the generated sources block below — avoiding duplicate symbols.
+    # [EDS#349] src/did_handlers_impl.c no longer exists — it was dead code,
+    # wired to a CI step ("Install sensor DID implementations") that never
+    # existed. Its logic now lives directly in generated/did_handlers.c's
+    # [APP HOOK] bodies (see that file's header comment).
 
     # EDS core
     ${DIAG_ROOT}/core/uds_server.c
@@ -255,9 +297,8 @@ add_executable(eds_sensor_freertos
     ${DIAG_ROOT}/platform/uds_image_policy.c  # [#232] Image verification policy singleton
 
     # Generated sources
-    # did_handlers.c contains the real sensor implementations — installed by
-    # the CI step "Install sensor DID implementations" which copies
-    # src/did_handlers_impl.c here after codegen runs.
+    # did_handlers.c's [APP HOOK] bodies contain the real sensor
+    # implementations directly (EDS#349) — no copy step involved.
     ${GENERATED_DIR}/uds_init.c
     ${GENERATED_DIR}/did_handlers.c
     ${GENERATED_DIR}/did_safety_wrappers.c
