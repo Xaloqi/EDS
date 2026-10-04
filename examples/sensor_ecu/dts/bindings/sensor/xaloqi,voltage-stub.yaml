@@ -1,0 +1,18 @@
+# Copyright (c) 2026 Xaloqi
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Xaloqi EDS example-only stub supply-voltage sensor.
+
+  native_sim has no real voltage-monitoring hardware. This binding backs
+  a minimal out-of-tree driver (drivers/sensor_stub/voltage_stub.c) that
+  returns a fixed nominal reading so sensor_monitor.c's real Zephyr
+  sensor API calls (sensor_sample_fetch/sensor_channel_get) have an
+  actual struct device to resolve against on native_sim. On real
+  hardware, replace this node with a physical sensor binding (see
+  boards/native_sim/native_sim.overlay's header comment for examples) —
+  this binding is not meant to be used outside this example.
+
+compatible: "xaloqi,voltage-stub"
+
+include: sensor-device.yaml

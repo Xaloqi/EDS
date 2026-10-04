@@ -4,8 +4,8 @@
 #
 # PURPOSE: Zone controller ECU with real sensor integration.
 #
-#          [EDS#339] The diagram below describes the INTENDED pattern, not
-#          the current state — it does not hold yet:
+#          [EDS#339, fixed] The diagram below is the actual, working
+#          pattern end to end:
 #
 #            Zephyr sensor API
 #              └─ sensor_sample_fetch()   reads ambient temp + supply voltage
@@ -14,16 +14,13 @@
 #                   ▼
 #            sensor_monitor thread (sensor_monitor.c)
 #              └─ checks thresholds every 100 ms
-#              └─ calls dtc_database_set_status() when fault detected   [this part is real]
-#                   │
-#                   ▼
-#            UDS tester sends 0x19 ReadDTCInformation
-#              └─ returns active DTCs with status byte                  [this part is real]
-#
-#          The DID-facing half is not: there is no did_handlers_impl.c in
-#          this repo, and the registered DID 0xD001/0xD002/0xD003 read
-#          callbacks (generated/did_handlers.c) are the usual static-mock
-#          stubs, not wired to sensor_monitor.c's readings at all.
+#              └─ calls dtc_database_set_status() when fault detected
+#              └─ sensor_state_get() / sensor_set_temp_threshold_*()
+#                   │                        │
+#                   ▼                        ▼
+#            UDS tester sends          generated/did_handlers.c [APP HOOK]
+#            0x19 ReadDTCInformation    bodies — UDS 0x22/0x2E read/write
+#              └─ active DTCs           the same live sensor_monitor state
 #
 # TARGET HARDWARE:
 #   Any Zephyr-supported board with:
@@ -32,10 +29,9 @@
 #     - A voltage monitor (DT alias: voltage-sensor-0)
 #       Examples: INA219, ADC voltage divider, dedicated PMIC
 #
-#   On native_sim: [EDS#339] currently fails to link — the stub sensor
-#   driver this section used to describe does not exist in the vendored
-#   Zephyr tree. See boards/native_sim/native_sim.overlay and
-#   src/sensor_monitor.c for the full finding.
+#   On native_sim: backed by a minimal fixed-value driver this example
+#   ships (drivers/sensor_stub/) — see boards/native_sim/native_sim.overlay
+#   and src/sensor_monitor.c for details. [EDS#339]
 #
 # DID ADDRESS MAP:
 #   0xD0xx  — D0 = "Diagnostics/Data" : sensor measurements
