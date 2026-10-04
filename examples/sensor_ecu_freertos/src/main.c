@@ -43,6 +43,7 @@
 /* FreeRTOS */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 
 /* Board support */
 #include "board_log.h"
@@ -60,6 +61,7 @@
 
 /* Sensor state (shared with sensor_monitor_freertos.c) */
 #include "sensor_ecu.h"
+#include "dtc_database.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -80,6 +82,31 @@
 #ifndef FREERTOS_POLL_TASK_PRIORITY
 #define FREERTOS_POLL_TASK_PRIORITY    (5U)
 #endif
+
+/* =============================================================================
+ * [EDS#354] DTC database lock
+ *
+ * config/dtc_database.c has no internal locking of its own (platform-
+ * agnostic by design) — sensor_monitor_task calls dtc_database_set_status()
+ * independently of uds_poll_task's UDS dispatch (SID 0x19/0x14), which
+ * reads/writes the same records. Dedicated lock, separate from
+ * sensor_monitor_freertos.c's own internal sensor_state_t mutex (not the
+ * same concern). Registered with dtc_database_set_lock_callbacks() before
+ * sensor_monitor_init() starts the monitor task below.
+ * ============================================================================= */
+
+static StaticSemaphore_t s_dtc_lock_buf;
+static SemaphoreHandle_t s_dtc_lock;
+
+static void dtc_lock_cb(void)
+{
+    (void)xSemaphoreTake(s_dtc_lock, portMAX_DELAY);
+}
+
+static void dtc_unlock_cb(void)
+{
+    (void)xSemaphoreGive(s_dtc_lock);
+}
 
 /* =============================================================================
  * Stub CAN loopback (CI / QEMU mode)
@@ -216,6 +243,13 @@ int main(void)
      *       board without a console. ─────────────────────────────────────── */
     board_log_init();
     board_log_puts("\r\nEDS sensor_ecu_freertos: boot\r\n");
+
+    /* [EDS#354] Must be created and registered before sensor_monitor_init()
+     * starts sensor_monitor_task below — that task calls
+     * dtc_database_set_status() as soon as its first 100 ms cycle elapses. */
+    s_dtc_lock = xSemaphoreCreateMutexStatic(&s_dtc_lock_buf);
+    configASSERT(s_dtc_lock != NULL);
+    dtc_database_set_lock_callbacks(dtc_lock_cb, dtc_unlock_cb);
 
     /* ── 1. Sensor monitor (starts sensor_monitor_task, creates mutex) ───── */
     sensor_monitor_init();

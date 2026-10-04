@@ -52,9 +52,56 @@ static uint16_t s_dtc_count = (uint16_t)0U;
 /** Initialization guard. */
 static bool s_initialized = false;
 
+/* [EDS#354] Optional lock callbacks — see dtc_database_set_lock_callbacks(). */
+static dtc_database_lock_cb_t   s_lock_cb   = NULL;
+static dtc_database_unlock_cb_t s_unlock_cb = NULL;
+
+static void dtc_db_lock(void)
+{
+    if (s_lock_cb != NULL) {
+        s_lock_cb();
+    }
+}
+
+static void dtc_db_unlock(void)
+{
+    if (s_unlock_cb != NULL) {
+        s_unlock_cb();
+    }
+}
+
+/**
+ * @brief Linear scan for dtc_code. Caller must hold the lock (if any).
+ *
+ * Internal, unlocked counterpart to the public dtc_database_find() —
+ * every public function that needs to find-then-mutate an entry calls
+ * this directly so the whole find+mutate sequence is one critical
+ * section, not two (dtc_database_find() locks only its own scan).
+ */
+static dtc_entry_t *dtc_find_internal(uint32_t dtc_code)
+{
+    uint16_t i;
+
+    for (i = (uint16_t)0U; i < s_dtc_count; i++) {
+        if (s_dtc_table[i].dtc_code == dtc_code) {
+            return &s_dtc_table[i];
+        }
+    }
+
+    return NULL;
+}
+
 /* =============================================================================
  * Public API implementations
  * ============================================================================= */
+
+void dtc_database_set_lock_callbacks(
+    dtc_database_lock_cb_t   lock_cb,
+    dtc_database_unlock_cb_t unlock_cb)
+{
+    s_lock_cb   = lock_cb;
+    s_unlock_cb = unlock_cb;
+}
 
 uds_status_t dtc_database_init(void)
 {
@@ -110,19 +157,17 @@ uds_status_t dtc_database_register(
 
 dtc_entry_t *dtc_database_find(uint32_t dtc_code)
 {
-    uint16_t i;
+    dtc_entry_t *entry;
 
     if (!s_initialized) {
         return NULL;
     }
 
-    for (i = (uint16_t)0U; i < s_dtc_count; i++) {
-        if (s_dtc_table[i].dtc_code == dtc_code) {
-            return &s_dtc_table[i];
-        }
-    }
+    dtc_db_lock();
+    entry = dtc_find_internal(dtc_code);
+    dtc_db_unlock();
 
-    return NULL;
+    return entry;
 }
 
 uds_status_t dtc_database_set_status(uint32_t dtc_code, uint8_t status_byte)
@@ -133,14 +178,14 @@ uds_status_t dtc_database_set_status(uint32_t dtc_code, uint8_t status_byte)
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
-    entry = dtc_database_find(dtc_code);
-    if (entry == NULL) {
-        return UDS_STATUS_ERR_DID_NOT_FOUND;
+    dtc_db_lock();
+    entry = dtc_find_internal(dtc_code);
+    if (entry != NULL) {
+        entry->status_byte = status_byte;
     }
+    dtc_db_unlock();
 
-    entry->status_byte = status_byte;
-
-    return UDS_STATUS_OK;
+    return (entry != NULL) ? UDS_STATUS_OK : UDS_STATUS_ERR_DID_NOT_FOUND;
 }
 
 uds_status_t dtc_database_clear_all(void)
@@ -151,9 +196,11 @@ uds_status_t dtc_database_clear_all(void)
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
+    dtc_db_lock();
     for (i = (uint16_t)0U; i < s_dtc_count; i++) {
         s_dtc_table[i].status_byte = (uint8_t)0x00U;
     }
+    dtc_db_unlock();
 
     return UDS_STATUS_OK;
 }
@@ -173,12 +220,14 @@ uds_status_t dtc_database_count_by_status(
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
+    dtc_db_lock();
     count = (uint16_t)0U;
     for (i = (uint16_t)0U; i < s_dtc_count; i++) {
         if ((s_dtc_table[i].status_byte & status_mask) != (uint8_t)0U) {
             count++;
         }
     }
+    dtc_db_unlock();
 
     *out_count = count;
 
@@ -198,12 +247,14 @@ uds_status_t dtc_database_get_by_index(
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
+    dtc_db_lock();
     if (index >= s_dtc_count) {
+        dtc_db_unlock();
         return UDS_STATUS_ERR_DID_NOT_FOUND;
     }
-
     *out_dtc_code = s_dtc_table[index].dtc_code;
     *out_status   = s_dtc_table[index].status_byte;
+    dtc_db_unlock();
 
     return UDS_STATUS_OK;
 }
@@ -216,14 +267,14 @@ uds_status_t dtc_database_set_fault_counter(uint32_t dtc_code, uint8_t counter)
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
-    entry = dtc_database_find(dtc_code);
-    if (entry == NULL) {
-        return UDS_STATUS_ERR_DID_NOT_FOUND;
+    dtc_db_lock();
+    entry = dtc_find_internal(dtc_code);
+    if (entry != NULL) {
+        entry->fault_detection_counter = counter;
     }
+    dtc_db_unlock();
 
-    entry->fault_detection_counter = counter;
-
-    return UDS_STATUS_OK;
+    return (entry != NULL) ? UDS_STATUS_OK : UDS_STATUS_ERR_DID_NOT_FOUND;
 }
 
 uds_status_t dtc_database_set_permanent(uint32_t dtc_code, bool permanent)
@@ -234,14 +285,14 @@ uds_status_t dtc_database_set_permanent(uint32_t dtc_code, bool permanent)
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
-    entry = dtc_database_find(dtc_code);
-    if (entry == NULL) {
-        return UDS_STATUS_ERR_DID_NOT_FOUND;
+    dtc_db_lock();
+    entry = dtc_find_internal(dtc_code);
+    if (entry != NULL) {
+        entry->is_permanent = permanent;
     }
+    dtc_db_unlock();
 
-    entry->is_permanent = permanent;
-
-    return UDS_STATUS_OK;
+    return (entry != NULL) ? UDS_STATUS_OK : UDS_STATUS_ERR_DID_NOT_FOUND;
 }
 
 uds_status_t dtc_database_clear_non_permanent(void)
@@ -252,11 +303,13 @@ uds_status_t dtc_database_clear_non_permanent(void)
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
+    dtc_db_lock();
     for (i = (uint16_t)0U; i < s_dtc_count; i++) {
         if (!s_dtc_table[i].is_permanent) {
             s_dtc_table[i].status_byte = (uint8_t)0x00U;
         }
     }
+    dtc_db_unlock();
 
     return UDS_STATUS_OK;
 }

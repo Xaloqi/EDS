@@ -301,6 +301,45 @@ typedef struct doip_server_state {
  */
 uds_status_t eds_doip_register_platform(const eds_doip_platform_ops_t *ops);
 
+/* --------------------------------------------------------------------------
+ * [EDS#353] Optional lock callbacks
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Lock/unlock callback signatures around eds_doip_server_run()'s
+ *        uds_server_process_request() call.
+ *
+ * This module calls into the UDS core on the caller's behalf but has no
+ * visibility into what else touches the same uds_server_ctx_t. A DoIP-only
+ * build still runs a second thread (its own UDS tick task — see EDS#191)
+ * that calls uds_server_tick_1ms()/uds_periodic_tick_1ms() against the
+ * same context; without a shared lock, that thread and this one race on
+ * session/security state with no synchronization at all (EDS#353).
+ */
+typedef void (*eds_doip_lock_cb_t)(void);
+typedef void (*eds_doip_unlock_cb_t)(void);
+
+/**
+ * @brief Register lock/unlock callbacks around the UDS dispatch call.
+ *
+ * Optional. Not registering (the default) reproduces today's behaviour —
+ * correct only if nothing else ever calls into the same uds_server_ctx_t
+ * from another thread, which is false the moment EDS#191's UDS tick task
+ * exists (true of every shipped DoIP example). Register the *same*
+ * lock/unlock pair your tick task already wraps
+ * uds_server_tick_1ms()/uds_periodic_tick_1ms() with, so both call paths
+ * serialize against each other.
+ *
+ * Call once, before eds_doip_server_run().
+ *
+ * @param[in] lock_cb    Called before uds_server_process_request(). NULL clears.
+ * @param[in] unlock_cb  Called after uds_server_process_request(). NULL clears.
+ */
+void eds_doip_set_lock_callbacks(
+    eds_doip_lock_cb_t   lock_cb,
+    eds_doip_unlock_cb_t unlock_cb
+);
+
 /**
  * @brief Initialise the DoIP server state for one ECU logical address.
  *

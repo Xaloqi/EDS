@@ -56,6 +56,10 @@ LOG_MODULE_REGISTER(doip_wcet, LOG_LEVEL_INF);
 
 static const eds_doip_platform_ops_t *s_ops = NULL;
 
+/* [EDS#353] Optional lock callbacks around uds_server_process_request(). */
+static eds_doip_lock_cb_t   s_lock_cb   = NULL;
+static eds_doip_unlock_cb_t s_unlock_cb = NULL;
+
 /* ---------------------------------------------------------------------------
  * Internal helpers — forward declarations
  * ------------------------------------------------------------------------ */
@@ -139,6 +143,14 @@ uds_status_t eds_doip_register_platform(const eds_doip_platform_ops_t *ops)
     }
     s_ops = ops;
     return UDS_STATUS_OK;
+}
+
+void eds_doip_set_lock_callbacks(
+    eds_doip_lock_cb_t   lock_cb,
+    eds_doip_unlock_cb_t unlock_cb)
+{
+    s_lock_cb   = lock_cb;
+    s_unlock_cb = unlock_cb;
 }
 
 /* ---------------------------------------------------------------------------
@@ -338,9 +350,17 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
         (void)memcpy(req_buf->data, uds_pdu, (size_t)uds_len);
         req_buf->length = (uint16_t)uds_len;
 
+        /* [EDS#353] Serialize against whatever else touches uds_ctx (this
+         * example's own UDS tick task, at minimum — see EDS#191). */
+        if (s_lock_cb != NULL) {
+            s_lock_cb();
+        }
         uds_status_t dispatch_rc = uds_server_process_request(uds_ctx,
                                                                req_buf,
                                                                resp_buf);
+        if (s_unlock_cb != NULL) {
+            s_unlock_cb();
+        }
         uds_status_t resp_send_rc = UDS_STATUS_OK;
         if (dispatch_rc == UDS_STATUS_OK && resp_buf->length > 0U) {
             /* Encode DoIP Diagnostic Message response:
