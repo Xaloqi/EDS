@@ -1,12 +1,13 @@
 /*
  * =============================================================================
  * Xaloqi EDS
- * FILE: examples/sensor_ecu/src/sensor_ecu.h
+ * FILE: examples/sensor_ecu_freertos/src/sensor_ecu.h
  *
- * PURPOSE: Shared definitions for the SensorECU example.
+ * PURPOSE: Shared definitions for the SensorECU FreeRTOS example.
  *          Physical encoding constants, threshold defaults, and sensor
  *          status bitmask bit definitions used across main.c,
- *          did_handlers_impl.c, and sensor_monitor.c.
+ *          generated/did_handlers.c's [APP HOOK] bodies, and
+ *          sensor_monitor_freertos.c.
  *
  * SPDX-License-Identifier: Apache-2.0
  * =============================================================================

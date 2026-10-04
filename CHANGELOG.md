@@ -19,6 +19,30 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`sensor_ecu_freertos`'s live-sensor and calibration DIDs/routines were
+  disconnected static mocks, same defect shape as #339** (#349). A correct
+  real implementation already existed — `src/did_handlers_impl.c` — but it
+  was wired to a CI step ("Install sensor DID implementations") that never
+  existed anywhere in `.github/workflows/ci.yml`, so every build including
+  CI compiled and ran only the generated stub. Ported `did_handlers_impl.c`'s
+  logic directly into `generated/did_handlers.c`'s and
+  `generated/routine_handlers.c`'s `[APP HOOK]` bodies instead (the only
+  mechanism that actually works for this codebase's callback-registration
+  shape — see #339/#341) and deleted the now-dead `did_handlers_impl.c`.
+  Added a CMake `[APP HOOK]` guard (this example's codegen step is manual,
+  not a CMake `add_custom_command` like `sensor_ecu`/`vehicle_state_ecu`, so
+  there was no existing mechanism to catch a forgotten reapply). Also
+  corrected several stale doc claims inherited from `sensor_ecu`'s
+  pre-#339 README/YAML (this is a FreeRTOS example with a pure
+  software cyclic fault simulator, not a Zephyr sensor API device — see
+  `sensor_monitor_freertos.c`) and a false "`generated/` is not committed,
+  CI regenerates it" README claim (it is committed; CI only verifies the
+  files are present, same as every other example). Verified: builds clean
+  for QEMU Cortex-M4 (`cmake -DEDS_PLATFORM=freertos -DBOARD=qemu_cortex_m4`,
+  the documented command) and links (`text=26320` bytes); the `[APP HOOK]`
+  guard confirmed to actually fail configure when the markers are stripped.
+  `build_tests.sh` unaffected: 1009/1009, 52/52.
+
 - **`sensor_ecu` didn't link on `native_sim` at all, and its live-sensor
   and calibration DIDs/routines were disconnected static mocks** (#339).
   Two independent fixes: (1) a minimal native_sim-only sensor driver
