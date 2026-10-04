@@ -19,6 +19,46 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`basic_ecu_doip`/`basic_ecu_doip_freertos` ran two threads against
+  `uds_server_ctx_t` with zero synchronization** (#353). Each example's
+  UDS tick task (added by #191 specifically so S3/lockout timers progress
+  on a DoIP-only build) calls `uds_server_tick_1ms()` — which can force a
+  session reset and clear SecurityAccess state — while the DoIP server
+  thread concurrently calls `uds_server_process_request()` for every
+  incoming request, with no second transport required to trigger it.
+  `transport/doip/doip_server.c` gained an optional lock-callback pair
+  (`eds_doip_set_lock_callbacks()`, mirroring `uds_security_algo_set_rng_cb()`'s
+  existing injection pattern) wrapping its `uds_server_process_request()`
+  call; both examples now register it with the *same*
+  `s_session_lock`/`s_security_lock` pair their tick task wraps
+  `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with — extending the
+  CAN examples' own existing discipline to DoIP, per
+  `docs/threading_guide.md`'s stated (but until now unapplied) intent.
+  Verified: both examples link and boot clean on `native_sim`/QEMU
+  Cortex-M4 under 2000+ tick iterations with no deadlock; zero new GCC
+  warnings including the full MISRA-relevant strict set
+  (`build_harness.sh`'s flags) on `doip_server.c`.
+
+- **`dtc_database_set_status()`/`set_fault_counter()`/`set_permanent()` had
+  no internal locking** (#354), documented as "application-managed" but
+  with no synchronization contract stated anywhere — and two examples'
+  own sensor-monitor threads (`sensor_ecu`, `sensor_ecu_freertos`) call
+  these functions independently of the UDS dispatch thread, which reads
+  and clears the same records via SID 0x19/0x14. `config/dtc_database.c`
+  gained an optional lock-callback pair
+  (`dtc_database_set_lock_callbacks()`) — kept platform-agnostic (no RTOS
+  header dependency; the lock object and primitive are entirely up to the
+  caller) since this module, unlike `uds_server_ctx_t`, is a singleton
+  with no caller-visible context to hang external locking off of. Both
+  affected examples now register a dedicated lock around their monitor
+  thread's calls. `vehicle_state_ecu`'s own `dtc_database_set_status()`
+  calls were checked and found already safe — `vehicle_state_monitor_tick()`
+  runs on `diag_task` itself, the same single thread as everything else,
+  no second caller exists. Verified: `build_tests.sh` (1009/1009, default
+  no-op behaviour unchanged for every example that doesn't register
+  callbacks) and both affected examples' native_sim/QEMU builds boot
+  clean.
+
 - **`sensor_ecu_freertos`'s live-sensor and calibration DIDs/routines were
   disconnected static mocks, same defect shape as #339** (#349). A correct
   real implementation already existed — `src/did_handlers_impl.c` — but it

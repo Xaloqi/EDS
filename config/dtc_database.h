@@ -232,6 +232,54 @@ uds_status_t dtc_database_set_permanent(uint32_t dtc_code, bool permanent);
  */
 uds_status_t dtc_database_clear_non_permanent(void);
 
+/* --------------------------------------------------------------------------
+ * [EDS#354] Optional lock callbacks
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Lock/unlock callback signatures for dtc_database's critical sections.
+ *
+ * This module is a singleton with no caller-visible context object — unlike
+ * uds_server_ctx_t (where the application already holds a pointer it can
+ * hang its own external locking discipline on), there is nothing for an
+ * integrator to lock around a call site with. Every dtc_database_* function
+ * that reads or writes a dtc_entry_t field at runtime wraps its critical
+ * section with these callbacks when registered.
+ */
+typedef void (*dtc_database_lock_cb_t)(void);
+typedef void (*dtc_database_unlock_cb_t)(void);
+
+/**
+ * @brief Register lock/unlock callbacks for dtc_database's internal state.
+ *
+ * Optional. Not registering (the default) is correct and sufficient for
+ * any build where every dtc_database_* call comes from one thread — true
+ * of every example except one with a dedicated sensor/monitor thread that
+ * calls dtc_database_set_status() independently of the UDS dispatch
+ * thread (see EDS#354: config/dtc_database.c has no internal locking,
+ * documented as "application-managed," and two threads touching the same
+ * record with zero synchronization is a real race, not a style question).
+ *
+ * This module stays platform-agnostic (no RTOS header dependency) by
+ * leaving the actual lock object and primitive entirely up to the
+ * caller — register two small static wrapper functions around whatever
+ * mutex/semaphore your platform and example already use.
+ *
+ * Call once during initialisation, before starting any thread that calls
+ * a dtc_database_* function.
+ *
+ * SAFETY: lock_cb/unlock_cb must not block for longer than this example's
+ *         own P2server_max budget allows — the UDS dispatch thread may be
+ *         waiting on the same lock inside SID 0x14/0x19 handling.
+ *
+ * @param[in] lock_cb    Called before entering a critical section. NULL clears.
+ * @param[in] unlock_cb  Called after leaving a critical section. NULL clears.
+ */
+void dtc_database_set_lock_callbacks(
+    dtc_database_lock_cb_t   lock_cb,
+    dtc_database_unlock_cb_t unlock_cb
+);
+
 #ifdef UNIT_TEST
 /**
  * @brief Reset DTC database to power-on defaults.

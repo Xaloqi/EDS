@@ -44,6 +44,7 @@
 /* FreeRTOS */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 
 /* EDS stack */
 #include "platform_api.h"
@@ -98,6 +99,33 @@ static void s_on_session_change(uds_session_type_t old_sess,
 }
 
 /* =============================================================================
+ * [EDS#353] Session/security lock
+ *
+ * uds_tick_task and the DoIP server task both touch uds_server_ctx_t
+ * (session/security state) with no prior synchronization — the same
+ * lock discipline the CAN examples already apply to both their tick and
+ * dispatch call sites, extended here to DoIP. See
+ * docs/threading_guide.md's "Dual-Transport Concurrency" section.
+ * ============================================================================= */
+
+static StaticSemaphore_t s_session_lock_buf;
+static StaticSemaphore_t s_security_lock_buf;
+static SemaphoreHandle_t s_session_lock;
+static SemaphoreHandle_t s_security_lock;
+
+static void doip_lock_cb(void)
+{
+    (void)xSemaphoreTake(s_session_lock, portMAX_DELAY);
+    (void)xSemaphoreTake(s_security_lock, portMAX_DELAY);
+}
+
+static void doip_unlock_cb(void)
+{
+    (void)xSemaphoreGive(s_security_lock);
+    (void)xSemaphoreGive(s_session_lock);
+}
+
+/* =============================================================================
  * UDS tick task [EDS#191]
  * ============================================================================= */
 
@@ -107,8 +135,14 @@ static void uds_tick_task(void *pvParameters)
 
     for (;;) {
         vTaskDelay((TickType_t)1U);
+        /* [EDS#353] Same lock doip_lock_cb()/doip_unlock_cb() wrap
+         * uds_server_process_request() with below. */
+        (void)xSemaphoreTake(s_session_lock, portMAX_DELAY);
+        (void)xSemaphoreTake(s_security_lock, portMAX_DELAY);
         (void)uds_server_tick_1ms(srv);
         (void)uds_periodic_tick_1ms();
+        (void)xSemaphoreGive(s_security_lock);
+        (void)xSemaphoreGive(s_session_lock);
     }
 }
 
@@ -175,6 +209,15 @@ int main(void)
     (void)uds_periodic_init();
     (void)uds_session_register_change_cb(srv->cfg.session_ctx,
                                           s_on_session_change);
+
+    /* [EDS#353] Must be created and registered before the tick task and
+     * DoIP server task start below — both race on uds_server_ctx_t from
+     * the moment either task runs. */
+    s_session_lock  = xSemaphoreCreateMutexStatic(&s_session_lock_buf);
+    s_security_lock = xSemaphoreCreateMutexStatic(&s_security_lock_buf);
+    configASSERT(s_session_lock != NULL);
+    configASSERT(s_security_lock != NULL);
+    eds_doip_set_lock_callbacks(doip_lock_cb, doip_unlock_cb);
 
     /*
      * Step 2.5: Start the 1 ms UDS tick task [EDS#191] — before the DoIP

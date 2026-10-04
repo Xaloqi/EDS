@@ -44,6 +44,7 @@
 #include "uds_server.h"
 #include "uds_periodic.h"
 #include "uds_session.h"
+#include "dtc_database.h"
 #include "isotp.h"
 #include "can_transport.h"
 #include "zephyr_port.h"
@@ -94,6 +95,27 @@ static diag_mutex_t s_session_lock;
 static diag_mutex_t s_security_lock;
 static diag_timer_t s_tick_timer;
 static diag_wdt_t   s_wdt;
+
+/* [EDS#354] Dedicated lock for config/dtc_database.c's critical sections —
+ * separate from s_session_lock/s_security_lock (not the same concern,
+ * and holding the DTC lock should never block the UDS dispatch path on
+ * session/security state or vice versa). sensor_monitor's thread calls
+ * dtc_database_set_status() independently of diag_task's UDS dispatch,
+ * which calls into the same database via SID 0x19/0x14 — config/
+ * dtc_database.c has no internal locking of its own (it's platform-
+ * agnostic by design), so this example must supply it. See
+ * dtc_database_set_lock_callbacks()'s own doc comment. */
+static diag_mutex_t s_dtc_lock;
+
+static void dtc_lock_cb(void)
+{
+    (void)diag_mutex_lock(&s_dtc_lock);
+}
+
+static void dtc_unlock_cb(void)
+{
+    (void)diag_mutex_unlock(&s_dtc_lock);
+}
 
 /* ---------------------------------------------------------------------------
  * TRNG callback (same pattern as basic_ecu)
@@ -295,16 +317,22 @@ int main(void)
             (unsigned)DIAG_RX_CAN_ID, (unsigned)DIAG_TX_CAN_ID);
     LOG_INF("=============================================================");
 
-    /* ── Sensor monitor (starts sensor_monitor thread) ───────────────────── */
-    sensor_monitor_init();
-    LOG_INF("Sensor monitor initialised.");
-
     /* ── Mutex init ──────────────────────────────────────────────────────── */
     if ((diag_mutex_init(&s_session_lock)  != UDS_STATUS_OK) ||
-        (diag_mutex_init(&s_security_lock) != UDS_STATUS_OK)) {
+        (diag_mutex_init(&s_security_lock) != UDS_STATUS_OK) ||
+        (diag_mutex_init(&s_dtc_lock)       != UDS_STATUS_OK)) {
         LOG_ERR("Mutex init failed.");
         return -1;
     }
+
+    /* [EDS#354] Must be registered before sensor_monitor_init() starts the
+     * sensor_monitor thread below — that thread calls dtc_database_set_status()
+     * as soon as its first 100 ms cycle elapses. */
+    dtc_database_set_lock_callbacks(dtc_lock_cb, dtc_unlock_cb);
+
+    /* ── Sensor monitor (starts sensor_monitor thread) ───────────────────── */
+    sensor_monitor_init();
+    LOG_INF("Sensor monitor initialised.");
 
     /* ── Watchdog ────────────────────────────────────────────────────────── */
     (void)diag_wdt_init(&s_wdt);

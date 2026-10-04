@@ -67,6 +67,7 @@
  * -------------------------------------------------------------------------- */
 #include "platform_doip.h"   /* eds_doip_platform_start() */
 #include "doip_server.h"     /* DOIP_PORT */
+#include "zephyr_mutex.h"
 #include "nvm_store.h"
 #if defined(DIAG_WCET_MEASURE)
 #include "zephyr_wcet.h"     /* [#31] see header comment */
@@ -122,6 +123,28 @@ LOG_MODULE_REGISTER(basic_ecu_doip, LOG_LEVEL_INF);
 K_THREAD_STACK_DEFINE(s_tick_stack, CONFIG_DIAG_TICK_TASK_STACK_SIZE);
 static struct k_thread s_tick_thread;
 
+/* [EDS#353] uds_tick_task and doip_thread both touch uds_server_ctx_t
+ * (session/security state) with no prior synchronization — the same
+ * s_session_lock/s_security_lock pair the CAN examples already wrap
+ * both their tick and dispatch call sites with, extended here to DoIP.
+ * See docs/threading_guide.md's "Dual-Transport Concurrency" section:
+ * the design intent was always "the same lock at every call site that
+ * touches uds_server_ctx_t," never actually applied to this example. */
+static diag_mutex_t s_session_lock;
+static diag_mutex_t s_security_lock;
+
+static void doip_lock_cb(void)
+{
+    (void)diag_mutex_lock(&s_session_lock);
+    (void)diag_mutex_lock(&s_security_lock);
+}
+
+static void doip_unlock_cb(void)
+{
+    (void)diag_mutex_unlock(&s_security_lock);
+    (void)diag_mutex_unlock(&s_session_lock);
+}
+
 static void s_on_session_change(uds_session_type_t old_sess,
                                 uds_session_type_t new_sess)
 {
@@ -145,8 +168,14 @@ static void uds_tick_task_entry(void *p1, void *p2, void *p3)
 
     while (true) {
         k_msleep(1);
+        /* [EDS#353] Same lock doip_lock_cb()/doip_unlock_cb() wrap
+         * uds_server_process_request() with below. */
+        (void)diag_mutex_lock(&s_session_lock);
+        (void)diag_mutex_lock(&s_security_lock);
         (void)uds_server_tick_1ms(srv);
         (void)uds_periodic_tick_1ms();
+        (void)diag_mutex_unlock(&s_security_lock);
+        (void)diag_mutex_unlock(&s_session_lock);
     }
 }
 
@@ -219,6 +248,16 @@ int main(void)
 
     LOG_INF("UDS stack ready: %u DIDs  %u DTCs",
             (unsigned)GEN_DID_COUNT, (unsigned)GEN_DTC_COUNT);
+
+    /* [EDS#353] Must be initialised and registered before the tick task
+     * and DoIP server start below — both race on uds_server_ctx_t from
+     * the moment either thread runs. */
+    if ((diag_mutex_init(&s_session_lock)  != UDS_STATUS_OK) ||
+        (diag_mutex_init(&s_security_lock) != UDS_STATUS_OK)) {
+        LOG_ERR("Mutex init failed.");
+        return -1;
+    }
+    eds_doip_set_lock_callbacks(doip_lock_cb, doip_unlock_cb);
 
     /*
      * [EDS#191] Start the 1 ms UDS tick task before the DoIP server so
