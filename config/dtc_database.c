@@ -53,20 +53,20 @@ static uint16_t s_dtc_count = (uint16_t)0U;
 static bool s_initialized = false;
 
 /* [EDS#354] Optional lock callbacks — see dtc_database_set_lock_callbacks(). */
-static dtc_database_lock_cb_t   s_lock_cb   = NULL;
-static dtc_database_unlock_cb_t s_unlock_cb = NULL;
+static dtc_database_lock_cb_t   s_dtc_lock_cb   = NULL;
+static dtc_database_unlock_cb_t s_dtc_unlock_cb = NULL;
 
 static void dtc_db_lock(void)
 {
-    if (s_lock_cb != NULL) {
-        s_lock_cb();
+    if (s_dtc_lock_cb != NULL) {
+        s_dtc_lock_cb();
     }
 }
 
 static void dtc_db_unlock(void)
 {
-    if (s_unlock_cb != NULL) {
-        s_unlock_cb();
+    if (s_dtc_unlock_cb != NULL) {
+        s_dtc_unlock_cb();
     }
 }
 
@@ -99,8 +99,8 @@ void dtc_database_set_lock_callbacks(
     dtc_database_lock_cb_t   lock_cb,
     dtc_database_unlock_cb_t unlock_cb)
 {
-    s_lock_cb   = lock_cb;
-    s_unlock_cb = unlock_cb;
+    s_dtc_lock_cb   = lock_cb;
+    s_dtc_unlock_cb = unlock_cb;
 }
 
 uds_status_t dtc_database_init(void)
