@@ -16,15 +16,19 @@
 #    0x2E unconditionally for any DID — including the two this campaign
 #    writes — so nothing in "vehicle_state_validation" is simulator-specific,
 #    and it is written to run unchanged against the real native_sim
-#    firmware. That firmware-side run has not actually been done yet (see
-#    note (B) below). It has no DTC monitors, so it can't fail the DTC
-#    round-trip either way: there's nothing to set in the first place.
+#    firmware. CONFIRMED (2026-10-04): both runs pass, 22/22, including the
+#    firmware-side run over real SocketCAN (see note (B) below). The virtual
+#    ECU itself has no DTC monitors, so it can't fail the DTC round-trip
+#    either way: there's nothing to set in the first place.
 #
 # B) Against the built native_sim firmware over SocketCAN, to see the two
 #    DTC monitors in src/vehicle_state.c actually fire. A real transport is
 #    not part of TestLab Core (core is --virtual only; SocketCAN/DoIP are a
 #    Pro plugin) — run the firmware's own job with EDS's tools/jobrunner.py
 #    against a vcan0 interface, or TestLab Pro's socketcan transport.
+#    CONFIRMED (2026-10-04): both jobs pass against real firmware over real
+#    vcan0 — DTC P0500-64 and U0100-00 both set and cleared for real,
+#    logged directly from the firmware (not just the protocol assertion).
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -33,10 +37,9 @@ jobs:
   vehicle_state_validation:
     description: >
       Identity, both vehicle-state signals (inject then read back), both
-      routines, DTC read/clear/re-read. Written to run unchanged against
-      the free tier's in-process virtual ECU and against the native_sim
-      firmware — see note (A) above. Verified so far against the virtual
-      ECU only.
+      routines, DTC read/clear/re-read. Runs unchanged against the free
+      tier's in-process virtual ECU and against the native_sim firmware —
+      see note (A) above. Confirmed passing against both, 22/22.
     timeout_ms: 30000
     on_failure: continue        # run every step; capture all failures in JSON
 
@@ -127,7 +130,8 @@ jobs:
       Provoke both diagnostic monitors in src/vehicle_state.c and watch
       each DTC appear, then heal it. FIRMWARE TARGET ONLY — the free tier's
       in-process virtual ECU has no monitors, so this job cannot pass
-      under --virtual by design (see note (B) above).
+      under --virtual by design (see note (B) above). Confirmed passing
+      against real firmware over real vcan0, 22/22, 2026-10-04.
     timeout_ms: 30000
     on_failure: abort
 

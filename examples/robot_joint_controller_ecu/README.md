@@ -31,6 +31,20 @@ control mode, firmware version, error register
 
 ---
 
+## Building
+
+**[O-132]** This example previously had no build instructions at all.
+
+```bash
+west build -b native_sim examples/robot_joint_controller_ecu \
+  -- -DDIAG_SKIP_CODEGEN=ON \
+     -DEXTRA_CONF_FILE=<eds>/examples/robot_joint_controller_ecu/boards/native_sim/native_sim.conf \
+     -DDTC_OVERLAY_FILE=<eds>/examples/robot_joint_controller_ecu/boards/native_sim/native_sim.overlay
+./build/zephyr/zephyr.exe
+```
+
+---
+
 ## Availability
 
 Included with **Developer** and **Professional** licenses.

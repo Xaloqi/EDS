@@ -11,8 +11,14 @@
 #
 # BUILDING:
 #   # Simulation build (CI / host testing, no hardware required):
+#   # [O-132] -DEXTRA_CONF_FILE was missing here — this example's own
+#   # boards/native_sim/native_sim.conf (nested) is never auto-discovered
+#   # by Zephyr (only a flat boards/<board>.conf is), so the documented
+#   # command below silently built without it and failed on
+#   # CONFIG_WATCHDOG. Pass it explicitly:
 #   west build -b native_sim examples/bms_ecu \
 #     -- -DDIAG_SKIP_CODEGEN=ON \
+#     -DEXTRA_CONF_FILE=<eds>/examples/bms_ecu/boards/native_sim/native_sim.conf \
 #     -DDTC_OVERLAY_FILE=<eds>/examples/bms_ecu/boards/native_sim/native_sim.overlay
 #
 #   # STM32H7 cross-compile:
