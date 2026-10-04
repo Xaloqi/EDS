@@ -19,6 +19,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`bms_ecu`'s and `robot_joint_controller_ecu`'s own documented
+  `native_sim` build commands didn't work as written** (O-132, same class
+  as #343): `bms_ecu`'s native_sim config was never actually applied by
+  the documented command at all (a nested `boards/native_sim/native_sim.conf`
+  isn't auto-discovered by Zephyr, unlike a flat `boards/<board>.conf`) and
+  was itself missing `CONFIG_WATCHDOG=n`/`CONFIG_REBOOT=y`;
+  `robot_joint_controller_ecu` had no build instructions in its README at
+  all and was missing `CONFIG_REBOOT=y`. Both verified: documented command
+  only, no workaround flags, clean build.
+
 - **`DIAG_TIMER_OPAQUE_SIZE` (128 bytes, sized for 32-bit targets) overflowed
   by 8 bytes on arm64** — `struct k_timer` + `struct k_sem` together need
   136 bytes there, caught by the existing `_Static_assert` in
