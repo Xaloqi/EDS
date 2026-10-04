@@ -45,30 +45,22 @@
     };
 
     /*
-     * Stub temperature sensor for native_sim.
-     *
-     * The "zephyr,temperature-stub" driver is a minimal in-tree
-     * Zephyr driver that returns synthetic values from a configurable
-     * internal counter. It simulates:
-     *   - Normal operation (25 °C)
-     *   - Over-temperature fault cycle (> 85 °C after ~10 s)
-     *   - Recovery to normal
-     *
-     * If the stub driver is not available in your Zephyr version,
-     * sensor_monitor.c degrades gracefully: DID 0xD001 returns 0xFF
-     * and no temp DTCs are set.
-     *
-     * Enable with: CONFIG_SENSOR_STUB=y in native_sim.conf
+     * [EDS#339] BROKEN, not just incomplete: there is no "zephyr,temperature-
+     * stub" driver anywhere in the vendored Zephyr tree (v3.7.0) — no
+     * devicetree binding, no driver source, no CONFIG_SENSOR_STUB symbol.
+     * This node parses as valid devicetree (any compatible string does),
+     * but DEVICE_DT_GET() on it in sensor_monitor.c fails at the final
+     * link step ("undefined reference to __device_dts_ord_N"), not at
+     * runtime — there is no device object to degrade gracefully from.
+     * `west build -b native_sim examples/sensor_ecu` currently does not
+     * link. Not fixed here; see EDS#339.
      */
     temp_stub: temp-stub {
         compatible = "zephyr,temperature-stub";
         status = "okay";
     };
 
-    /*
-     * Stub voltage sensor for native_sim.
-     * Returns synthetic 12 V nominal with periodic low-voltage excursions.
-     */
+    /* [EDS#339] Same problem as temp_stub above — no backing driver. */
     voltage_stub: voltage-stub {
         compatible = "zephyr,voltage-stub";
         status = "okay";

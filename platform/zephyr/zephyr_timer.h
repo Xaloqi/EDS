@@ -51,8 +51,17 @@ extern "C" {
 
 /* --------------------------------------------------------------------------
  * Timer context (opaque to callers)
+ *
+ * [FIX #338] 128 bytes was sized against 32-bit targets only. struct
+ * k_timer + struct k_sem together need exactly 136 bytes on arm64
+ * (aarch64-zephyr-elf, Zephyr v3.7.0) — pointer-width-dependent fields
+ * (dlist nodes, wait queues, timeout bookkeeping) are 8 bytes wide there
+ * instead of 4. The BUILD_ASSERT in zephyr_timer.c caught the overflow
+ * correctly; this is the fix, not a workaround. 192 bytes gives headroom
+ * on both pointer widths rather than the exact 136-byte minimum, so a
+ * minor Zephyr kernel struct-layout change doesn't immediately retrip it.
  * -------------------------------------------------------------------------- */
-#define DIAG_TIMER_OPAQUE_SIZE   (128U)
+#define DIAG_TIMER_OPAQUE_SIZE   (192U)
 
 typedef struct diag_timer {
     DIAG_TIMER_ALIGN uint8_t _opaque[DIAG_TIMER_OPAQUE_SIZE]; /**< Storage for k_timer + k_sem. */

@@ -21,13 +21,27 @@
  *      d. dtc_database_set_status() — set/clear DTCs based on result
  *
  *   3. The latest readings are stored in s_sensor_state (protected by
- *      s_sensor_lock) and read by DID handlers via sensor_state_get().
+ *      s_sensor_lock). sensor_state_get() below exists for that purpose,
+ *      but [EDS#339]: it is NOT actually called by generated/did_handlers.c
+ *      — the registered DID 0xD001/0xD002/0xD003 read callbacks there
+ *      memcpy from their own static mock arrays instead, same as every
+ *      other example's generated stubs. So this monitor thread's readings
+ *      and what 0x22 returns are currently disconnected.
  *
- * NATIVE_SIM BEHAVIOUR:
- *   On native_sim, no physical sensor hardware exists. The sensor stub
- *   (boards/native_sim/sensor_stub.c) simulates a sensor that cycles
- *   through: normal → over-temp fault → recovery → under-voltage → recovery.
- *   This lets you watch DTCs activate and clear without any hardware.
+ * NATIVE_SIM BEHAVIOUR — CURRENTLY BROKEN, NOT JUST INCOMPLETE [EDS#339]:
+ *   The board overlay below declares devicetree nodes with
+ *   compatible = "zephyr,temperature-stub" / "zephyr,voltage-stub". No
+ *   driver in the vendored Zephyr tree (v3.7.0) registers either compatible
+ *   string, so `west build -b native_sim examples/sensor_ecu` fails at the
+ *   final link step with undefined references to the device objects
+ *   (`__device_dts_ord_N`) rather than building and "degrading gracefully"
+ *   at runtime as an earlier version of this comment claimed — a missing
+ *   backing driver for DEVICE_DT_GET() is a link error, not something a
+ *   runtime device_is_ready() check can route around. There is no
+ *   boards/native_sim/sensor_stub.c file in this repo either; the stub
+ *   driver described here does not exist. See EDS#339 for the full
+ *   finding; not fixed here, this comment only stops describing an
+ *   architecture that isn't actually there.
  *
  * FREERTOS ADAPTATION NOTE:
  *   On FreeRTOS, replace:
@@ -65,8 +79,10 @@ static struct k_thread s_monitor_thread;
  * Sensor device handles
  *
  * These are resolved from Device Tree aliases defined in the board overlay.
- * On native_sim the aliases point to stub sensor nodes (sensor_stub.c).
- * On real hardware they point to the physical sensor driver nodes.
+ * On native_sim the aliases point to devicetree nodes with no backing
+ * driver in this tree — see the NATIVE_SIM BEHAVIOUR note above [EDS#339],
+ * this currently fails to link, not just to run. On real hardware they
+ * point to the physical sensor driver nodes.
  *
  * DT_ALIAS resolves at compile time — if the alias is absent from the DTS,
  * the build fails with a clear error (missing alias 'temp-sensor-0').

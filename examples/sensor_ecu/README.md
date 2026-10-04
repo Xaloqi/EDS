@@ -1,18 +1,26 @@
 # Sensor ECU Example — Xaloqi EDS
 
-**Zone Controller with Live Sensor Integration — 7 DIDs · 4 DTCs · Real Zephyr Sensor API**
+**Zone Controller with Sensor-Driven DTCs — 7 DIDs · 4 DTCs · Real Zephyr Sensor API**
 
-This is the **only Xaloqi EDS example that reads real sensor data** rather than returning
-placeholder values. It demonstrates the complete production pattern: Zephyr sensor API →
-100 ms monitoring thread → automatic DTC activation/clear → live DID responses.
+**[EDS#339] Corrected 2026-10:** this README previously claimed DID reads return live
+sensor values and listed a DID set (humidity, pressure, 3-axis accelerometer, etc.) that
+doesn't match `diagnostics_config.yaml`. Neither was accurate. What's actually true,
+below — and `native_sim` currently fails to link for an unrelated reason (missing stub
+sensor driver); see `src/sensor_monitor.c`'s header comment.
 
-The reference for any ECU that exposes physical sensor readings over UDS.
+This example demonstrates one real, working pattern — Zephyr sensor API → 100 ms
+monitoring thread → automatic DTC activation/clear via `dtc_database_set_status()` — on
+top of the same static-mock DID read handlers every other example uses. The sensor
+thread's readings and what UDS `0x22` returns are two separate things here, not one
+pipeline; see `sensor_monitor.c` and `diagnostics_config.yaml`'s header comments for the
+exact boundary.
 
 ---
 
 ## What makes this example different
 
-Every other example returns static stub values from DID handlers. This example shows:
+Every example (including this one) returns static stub values from its DID read
+handlers (`generated/did_handlers.c`). What's different here is the DTC half:
 
 ```
 Zephyr sensor API (sensor_sample_fetch / sensor_channel_get)
@@ -21,17 +29,13 @@ Zephyr sensor API (sensor_sample_fetch / sensor_channel_get)
 sensor_monitor thread  (100 ms cycle, priority 7)
     │  compares against thresholds
     ▼
-dtc_database_set_status()    ← DTCs activate/clear automatically
-    │
-    ▼
-DID read handler             ← returns live sensor value
-    │
-    ▼
-UDS ReadDataByIdentifier (0x22) response
+dtc_database_set_status()    ← DTCs activate/clear automatically, for real
 ```
 
-**DIDs:** Ambient temperature, humidity, pressure, accelerometer (3-axis), battery voltage, supply rail  
-**DTCs:** OverTemperature, UnderVoltage, SensorCommFault, AccelerometerFault — all self-clearing
+**DIDs** (`diagnostics_config.yaml`): VIN, ECU serial number, AmbientTemperature,
+SupplyVoltage, SensorStatusBitmask, TemperatureThresholdHigh/Low.
+**DTCs:** ambient-temperature over-range and under-range, supply-voltage over-range
+and under-range — all four self-clearing.
 
 ---
 
