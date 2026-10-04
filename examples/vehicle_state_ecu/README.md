@@ -127,10 +127,13 @@ testlab-run --config   examples/vehicle_state_ecu/diagnostics_config.yaml \
 ```
 
 `--virtual` runs the free tier's in-process virtual ECU — no build, no binary, nothing
-beyond `pip install`. `vehicle_state_validation` passes identically against that virtual
-ECU and against the running `native_sim` firmware: identity reads, signal
+beyond `pip install`. `vehicle_state_validation` is written to run unchanged against
+the built `native_sim` firmware over a real transport too — identity reads, signal
 inject-then-read-back on both DIDs, both routines, and the DTC read/clear/re-read
-round-trip.
+round-trip, nothing in the campaign is simulator-specific — but that firmware-side run
+has not actually been done yet (it needs a `vcan0` interface; see the second job
+below). Confirmed so far: the virtual-ECU run above, and that the firmware boots and
+initializes correctly.
 
 The campaign's second job, `vehicle_state_fault_injection`, actually provokes both DTC
 monitors and watches them clear — that needs the real firmware's monitor loop, not the
