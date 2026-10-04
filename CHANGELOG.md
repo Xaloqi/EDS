@@ -19,6 +19,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`DIAG_TIMER_OPAQUE_SIZE` (128 bytes, sized for 32-bit targets) overflowed
+  by 8 bytes on arm64** — `struct k_timer` + `struct k_sem` together need
+  136 bytes there, caught by the existing `_Static_assert` in
+  `zephyr_timer.c` rather than silently. Bumped to 192 bytes for headroom
+  on both pointer widths. Found reality-checking a `west build -b xenvm`
+  (AGL SoDeV's Zephyr guest board) — see #338.
+
+- **`basic_ecu`, `basic_ecu_doip`, `basic_ecu_doip_freertos`, and
+  `motor_controller_ecu` each declared CamelCase DID/routine handlers in
+  `main.c` that were never registered with anything** — the real
+  registered handlers are codegen's snake_case ones in
+  `generated/did_handlers.c` / `generated/routine_handlers.c`. ~900 lines
+  of dead code, confirmed unreachable, removed — see #340.
+
+- **`motor_controller_ecu`'s own `native_sim.conf` was missing
+  `CONFIG_WATCHDOG=n`** (copy-pasted from `bms_ecu`, never adapted),
+  making this example's own documented build invocation
+  (`west build -b native_sim examples/motor_controller_ecu`) fail
+  outright — see #343.
+
+- **`vehicle_state_ecu`'s README and campaign overstated what had been
+  verified** — "passes identically against the virtual ECU and the real
+  firmware" when only the virtual-ECU run had actually happened. Corrected
+  to say what was true at the time (see #342), then updated again once the
+  real-firmware run was actually completed and confirmed passing, 22/22,
+  against real SocketCAN — both DTC monitors firing and healing for real.
+
 - **`sovd_cda.json` and `catalog.ts` shipped double-escaped names.**
   `_c_safe_text()` is a *C source* escaper (`\`→`\\`, `"`→`\"`, `*/`→`* /`).
   It was applied to three SOVD fields (DID name, DTC description, routine

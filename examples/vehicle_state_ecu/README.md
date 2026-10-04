@@ -130,16 +130,18 @@ testlab-run --config   examples/vehicle_state_ecu/diagnostics_config.yaml \
 beyond `pip install`. `vehicle_state_validation` is written to run unchanged against
 the built `native_sim` firmware over a real transport too — identity reads, signal
 inject-then-read-back on both DIDs, both routines, and the DTC read/clear/re-read
-round-trip, nothing in the campaign is simulator-specific — but that firmware-side run
-has not actually been done yet (it needs a `vcan0` interface; see the second job
-below). Confirmed so far: the virtual-ECU run above, and that the firmware boots and
-initializes correctly.
+round-trip, nothing in the campaign is simulator-specific. **Confirmed**: both the
+virtual-ECU run above and the real firmware over real SocketCAN (`vcan0`), 22/22 steps.
 
 The campaign's second job, `vehicle_state_fault_injection`, actually provokes both DTC
 monitors and watches them clear — that needs the real firmware's monitor loop, not the
 virtual ECU, so it's firmware-only (run it with EDS's own `tools/jobrunner.py` or
-TestLab Pro's SocketCAN transport against a built `native_sim` binary on `vcan0`). The
-free tier's virtual ECU has no fault monitors to provoke; see the campaign file's header
+TestLab Pro's SocketCAN transport against a built `native_sim` binary on `vcan0`).
+**Confirmed against real firmware over real `vcan0`**: both monitors fired and healed
+for real — `DTC P0500-64 set: speed=450 (0.1 km/h) with engine_rpm=0` /
+`DTC U0100-00 set: engine_rpm=9000 exceeds plausible max`, both followed by their
+`cleared` log lines, 22/22 steps. The free tier's virtual ECU has no fault monitors to
+provoke, so this job still cannot pass under `--virtual`; see the campaign file's header
 comment.
 
 ---
