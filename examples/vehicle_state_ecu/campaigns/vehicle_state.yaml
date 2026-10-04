@@ -1,0 +1,200 @@
+# examples/vehicle_state_ecu/campaigns/vehicle_state.yaml
+#
+# Xaloqi TestLab campaign for examples/vehicle_state_ecu.
+#
+# --config is this example's OWN diagnostics_config.yaml — the same file
+# that generated the firmware.
+#
+# A) Free tier, no hardware, no build (in-process virtual ECU):
+#      pip install xaloqi-tester
+#      testlab-run --config  examples/vehicle_state_ecu/diagnostics_config.yaml \
+#                  --campaign examples/vehicle_state_ecu/campaigns/vehicle_state.yaml \
+#                  --job vehicle_state_validation --virtual \
+#                  --json reports/virtual.json
+#
+#    TestLab Core's virtual ECU (xaloqi-testlab-core's xaloqi/sim.py) answers
+#    0x2E unconditionally for any DID — including the two this campaign
+#    writes — so "vehicle_state_validation" passes identically whether it
+#    runs against that virtual ECU or against the real native_sim firmware.
+#    It has no DTC monitors, so it can't fail the DTC round-trip either way:
+#    there's nothing to set in the first place.
+#
+# B) Against the built native_sim firmware over SocketCAN, to see the two
+#    DTC monitors in src/vehicle_state.c actually fire. A real transport is
+#    not part of TestLab Core (core is --virtual only; SocketCAN/DoIP are a
+#    Pro plugin) — run the firmware's own job with EDS's tools/jobrunner.py
+#    against a vcan0 interface, or TestLab Pro's socketcan transport.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+jobs:
+
+  vehicle_state_validation:
+    description: >
+      Identity, both vehicle-state signals (inject then read back), both
+      routines, DTC read/clear/re-read. Passes identically against the
+      free tier's in-process virtual ECU and against the native_sim
+      firmware — see note (A) above.
+    timeout_ms: 30000
+    on_failure: continue        # run every step; capture all failures in JSON
+
+    steps:
+      - action: tester_present
+
+      - action: session
+        value:  extended
+
+      - action: security_access
+        level:  1
+
+      # ── Identity ────────────────────────────────────────────────────────
+      - action: read_did
+        did:    "0xF190"
+        save_as: vin
+      - action: assert
+        variable: vin
+        length:   17
+
+      - action: read_did
+        did:    "0xF18C"
+
+      # ── Engine speed: inject 3000 rpm, read it back ─────────────────────
+      - action: write_did
+        did:    "0x0C00"
+        data:   "0B B8"              # 3000 rpm @ 1 rpm/bit
+      - action: read_did
+        did:    "0x0C00"
+        save_as: engine_rpm
+      - action: assert
+        variable: engine_rpm
+        length:   2
+        contains: "0BB8"
+
+      # ── Vehicle speed: inject 45.0 km/h, read it back ───────────────────
+      - action: write_did
+        did:    "0x0D00"
+        data:   "01 C2"              # 450 = 45.0 km/h @ 0.1 km/h/bit
+      - action: read_did
+        did:    "0x0D00"
+        save_as: vehicle_kph
+      - action: assert
+        variable: vehicle_kph
+        length:   2
+        contains: "01C2"
+
+      # ── Actuation path: output self-test (start -> poll results) ────────
+      - action: routine
+        id:     "0xC100"
+        sub_fn: start
+        save_as: selftest_start
+      - action: delay
+        ms:     600                  # walk is 4 x 100 ms + margin
+      - action: routine
+        id:     "0xC100"
+        sub_fn: requestResults
+        save_as: selftest_results
+
+      # ── Actuation path: lamp check (take over output, then release) ─────
+      - action: routine
+        id:     "0xC101"
+        sub_fn: start
+        save_as: lampcheck_on
+      - action: delay
+        ms:     300
+      - action: routine
+        id:     "0xC101"
+        sub_fn: stop
+        save_as: lampcheck_off
+
+      # ── DTC lifecycle (protocol round-trip, not fault detection — see
+      #    vehicle_state_fault_injection below for that) ───────────────────
+      - action: read_dtc
+        save_as: dtcs_before
+      - action: clear_dtc
+        group:  "0xFFFFFF"
+      - action: read_dtc
+        save_as:   dtcs_after
+        dtc_count: 0
+
+      - action: session
+        value:  default
+
+
+  vehicle_state_fault_injection:
+    description: >
+      Provoke both diagnostic monitors in src/vehicle_state.c and watch
+      each DTC appear, then heal it. FIRMWARE TARGET ONLY — the free tier's
+      in-process virtual ECU has no monitors, so this job cannot pass
+      under --virtual by design (see note (B) above).
+    timeout_ms: 30000
+    on_failure: abort
+
+    steps:
+      - action: session
+        value:  extended
+      - action: security_access
+        level:  1
+
+      - action: clear_dtc
+        group:  "0xFFFFFF"
+
+      # ── P0500-64: moving (45.0 km/h) with the engine reading exactly
+      #    stopped. Debounce is 10 monitor ticks (~1000 ms at 100 ms/tick).
+      - action: write_did
+        did:    "0x0C00"
+        data:   "00 00"              # 0 rpm
+      - action: write_did
+        did:    "0x0D00"
+        data:   "01 C2"              # 45.0 km/h
+      - action: delay
+        ms:     1500
+
+      - action: read_dtc
+        save_as:   dtc_p0500_set
+        dtc_count: 1
+      - action: assert
+        variable: dtc_p0500_set
+        contains: "050064"
+
+      # Heal P0500: plausible pair again.
+      - action: write_did
+        did:    "0x0C00"
+        data:   "03 20"              # 800 rpm idle
+      - action: write_did
+        did:    "0x0D00"
+        data:   "00 00"
+      - action: delay
+        ms:     1500
+      - action: clear_dtc
+        group:  "0xFFFFFF"
+      - action: read_dtc
+        dtc_count: 0
+
+      # ── U0100-00: engine signal pinned above the plausible range.
+      #    Debounce is 5 monitor ticks (~500 ms at 100 ms/tick).
+      - action: write_did
+        did:    "0x0C00"
+        data:   "23 28"              # 9000 rpm — above VSE_ENGINE_RPM_IMPLAUSIBLE_MAX
+      - action: delay
+        ms:     800
+
+      - action: read_dtc
+        save_as:   dtc_u0100_set
+        dtc_count: 1
+      - action: assert
+        variable: dtc_u0100_set
+        contains: "C10000"
+
+      # Heal U0100: plausible value again.
+      - action: write_did
+        did:    "0x0C00"
+        data:   "03 20"              # 800 rpm
+      - action: delay
+        ms:     800
+      - action: clear_dtc
+        group:  "0xFFFFFF"
+      - action: read_dtc
+        dtc_count: 0
+
+      - action: session
+        value:  default
