@@ -2031,6 +2031,28 @@ jobs:
             test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
           done
 
+      # [EDS#348] Resolve this example's OWN board files if it ships them,
+      # falling back to the generic root-level ones otherwise (ardep_ecu has
+      # none). Previously this job hardcoded the root-level files for every
+      # matrix example, so an example's own boards/native_sim/{conf,overlay}
+      # — and any defect in it, e.g. sensor_ecu's EDS#339 — was never
+      # actually exercised by this job despite it reporting green.
+      - name: Resolve board overlay/conf files
+        id: board_files
+        working-directory: EDS
+        run: |
+          EX_DIR="examples/${{ matrix.example }}/boards/native_sim"
+          if [[ -f "${EX_DIR}/native_sim.conf" ]]; then
+            echo "conf=${GITHUB_WORKSPACE}/EDS/${EX_DIR}/native_sim.conf" >> "$GITHUB_OUTPUT"
+          else
+            echo "conf=${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.conf" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ -f "${EX_DIR}/native_sim.overlay" ]]; then
+            echo "overlay=${GITHUB_WORKSPACE}/EDS/${EX_DIR}/native_sim.overlay" >> "$GITHUB_OUTPUT"
+          else
+            echo "overlay=${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.overlay" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: West build — native_sim
         env:
           ZEPHYR_TOOLCHAIN_VARIANT: host
@@ -2041,8 +2063,8 @@ jobs:
             EDS/examples/${{ matrix.example }} \
             -- \
             -DDIAG_SKIP_CODEGEN=ON \
-            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.conf" \
-            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.overlay"
+            "-DEXTRA_CONF_FILE=${{ steps.board_files.outputs.conf }}" \
+            "-DDTC_OVERLAY_FILE=${{ steps.board_files.outputs.overlay }}"
 
       - name: Verify binary exists
         run: |

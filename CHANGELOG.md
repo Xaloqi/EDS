@@ -19,6 +19,51 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`sensor_ecu` didn't link on `native_sim` at all, and its live-sensor
+  and calibration DIDs/routines were disconnected static mocks** (#339).
+  Two independent fixes: (1) a minimal native_sim-only sensor driver
+  (`drivers/sensor_stub/ambient_temp_stub.c`, `voltage_stub.c`, bound via
+  new devicetree bindings under `dts/bindings/sensor/` and a `DTS_ROOT`
+  addition in `CMakeLists.txt`) now backs the `temp_stub`/`voltage_stub`
+  devicetree nodes — previously `compatible = "zephyr,temperature-stub"`/
+  `"zephyr,voltage-stub"` had no backing driver anywhere in the vendored
+  Zephyr tree, a link-time failure (`undefined reference to
+  __device_dts_ord_N`), not a runtime one. Renamed to an `"xaloqi,"`
+  vendor prefix matching the binding this example actually ships, rather
+  than a `"zephyr,"` string implying in-tree provenance it never had.
+  Returns a fixed nominal reading (25 degC / 12.0 V) — native_sim has no
+  physical sensor to simulate, and DTC firing/clearing is demonstrated via
+  extreme thresholds on 0xD010/0xD011, not by varying the reading. Also
+  added the missing `CONFIG_REBOOT=y` (a second, independent link-time gap
+  on the same board found alongside it — `sys_reboot` undefined). (2) DID
+  0xD001/0xD002/0xD003 read callbacks, 0xD010/0xD011 read+write callbacks,
+  and routines 0xFF00/0xFF01 in `generated/did_handlers.c` /
+  `generated/routine_handlers.c` now carry hand-written `[APP HOOK]`
+  bodies (same pattern as `examples/vehicle_state_ecu`, #341) that
+  delegate to `sensor_monitor.c`'s real `sensor_state_get()` and threshold
+  setters instead of a static mock array — `CMakeLists.txt` defaults
+  `DIAG_SKIP_CODEGEN=ON` and fails configure if the hooks go missing.
+  Verified: `west build -b native_sim examples/sensor_ecu` (documented
+  command, no workaround flags) links and boots cleanly, with both sensor
+  devices resolving `device_is_ready()` for the first time
+  (`sensor_monitor: Temperature sensor: temp-stub` /
+  `Voltage sensor: voltage-stub` in the boot log, where there was
+  previously nothing to log at all).
+
+- **The `zephyr-examples-native` CI job silently built a different,
+  generic board configuration than the one each example documents** (#348,
+  found while fixing #339 above). It passed `-DEXTRA_CONF_FILE`/
+  `-DDTC_OVERLAY_FILE` pointing at the repo-root generic `native_sim.conf`/
+  `.overlay` for every matrix example (`sensor_ecu`, `bms_ecu`,
+  `motor_controller_ecu`, `robot_joint_controller_ecu`, `ardep_ecu`),
+  overriding Zephyr's normal per-application board file discovery — so
+  `sensor_ecu`'s own devicetree stub nodes (the #339 defect) were never
+  actually built by this job despite it reporting green. Now resolves
+  each example's own `boards/native_sim/{native_sim.conf,.overlay}` when
+  present, falling back to the generic root-level files only for examples
+  that don't ship their own (`ardep_ecu`). Verified all 5 matrix examples
+  still build clean under the corrected flags.
+
 - **`bms_ecu`'s and `robot_joint_controller_ecu`'s own documented
   `native_sim` build commands didn't work as written** (O-132, same class
   as #343): `bms_ecu`'s native_sim config was never actually applied by

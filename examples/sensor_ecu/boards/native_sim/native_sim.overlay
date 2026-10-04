@@ -8,8 +8,13 @@
  *
  * Provides:
  *   - CAN loopback (same as all other examples)
- *   - Two stub sensor nodes using zephyr,temperature-sensor-stub and
- *     zephyr,voltage-sensor-stub drivers (native_sim only)
+ *   - Two stub sensor nodes, backed by a minimal out-of-tree driver that
+ *     ships with this example (drivers/sensor_stub/, bound via
+ *     dts/bindings/sensor/ -- see CMakeLists.txt's DTS_ROOT addition).
+ *     [EDS#339] These return fixed nominal readings; native_sim has no
+ *     physical sensor to simulate, and DTC firing/clearing is
+ *     demonstrated via extreme thresholds (DID 0xD010/0xD011), not by
+ *     varying the reading -- see sensor_monitor.c's header comment.
  *
  * On real hardware, replace these nodes with your physical sensor:
  *
@@ -45,24 +50,21 @@
     };
 
     /*
-     * [EDS#339] BROKEN, not just incomplete: there is no "zephyr,temperature-
-     * stub" driver anywhere in the vendored Zephyr tree (v3.7.0) — no
-     * devicetree binding, no driver source, no CONFIG_SENSOR_STUB symbol.
-     * This node parses as valid devicetree (any compatible string does),
-     * but DEVICE_DT_GET() on it in sensor_monitor.c fails at the final
-     * link step ("undefined reference to __device_dts_ord_N"), not at
-     * runtime — there is no device object to degrade gracefully from.
-     * `west build -b native_sim examples/sensor_ecu` currently does not
-     * link. Not fixed here; see EDS#339.
+     * [EDS#339] Backed by drivers/sensor_stub/ambient_temp_stub.c — fixed
+     * 25 degC reading. Previously used compatible = "zephyr,temperature-
+     * stub", a string that both claimed in-tree Zephyr provenance it
+     * didn't have and had no backing driver at all (undefined reference
+     * to __device_dts_ord_N at link time). Renamed to an "xaloqi,"
+     * compatible matching the binding this example actually ships.
      */
     temp_stub: temp-stub {
-        compatible = "zephyr,temperature-stub";
+        compatible = "xaloqi,ambient-temp-stub";
         status = "okay";
     };
 
-    /* [EDS#339] Same problem as temp_stub above — no backing driver. */
+    /* [EDS#339] Same history and fix as temp_stub above. */
     voltage_stub: voltage-stub {
-        compatible = "zephyr,voltage-stub";
+        compatible = "xaloqi,voltage-stub";
         status = "okay";
     };
 };

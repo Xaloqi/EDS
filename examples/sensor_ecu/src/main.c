@@ -31,11 +31,9 @@
  *
  *   diag_task thread (priority 5, 1 ms tick):
  *     can_transport_receive() → isotp_process_rx_frame() → uds_server_process_request()
- *     DID 0xD001/0xD002/0xD003 handlers — generated/did_handlers.c's own
- *     static mocks, NOT wired to sensor_state_get() despite this file's
- *     earlier intent [EDS#339]. native_sim also currently fails to link
- *     for an unrelated reason (missing stub sensor driver) — see
- *     sensor_monitor.c's header comment.
+ *     DID 0xD001/0xD002/0xD003 handlers — generated/did_handlers.c's
+ *     [APP HOOK] bodies call sensor_state_get() directly [EDS#339, fixed].
+ *     See sensor_monitor.c's header comment for the native_sim driver.
  *
  * SPDX-License-Identifier: Apache-2.0
  * =============================================================================

@@ -7,10 +7,28 @@
  * Version   : 1.0.0
  * Generated : 2026-08-30T13:16:03Z
  *
- * PURPOSE: DID read/write handler stubs and static DID registration table.
- *          Each handler returns deterministic stub data (zeros) until the
- *          application developer replaces the stub body with real sensor or
- *          NVM access code.
+ * [APP HOOK] This file normally regenerates as pure TODO stubs (see every
+ * other example's generated/did_handlers.c). This one departs from that,
+ * intentionally, same as examples/vehicle_state_ecu/generated/
+ * routine_handlers.c: the 7 bodies marked [APP HOOK] below (3 live-sensor
+ * reads, TemperatureThresholdHigh/Low read+write) delegate to
+ * sensor_monitor.c's real state instead of a static mock array.
+ *
+ * There is no other way to give a DID live behaviour in this codebase —
+ * did_database_register() copies the did_entry_t (including its bare
+ * read_cb/write_cb function pointers) by value into a fixed-capacity
+ * array at init, so nothing can re-point a callback at runtime; the
+ * callback bodies here are the only place application logic can run (see
+ * EDS#339). Each [APP HOOK] marker is exactly what to re-apply if this
+ * file is ever regenerated from the YAML (examples/sensor_ecu/
+ * CMakeLists.txt sets DIAG_SKIP_CODEGEN=ON by default for exactly this
+ * reason, and a configure-time check fails loudly if these markers go
+ * missing).
+ *
+ * PURPOSE: DID read/write handlers and static DID registration table.
+ *          VehicleIdentificationNumber/ECUSerialNumber remain stub mocks
+ *          (out of EDS#339's scope — no real VIN/serial source in this
+ *          example). The other 7 are [APP HOOK] bodies, not stubs.
  *
  *          Architecture:
  *            diagnostics_config.yaml (dids section)
@@ -21,13 +39,14 @@
  *          This design allows the DID table to be YAML-driven without
  *          modifying the core DID database engine (config/did_database.c).
  *
- * WARNING: DO NOT EDIT MANUALLY.
+ * WARNING: DO NOT EDIT MANUALLY, WITH ONE DOCUMENTED EXCEPTION ABOVE.
  *          Regenerate: python3 tools/codegen.py --config <yaml> --out generated/
+ *          then reapply the 7 [APP HOOK] bodies before committing.
  *
- * SAFETY  : Stub implementations return zeros, which is safe but not
- *           functionally correct. Replace each handler body before integration
- *           testing. Handlers that expose safety-relevant signals must be
- *           assessed for the required ASIL level.
+ * SAFETY  : VehicleIdentificationNumber/ECUSerialNumber stub implementations
+ *           return zeros, which is safe but not functionally correct.
+ *           Handlers that expose safety-relevant signals must be assessed
+ *           for the required ASIL level.
  * STANDARD: MISRA C:2012 alignment intended.
  * =============================================================================
  */
@@ -36,6 +55,7 @@
 #include "did_database.h"
 #include "uds_types.h"
 #include "generated_config.h"
+#include "sensor_ecu.h"
 
 #include <string.h>
 #include <stddef.h>
@@ -59,25 +79,13 @@ static uint8_t s_mock_vehicleidentificationnumber[17U] = { 0U };
 /* TODO [APPLICATION]: Replace with real data source for 'ECUSerialNumber'. */
 static uint8_t s_mock_ecuserialnumber[8U] = { 0U };
 
-/** Stub backing store for DID 0xD001 — AmbientTemperature (1 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'AmbientTemperature'. */
-static uint8_t s_mock_ambienttemperature[1U] = { 0U };
-
-/** Stub backing store for DID 0xD002 — SupplyVoltage (2 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'SupplyVoltage'. */
-static uint8_t s_mock_supplyvoltage[2U] = { 0U };
-
-/** Stub backing store for DID 0xD003 — SensorStatusBitmask (1 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'SensorStatusBitmask'. */
-static uint8_t s_mock_sensorstatusbitmask[1U] = { 0U };
-
-/** Stub backing store for DID 0xD010 — TemperatureThresholdHigh (1 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'TemperatureThresholdHigh'. */
-static uint8_t s_mock_temperaturethresholdhigh[1U] = { 0U };
-
-/** Stub backing store for DID 0xD011 — TemperatureThresholdLow (1 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'TemperatureThresholdLow'. */
-static uint8_t s_mock_temperaturethresholdlow[1U] = { 0U };
+/*
+ * [APP HOOK] DIDs 0xD001/0xD002/0xD003/0xD010/0xD011 no longer have mock
+ * backing arrays — their read/write handlers below delegate directly to
+ * sensor_monitor.c's real sensor_state_t via sensor_state_get() /
+ * sensor_set_temp_threshold_high() / sensor_set_temp_threshold_low().
+ * See EDS#339.
+ */
 
 
 /* =============================================================================
@@ -194,11 +202,14 @@ uds_status_t did_read_ecuserialnumber(
  * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
  * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
  */
+/* [APP HOOK] Delegates to sensor_monitor.c's real sensor_state_get(). */
 uds_status_t did_read_ambienttemperature(
     uint8_t  *buf,
     uint16_t  buf_len,
     uint16_t *out_len)
 {
+    sensor_state_t state;
+
     if ((buf == NULL) || (out_len == NULL)) {
         return UDS_STATUS_ERR_NULL_PTR;
     }
@@ -207,8 +218,8 @@ uds_status_t did_read_ambienttemperature(
         return UDS_STATUS_ERR_BUFFER_OVERFLOW;
     }
 
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for AmbientTemperature. */
-    (void)memcpy(buf, s_mock_ambienttemperature, (size_t)1U);
+    sensor_state_get(&state);
+    buf[0]   = SENSOR_TEMP_ENCODE(state.temp_deg_c);
     *out_len = (uint16_t)1U;
 
     return UDS_STATUS_OK;
@@ -235,11 +246,14 @@ uds_status_t did_read_ambienttemperature(
  * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
  * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 2.
  */
+/* [APP HOOK] Delegates to sensor_monitor.c's real sensor_state_get(). */
 uds_status_t did_read_supplyvoltage(
     uint8_t  *buf,
     uint16_t  buf_len,
     uint16_t *out_len)
 {
+    sensor_state_t state;
+
     if ((buf == NULL) || (out_len == NULL)) {
         return UDS_STATUS_ERR_NULL_PTR;
     }
@@ -248,8 +262,10 @@ uds_status_t did_read_supplyvoltage(
         return UDS_STATUS_ERR_BUFFER_OVERFLOW;
     }
 
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for SupplyVoltage. */
-    (void)memcpy(buf, s_mock_supplyvoltage, (size_t)2U);
+    sensor_state_get(&state);
+    /* uint16 big-endian, LSB = 1 mV (diagnostics_config.yaml 0xD002). */
+    buf[0]   = (uint8_t)(state.voltage_mv >> 8U);
+    buf[1]   = (uint8_t)(state.voltage_mv & 0xFFU);
     *out_len = (uint16_t)2U;
 
     return UDS_STATUS_OK;
@@ -276,11 +292,14 @@ uds_status_t did_read_supplyvoltage(
  * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
  * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
  */
+/* [APP HOOK] Delegates to sensor_monitor.c's real sensor_state_get(). */
 uds_status_t did_read_sensorstatusbitmask(
     uint8_t  *buf,
     uint16_t  buf_len,
     uint16_t *out_len)
 {
+    sensor_state_t state;
+
     if ((buf == NULL) || (out_len == NULL)) {
         return UDS_STATUS_ERR_NULL_PTR;
     }
@@ -289,8 +308,8 @@ uds_status_t did_read_sensorstatusbitmask(
         return UDS_STATUS_ERR_BUFFER_OVERFLOW;
     }
 
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for SensorStatusBitmask. */
-    (void)memcpy(buf, s_mock_sensorstatusbitmask, (size_t)1U);
+    sensor_state_get(&state);
+    buf[0]   = state.status;
     *out_len = (uint16_t)1U;
 
     return UDS_STATUS_OK;
@@ -317,11 +336,14 @@ uds_status_t did_read_sensorstatusbitmask(
  * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
  * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
  */
+/* [APP HOOK] Delegates to sensor_monitor.c's real sensor_state_get(). */
 uds_status_t did_read_temperaturethresholdhigh(
     uint8_t  *buf,
     uint16_t  buf_len,
     uint16_t *out_len)
 {
+    sensor_state_t state;
+
     if ((buf == NULL) || (out_len == NULL)) {
         return UDS_STATUS_ERR_NULL_PTR;
     }
@@ -330,8 +352,8 @@ uds_status_t did_read_temperaturethresholdhigh(
         return UDS_STATUS_ERR_BUFFER_OVERFLOW;
     }
 
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for TemperatureThresholdHigh. */
-    (void)memcpy(buf, s_mock_temperaturethresholdhigh, (size_t)1U);
+    sensor_state_get(&state);
+    buf[0]   = SENSOR_TEMP_ENCODE(state.temp_threshold_high_deg_c);
     *out_len = (uint16_t)1U;
 
     return UDS_STATUS_OK;
@@ -358,11 +380,14 @@ uds_status_t did_read_temperaturethresholdhigh(
  * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
  * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
  */
+/* [APP HOOK] Delegates to sensor_monitor.c's real sensor_state_get(). */
 uds_status_t did_read_temperaturethresholdlow(
     uint8_t  *buf,
     uint16_t  buf_len,
     uint16_t *out_len)
 {
+    sensor_state_t state;
+
     if ((buf == NULL) || (out_len == NULL)) {
         return UDS_STATUS_ERR_NULL_PTR;
     }
@@ -371,8 +396,8 @@ uds_status_t did_read_temperaturethresholdlow(
         return UDS_STATUS_ERR_BUFFER_OVERFLOW;
     }
 
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for TemperatureThresholdLow. */
-    (void)memcpy(buf, s_mock_temperaturethresholdlow, (size_t)1U);
+    sensor_state_get(&state);
+    buf[0]   = SENSOR_TEMP_ENCODE(state.temp_threshold_low_deg_c);
     *out_len = (uint16_t)1U;
 
     return UDS_STATUS_OK;
@@ -411,6 +436,7 @@ uds_status_t did_read_temperaturethresholdlow(
  * @return UDS_STATUS_ERR_NULL_PTR if buf is NULL.
  * @return UDS_STATUS_ERR_INVALID_PARAM if len != 1.
  */
+/* [APP HOOK] Delegates to sensor_monitor.c's real sensor_set_temp_threshold_high(). */
 uds_status_t did_write_temperaturethresholdhigh(
     const uint8_t *buf,
     uint16_t       len)
@@ -423,8 +449,7 @@ uds_status_t did_write_temperaturethresholdhigh(
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
-    /* TODO [APPLICATION]: Validate range, then write to NVM/actuator. */
-    (void)memcpy(s_mock_temperaturethresholdhigh, buf, (size_t)1U);
+    sensor_set_temp_threshold_high((int8_t)SENSOR_TEMP_DECODE(buf[0]));
 
     return UDS_STATUS_OK;
 }
@@ -450,6 +475,7 @@ uds_status_t did_write_temperaturethresholdhigh(
  * @return UDS_STATUS_ERR_NULL_PTR if buf is NULL.
  * @return UDS_STATUS_ERR_INVALID_PARAM if len != 1.
  */
+/* [APP HOOK] Delegates to sensor_monitor.c's real sensor_set_temp_threshold_low(). */
 uds_status_t did_write_temperaturethresholdlow(
     const uint8_t *buf,
     uint16_t       len)
@@ -462,8 +488,7 @@ uds_status_t did_write_temperaturethresholdlow(
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
-    /* TODO [APPLICATION]: Validate range, then write to NVM/actuator. */
-    (void)memcpy(s_mock_temperaturethresholdlow, buf, (size_t)1U);
+    sensor_set_temp_threshold_low((int8_t)SENSOR_TEMP_DECODE(buf[0]));
 
     return UDS_STATUS_OK;
 }

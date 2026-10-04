@@ -21,27 +21,26 @@
  *      d. dtc_database_set_status() — set/clear DTCs based on result
  *
  *   3. The latest readings are stored in s_sensor_state (protected by
- *      s_sensor_lock). sensor_state_get() below exists for that purpose,
- *      but [EDS#339]: it is NOT actually called by generated/did_handlers.c
- *      — the registered DID 0xD001/0xD002/0xD003 read callbacks there
- *      memcpy from their own static mock arrays instead, same as every
- *      other example's generated stubs. So this monitor thread's readings
- *      and what 0x22 returns are currently disconnected.
+ *      s_sensor_lock). sensor_state_get() below is called directly from
+ *      the [APP HOOK] bodies in generated/did_handlers.c's DID
+ *      0xD001/0xD002/0xD003 read callbacks and generated/
+ *      routine_handlers.c's SensorSelfTest routine — [EDS#339], fixed.
+ *      The threshold setters below (sensor_set_temp_threshold_high/low)
+ *      are likewise called from DID 0xD010/0xD011's write callbacks and
+ *      the ResetSensorCalibration routine.
  *
- * NATIVE_SIM BEHAVIOUR — CURRENTLY BROKEN, NOT JUST INCOMPLETE [EDS#339]:
- *   The board overlay below declares devicetree nodes with
- *   compatible = "zephyr,temperature-stub" / "zephyr,voltage-stub". No
- *   driver in the vendored Zephyr tree (v3.7.0) registers either compatible
- *   string, so `west build -b native_sim examples/sensor_ecu` fails at the
- *   final link step with undefined references to the device objects
- *   (`__device_dts_ord_N`) rather than building and "degrading gracefully"
- *   at runtime as an earlier version of this comment claimed — a missing
- *   backing driver for DEVICE_DT_GET() is a link error, not something a
- *   runtime device_is_ready() check can route around. There is no
- *   boards/native_sim/sensor_stub.c file in this repo either; the stub
- *   driver described here does not exist. See EDS#339 for the full
- *   finding; not fixed here, this comment only stops describing an
- *   architecture that isn't actually there.
+ * NATIVE_SIM BEHAVIOUR [EDS#339, fixed]:
+ *   The board overlay declares devicetree nodes with
+ *   compatible = "xaloqi,ambient-temp-stub" / "xaloqi,voltage-stub",
+ *   backed by a minimal driver this example ships
+ *   (drivers/sensor_stub/ambient_temp_stub.c, voltage_stub.c — see
+ *   CMakeLists.txt's DTS_ROOT addition for how the binding is found).
+ *   Both return a fixed nominal reading (25 degC, 12.0 V) rather than
+ *   anything dynamic: native_sim has no physical sensor to simulate, and
+ *   DTC firing/clearing is demonstrated via extreme thresholds on DID
+ *   0xD010/0xD011, not by varying the reading. See EDS#339 for the full
+ *   history (this previously failed to link — no backing driver existed
+ *   at all).
  *
  * FREERTOS ADAPTATION NOTE:
  *   On FreeRTOS, replace:
