@@ -572,7 +572,7 @@ SDV tooling, OEM SOVD clients, or any tool that understands the OpenSOVD
 ```json
 {
   "sovdVersion": "1.0.0",
-  "generatedBy":  "Xaloqi EDS codegen v1.16.1",
+  "generatedBy":  "Xaloqi EDS codegen v1.17.0",
   "generatedAt":  "<ISO 8601 UTC>",
   "ecuIdentification": {
     "name":    "<ecu_name>",
