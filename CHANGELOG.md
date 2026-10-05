@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.17.0] — 2026-10-05
+
 ### Added
 
 - **`examples/vehicle_state_ecu`** — a vehicle-state ECU example (speed and
