@@ -1,0 +1,82 @@
+# =============================================================================
+# .github/actions/setup-arm-none-eabi-gcc — pinned FreeRTOS/bare-metal
+# ARM cross-compiler
+#
+# [EDS#360] Three jobs (freertos-qemu, freertos-safeboot, freertos-examples)
+# installed gcc-arm-none-eabi via `apt-get install`, with no version pin —
+# whichever version ubuntu-22.04's archive happened to resolve to that day.
+# That is incompatible with writing any compiler-qualification argument
+# against this toolchain (EDS#155/O-57): the thing being qualified has to
+# be a fixed, named artifact, not "whatever apt gives you this week."
+#
+# This downloads the official ARM GNU Toolchain release tarball directly —
+# not the Debian package — the same way setup-zephyr-sdk downloads the
+# Zephyr SDK release directly rather than relying on a distro package. The
+# official tarball bundles newlib already, so the separate
+# `libnewlib-arm-none-eabi` apt package this replaces is no longer needed.
+#
+# Note for anyone editing this file: do not write a GitHub expression in
+# this description, even as an illustration — see
+# .github/actions/setup-zephyr-sdk/action.yml's header for why that fails
+# the whole action.
+# =============================================================================
+name: "Set up pinned arm-none-eabi-gcc"
+description: >
+  Downloads and extracts a pinned ARM GNU Toolchain release (arm-none-eabi
+  target), verifies the binary, and adds it to PATH for later steps.
+
+inputs:
+  toolchain-version:
+    description: >
+      ARM GNU Toolchain release version, e.g. "13.3.rel1" — must match the
+      release's own version string exactly (not just the numeric part), as
+      it is used verbatim in the download URL. Passed explicitly rather
+      than read from the workflow env block, for the same reason
+      setup-zephyr-sdk's sdk-version input is: a silently empty value would
+      build a nonsense download URL, and workflow-level env is not
+      dependably visible inside a composite action's steps. The workflow's
+      ARM_NONE_EABI_GCC_VERSION remains the single source of truth; callers
+      pass it in from there.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Download and extract ARM GNU Toolchain
+      shell: bash
+      env:
+        TOOLCHAIN_VERSION: ${{ inputs.toolchain-version }}
+      run: |
+        if [ -z "${TOOLCHAIN_VERSION}" ]; then
+          echo "ERROR: toolchain-version input is empty — the download URL would be malformed."
+          exit 1
+        fi
+        TARBALL="arm-gnu-toolchain-${TOOLCHAIN_VERSION}-x86_64-arm-none-eabi.tar.xz"
+        URL="https://developer.arm.com/-/media/Files/downloads/gnu/${TOOLCHAIN_VERSION}/binrel/${TARBALL}"
+        INSTALL_DIR="${HOME}/arm-gnu-toolchain-${TOOLCHAIN_VERSION}"
+
+        echo "=== Downloading ${TARBALL} ==="
+        wget -q "${URL}" -O "/tmp/${TARBALL}"
+
+        echo "=== Extracting ==="
+        mkdir -p "${INSTALL_DIR}"
+        tar -xf "/tmp/${TARBALL}" --strip-components=1 -C "${INSTALL_DIR}"
+
+        GCC="${INSTALL_DIR}/bin/arm-none-eabi-gcc"
+        if [ ! -x "${GCC}" ]; then
+          echo "ERROR: ${GCC} not found or not executable"
+          echo "INSTALL_DIR contents:"
+          ls -la "${INSTALL_DIR}/" 2>/dev/null || echo "  (absent)"
+          exit 1
+        fi
+
+        echo "=== Verifying pinned version ==="
+        "${GCC}" --version
+        echo "${INSTALL_DIR}/bin" >> "${GITHUB_PATH}"
+
+    - name: Verify arm-none-eabi-gcc on PATH
+      shell: bash
+      run: |
+        arm-none-eabi-gcc --version \
+          && echo "PASS: arm-none-eabi-gcc available (pinned)" \
+          || (echo "FAIL: arm-none-eabi-gcc not found on PATH" && exit 1)

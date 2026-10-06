@@ -537,7 +537,7 @@ Unlike alternatives that use PolyForm Noncommercial (which prohibits production 
 ## Requirements
 
 - **Zephyr RTOS**: v3.7+, West 1.2+, CMake ≥ 3.20
-- **FreeRTOS**: FreeRTOS-Kernel (any recent release), `arm-none-eabi-gcc` + `libnewlib-arm-none-eabi`, CMake ≥ 3.20
+- **FreeRTOS**: FreeRTOS-Kernel (any recent release), `arm-none-eabi-gcc` (CI is pinned to [ARM GNU Toolchain 13.3.rel1](https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz), which bundles newlib — a separate `libnewlib-arm-none-eabi` package is not required with that toolchain), CMake ≥ 3.20
 - **DoIP (optional)**: LwIP 2.x (any MCU with Ethernet) for FreeRTOS targets; Zephyr networking stack (`CONFIG_NETWORKING=y`) for Zephyr targets
 - Python 3.9+ with `pyyaml`, `jinja2`, `pytest`
 - Node.js 18+ (GUI only)

@@ -232,6 +232,16 @@ on:
 
 env:
   ZEPHYR_SDK_VERSION: "0.16.8"
+  # [EDS#360 step 1] Pinned exact version of the FreeRTOS/bare-metal ARM
+  # toolchain. Previously `apt-get install gcc-arm-none-eabi` on
+  # ubuntu-22.04 — whatever version Ubuntu's archive resolved to that day,
+  # with no record of which one and no warning when it silently changed.
+  # A compiler-qualification argument (EDS#155/O-57) cannot be written
+  # against an unpinned toolchain; this makes it a fixed, named thing, the
+  # same way ZEPHYR_SDK_VERSION already does for the Zephyr path. Version
+  # string matches the ARM GNU Toolchain release naming exactly (not just
+  # the numeric part) — see .github/actions/setup-arm-none-eabi-gcc.
+  ARM_NONE_EABI_GCC_VERSION: "13.3.rel1"
   # Narrow CI allowance for codegen.py, and only here: it is honoured ONLY in a
   # checkout that has neither _license.py nor the Jinja2 templates — both are
   # delivered with a purchased licence and neither is in this repo. In that
@@ -1732,15 +1742,14 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            gcc-arm-none-eabi libnewlib-arm-none-eabi \
             cmake ninja-build python3 python3-pip
           pip install pyyaml jinja2
 
-      - name: Verify arm-none-eabi-gcc
-        run: |
-          arm-none-eabi-gcc --version \
-            && echo "PASS: arm-none-eabi-gcc available" \
-            || (echo "FAIL: arm-none-eabi-gcc not found" && exit 1)
+      # [EDS#360] Pinned toolchain — see .github/actions/setup-arm-none-eabi-gcc.
+      - name: Set up pinned arm-none-eabi-gcc
+        uses: ./.github/actions/setup-arm-none-eabi-gcc
+        with:
+          toolchain-version: ${{ env.ARM_NONE_EABI_GCC_VERSION }}
 
       - name: Clone FreeRTOS-Kernel
         run: |
@@ -1813,11 +1822,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install ARM cross-compiler
+      - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            gcc-arm-none-eabi libnewlib-arm-none-eabi ninja-build cmake
+          sudo apt-get install -y --no-install-recommends ninja-build cmake
+
+      # [EDS#360] Pinned toolchain — see .github/actions/setup-arm-none-eabi-gcc.
+      - name: Set up pinned arm-none-eabi-gcc
+        uses: ./.github/actions/setup-arm-none-eabi-gcc
+        with:
+          toolchain-version: ${{ env.ARM_NONE_EABI_GCC_VERSION }}
 
       - name: Clone FreeRTOS-Kernel
         run: |
@@ -1916,8 +1930,13 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            gcc-arm-none-eabi libnewlib-arm-none-eabi \
             cmake ninja-build python3 python3-pip
+
+      # [EDS#360] Pinned toolchain — see .github/actions/setup-arm-none-eabi-gcc.
+      - name: Set up pinned arm-none-eabi-gcc
+        uses: ./.github/actions/setup-arm-none-eabi-gcc
+        with:
+          toolchain-version: ${{ env.ARM_NONE_EABI_GCC_VERSION }}
 
       - name: Clone FreeRTOS-Kernel
         run: |
