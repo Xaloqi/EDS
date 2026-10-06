@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.17.0  
-**Status:** 52/52 unit test modules passing. All CI jobs green — the count is
+**Status:** 53/53 unit test modules passing. All CI jobs green — the count is
 deliberately not restated here, because a hand-maintained one has now drifted
 twice (#97, then again while this line read "25"); `.github/workflows/ci.yml`'s
 `jobs:` block is the count. 68/68 harness tests passing — **Professional tier
@@ -27,11 +27,11 @@ tests. All four layers run automatically in CI on every push and pull request.
 
 | Layer | Count | Framework | Status |
 |---|---|---|---|
-| Unit tests | 45 modules | Unity (C) | ✅ All passing |
+| Unit tests | 53 modules | Unity (C) | ✅ All passing |
 | Harness tests | 68 tests | Shell + GCC | ✅ Passing on Professional tier; BLOCKED (not executed) on Developer tier — `harness/` absent, ADR-005 |
 | Integration tests | Per-DID/DTC suite | pytest (Python) | ✅ All passing |
 | System tests | native_sim E2E | Zephyr + pytest | ✅ All passing |
-| DoIP unit tests | 30 tests (1 module) | Unity (C) — ZTEST suite | ✅ All passing |
+| DoIP unit tests | 32 tests (2 modules: test_doip_server + test_doip_lock_required) | Unity (C) — ZTEST suite | ✅ All passing |
 | DoIP integration tests | 10 tests | pytest + xaloqi-tester DoipBus | ✅ Passing (skipped when TestLab absent) |
 | Generated pytest suite | Per-DID + per-DTC | testgen.py → pytest | ✅ Generated from YAML — all examples |
 | Generated CANoe CAPL | Per-DID + DTC + services | testgen.py → `.can` files | ✅ Generated from YAML |
@@ -212,7 +212,7 @@ bash build_tests.sh
 # Expected: 45 passed, 0 failed
 ```
 
-### Coverage — 52 unit test modules
+### Coverage — 53 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -596,7 +596,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          52 Unity modules via build_tests.sh
+   ├── unit-tests          53 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── cmake-ctest-build   The same modules via cmake -S tests + ctest
@@ -629,7 +629,7 @@ push / PR
    ├── freertos-safeboot   FreeRTOS OTA DFU compile — QEMU Cortex-M4 (safeboot_freertos_ecu, RAM stub flash)
    │
    └── doip-integration    basic_ecu_doip native_sim build
-                           + 30 DoIP unit tests (smoke check via build_tests.sh)
+                           + 32 DoIP unit tests across 2 modules (smoke check via build_tests.sh)
                            + 10 pytest end-to-end tests (skipped when TestLab absent)
 ```
 
