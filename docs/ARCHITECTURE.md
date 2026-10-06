@@ -296,8 +296,12 @@ design needs a separate process/image per security context.
 
 ## 6. Transport Layer (`transport/`)
 
-Two transports share the same UDS server core. Transport selection is a YAML field:
-`ecu.transport: can` (default) or `ecu.transport: doip`.
+Two transports share the same UDS server core. Transport selection is a build-system
+choice, not a YAML field: it's made in the example's `CMakeLists.txt` (source file
+list + the `EDS_DOIP_ONLY_BUILD` compile define — see `examples/basic_ecu_doip/CMakeLists.txt`).
+`ecu.transport`/`ecu.doip` in `diagnostics_config.yaml` feeds the generated SOVD CDA
+(`sovd_cda.json`) only; it does not affect which transport code a firmware build
+compiles (EDS#352).
 
 ### 6.1 ISO-TP (ISO 15765-2) — `transport/isotp.c`
 

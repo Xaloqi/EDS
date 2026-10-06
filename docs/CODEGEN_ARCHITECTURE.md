@@ -167,10 +167,12 @@ metadata:
   ecu_name:   "BasicECU"
   version:    "1.1.0"
 
-# Optional transport selection (v1.6.0) — default is "can"
+# Optional (v1.6.0). Feeds the SOVD CDA output (--sovd) only — does NOT select
+# which transport code a firmware build compiles; that's a CMakeLists.txt
+# decision (EDS_DOIP_ONLY_BUILD + source list). See examples/basic_ecu_doip.
 # "can"  — ISO-TP over CAN (default, backward compatible)
-# "doip" — DoIP over Ethernet/TCP (ISO 13400-2), disables ISO-TP init
-# "both" — ISO-TP CAN + DoIP simultaneously (zonal ECU)
+# "doip" — DoIP over Ethernet/TCP (ISO 13400-2)
+# "both" — zonal ECU exposing both (SOVD-facing description only)
 ecu:
   transport: doip
   doip:
@@ -234,11 +236,10 @@ routines:
 | `safeboot_enabled` | bool | `safeboot.enabled` (default `False`) | |
 | `safeboot_platform` | str | `safeboot.platform` (default `"zephyr"`) | Valid values: `"zephyr"` → `zephyr_flash_ops_init()`; `"freertos"` → `freertos_flash_ops_init()` |
 | `safeboot_max_block` | int | `safeboot.max_block_length` (default `256`) | |
-| `transport` | str | `ecu.transport` (default `"can"`) | v1.6.0 — `"can"`, `"doip"`, or `"both"` |
-| `is_doip` | bool | `transport in ("doip", "both")` | v1.6.0 — available to templates |
-| `doip_logical_address` | str | `ecu.doip.logical_address` (default `"0xE400"`) | v1.6.0 |
-| `doip_source_address` | str | `ecu.doip.source_address` (default `"0x0E00"`) | v1.6.0 |
-| `doip_port` | int | `ecu.doip.port` (default `13400`) | v1.6.0 |
+
+`ecu.transport`/`ecu.doip` are **not** in this table — `build_uds_init_context()` never
+computed fields any template reads from them (EDS#352, fixed). They still feed
+`build_sovd_cda()`'s `transportInfo`/`ecuIdentification` output (`--sovd`, §6 below).
 
 ---
 
@@ -299,9 +300,11 @@ One start/stop/results stub per routine. Same `TODO [APPLICATION]` pattern as DI
 
 ### `generated/uds_init.c`
 
-The complete stack initialisation sequence. The function signature and ISO-TP wiring are conditional on the transport selected in the YAML (`ecu.transport`).
+The complete stack initialisation sequence. The function signature and ISO-TP wiring are conditional on the `EDS_DOIP_ONLY_BUILD`
+compile define, set in the example's `CMakeLists.txt` — **not** on the YAML `ecu.transport`
+field, which this generated file ignores entirely (EDS#352).
 
-**CAN/ISO-TP build (default — `transport: can` or no `ecu:` block):**
+**CAN/ISO-TP build (default — `EDS_DOIP_ONLY_BUILD` undefined):**
 
 ```c
 uds_status_t uds_generated_init(
@@ -327,7 +330,7 @@ Initialisation sequence:
 14. `uds_server_init()` — UDS service dispatcher
 15. `isotp_init()` — ISO-TP channel bound to the CAN transport
 
-**DoIP-only build (`transport: doip`, compiled with `-DEDS_DOIP_ONLY_BUILD`):**
+**DoIP-only build (compiled with `-DEDS_DOIP_ONLY_BUILD`, set in the example's `CMakeLists.txt`):**
 
 ```c
 uds_status_t uds_generated_init(

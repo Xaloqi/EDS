@@ -960,8 +960,8 @@ tester talks to) — not the full ISO 13400-2 surface: UDP vehicle identificatio
 announcement, and entity status requests are out of scope (see the DoIP Feature Matrix
 in [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) §6.2 for the complete implemented/not-implemented
 list). It uses the same UDS server core and ASIL-B
-safety chain as the CAN/ISO-TP transport. Selecting DoIP is a YAML field change — no
-C code differences.
+safety chain as the CAN/ISO-TP transport. **Selecting DoIP is a build-system change,
+not a YAML one** — see 5b.1a below (EDS#352).
 
 ### 5b.1 YAML configuration
 
@@ -976,8 +976,22 @@ ecu:
     port:            13400       # Standard DoIP TCP port (ISO 13400)
 ```
 
-Existing configs without an `ecu:` block continue to build unchanged (`transport: can`
-is the default).
+This block feeds the generated SOVD CDA (`sovd_cda.json`) only. It does not select
+which transport code your firmware build compiles — see 5b.1a.
+
+### 5b.1a Build configuration (the part that actually selects DoIP)
+
+Transport selection happens in your `CMakeLists.txt`, following
+`examples/basic_ecu_doip/CMakeLists.txt`:
+
+1. Omit `transport/isotp.c`, `transport/can_transport.c`, and the CAN platform binding
+   from your source list; add `transport/doip/doip_server.c` and the DoIP platform
+   binding (`zephyr_lwip.c` or `freertos_lwip.c`) instead.
+2. Define `EDS_DOIP_ONLY_BUILD=1` so the generated `uds_init.c` skips `isotp_init()`
+   and your `main.c` can pass `NULL` for the CAN transport (§5b.2).
+
+Keep this in sync with your YAML `ecu.transport` value by hand — nothing currently
+derives one from the other. Existing CAN-only configs need no changes on either side.
 
 ### 5b.2 Zephyr integration (5 steps)
 

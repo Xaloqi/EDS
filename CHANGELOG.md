@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **`codegen.py`'s `ecu.transport`/`ecu.doip` YAML block was inert for firmware
+  generation** (#352). `build_uds_init_context()` computed `transport`, `is_doip`,
+  `doip_logical_address`, `doip_source_address`, `doip_port` and passed them to
+  `uds_init.c.j2`/`uds_init.h.j2`, but no template read them — transport selection
+  has always been a `CMakeLists.txt` decision (`EDS_DOIP_ONLY_BUILD` + source list,
+  see `examples/basic_ecu_doip`), independent of the YAML. Removed the dead fields
+  from `build_uds_init_context()` and corrected the docs (`ARCHITECTURE.md`,
+  `CODEGEN_ARCHITECTURE.md`, `INTEGRATION_GUIDE.md`) that stated or implied YAML
+  drove this. The block still feeds `build_sovd_cda()`'s `transportInfo`/
+  `ecuIdentification` output — unaffected.
+
 ## [1.17.0] — 2026-10-05
 
 ### Added
