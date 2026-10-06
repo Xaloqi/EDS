@@ -8,6 +8,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **CI's FreeRTOS/bare-metal ARM toolchain is now pinned to an exact version**
+  (EDS#360 step 1). `freertos-qemu`, `freertos-safeboot`, and
+  `freertos-examples` previously installed `gcc-arm-none-eabi` via
+  `apt-get`, with no version pin — whichever build Ubuntu's archive
+  resolved to on `ubuntu-22.04` that day, silently, with no record of
+  which one. Now downloads the official ARM GNU Toolchain release
+  (`13.3.rel1`) directly via a new composite action,
+  `.github/actions/setup-arm-none-eabi-gcc` (mirrors the existing
+  `setup-zephyr-sdk` action's pattern). A compiler-qualification argument
+  cannot be written against an unpinned toolchain; this is the
+  prerequisite that argument needs. `libnewlib-arm-none-eabi` is no
+  longer installed separately — the official tarball bundles newlib.
+
 ### Fixed
 
 - **`codegen.py`'s `ecu.transport`/`ecu.doip` YAML block was inert for firmware
