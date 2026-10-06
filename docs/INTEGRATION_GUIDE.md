@@ -1050,6 +1050,23 @@ status = eds_doip_platform_start(0xE400U, DOIP_PORT, uds_generated_get_server())
 
 See `examples/basic_ecu_doip/` for the complete working example.
 
+> **[EDS#358] If you also run a UDS tick task, register lock callbacks.**
+> A DoIP-only build still needs a separate task calling
+> `uds_server_tick_1ms()` / `uds_periodic_tick_1ms()` every 1 ms — without
+> it, S3 session timeout and SecurityAccess lockout never progress
+> (EDS#191). That tick task and the DoIP server thread both touch the
+> same `uds_server_ctx_t`, with no synchronization unless you register a
+> lock: call `eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` **before**
+> `eds_doip_platform_start()`, with the *same* lock/unlock pair your tick
+> task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with — see
+> `examples/basic_ecu_doip/src/main.c`'s `s_session_lock`/
+> `s_security_lock` pair for the exact pattern. **In a production build
+> (`EDS_BUILD_IS_PRODUCTION`), `eds_doip_platform_start()`'s underlying
+> `eds_doip_server_run()` refuses to run at all if this isn't done** —
+> development/CI builds are unaffected. See
+> [`docs/threading_guide.md`](threading_guide.md)'s "Dual-Transport
+> Concurrency" section for the full hazard.
+
 ### 5b.3 FreeRTOS + LwIP integration (5 steps)
 
 Same structure as Zephyr but using the LwIP platform binding:
@@ -1090,6 +1107,15 @@ vTaskStartScheduler();
 is built into `freertos_lwip.c` to give LwIP time to initialise after scheduler start).
 
 See `examples/basic_ecu_doip_freertos/` for the complete working example.
+
+> **[EDS#358] If you also run a UDS tick task, register lock callbacks.**
+> Same requirement as the Zephyr path above: call
+> `eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` before
+> `eds_doip_platform_start_freertos()`, with the same lock/unlock pair
+> your tick task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()`
+> with — see `examples/basic_ecu_doip_freertos/src/main.c`'s
+> `s_session_lock`/`s_security_lock` pair. A production build refuses to
+> run without it; development/CI builds are unaffected.
 
 ### 5b.4 Testing with xaloqi-tester
 

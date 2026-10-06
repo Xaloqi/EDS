@@ -93,10 +93,9 @@ in its own dedicated thread** (`doip_thread`, `K_THREAD_DEFINE` in `platform/zep
 running `eds_doip_server_run()`) with its own call path into `uds_server_process_request()`.
 
 The shipped examples never combine both: `basic_ecu` runs CAN-only (`diag_task`, with the mutex
-pair); `basic_ecu_doip` / `basic_ecu_doip_freertos` run DoIP-only (`doip_thread`, no mutex —
-correctly, since there's only one caller thread in that build) — its `main.c` explicitly notes
-*"The CAN diagnostic task (diag_task) is NOT started here... for a production 'both' transport
-ECU, add the CAN thread from basic_ecu alongside the DoIP init."*
+pair); `basic_ecu_doip` / `basic_ecu_doip_freertos` run DoIP-only (`doip_thread`) — its `main.c`
+explicitly notes *"The CAN diagnostic task (diag_task) is NOT started here... for a production
+'both' transport ECU, add the CAN thread from basic_ecu alongside the DoIP init."*
 
 **If you do that** — wire both `diag_task` and `doip_thread` into the same build against the
 same `s_server_ctx` — both threads now call `uds_server_process_request()` concurrently, and
@@ -105,6 +104,32 @@ nothing inside EDS serializes them. You are responsible for extending the *same*
 `uds_server_ctx_t`, CAN's and DoIP's alike — not just `diag_task`'s, as the single-transport
 examples show it. Skipping this is a real, unguarded data race on session/security state, not a
 theoretical one.
+
+### DoIP-only still needs a lock — no second transport required (EDS#353/#358)
+
+The paragraph above frames the race as conditional on combining two transports. That undersells
+the actual exposure: **`basic_ecu_doip` and `basic_ecu_doip_freertos`, as shipped, already run two
+threads against `s_server_ctx` with nothing in between them unless you wire it up.**
+
+A DoIP-only build still needs its own UDS tick task — a dedicated thread calling
+`uds_server_tick_1ms()` / `uds_periodic_tick_1ms()` every 1 ms, because without it S3 session
+timeout and SecurityAccess lockout never progress (EDS#191). `uds_server_tick_1ms()` can force a
+session reset and clear SecurityAccess state while `doip_thread` is concurrently mid-request on
+the very same state — the same shape of race as the CAN+DoIP case above, and it needs no second
+*transport* at all, only the tick task plus `doip_thread` (EDS#353).
+
+The fix ships as an **opt-in** lock-callback pair:
+`eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` (`transport/doip/doip_server.h`), called once
+before `eds_doip_server_run()` starts, wrapping its internal
+`uds_server_process_request()` call with whatever lock your tick task already wraps
+`uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with — both shipped DoIP examples register it
+with their existing `s_session_lock`/`s_security_lock` pair; see
+`examples/basic_ecu_doip/src/main.c`. **In a production build
+(`EDS_BUILD_IS_PRODUCTION`), `eds_doip_server_run()` refuses to run at all unless both callbacks
+are registered** (EDS#358) — a build that compiles and links clean but was never wired up this
+way gets a loud `UDS_STATUS_ERR_NOT_INITIALIZED` at the point it would otherwise boot
+unprotected, rather than an intermittent race discovered later. Development/CI builds keep the
+permissive, unenforced behaviour.
 
 ### Callback Execution Context
 
