@@ -302,7 +302,8 @@ typedef struct doip_server_state {
 uds_status_t eds_doip_register_platform(const eds_doip_platform_ops_t *ops);
 
 /* --------------------------------------------------------------------------
- * [EDS#353] Optional lock callbacks
+ * [EDS#353] Lock callbacks -- optional in development/CI builds,
+ * [EDS#358] required in production builds
  * -------------------------------------------------------------------------- */
 
 /**
@@ -322,11 +323,14 @@ typedef void (*eds_doip_unlock_cb_t)(void);
 /**
  * @brief Register lock/unlock callbacks around the UDS dispatch call.
  *
- * Optional. Not registering (the default) reproduces today's behaviour —
- * correct only if nothing else ever calls into the same uds_server_ctx_t
- * from another thread, which is false the moment EDS#191's UDS tick task
- * exists (true of every shipped DoIP example). Register the *same*
- * lock/unlock pair your tick task already wraps
+ * Optional in development/CI builds; not registering reproduces today's
+ * behaviour there. [EDS#358] In a production build
+ * (EDS_BUILD_IS_PRODUCTION), eds_doip_server_run() refuses to run
+ * (UDS_STATUS_ERR_NOT_INITIALIZED) unless both callbacks are registered
+ * non-NULL -- correct only if nothing else ever calls into the same
+ * uds_server_ctx_t from another thread, which is false the moment
+ * EDS#191's UDS tick task exists (true of every shipped DoIP example).
+ * Register the *same* lock/unlock pair your tick task already wraps
  * uds_server_tick_1ms()/uds_periodic_tick_1ms() with, so both call paths
  * serialize against each other.
  *
@@ -363,7 +367,11 @@ uds_status_t eds_doip_server_init(doip_server_state_t *s, uint16_t logical_addre
  * @param[in] uds_ctx     Initialised UDS server context (from uds_server_init()).
  * @param[in] port        TCP port to listen on. Pass DOIP_PORT for standard.
  *
- * @return UDS_STATUS_ERR_NOT_INITIALIZED if eds_doip_register_platform() not called.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if eds_doip_register_platform() not
+ *         called, OR [EDS#358] if this is a production build
+ *         (EDS_BUILD_IS_PRODUCTION) and eds_doip_set_lock_callbacks() was
+ *         never called with both callbacks non-NULL -- see that function's
+ *         doc comment. Development/CI builds are unaffected.
  * @return UDS_STATUS_ERR_NULL_PTR if s or uds_ctx is NULL.
  * @return UDS_STATUS_ERR_PLATFORM if tcp_listen() fails.
  * @note   Returns only on fatal platform error. Normal operation: never returns.

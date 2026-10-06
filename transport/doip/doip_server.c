@@ -32,6 +32,7 @@
 #include "doip_server.h"
 #include "uds_server.h"
 #include "uds_types.h"
+#include "uds_security_algo.h" /* [EDS#358] EDS_BUILD_IS_PRODUCTION (SEC-BUILD-MODE-01) */
 
 /* [#31] WCET measurement scaffolding — see platform/zephyr/zephyr_wcet.h's
  * header comment. DIAG_WCET_MEASURE is never defined by any real build; this
@@ -56,7 +57,9 @@ LOG_MODULE_REGISTER(doip_wcet, LOG_LEVEL_INF);
 
 static const eds_doip_platform_ops_t *s_ops = NULL;
 
-/* [EDS#353] Optional lock callbacks around uds_server_process_request(). */
+/* [EDS#353] Lock callbacks around uds_server_process_request() -- optional
+ * in development/CI builds, [EDS#358] required in production (see the
+ * EDS_BUILD_IS_PRODUCTION guard in eds_doip_server_run() below). */
 static eds_doip_lock_cb_t   s_doip_lock_cb   = NULL;
 static eds_doip_unlock_cb_t s_doip_unlock_cb = NULL;
 
@@ -475,6 +478,28 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
     if (s_ops == NULL) {
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
+
+#if EDS_BUILD_IS_PRODUCTION
+    /* [EDS#358] This server's dispatch call and a DoIP-only build's UDS
+     * tick task (EDS#191) both touch uds_server_ctx_t with no
+     * synchronization unless the integrator registers the lock callbacks
+     * below (EDS#353) -- registration that defaults to absent and left a
+     * real instance of this exact race shipping unprotected for about a
+     * month before anyone noticed. Every build that reaches this function
+     * in production needs that tick task for S3/lockout timing to work at
+     * all (EDS#191), so "DoIP is about to run in production" and "the
+     * race is live" are the same condition here -- refuse to boot
+     * unprotected rather than silently do so, the same silent-skip ->
+     * loud-failure correction already applied to the CRIT-4 key gate
+     * (#84) and the TRNG entropy fallback (#85). Development/CI builds
+     * keep today's permissive behaviour (EDS_BUILD_IS_PRODUCTION is 0
+     * under UNIT_TEST and under the Kconfig/CMake dev-mode default) so a
+     * harness or CAN-only build with no tick task is never forced to
+     * register a lock it does not need. */
+    if ((s_doip_lock_cb == NULL) || (s_doip_unlock_cb == NULL)) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+#endif
 
     void *server_ctx = NULL;
     int rc = s_ops->tcp_listen(port, &server_ctx);

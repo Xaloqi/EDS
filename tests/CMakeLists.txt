@@ -660,6 +660,23 @@ add_diag_test(test_trng_fail_closed
 )
 
 # ---------------------------------------------------------------------------
+# test_doip_lock_required  [EDS#358]
+#      Module under test: transport/doip/doip_server.c in its PRODUCTION
+#      configuration -- eds_doip_server_run() must refuse to run unless
+#      eds_doip_set_lock_callbacks() was called with both callbacks
+#      non-NULL. Compiled with CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 so
+#      EDS_BUILD_IS_PRODUCTION selects that behaviour; that cannot be
+#      reached from the default host build test_doip_server.c uses. Mirrors
+#      build_tests.sh's extra_flags_for_test().
+# ---------------------------------------------------------------------------
+add_diag_test(test_doip_lock_required
+    SOURCES
+        "${TEST_UNIT_DIR}/test_doip_lock_required.c"
+    DEFINES
+        CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0
+)
+
+# ---------------------------------------------------------------------------
 # test_uds_acl_permissive_opt_in  [#113]
 #      Module under test: core/uds_access_table.c / core/uds_server.c in
 #      the UDS_ACL_ALLOW_UNLISTED_SERVICES=1 (permissive opt-in) build

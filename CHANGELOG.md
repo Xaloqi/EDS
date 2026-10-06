@@ -8,6 +8,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Security
+
+- **DoIP-only builds now refuse to run, in production, without registered
+  lock callbacks** (EDS#358, follow-up to EDS#353). `eds_doip_server_run()`
+  calls `uds_server_process_request()` concurrently with any build's own
+  UDS tick task (`uds_server_tick_1ms()`/`uds_periodic_tick_1ms()`, added
+  by EDS#191 so S3/lockout timers progress on DoIP-only builds) — a real,
+  unguarded race on session/security state unless
+  `eds_doip_set_lock_callbacks()` was registered. That registration was
+  opt-in and documented nowhere outside two example `main.c` files. A
+  production build (`EDS_BUILD_IS_PRODUCTION`) now refuses to run
+  (`UDS_STATUS_ERR_NOT_INITIALIZED`) instead of silently booting
+  unprotected — the same silent-skip-to-loud-failure correction already
+  applied to the CRIT-4 key gate (#84) and the TRNG entropy fallback
+  (#85). Development/CI builds are unaffected. The contract is now also
+  documented in `docs/INTEGRATION_GUIDE.md` §5b, `docs/threading_guide.md`'s
+  "Dual-Transport Concurrency" section, and the README's DoIP feature row.
+
 ### Changed
 
 - **CI's FreeRTOS/bare-metal ARM toolchain is now pinned to an exact version**

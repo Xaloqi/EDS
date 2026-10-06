@@ -217,6 +217,13 @@ extra_flags_for_test() {
             # fail-closed path is exercised on a host build.
             echo "-DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0"
             ;;
+        test_doip_lock_required)
+            # [EDS#358] Forces EDS_BUILD_IS_PRODUCTION=1 in this TU (and in
+            # the stack archive it links against, including doip_server.c)
+            # so the production lock-callback requirement is exercised on a
+            # host build. Same mechanism as test_trng_fail_closed above.
+            echo "-DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0"
+            ;;
         test_uds_acl_permissive_opt_in)
             # [#113] Forces the pre-#113 permissive-by-default ACL behaviour
             # so the opt-in itself is exercised on a host build; every other
@@ -382,6 +389,12 @@ TESTS=(
     # reached from the default dev-configuration build used by every other
     # test in this list.
     test_trng_fail_closed
+    # [EDS#358] PRODUCTION-configuration DoIP lock-callback requirement.
+    # Compiled separately (see extra_flags_for_test above) with
+    # CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 because that behaviour cannot be
+    # reached from the default dev-configuration build test_doip_server
+    # uses.
+    test_doip_lock_required
     # [#113] Permissive opt-in (UDS_ACL_ALLOW_UNLISTED_SERVICES=1) proof.
     # Compiled separately (see extra_flags_for_test above) because that
     # behaviour cannot be reached from the default (fail-closed) build used
