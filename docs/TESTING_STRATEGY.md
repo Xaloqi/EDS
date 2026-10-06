@@ -148,7 +148,14 @@ The test suite verifies:
 - Correct test generation from YAML (`testgen.py`) — verified for all examples
 - NVM DTC mirror persistence across simulated resets
 - Zero dynamic memory allocation anywhere in the stack
-- Reliable Zephyr RTOS integration on `native_sim` and `nucleo_h743zi2`
+- Reliable Zephyr RTOS integration on `native_sim` (continuous build, boot,
+  and functional-test coverage in CI) and `nucleo_h743zi` (continuous
+  compile-only verification in CI — build, link, verify ELF/HEX output;
+  never booted or run there, per §14's HiL item). `nucleo_h753zi` separately
+  got a one-time, non-continuous hardware WCET measurement campaign
+  ([`docs/PERFORMANCE.md`](PERFORMANCE.md)), covering 2 of 12 examples —
+  real evidence, but not "integration" testing in the sense this line means
+  for the first two targets
 - Correct CANoe CAPL test generation from YAML (all three `.can.j2` templates)
 - FreeRTOS platform HAL compiles and runs the UDS stack on QEMU ARM Cortex-M4
 - SafeBoot codegen: `safeboot.enabled: true` generates `zephyr_flash_ops_init()` correctly; `false` does not regress
