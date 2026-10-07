@@ -900,6 +900,15 @@ static uds_status_t doip_send_diagnostic_negative_ack(doip_server_state_t *s,
 
 static uds_status_t doip_send_alive_check_response(doip_server_state_t *s)
 {
-    /* Alive Check Response has empty payload (ISO 13400-2 §9.2.7) */
+    /* [EDS#368] KNOWN NON-CONFORMANCE, not yet fixed: this sends an empty
+     * payload. ISO 13400-2:2019 Table 28 defines the Alive Check Response
+     * payload as a mandatory 2-byte field -- the client's own source
+     * address -- which this does not send. The §9.2.7 citation previously
+     * here for "empty payload" does not support that claim; cross-checked
+     * against jacobschaer/python-doipclient's production code
+     * (AliveCheckResponse._fields = ["source_address"]) and the standard's
+     * own wording. See EDS#368 for the fix (not fully obvious: before
+     * routing activation, s->tester_address is unset, and the standard
+     * doesn't obviously define what to send then). */
     return doip_send_frame(s, DOIP_PT_ALIVE_CHECK_RESP, NULL, 0U);
 }

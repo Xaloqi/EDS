@@ -608,7 +608,10 @@ ZTEST(doip_server_suite, test_doip_handle_alive_check)
     uint16_t resp_type = read_be16(&g_mock_tx_buf[2]);
     zassert_equal(resp_type, (uint16_t)DOIP_PT_ALIVE_CHECK_RESP, "wrong alive check response type");
 
-    /* Alive Check Response has empty payload — length field should be 0 */
+    /* Current (known non-conformant, EDS#368) behaviour: empty payload.
+     * Not a correctness claim about ISO 13400-2 -- just today's shipped
+     * behaviour, verified here so a future fix lands as a deliberate,
+     * visible change to this assertion rather than an untested one. */
     uint32_t resp_len = read_be32(&g_mock_tx_buf[4]);
     zassert_equal(resp_len, 0U, "alive check response should have empty payload");
 }
