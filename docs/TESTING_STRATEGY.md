@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.17.0  
-**Status:** 53/53 unit test modules passing. All CI jobs green — the count is
+**Status:** 54/54 unit test modules passing. All CI jobs green — the count is
 deliberately not restated here, because a hand-maintained one has now drifted
 twice (#97, then again while this line read "25"); `.github/workflows/ci.yml`'s
 `jobs:` block is the count. 68/68 harness tests passing — **Professional tier
@@ -27,7 +27,7 @@ tests. All four layers run automatically in CI on every push and pull request.
 
 | Layer | Count | Framework | Status |
 |---|---|---|---|
-| Unit tests | 53 modules | Unity (C) | ✅ All passing |
+| Unit tests | 54 modules | Unity (C) | ✅ All passing |
 | Harness tests | 68 tests | Shell + GCC | ✅ Passing on Professional tier; BLOCKED (not executed) on Developer tier — `harness/` absent, ADR-005 |
 | Integration tests | Per-DID/DTC suite | pytest (Python) | ✅ All passing |
 | System tests | native_sim E2E | Zephyr + pytest | ✅ All passing |
@@ -216,10 +216,10 @@ tests/unit_runnable/
 
 ```bash
 bash build_tests.sh
-# Expected: 45 passed, 0 failed
+# Expected: 54 passed, 0 failed
 ```
 
-### Coverage — 53 unit test modules
+### Coverage — 54 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -262,6 +262,7 @@ bash build_tests.sh
 |---|---|
 | `test_isotp.c` | SF Rx/Tx, FF+CF multi-frame, FC CTS/Wait/Overflow, N_Cr timeout |
 | `test_isotp_concurrent.c` | A new request interrupting an in-progress multi-frame reassembly (retransmit / second-request race) |
+| `test_isotp_conformance_vectors.c` | [EDS#361] Independent ISO 15765-2 byte-level vectors ported from `pylessard/python-can-isotp` (MIT) — not derived from Xaloqi's own tester. See the file's own header for full provenance and honest scope limits. |
 | `test_can_transport.c` | Frame queuing, filter setup, loopback round-trip |
 | `test_doip_server.c` | 30 tests — see DoIP section below |
 
@@ -603,7 +604,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          53 Unity modules via build_tests.sh
+   ├── unit-tests          54 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── cmake-ctest-build   The same modules via cmake -S tests + ctest

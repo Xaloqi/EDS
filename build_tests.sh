@@ -352,6 +352,11 @@ TESTS=(
     test_can_transport
     test_isotp
     test_isotp_concurrent
+    # [EDS#361] Independent ISO 15765-2 conformance vectors ported from
+    # pylessard/python-can-isotp (MIT) — see the file's own header for full
+    # provenance. Deliberately a separate module from test_isotp above so
+    # provenance stays visible per-binary, not just per-function.
+    test_isotp_conformance_vectors
     test_service_0x10
     test_service_0x11
     test_service_0x14

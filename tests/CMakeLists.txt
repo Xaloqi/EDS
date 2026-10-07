@@ -479,6 +479,13 @@ add_diag_test(test_isotp_concurrent
         "${TEST_UNIT_DIR}/test_isotp_concurrent.c"
 )
 
+# [EDS#361] Independent ISO 15765-2 conformance vectors — see the file's
+# own header for full provenance (pylessard/python-can-isotp, MIT).
+add_diag_test(test_isotp_conformance_vectors
+    SOURCES
+        "${TEST_UNIT_DIR}/test_isotp_conformance_vectors.c"
+)
+
 add_diag_test(test_service_0x10
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x10.c"
