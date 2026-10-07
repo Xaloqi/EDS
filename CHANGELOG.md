@@ -26,6 +26,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   documented in `docs/INTEGRATION_GUIDE.md` §5b, `docs/threading_guide.md`'s
   "Dual-Transport Concurrency" section, and the README's DoIP feature row.
 
+### Added
+
+- **Independent ISO 15765-2 (ISO-TP) conformance vectors**
+  (`tests/unit_runnable/test_isotp_conformance_vectors.c`, EDS#361 PR 2).
+  Byte-level SF/FF/CF/FC frame sequences — reassembly, Flow Control
+  content, STmin sub-millisecond decode, periodic block-boundary FC,
+  bad-sequence-number rejection, and the largest Classic-CAN transfer
+  EDS's default configuration can hold — ported from
+  `pylessard/python-can-isotp` (MIT, tag v2.0.7), independently authored
+  and not derived from Xaloqi's own tester. Answers the "no independent
+  interoperability testing" item scoped out of EDS#155 into EDS#361. Full
+  provenance, honest scope limits (EDS implements Normal addressing
+  only), and the ADR-005 declared floor are documented in the test
+  file's own header; see also
+  `xaloqi-knowledge/strategy/proposals/2026-10-06-eds361-conformance-vectors-source-survey.md`.
+  Does not close EDS#361 — DoIP and UDS SID framing vectors are separate,
+  cheaper-last follow-up PRs per that survey's recommendation.
+
 ### Changed
 
 - **CI's FreeRTOS/bare-metal ARM toolchain is now pinned to an exact version**
