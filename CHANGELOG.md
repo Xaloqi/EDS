@@ -44,6 +44,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Does not close EDS#361 — DoIP and UDS SID framing vectors are separate,
   cheaper-last follow-up PRs per that survey's recommendation.
 
+- **Independent ISO 13400-2 (DoIP) conformance vectors**
+  (`tests/unit_runnable/test_doip_conformance_vectors.c`, EDS#361 PR 3).
+  Byte-level Routing Activation (success/denied), Diagnostic Message
+  positive-ack address swap (two independent addresses), and Alive Check
+  frame pairing — ported from `jacobschaer/python-doipclient` (MIT, tag
+  v1.2.2), independently authored and not derived from Xaloqi's own
+  tester. **Porting this is what found EDS#369 and EDS#371** (both fixed
+  in separate PRs this vectors PR depends on) — a vector Xaloqi did not
+  write caught two real defects in Xaloqi's own DoIP server before any
+  external party did. Full provenance, honest scope limits (EDS's
+  implemented DoIP subset only — no Gateway activation type, no VM-
+  specific data, no Generic Header NACK, no UDP discovery messages; Alive
+  Check ported as frame-level only pending EDS#368), and the ADR-005
+  declared floor are documented in the test file's own header. Does not
+  close EDS#361 — the source survey's third and final recommended
+  follow-up, UDS SID framing vectors, is not part of this PR.
+
 ### Changed
 
 - **CI's FreeRTOS/bare-metal ARM toolchain is now pinned to an exact version**

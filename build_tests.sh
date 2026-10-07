@@ -388,6 +388,11 @@ TESTS=(
     test_phase5_server_access
     test_phase5_replay_protection
     test_doip_server
+    # [EDS#361] Independent ISO 13400-2 (DoIP) conformance vectors ported
+    # from jacobschaer/python-doipclient (MIT) — see the file's own header
+    # for full provenance. Deliberately a separate module from
+    # test_doip_server above so provenance stays visible per-binary.
+    test_doip_conformance_vectors
     # [SEC-TRNG-FAILCLOSED-01] Production-configuration entropy fail-closed
     # behaviour. Compiled separately (see extra_flags_for_test above) with
     # CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 because that behaviour cannot be

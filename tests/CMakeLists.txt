@@ -650,6 +650,13 @@ add_diag_test(test_doip_server
         "${TEST_UNIT_DIR}/test_doip_server.c"
 )
 
+# [EDS#361] Independent ISO 13400-2 (DoIP) conformance vectors — see the
+# file's own header for full provenance (jacobschaer/python-doipclient, MIT).
+add_diag_test(test_doip_conformance_vectors
+    SOURCES
+        "${TEST_UNIT_DIR}/test_doip_conformance_vectors.c"
+)
+
 # ---------------------------------------------------------------------------
 # test_trng_fail_closed  [SEC-TRNG-FAILCLOSED-01]
 #      Module under test: core/uds_security_algo.c in its PRODUCTION
