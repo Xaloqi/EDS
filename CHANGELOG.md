@@ -61,6 +61,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DoIP diagnostic positive/negative acknowledgements were sent with their
+  source/target address fields swapped** (EDS#369). ISO 13400-2:2019 §7.8:
+  every frame in the DiagnosticMessage family carries SA/TA as
+  sender/receiver of *that* frame, and an ack sent by the ECU must swap the
+  triggering request's SA/TA — "the Source Address shall be set to the
+  according Target Address of the received message, and the Target Address
+  shall be set to the according Source Address of the received message."
+  `doip_send_diagnostic_positive_ack()` and `doip_send_diagnostic_negative_ack()`
+  instead echoed the request's fields verbatim, so every ack/nack EDS ever
+  sent claimed `SA = the tester's own address` — looking like it came from
+  the tester, not the ECU that answered. The UDS response frame that
+  follows was already correct (`s->logical_address` then
+  `s->tester_address`); only these two ack/nack helpers had the bug. Found
+  while sourcing independent DoIP conformance vectors for EDS#361 PR 3,
+  cross-checked against `jacobschaer/python-doipclient`'s test fixtures and
+  the standard's own wording. Fixed, with regression assertions in
+  `tests/unit_runnable/test_doip_server.c` verified against a reverted
+  mutation (lessons/run-014) rather than merely added.
+
 - **`codegen.py`'s `ecu.transport`/`ecu.doip` YAML block was inert for firmware
   generation** (#352). `build_uds_init_context()` computed `transport`, `is_doip`,
   `doip_logical_address`, `doip_source_address`, `doip_port` and passed them to
