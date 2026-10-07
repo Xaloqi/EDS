@@ -80,6 +80,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `tests/unit_runnable/test_doip_server.c` verified against a reverted
   mutation (lessons/run-014) rather than merely added.
 
+- **A denied Routing Activation response echoed tester address `0x0000`
+  instead of the actual requester's** (EDS#371). `doip_handle_frame()`'s
+  `DOIP_PT_ROUTING_ACT_REQ` case only set `s->tester_address` on the two
+  acceptance paths; the wrong-activation-type denial path called the
+  response builder — which reads that same field — without ever setting
+  it, so a fresh connection's first (denied) request got a response
+  claiming tester address `0x0000`. Cross-checked against
+  `jacobschaer/python-doipclient`'s `unsuccessful_activation_response`
+  fixture, whose tester-address field is populated even on denial. Found
+  the same way as EDS#369, same PR. Fixed with a regression assertion in
+  `test_doip_routing_activation_wrong_type_denied`, verified against a
+  reverted mutation.
+
 - **`codegen.py`'s `ecu.transport`/`ecu.doip` YAML block was inert for firmware
   generation** (#352). `build_uds_init_context()` computed `transport`, `is_doip`,
   `doip_logical_address`, `doip_source_address`, `doip_port` and passed them to

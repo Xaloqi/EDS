@@ -259,6 +259,17 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
 
         /* Only Default activation type (0x00) supported in v1.7.0. */
         if (act_type != 0x00U) {
+            /* [EDS#371] Echo the actual requesting tester's address in the
+             * denial response, same as every other Routing Activation
+             * Response field (ISO 13400-2 Table 25's "logical address of
+             * tester" names the requester, not a confirmed/activated
+             * tester -- a request can be legibly parsed and still denied).
+             * Previously left s->tester_address at its zero-initialised
+             * value here, since only the two acceptance branches below set
+             * it -- so a denial response claimed tester address 0x0000
+             * instead of the real one. Does not set routing_active; this
+             * is purely the response's address field, not an activation. */
+            s->tester_address = src_addr;
             (void)doip_send_routing_activation_response(s, DOIP_RA_RESP_DENIED);
             return UDS_STATUS_OK;
         }

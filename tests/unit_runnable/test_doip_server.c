@@ -553,6 +553,16 @@ ZTEST(doip_server_suite, test_doip_routing_activation_wrong_type_denied)
     /* Response code at payload[4]: 0x00 = DENIED */
     zassert_equal(g_mock_tx_buf[DOIP_HEADER_LEN + 4], DOIP_RA_RESP_DENIED,
                   "expected DENIED response code");
+
+    /* [EDS#371] The response's tester-address field (payload[0..1]) must
+     * echo the actual requester (0x0E00), not 0x0000 -- a denial is still
+     * a response to a specific, legibly-parsed tester. Previously left at
+     * its zero-initialised value here, since only the two acceptance
+     * branches set s->tester_address. */
+    uint16_t resp_tester_addr = (uint16_t)(((uint16_t)g_mock_tx_buf[DOIP_HEADER_LEN] << 8U) |
+                                            (uint16_t)g_mock_tx_buf[DOIP_HEADER_LEN + 1]);
+    zassert_equal(resp_tester_addr, 0x0E00U,
+                  "DENIED response must echo the requesting tester's address, not 0x0000");
 }
 
 ZTEST(doip_server_suite, test_doip_routing_activation_wrong_source_addr)
