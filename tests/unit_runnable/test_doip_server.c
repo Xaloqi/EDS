@@ -553,6 +553,16 @@ ZTEST(doip_server_suite, test_doip_routing_activation_wrong_type_denied)
     /* Response code at payload[4]: 0x00 = DENIED */
     zassert_equal(g_mock_tx_buf[DOIP_HEADER_LEN + 4], DOIP_RA_RESP_DENIED,
                   "expected DENIED response code");
+
+    /* [EDS#371] The response's tester-address field (payload[0..1]) must
+     * echo the actual requester (0x0E00), not 0x0000 -- a denial is still
+     * a response to a specific, legibly-parsed tester. Previously left at
+     * its zero-initialised value here, since only the two acceptance
+     * branches set s->tester_address. */
+    uint16_t resp_tester_addr = (uint16_t)(((uint16_t)g_mock_tx_buf[DOIP_HEADER_LEN] << 8U) |
+                                            (uint16_t)g_mock_tx_buf[DOIP_HEADER_LEN + 1]);
+    zassert_equal(resp_tester_addr, 0x0E00U,
+                  "DENIED response must echo the requesting tester's address, not 0x0000");
 }
 
 ZTEST(doip_server_suite, test_doip_routing_activation_wrong_source_addr)
@@ -695,6 +705,15 @@ ZTEST(doip_server_suite, test_doip_handle_diagnostic_negative_ack_invalid_src)
                   "expected NACK for wrong source address");
     zassert_equal(g_mock_tx_buf[DOIP_HEADER_LEN + 4], DOIP_NACK_INVALID_SRC,
                   "wrong NACK code for invalid source address");
+
+    /* [EDS#369] Same ISO 13400-2 §7.8 sender/receiver rule as the positive
+     * ack: this NACK is sent BY the ECU, so SA = this ECU's own logical
+     * address (0xE400), TA = the activated tester's (0x0E00) -- the
+     * reverse of what was previously sent here. */
+    uint16_t nack_src = read_be16(&g_mock_tx_buf[DOIP_HEADER_LEN]);
+    uint16_t nack_tgt = read_be16(&g_mock_tx_buf[DOIP_HEADER_LEN + 2]);
+    zassert_equal(nack_src, 0xE400U, "NACK SA must be this ECU's own logical address");
+    zassert_equal(nack_tgt, 0x0E00U, "NACK TA must be the tester's address");
 }
 
 ZTEST(doip_server_suite, test_doip_diagnostic_msg_extracts_uds_pdu_correctly)
@@ -725,12 +744,17 @@ ZTEST(doip_server_suite, test_doip_diagnostic_msg_extracts_uds_pdu_correctly)
     zassert_equal(resp_type, (uint16_t)DOIP_PT_DIAG_POSITIVE_ACK,
                   "expected positive ack before UDS dispatch");
 
-    /* Verify ack source and target (ack payload: src = tester, tgt = ECU logical addr) */
+    /* [EDS#369] Verify ack source and target. ISO 13400-2 §7.8: every
+     * DiagnosticMessage-family frame's SA/TA are sender/receiver of THAT
+     * frame. This ack is sent BY the ECU (0xE400) TO the tester (0x0E00),
+     * so SA = ECU, TA = tester — the reverse of the triggering request's
+     * own SA (tester) / TA (ECU). Previously asserted the un-swapped
+     * (wrong) order; corrected alongside the #369 fix. */
     size_t ack_payload_off = g_mock_tx_frame_starts[0] + DOIP_HEADER_LEN;
     uint16_t ack_src = read_be16(&g_mock_tx_buf[ack_payload_off]);
     uint16_t ack_tgt = read_be16(&g_mock_tx_buf[ack_payload_off + 2]);
-    zassert_equal(ack_src, 0x0E00U, "positive ack src address wrong");
-    zassert_equal(ack_tgt, 0xE400U, "positive ack tgt address wrong");
+    zassert_equal(ack_src, 0xE400U, "positive ack SA must be this ECU's own logical address");
+    zassert_equal(ack_tgt, 0x0E00U, "positive ack TA must be the tester's address");
 }
 
 ZTEST(doip_server_suite, test_doip_diagnostic_msg_calls_uds_core)

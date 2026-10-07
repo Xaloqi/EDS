@@ -61,6 +61,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DoIP diagnostic positive/negative acknowledgements were sent with their
+  source/target address fields swapped** (EDS#369). ISO 13400-2:2019 §7.8:
+  every frame in the DiagnosticMessage family carries SA/TA as
+  sender/receiver of *that* frame, and an ack sent by the ECU must swap the
+  triggering request's SA/TA — "the Source Address shall be set to the
+  according Target Address of the received message, and the Target Address
+  shall be set to the according Source Address of the received message."
+  `doip_send_diagnostic_positive_ack()` and `doip_send_diagnostic_negative_ack()`
+  instead echoed the request's fields verbatim, so every ack/nack EDS ever
+  sent claimed `SA = the tester's own address` — looking like it came from
+  the tester, not the ECU that answered. The UDS response frame that
+  follows was already correct (`s->logical_address` then
+  `s->tester_address`); only these two ack/nack helpers had the bug. Found
+  while sourcing independent DoIP conformance vectors for EDS#361 PR 3,
+  cross-checked against `jacobschaer/python-doipclient`'s test fixtures and
+  the standard's own wording. Fixed, with regression assertions in
+  `tests/unit_runnable/test_doip_server.c` verified against a reverted
+  mutation (lessons/run-014) rather than merely added.
+
+- **A denied Routing Activation response echoed tester address `0x0000`
+  instead of the actual requester's** (EDS#371). `doip_handle_frame()`'s
+  `DOIP_PT_ROUTING_ACT_REQ` case only set `s->tester_address` on the two
+  acceptance paths; the wrong-activation-type denial path called the
+  response builder — which reads that same field — without ever setting
+  it, so a fresh connection's first (denied) request got a response
+  claiming tester address `0x0000`. Cross-checked against
+  `jacobschaer/python-doipclient`'s `unsuccessful_activation_response`
+  fixture, whose tester-address field is populated even on denial. Found
+  the same way as EDS#369, same PR. Fixed with a regression assertion in
+  `test_doip_routing_activation_wrong_type_denied`, verified against a
+  reverted mutation.
+
 - **`codegen.py`'s `ecu.transport`/`ecu.doip` YAML block was inert for firmware
   generation** (#352). `build_uds_init_context()` computed `transport`, `is_doip`,
   `doip_logical_address`, `doip_source_address`, `doip_port` and passed them to

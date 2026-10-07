@@ -259,6 +259,17 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
 
         /* Only Default activation type (0x00) supported in v1.7.0. */
         if (act_type != 0x00U) {
+            /* [EDS#371] Echo the actual requesting tester's address in the
+             * denial response, same as every other Routing Activation
+             * Response field (ISO 13400-2 Table 25's "logical address of
+             * tester" names the requester, not a confirmed/activated
+             * tester -- a request can be legibly parsed and still denied).
+             * Previously left s->tester_address at its zero-initialised
+             * value here, since only the two acceptance branches below set
+             * it -- so a denial response claimed tester address 0x0000
+             * instead of the real one. Does not set routing_active; this
+             * is purely the response's address field, not an activation. */
+            s->tester_address = src_addr;
             (void)doip_send_routing_activation_response(s, DOIP_RA_RESP_DENIED);
             return UDS_STATUS_OK;
         }
@@ -832,15 +843,33 @@ static uds_status_t doip_send_routing_activation_response(doip_server_state_t *s
 }
 
 static uds_status_t doip_send_diagnostic_positive_ack(doip_server_state_t *s,
-                                                        uint16_t src,
-                                                        uint16_t tgt)
+                                                        uint16_t req_src,
+                                                        uint16_t req_tgt)
 {
-    /* Payload (5 bytes): src_addr(2) + tgt_addr(2) + ack_code(1=0x00) */
+    /*
+     * [EDS#369] Payload (5 bytes): SA(2) + TA(2) + ack_code(1=0x00).
+     *
+     * ISO 13400-2:2019 §7.8 / Table 35: a DiagnosticMessage Positive
+     * Acknowledgement is itself a sent message, and like every message in
+     * the DiagnosticMessage family its own SA/TA are sender/receiver of
+     * THAT frame -- not a copy of the triggering request's fields. This
+     * ack is sent by the ECU, to the tester that sent the request, so
+     * SA = this ECU's own logical address and TA = the tester's -- the
+     * swap of (req_src, req_tgt), which were the REQUEST's SA (tester) and
+     * TA (ECU). Getting this backwards (emitting SA=tester, TA=ECU, as a
+     * literal echo of the request) means the ack claims to be FROM the
+     * tester, not from the ECU that actually answered -- wrong on every
+     * single diagnostic exchange, found via EDS#361's independent DoIP
+     * conformance vectors (ported from jacobschaer/python-doipclient,
+     * whose own production code implements the correct swap).
+     */
+    uint16_t sa = req_tgt; /* the request's TA (this ECU) becomes the ack's SA */
+    uint16_t ta = req_src; /* the request's SA (the tester) becomes the ack's TA */
     uint8_t payload[DOIP_DIAG_ACK_PAYLOAD_LEN];
-    payload[0] = (uint8_t)((src >> 8U) & 0xFFU);
-    payload[1] = (uint8_t)(src & 0xFFU);
-    payload[2] = (uint8_t)((tgt >> 8U) & 0xFFU);
-    payload[3] = (uint8_t)(tgt & 0xFFU);
+    payload[0] = (uint8_t)((sa >> 8U) & 0xFFU);
+    payload[1] = (uint8_t)(sa & 0xFFU);
+    payload[2] = (uint8_t)((ta >> 8U) & 0xFFU);
+    payload[3] = (uint8_t)(ta & 0xFFU);
     payload[4] = 0x00U; /* ACK code */
     return doip_send_frame(s, DOIP_PT_DIAG_POSITIVE_ACK, payload,
                            (uint32_t)DOIP_DIAG_ACK_PAYLOAD_LEN);
@@ -849,12 +878,21 @@ static uds_status_t doip_send_diagnostic_positive_ack(doip_server_state_t *s,
 static uds_status_t doip_send_diagnostic_negative_ack(doip_server_state_t *s,
                                                         uint8_t nack_code)
 {
-    /* Payload (5 bytes): src_addr(2) + tgt_addr(2) + nack_code(1) */
+    /*
+     * [EDS#369] Payload (5 bytes): SA(2) + TA(2) + nack_code(1).
+     * Same ISO 13400-2 §7.8 sender/receiver rule as the positive ack above:
+     * this NACK is sent by the ECU, so SA = this ECU's own logical address
+     * (s->logical_address) and TA = the tester's (s->tester_address) --
+     * the reverse of the order previously used here. s->tester_address may
+     * be unset (0) if routing was never activated, which is itself the
+     * reason this specific NACK (DOIP_NACK_TGT_UNREACHABLE) is being sent;
+     * no stronger guarantee is available at that point.
+     */
     uint8_t payload[DOIP_DIAG_NACK_PAYLOAD_LEN];
-    payload[0] = (uint8_t)((s->tester_address   >> 8U) & 0xFFU);
-    payload[1] = (uint8_t)(s->tester_address   & 0xFFU);
-    payload[2] = (uint8_t)((s->logical_address >> 8U) & 0xFFU);
-    payload[3] = (uint8_t)(s->logical_address & 0xFFU);
+    payload[0] = (uint8_t)((s->logical_address >> 8U) & 0xFFU);
+    payload[1] = (uint8_t)(s->logical_address & 0xFFU);
+    payload[2] = (uint8_t)((s->tester_address   >> 8U) & 0xFFU);
+    payload[3] = (uint8_t)(s->tester_address   & 0xFFU);
     payload[4] = nack_code;
     return doip_send_frame(s, DOIP_PT_DIAG_NEGATIVE_ACK, payload,
                            (uint32_t)DOIP_DIAG_NACK_PAYLOAD_LEN);
