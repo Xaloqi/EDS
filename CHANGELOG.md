@@ -78,6 +78,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`docs/ARCHITECTURE.md`'s DoIP Feature Matrix asserted the Alive Check
+  Response's empty payload was "per ISO 13400-2 §9.2.7"** — it is not;
+  ISO 13400-2:2019 Table 28 requires a 2-byte source-address field EDS
+  does not send (EDS#368, filed, not yet fixed — this is a documentation
+  correction only, behavior is unchanged). The source comment making the
+  same false citation (`doip_send_alive_check_response()`) corrected too,
+  and `test_doip_server.c`'s matching assertion re-annotated as "current,
+  known non-conformant behaviour," not a standards claim. Found alongside
+  EDS#369/#371 while sourcing EDS#361 PR 3's independent conformance
+  vectors.
+
 - **DoIP diagnostic positive/negative acknowledgements were sent with their
   source/target address fields swapped** (EDS#369). ISO 13400-2:2019 §7.8:
   every frame in the DiagnosticMessage family carries SA/TA as

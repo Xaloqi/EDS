@@ -336,7 +336,7 @@ Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protoc
 | Routing Activation Request | 0x0005 | ✅ Implemented | Activation type 0x00 (Default) only |
 | Routing Activation Response | 0x0006 | ✅ Implemented | Response codes 0x00 (denied), 0x10 (OK), 0x11 (already active) |
 | Alive Check Request | 0x0007 | ✅ Implemented | Handled without routing activation requirement |
-| Alive Check Response | 0x0008 | ✅ Implemented | Empty payload per ISO 13400-2 §9.2.7 |
+| Alive Check Response | 0x0008 | ⚠️ Non-conformant | Sends an empty payload; ISO 13400-2:2019 Table 28 requires a 2-byte source-address field. [EDS#368](https://github.com/Xaloqi/EDS/issues/368), open |
 | Diagnostic Message | 0x8001 | ✅ Implemented | Source/target address validation → `uds_server_process_request()` |
 | Diagnostic Message Positive Ack | 0x8002 | ✅ Implemented | Sent before UDS dispatch per ISO 13400-2 §9.5 |
 | Diagnostic Message Negative Ack | 0x8003 | ✅ Implemented | NACK codes: 0x03 (invalid src), 0x04 (unknown tgt), 0x05 (too large), 0x07 (not routed) |
