@@ -78,11 +78,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DoIP Alive Check Response sent an empty payload** (EDS#368). ISO
+  13400-2:2019 Table 28 requires a 2-byte source-address field — the
+  logical address of the client DoIP entity currently active on the
+  TCP_DATA socket — and `doip_send_alive_check_response()` sent zero
+  bytes instead. Now sends `s->tester_address`, big-endian; before
+  routing activation (where Alive Check is still required to work,
+  per `eds_doip_server_run()`'s dispatch) `s->tester_address` is still
+  its zero-initialised value, so that case sends `0x0000` — the
+  standard's own field description presumes an already-active tester
+  and does not define a value for the pre-activation case, and `0x0000`
+  matches what some real DoIP stacks send there; this is flagged as a
+  design decision, not asserted as the one correct answer. Found while
+  upgrading EDS#361 PR 3's independent VEC-ALIVE-001 conformance vector
+  from frame-level-only to byte-exact against
+  `jacobschaer/python-doipclient`'s `alive_check_response` fixture — the
+  same methodology that found EDS#369/#371. Fixed, with regression
+  assertions in `tests/unit_runnable/test_doip_server.c` and the
+  upgraded vector in `tests/unit_runnable/test_doip_conformance_vectors.c`
+  both verified against a reverted mutation (lessons/run-014) rather
+  than merely added. The prior documentation-only correction (below)
+  that flagged this as non-conformant is now superseded by the actual
+  fix; `docs/ARCHITECTURE.md`'s feature matrix updated accordingly.
+
 - **`docs/ARCHITECTURE.md`'s DoIP Feature Matrix asserted the Alive Check
   Response's empty payload was "per ISO 13400-2 §9.2.7"** — it is not;
   ISO 13400-2:2019 Table 28 requires a 2-byte source-address field EDS
-  does not send (EDS#368, filed, not yet fixed — this is a documentation
-  correction only, behavior is unchanged). The source comment making the
+  does not send (EDS#368, filed, not yet fixed at the time — this was a
+  documentation correction only, behavior was unchanged; see the fix
+  above). The source comment making the
   same false citation (`doip_send_alive_check_response()`) corrected too,
   and `test_doip_server.c`'s matching assertion re-annotated as "current,
   known non-conformant behaviour," not a standards claim. Found alongside

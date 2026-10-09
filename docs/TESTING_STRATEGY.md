@@ -334,7 +334,7 @@ had no row at all).
 | `test_doip_handle_routing_activation_already_active` | Second Routing Activation on an already-active connection → stays active, responds `DOIP_RA_RESP_OK_CONFIRMED` |
 | `test_doip_routing_activation_wrong_type_denied` | Non-default activation type → routing stays inactive, `DOIP_RA_RESP_DENIED` sent |
 | `test_doip_routing_activation_wrong_source_addr` | An unusual tester address is still stored correctly and activates routing |
-| `test_doip_handle_alive_check` | Alive Check Request after activation → Alive Check Response with an empty payload |
+| `test_doip_handle_alive_check` | Alive Check Request after activation → Alive Check Response echoes the activated tester's 2-byte address (EDS#368) |
 | `test_doip_alive_check_no_routing_activation_needed` | Alive Check succeeds even before routing activation |
 | `test_doip_handle_diagnostic_msg_not_activated` | Diagnostic message before routing activation → NACK `DOIP_NACK_TGT_UNREACHABLE` |
 | `test_doip_handle_diagnostic_msg_activated` | Diagnostic message after activation → positive ack sent as the first frame |

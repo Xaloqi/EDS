@@ -52,7 +52,7 @@
  *   variable name(s) it was ported from.
  *
  * -----------------------------------------------------------------------------
- * A REAL BUG THIS PORTING EXERCISE FOUND — EDS#369, fixed separately
+ * REAL BUGS THIS PORTING EXERCISE FOUND — EDS#369 and EDS#368, both fixed
  * -----------------------------------------------------------------------------
  *   Porting VEC-DIAG-ACK-001 below is what found EDS#369: EDS's
  *   doip_send_diagnostic_positive_ack()/doip_send_diagnostic_negative_ack()
@@ -67,6 +67,13 @@
  *   behaviour, not the bug. This is exactly the AGL-credibility case for
  *   doing this port at all: a vector Xaloqi did not write caught a real
  *   defect in Xaloqi's own code before any external party found it.
+ *
+ *   Attempting to port upstream's `alive_check_response` fixture
+ *   (`02 fd 00 08 00 00 00 02 0e 00`) byte-exact is what found EDS#368:
+ *   EDS's doip_send_alive_check_response() sent a zero-length payload
+ *   where ISO 13400-2:2019 Table 28 requires the client's 2-byte source
+ *   address. Fixed separately (EDS#368) before this PR; VEC-ALIVE-001
+ *   below tests the corrected behaviour, not the bug.
  *
  * -----------------------------------------------------------------------------
  * HONEST SCOPE LIMITS — read before extending this file
@@ -84,15 +91,6 @@
  *     "Generic NACK", gateway_activation_response, activation_request_with_vm)
  *     have no EDS counterpart and are correctly absent here, not silently
  *     skipped.
- *   - Alive Check Response: ported as a FRAME-LEVEL vector only (payload
- *     type, pairing with the request) — NOT a payload-content vector.
- *     EDS#368 (filed, not yet fixed as of this PR) found that EDS's
- *     Alive Check Response sends an empty payload where ISO 13400-2 Table
- *     28 requires the client's 2-byte source address — upstream's own
- *     `alive_check_response` fixture carries that 2-byte address
- *     (`0e 00`), so porting it as a content check would encode a known bug
- *     as "conformance", which is the opposite of this file's purpose. Will
- *     be portable once EDS#368 lands.
  *   - Per the source survey's own §3: these vectors validate DoIP framing
  *     and addressing mechanics only. They say nothing about ISO-TP (PR 2,
  *     already landed) or UDS SID framing (not yet started) and nothing
@@ -127,6 +125,26 @@
  *   test_doip_server.c's own suite already proves correct from a different,
  *   self-authored byte sequence — their value is independent SOURCING, not
  *   new defect-finding coverage, and are not claimed as the latter.
+ *
+ *   VEC-ALIVE-001 is the same story for EDS#368: upgrading it from the
+ *   frame-level-only vector this file originally carried to the byte-exact
+ *   upstream `alive_check_response` fixture is what found the bug, not a
+ *   retrospective exercise. Re-verified directly: reverted the EDS#368 fix
+ *   locally (doip_send_alive_check_response() back to an empty payload),
+ *   rebuilt, and confirmed three failures naming the real defect, not an
+ *   unrelated error:
+ *     test_doip_server.c:615   (test_doip_handle_alive_check)
+ *       "Expected 0 but got 2 ((2U))"
+ *     test_doip_server.c:645   (test_doip_alive_check_no_routing_activation_needed)
+ *       "Expected 0 but got 2 ((2U))"
+ *     test_doip_conformance_vectors.c:297  (VEC-ALIVE-001, this file)
+ *       "Expected TRUE: available >= expected_len"
+ *   (all three are the harness correctly reporting a 0-byte payload where
+ *   2 bytes were expected). Re-applied the fix and confirmed `bash
+ *   build_tests.sh` and `bash build_tests.sh --sanitize` both return to
+ *   1027 cases run, 0 failed (verification not kept in git history,
+ *   performed locally before this file was committed, same as every prior
+ *   mutation check in this series).
  *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h)
  * =============================================================================
@@ -445,33 +463,42 @@ ZTEST(test_doip_conformance_vectors, vec_diag_ack_002_positive_ack_address_swap_
 }
 
 /* =========================================================================
- * VEC-ALIVE-001: Alive Check Request -> Response, FRAME-LEVEL only.
+ * VEC-ALIVE-001: Alive Check Request -> Response, full byte-exact match.
  * Upstream: test_client.py lines 59-64 — `alive_check_request`,
  *   `alive_check_response`.
  *   alive_check_request  = 02 fd 00 07 00 00 00 00
  *   alive_check_response = 02 fd 00 08 00 00 00 02 0e 00
- * Only the request bytes and the response HEADER (type 0x0008, i.e. the
- * first 4 bytes of upstream's response fixture) are asserted here --
- * deliberately not upstream's payload bytes (`0e 00`, length 2). See this
- * file's header "HONEST SCOPE LIMITS": EDS#368 found EDS currently sends
- * an empty payload where ISO 13400-2 Table 28 requires the client's
- * 2-byte source address, matching upstream's own payload exactly. Porting
- * the payload-content assertion before that is fixed would encode the bug
- * as passing conformance evidence.
+ * Response payload: the tester's own logical address (0x0E00, echoed
+ * from the routing activation below), per ISO 13400-2:2019 Table 28.
+ *
+ * Originally ported as a frame-level-only check (payload type + pairing,
+ * not the payload bytes): EDS#368 found EDS sent an empty payload here,
+ * and porting the payload-content assertion before that was fixed would
+ * have encoded the bug as passing conformance evidence (this file's
+ * "HONEST SCOPE LIMITS" section at the top). EDS#368 is fixed; this
+ * vector now asserts the full byte-exact frame upstream's fixture gives,
+ * same as every other vector in this file.
  * ========================================================================= */
-ZTEST(test_doip_conformance_vectors, vec_alive_001_request_response_frame_pairing)
+ZTEST(test_doip_conformance_vectors, vec_alive_001_request_response_byte_exact)
 {
     mock_reset();
     uds_server_ctx_t *uds = init_uds_server();
     doip_server_state_t s = init_state(0x0001U);
 
+    uint8_t ra_payload[] = { 0x0EU, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U };
+    (void)doip_handle_frame(&s, uds, DOIP_PT_ROUTING_ACT_REQ,
+                             ra_payload, (uint32_t)sizeof(ra_payload));
+    mock_reset();
+
     uds_status_t rc = doip_handle_frame(&s, uds, DOIP_PT_ALIVE_CHECK_REQ, NULL, 0U);
     zassert_equal(rc, UDS_STATUS_OK, "alive check handling failed");
 
-    zassert_true(g_mock_tx_frame_count >= 1, "no response sent");
-    uint16_t resp_type = read_be16(&g_mock_tx_buf[g_mock_tx_frame_starts[0] + 2U]);
-    zassert_equal(resp_type, (uint16_t)DOIP_PT_ALIVE_CHECK_RESP,
-                  "expected Alive Check Response (0x0008)");
+    uint8_t expected_response[] = {
+        0x02U, 0xFDU, 0x00U, 0x08U, 0x00U, 0x00U, 0x00U, 0x02U, /* header */
+        0x0EU, 0x00U /* payload: the tester's own logical address */
+    };
+    assert_frame_matches(0U, expected_response, sizeof(expected_response),
+                          "alive check response must echo the tester's address");
 }
 
 /* run_all_tests shim */
@@ -479,7 +506,7 @@ extern void test_doip_conformance_vectors__vec_ra_001_default_activation_success
 extern void test_doip_conformance_vectors__vec_ra_002_non_default_activation_denied(void);
 extern void test_doip_conformance_vectors__vec_diag_ack_001_positive_ack_address_swap(void);
 extern void test_doip_conformance_vectors__vec_diag_ack_002_positive_ack_address_swap_second_address(void);
-extern void test_doip_conformance_vectors__vec_alive_001_request_response_frame_pairing(void);
+extern void test_doip_conformance_vectors__vec_alive_001_request_response_byte_exact(void);
 
 void run_all_tests(void)
 {
@@ -487,5 +514,5 @@ void run_all_tests(void)
     RUN_TEST(test_doip_conformance_vectors__vec_ra_002_non_default_activation_denied);
     RUN_TEST(test_doip_conformance_vectors__vec_diag_ack_001_positive_ack_address_swap);
     RUN_TEST(test_doip_conformance_vectors__vec_diag_ack_002_positive_ack_address_swap_second_address);
-    RUN_TEST(test_doip_conformance_vectors__vec_alive_001_request_response_frame_pairing);
+    RUN_TEST(test_doip_conformance_vectors__vec_alive_001_request_response_byte_exact);
 }

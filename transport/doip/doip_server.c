@@ -127,6 +127,17 @@ static uds_status_t doip_send_all(doip_server_state_t *s,
  */
 #define DOIP_DIAG_NACK_PAYLOAD_LEN (5U)
 
+/* [EDS#368] Alive Check Response payload (ISO 13400-2:2019 Table 28):
+ *   [0..1] source_address (2B) — logical address of the client DoIP
+ *          entity currently active on this TCP_DATA socket, i.e. the
+ *          tester's address established by routing activation. NOT
+ *          empty, despite this module's own comment claiming otherwise
+ *          for several releases — see the issue for the two independent
+ *          cross-checks (jacobschaer/python-doipclient's production
+ *          code, and the standard's own wording) that found the error.
+ */
+#define DOIP_ALIVE_CHECK_RESP_PAYLOAD_LEN (2U)
+
 /* ---------------------------------------------------------------------------
  * Public: eds_doip_register_platform
  * ------------------------------------------------------------------------ */
@@ -900,15 +911,22 @@ static uds_status_t doip_send_diagnostic_negative_ack(doip_server_state_t *s,
 
 static uds_status_t doip_send_alive_check_response(doip_server_state_t *s)
 {
-    /* [EDS#368] KNOWN NON-CONFORMANCE, not yet fixed: this sends an empty
-     * payload. ISO 13400-2:2019 Table 28 defines the Alive Check Response
-     * payload as a mandatory 2-byte field -- the client's own source
-     * address -- which this does not send. The §9.2.7 citation previously
-     * here for "empty payload" does not support that claim; cross-checked
-     * against jacobschaer/python-doipclient's production code
-     * (AliveCheckResponse._fields = ["source_address"]) and the standard's
-     * own wording. See EDS#368 for the fix (not fully obvious: before
-     * routing activation, s->tester_address is unset, and the standard
-     * doesn't obviously define what to send then). */
-    return doip_send_frame(s, DOIP_PT_ALIVE_CHECK_RESP, NULL, 0U);
+    /* [EDS#368] Payload (2 bytes): s->tester_address, big-endian -- see
+     * DOIP_ALIVE_CHECK_RESP_PAYLOAD_LEN's doc comment for the ISO
+     * 13400-2 citation. Sent unconditionally, including before routing
+     * activation (Alive Check is explicitly required to work in that
+     * state -- see eds_doip_server_run()'s dispatch and
+     * test_doip_alive_check_no_routing_activation_needed). Before
+     * activation s->tester_address is still its zero-initialised value,
+     * so this sends 0x0000 -- the standard's own Table 28 field
+     * description presumes a tester "currently active on this
+     * TCP_DATA socket", which does not exist yet pre-activation, and
+     * does not define a value for that case; 0x0000 matches what some
+     * real DoIP stacks send in the same situation, flagged in EDS#368
+     * rather than asserted as the one correct answer. */
+    uint8_t payload[DOIP_ALIVE_CHECK_RESP_PAYLOAD_LEN];
+    payload[0] = (uint8_t)((s->tester_address >> 8U) & 0xFFU);
+    payload[1] = (uint8_t)(s->tester_address & 0xFFU);
+    return doip_send_frame(s, DOIP_PT_ALIVE_CHECK_RESP, payload,
+                           (uint32_t)DOIP_ALIVE_CHECK_RESP_PAYLOAD_LEN);
 }

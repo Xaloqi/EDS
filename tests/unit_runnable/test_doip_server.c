@@ -608,12 +608,14 @@ ZTEST(doip_server_suite, test_doip_handle_alive_check)
     uint16_t resp_type = read_be16(&g_mock_tx_buf[2]);
     zassert_equal(resp_type, (uint16_t)DOIP_PT_ALIVE_CHECK_RESP, "wrong alive check response type");
 
-    /* Current (known non-conformant, EDS#368) behaviour: empty payload.
-     * Not a correctness claim about ISO 13400-2 -- just today's shipped
-     * behaviour, verified here so a future fix lands as a deliberate,
-     * visible change to this assertion rather than an untested one. */
+    /* [EDS#368] Payload must be 2 bytes: the tester's own logical address
+     * (0x0E00, established by the routing activation above), per ISO
+     * 13400-2:2019 Table 28. */
     uint32_t resp_len = read_be32(&g_mock_tx_buf[4]);
-    zassert_equal(resp_len, 0U, "alive check response should have empty payload");
+    zassert_equal(resp_len, 2U, "alive check response payload must be 2 bytes");
+    uint16_t resp_tester_addr = read_be16(&g_mock_tx_buf[DOIP_HEADER_LEN]);
+    zassert_equal(resp_tester_addr, 0x0E00U,
+                  "alive check response must echo the tester's logical address");
 }
 
 ZTEST(doip_server_suite, test_doip_alive_check_no_routing_activation_needed)
@@ -631,6 +633,19 @@ ZTEST(doip_server_suite, test_doip_alive_check_no_routing_activation_needed)
     uint16_t resp_type = read_be16(&g_mock_tx_buf[2]);
     zassert_equal(resp_type, (uint16_t)DOIP_PT_ALIVE_CHECK_RESP,
                   "alive check response required before routing activation");
+
+    /* [EDS#368] Pre-activation design decision: ISO 13400-2's Table 28
+     * field description presumes a tester "currently active on this
+     * TCP_DATA socket", which does not exist yet here -- no value is
+     * defined by the standard for this case. s->tester_address is still
+     * its zero-initialised value, so 0x0000 is what gets echoed; this
+     * pins that choice as a deliberate, tested one rather than an
+     * accident of initialisation order. */
+    uint32_t resp_len = read_be32(&g_mock_tx_buf[4]);
+    zassert_equal(resp_len, 2U, "alive check response payload must be 2 bytes");
+    uint16_t resp_tester_addr = read_be16(&g_mock_tx_buf[DOIP_HEADER_LEN]);
+    zassert_equal(resp_tester_addr, 0x0000U,
+                  "pre-activation alive check must echo 0x0000 (no tester accepted yet)");
 }
 
 /* =========================================================================
