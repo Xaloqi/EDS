@@ -586,6 +586,14 @@ add_diag_test(test_service_0x85
         "${TEST_UNIT_DIR}/test_service_0x85.c"
 )
 
+# [EDS#374] Independent ISO 14229-1 UDS SID framing conformance vectors
+# ported from pylessard/python-udsoncan (MIT) — see the file's own header
+# for full provenance.
+add_diag_test(test_uds_sid_conformance_vectors
+    SOURCES
+        "${TEST_UNIT_DIR}/test_uds_sid_conformance_vectors.c"
+)
+
 add_diag_test(test_phase2_suppress_bit
     SOURCES
         "${TEST_UNIT_DIR}/test_phase2_suppress_bit.c"

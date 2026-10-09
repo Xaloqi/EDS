@@ -377,6 +377,14 @@ TESTS=(
     test_service_0x37
     test_service_0x3E
     test_service_0x85
+    # [EDS#374] Independent ISO 14229-1 UDS SID framing conformance vectors
+    # ported from pylessard/python-udsoncan (MIT) — the third and last leg
+    # of EDS#361's conformance-vector set (PR 2 = ISO-TP #366, PR 3 = DoIP
+    # #372). See the file's own header for full provenance. Deliberately
+    # separate from the per-service test_service_0x*.c files above so
+    # provenance stays visible per-module, not mixed into self-authored
+    # suites.
+    test_uds_sid_conformance_vectors
     test_phase2_suppress_bit
     test_phase2_session_matrix
     test_phase2_isotp_stmin

@@ -61,6 +61,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   close EDS#361 — the source survey's third and final recommended
   follow-up, UDS SID framing vectors, is not part of this PR.
 
+- **Independent ISO 14229-1 UDS SID framing conformance vectors**
+  (`tests/unit_runnable/test_uds_sid_conformance_vectors.c`, EDS#374, the
+  third and last of EDS#361's three conformance-vector legs). Byte-level
+  request/response framing — SID echo, the generic 3-byte negative-response
+  form, standard NRCs (serviceNotSupported, subFunctionNotSupported,
+  incorrectMessageLengthOrInvalidFormat, serviceNotSupportedInActiveSession),
+  and sub-function/DID/routine-ID echo — across 10 of EDS's 19 registered
+  services (0x10, 0x11, 0x14, 0x22, 0x27, 0x28, 0x2E, 0x31, 0x3E, 0x85) —
+  ported from `pylessard/python-udsoncan` (MIT, tag v1.26.1), independently
+  authored and not derived from Xaloqi's own tester. Unlike the ISO-TP and
+  DoIP legs, this one found no new defect: EDS's per-service framing was
+  already covered by extensive self-authored suites, so this file's value
+  is independent SOURCING across the UDS SID surface, not new
+  defect-finding — documented honestly as such in the file's own header,
+  which also documents why 7 of the 19 services (0x19, 0x2F, 0x34-0x37,
+  0x3D) are deliberately not ported (DTC/DID content coupling or
+  multi-step sequencing that a framing-only vector cannot honestly
+  represent). Full provenance and the ADR-005 declared floor are in the
+  test file's own header. Closes out EDS#361's three-leg conformance-vector
+  set (#366, #372, this PR).
+
 ### Changed
 
 - **CI's FreeRTOS/bare-metal ARM toolchain is now pinned to an exact version**
