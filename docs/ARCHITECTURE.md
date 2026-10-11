@@ -712,7 +712,9 @@ The architecture supports future extensions without structural changes:
 - New RTOS port — implement `platform/platform_api.h` and the `nvm_store_*` API for
   the target RTOS. See `platform/freertos/` as a reference implementation.
 - Additional transports — DoIP (ISO 13400-2) is shipped in v1.6.0. SOME/IP validator
-  is shipped in TestLab v1.2.0. Future: SOVD bridge (OpenSOVD / Eclipse SDV).
+  is shipped in TestLab v1.2.0. Future: a conformant ASAM SOVD / ISO 17978-3 REST API
+  bridge — distinct from today's `--sovd` flat-JSON CDA output (`sovd_cda.json`), which
+  uses SOVD-inspired naming but isn't itself a SOVD REST implementation.
 - AUTOSAR Classic — the service layer is decoupled from the transport; an AUTOSAR PDU
   router could be substituted below the UDS server without changing service handlers
 - Hardware-in-the-loop CI — planned, self-hosted runner on Nucleo

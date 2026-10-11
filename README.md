@@ -197,7 +197,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 | **Code generation** | YAML → 18 Jinja2 templates · CLI · reproducible deterministic output |
 | **Test generation** | YAML → pytest suite per DID and DTC · simulator mode (no hardware) · firmware harness mode |
 | **CANoe CAPL** | YAML → `.can` scripts for CANoe import · per-DID, per-DTC, core services |
-| **SOVD CDA** | `--sovd` flag: YAML → OpenSOVD 1.0 `sovd_cda.json` — DIDs, DTCs, routines, transport, all 19 services · DoIP ECUs include `logicalAddress` and `port` · Eclipse SDV / OEM SOVD clients |
+| **SOVD CDA** | `--sovd` flag: YAML → `sovd_cda.json` — DIDs, DTCs, routines, transport, all 19 services · SOVD-inspired field names, not a conformant ASAM SOVD / ISO 17978-3 capability description · DoIP ECUs include `logicalAddress` and `port` |
 | **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
 | **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |

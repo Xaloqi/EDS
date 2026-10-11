@@ -17,7 +17,7 @@ ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 **Target RTOS:** Zephyr v3.7+ · FreeRTOS (any version with static allocation support)
 **Target boards:** native_sim (CI/dev) · STM32 Nucleo-H743ZI2 (Cortex-M7) · NXP FRDM-MCX-N947 (MCX N947, Cortex-M33) · NXP MR-CANHUBK3 (S32K344, Cortex-M7) · QEMU ARM Cortex-M4 (FreeRTOS CI)
 **Transport:** ISO-TP over CAN (default) · DoIP over Ethernet/TCP (v1.6.0+)
-**OpenSOVD CDA:** `--sovd` flag generates `sovd_cda.json` (v1.7.0+)
+**SOVD CDA:** `--sovd` flag generates `sovd_cda.json` (v1.7.0+) — SOVD-inspired field names, not a conformant ASAM SOVD / ISO 17978-3 capability description (checked 2026-10-11; see tools/codegen.py's `build_sovd_cda()` docstring)
 
 **Licensing split (open-core) — read this before suggesting a `codegen.py` command:**
 - **OSS runtime** (`core/`, `transport/`, `config/`, `platform/`) is GPL v2 and fully
@@ -191,7 +191,7 @@ Options:
   --asil-level [A|B]      ASIL target level (default: B)
   --test-gen              Also generate pytest test suite into <out>/tests/
   --gui-types             Also generate gui/src/generated/catalog.ts
-  --sovd                  Generate sovd_cda.json (OpenSOVD 1.0 CDA) alongside C output
+  --sovd                  Generate sovd_cda.json (EDS CDA, SOVD-inspired naming) alongside C output
   --no-manifest           Skip JSON manifest file
   --dry-run               Validate only — write nothing
 ```
@@ -210,7 +210,7 @@ Options:
 | `safety_config.h` | ASIL compile-time macro configuration |
 | `uds_init.h` | `uds_generated_init()` declaration |
 | `uds_init.c` | Full UDS + DTC + DID + flash-ops initialisation sequence |
-| `sovd_cda.json` | OpenSOVD 1.0 CDA (DIDs, DTCs, routines, transport info) — only with `--sovd` |
+| `sovd_cda.json` | EDS CDA (DIDs, DTCs, routines, transport info), SOVD-inspired naming, not ASAM SOVD / ISO 17978-3 conformant — only with `--sovd` |
 
 ---
 

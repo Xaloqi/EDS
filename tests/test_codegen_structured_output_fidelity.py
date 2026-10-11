@@ -153,7 +153,8 @@ def _run_codegen(tmp_path: Path, config_text: str, *extra: str):
 
 
 # ---------------------------------------------------------------------------
-# sovd_cda.json — the OpenSOVD 1.0 interop contract
+# sovd_cda.json — the EDS CDA output contract (SOVD-inspired naming, not an
+# ASAM SOVD / ISO 17978-3 conformant artifact — see build_sovd_cda() docstring)
 # ---------------------------------------------------------------------------
 
 @_needs_templates

@@ -17,7 +17,7 @@ It installs by extracting into the public EDS repo you already cloned.
 
 **Developer tier includes:**
 - 18 Jinja2 code generation templates (the generation engine)
-- SOVD Bridge: `--sovd` flag generates OpenSOVD 1.0 `sovd_cda.json` from any `diagnostics_config.yaml`
+- SOVD Bridge: `--sovd` flag generates `sovd_cda.json` from any `diagnostics_config.yaml` (SOVD-inspired naming, not a conformant ASAM SOVD / ISO 17978-3 capability description)
 - `testgen.py` — pytest + CANoe CAPL test suite generator
 - `arxml_parser.py` — AUTOSAR 4.x ECU Extract ARXML → `diagnostics_config.yaml` importer (stdlib only, no deps)
 - `mcp_server.py` — AI assistant integration (Claude, Cursor, Copilot)

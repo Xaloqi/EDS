@@ -60,15 +60,15 @@ class TestCDAStructure:
 
     def test_required_top_level_keys_present(self):
         required = {
-            "sovdVersion", "generatedBy", "generatedAt",
+            "edsCdaSchemaVersion", "generatedBy", "generatedAt",
             "ecuIdentification", "transportInfo",
             "dataIdentifiers", "dtcs", "routines", "diagnosticServices",
         }
         missing = required - set(self.cda.keys())
         assert not missing, f"Missing top-level CDA keys: {missing}"
 
-    def test_sovd_version_is_1_0_0(self):
-        assert self.cda["sovdVersion"] == "1.0.0"
+    def test_eds_cda_schema_version_is_1_0_0(self):
+        assert self.cda["edsCdaSchemaVersion"] == "1.0.0"
 
     def test_generated_by_mentions_xaloqi(self):
         assert "Xaloqi" in self.cda["generatedBy"], (
@@ -96,7 +96,7 @@ class TestCDAStructure:
     def test_cda_is_json_serialisable(self):
         serialised = json.dumps(self.cda)
         recovered  = json.loads(serialised)
-        assert recovered["sovdVersion"] == "1.0.0"
+        assert recovered["edsCdaSchemaVersion"] == "1.0.0"
 
 
 # ── Class 2: DID fidelity ─────────────────────────────────────────────────────
