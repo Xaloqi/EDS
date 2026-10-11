@@ -624,7 +624,7 @@ push / PR
    ├── harness-tests       68 C harness integration tests, MISRA-clean build
    │                       (skips cleanly — Professional tier, sources gitignored)
    │
-   ├── sovd-codegen        OpenSOVD CDA generation smoke check (no templates needed)
+   ├── sovd-codegen        EDS CDA generation smoke check (no templates needed)
    │
    ├── static-analysis     GCC -fanalyzer
    │

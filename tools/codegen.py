@@ -968,8 +968,24 @@ def _build_can_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 def build_sovd_cda(cfg):
     """
-    Build an OpenSOVD 1.0 CDA (Capability Description and Advertisement)
-    dict from a loaded diagnostics_config.yaml.
+    Build an EDS CDA (Capability Description and Advertisement) dict from a
+    loaded diagnostics_config.yaml: a flat JSON summary of one ECU's DIDs,
+    DTCs, routines and transport info, using SOVD-inspired field names.
+
+    This is NOT a conformant ASAM SOVD / ISO 17978-3 "capability
+    description". Checked against the published ISO 17978-3 ed.1 OpenAPI
+    specification (openapi-specification-1.1.0-rc1, 2026-10-11): SOVD's own
+    capability description is a dynamically-served, per-resource OpenAPI
+    document (GET /{entity-path}/docs — see that spec's
+    capability-description/capability-description.yaml), not a static flat
+    descriptor — a different kind of artifact, not just a different
+    version. Where field-level concepts do overlap (e.g. SOVD's `Fault`
+    schema vs. this dict's `dtcs`), the vocabulary still diverges: SOVD's
+    Fault uses `fault_name` and an integer 1-4 FATAL..INFO severity scale,
+    this dict uses `description` and EDS's own UDS-derived severity enum.
+    See xaloqi-knowledge campaigns/2026-10-11-sovd-cda-vs-iso-17978-3.md for
+    the full comparison. Do not describe this output as "OpenSOVD" or
+    "ISO 17978-3" anywhere public — see README.md's SOVD CDA row.
 
     Serialised with json.dumps(indent=2) into generated/sovd_cda.json.
     Building a Python dict avoids JSON escaping issues that a Jinja2
@@ -1025,7 +1041,7 @@ def build_sovd_cda(cfg):
         })
 
     cda = {
-        "sovdVersion": "1.0.0",
+        "edsCdaSchemaVersion": "1.0.0",
         "generatedBy": f"Xaloqi EDS codegen v{__version__}",
         "generatedAt": _now_utc(),
         "ecuIdentification": {
@@ -2476,9 +2492,10 @@ def main() -> None:
         action="store_true",
         default=False,
         help=(
-            "Generate an OpenSOVD 1.0 CDA JSON file (sovd_cda.json) alongside C "
+            "Generate an EDS CDA JSON file (sovd_cda.json) alongside C "
             "output.  Describes ECU diagnostic capabilities (DIDs, DTCs, routines, "
-            "transport) for Eclipse SDV tooling and OEM SOVD clients.  "
+            "transport) using SOVD-inspired field names — NOT a conformant ASAM "
+            "SOVD / ISO 17978-3 capability description.  "
             "Output: <out>/sovd_cda.json"
         ),
     )

@@ -84,6 +84,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **`--sovd` output no longer claims "OpenSOVD 1.0" or ASAM SOVD / ISO
+  17978-3 conformance — because it checked out false.** The published
+  ISO 17978-3 ed.1 OpenAPI specification (`openapi-specification-1.1.0-rc1`,
+  fetched and compared 2026-10-11 — never previously checked against
+  `sovd_cda.json`) defines SOVD's "capability description" as a
+  dynamically-served, per-resource OpenAPI document (`GET
+  /{entity-path}/docs`); `sovd_cda.json` is, and always was, a static flat
+  JSON summary — a different kind of artifact, not just a different
+  version. Where concepts do overlap (SOVD's `Fault` schema vs. this
+  file's `dtcs`), the field vocabulary diverges too (SOVD:
+  `fault_name` + integer 1-4 severity; here: `description` + EDS's own
+  UDS-derived severity enum). **Breaking:** the top-level JSON key
+  `sovdVersion` is renamed to `edsCdaSchemaVersion` (same value,
+  `"1.0.0"`) so the field name itself stops implying a standard it was
+  never validated against. All "OpenSOVD 1.0" references corrected across
+  `README.md`, `INSTALL.md`, `docs/AI_CONTEXT.md`,
+  `docs/INTEGRATION_GUIDE.md`, `docs/CODEGEN_ARCHITECTURE.md`,
+  `docs/COMMERCIAL_ONBOARDING.md`, `docs/TESTING_STRATEGY.md`, and
+  `docs/ARCHITECTURE.md`'s roadmap entry (which now distinguishes this
+  flat CDA from a possible future conformant SOVD REST bridge). No change
+  to `sovd_cda.json`'s actual content (DIDs/DTCs/routines/transport) or to
+  any other field name.
+
 - **CI's FreeRTOS/bare-metal ARM toolchain is now pinned to an exact version**
   (EDS#360 step 1). `freertos-qemu`, `freertos-safeboot`, and
   `freertos-examples` previously installed `gcc-arm-none-eabi` via

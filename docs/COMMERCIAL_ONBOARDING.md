@@ -163,8 +163,11 @@ was not found. Check the [Troubleshooting](#troubleshooting) section below.
 
 ## Developer Tier — SOVD CDA Output
 
-The `--sovd` flag generates an OpenSOVD 1.0 `sovd_cda.json` alongside the standard C
-files — useful for Eclipse SDV tooling and OEM SOVD clients:
+The `--sovd` flag generates a `sovd_cda.json` alongside the standard C files — a flat
+diagnostic-inventory document using SOVD-inspired field names. It is not a conformant
+ASAM SOVD / ISO 17978-3 capability description (checked 2026-10-11 against the published
+spec — see `tools/codegen.py`'s `build_sovd_cda()` docstring for the comparison), but
+it's a useful, self-contained JSON summary for any tool that wants one:
 
 ```bash
 python3 tools/codegen.py \

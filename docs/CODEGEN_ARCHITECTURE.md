@@ -456,7 +456,8 @@ python3 tools/codegen.py \
   --test-gen               Generate pytest suite in <out>/tests/
   --gui-types              Generate gui/src/generated/catalog.ts
   --gui-out     <dir>      Override GUI output directory
-  --sovd                   Generate OpenSOVD 1.0 CDA JSON (sovd_cda.json)
+  --sovd                   Generate EDS CDA JSON (sovd_cda.json) — SOVD-inspired
+                           naming, not conformant ASAM SOVD / ISO 17978-3
   --no-manifest            Skip manifest.json (use in CI)
   --dry-run                Validate config only; write no files
   --template-dir <dir>     Override tools/templates/ location
@@ -564,17 +565,25 @@ Generated files must not be manually edited. Any manual change will be overwritt
 
 ## 13b. SOVD CDA Output (--sovd)
 
-When `--sovd` is passed, codegen writes `<out>/sovd_cda.json` — a valid
-OpenSOVD 1.0 Capability Description and Advertisement document describing
-the ECU's complete diagnostic profile. This file can be consumed by Eclipse
-SDV tooling, OEM SOVD clients, or any tool that understands the OpenSOVD
-1.0 schema.
+When `--sovd` is passed, codegen writes `<out>/sovd_cda.json` — a flat
+Capability Description and Advertisement document describing the ECU's
+complete diagnostic profile, using SOVD-inspired field names.
+
+**Not a conformant ASAM SOVD / ISO 17978-3 artifact.** Checked against the
+published ISO 17978-3 ed.1 OpenAPI specification (2026-10-11): SOVD's real
+"capability description" is a dynamically-served, per-resource OpenAPI
+document (`GET /{entity-path}/docs`), not a static flat JSON file — a
+different kind of artifact. Field-level vocabulary diverges too even where
+concepts overlap (e.g. SOVD's `Fault.fault_name` + integer severity vs. this
+document's `dtcs[].description` + EDS's own severity enum). This file is a
+generic, human/tool-readable diagnostic inventory — not a SOVD REST API
+implementation.
 
 ### Structure
 
 ```json
 {
-  "sovdVersion": "1.0.0",
+  "edsCdaSchemaVersion": "1.0.0",
   "generatedBy":  "Xaloqi EDS codegen v1.17.0",
   "generatedAt":  "<ISO 8601 UTC>",
   "ecuIdentification": {

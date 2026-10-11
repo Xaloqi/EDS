@@ -22,7 +22,7 @@
 5. [SafeBoot — MCUboot DFU over UDS](#safeboot)
 5b. [DoIP Integration — Ethernet/TCP transport](#doip-integration)
 6. [Board Compatibility Matrix](#6-board-compatibility-matrix)
-7. [SOVD CDA — OpenSOVD 1.0 Capability Description](#7-sovd-cda)
+7. [SOVD CDA — EDS Capability Description](#7-sovd-cda)
 8. [Testing Your ECU — Simulator, Harness, and Robustness Campaign](#8-testing)
 
 ---
@@ -1274,13 +1274,24 @@ No changes to the EDS stack source files are required for new board support. The
 
 ---
 
-## 7. SOVD CDA — OpenSOVD 1.0 Capability Description {#7-sovd-cda}
+## 7. SOVD CDA — EDS Capability Description {#7-sovd-cda}
 
 Added in **v1.7.0**. The `--sovd` flag generates a `sovd_cda.json` file alongside the
-standard C output. The CDA (Capability Description and Advertisement) is an OpenSOVD 1.0
-JSON document that describes your ECU's full diagnostic profile — DIDs, DTCs, routines,
-services, and transport — in a format directly readable by SOVD clients and Eclipse SDV
-tooling. No Jinja2 template is required; the output is built directly from the loaded YAML.
+standard C output. The CDA (Capability Description and Advertisement) is a flat JSON
+document that describes your ECU's full diagnostic profile — DIDs, DTCs, routines,
+services, and transport — using SOVD-inspired field names. No Jinja2 template is
+required; the output is built directly from the loaded YAML.
+
+**This is not a conformant ASAM SOVD / ISO 17978-3 capability description.** Checked
+against the published ISO 17978-3 ed.1 OpenAPI specification (`openapi-specification-1.1.0-rc1`,
+2026-10-11): SOVD's own "capability description" is a dynamically-served, per-resource
+OpenAPI document (`GET /{entity-path}/docs`), not a static flat descriptor — a different
+kind of artifact, not just a different version number. Where concepts do overlap (e.g.
+SOVD's `Fault` resource vs. this document's `dtcs`), the field-level vocabulary still
+diverges (SOVD: `fault_name` + integer 1–4 severity; this document: `description` + EDS's
+own UDS-derived severity enum). Treat `sovd_cda.json` as a useful, human/tool-readable
+diagnostic inventory — not as a SOVD REST API implementation or a claim of standard
+conformance.
 
 ### 7.1 Generate the CDA
 
@@ -1299,7 +1310,7 @@ The flag is opt-in — omitting it leaves all existing behaviour unchanged.
 
 ```json
 {
-  "sovdVersion": "1.0.0",
+  "edsCdaSchemaVersion": "1.0.0",
   "generatedBy": "Xaloqi EDS codegen v1.17.0",
   "generatedAt": "2026-05-20T10:00:00Z",
   "ecuIdentification": {
@@ -1352,11 +1363,13 @@ For a DoIP ECU (`ecu.transport: doip`), the CDA includes the transport addresses
 }
 ```
 
-### 7.4 Use with Eclipse SDV tooling
+### 7.4 Use with other tooling
 
-Import `sovd_cda.json` into Eclipse KUKSA, SDV.core, or any OpenSOVD 1.0-compatible
-tool to browse your ECU's diagnostic profile, auto-generate test plans, or populate
-a digital twin. The JSON is self-contained — no EDS toolchain required on the tool side.
+`sovd_cda.json` is a self-contained, generic JSON document — no EDS toolchain required
+on the consuming side. It can be read by any tool that wants a quick diagnostic
+inventory (DIDs, DTCs, routines, transport) for test-plan generation or a digital
+twin. It is **not** a SOVD REST API server or client, and does not claim ASAM SOVD /
+ISO 17978-3 compatibility — see §7 above.
 
 ### 7.5 Validation
 
@@ -1477,7 +1490,7 @@ python3 eds/tools/codegen.py \
     --out     your_ecu/generated/ \
     --safety-wrappers --asil-level B --test-gen
 
-# Also generate OpenSOVD 1.0 CDA (optional, v1.7.0+)
+# Also generate the EDS CDA (optional, v1.7.0+)
 python3 eds/tools/codegen.py \
     --config  your_ecu/diagnostics_config.yaml \
     --out     your_ecu/generated/ \
