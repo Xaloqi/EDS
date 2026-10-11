@@ -294,6 +294,30 @@ NRCs, sequence and timing behaviour. They are not an ISO conformance
 certification, and they say nothing about any particular ECU's DID or DTC
 content.
 
+### Change one line, watch every artifact move
+
+`diagnostics_config.yaml` is the single source of truth: it generates the C
+handlers, the pytest suite, the SOVD CDA descriptor, and (Developer/
+Professional tier) the CANoe CAPL suite. "Single source of truth" is an easy
+claim to make and a cheap one to check — so here's a script that checks it:
+
+```bash
+bash scripts/demo_gtm18_one_did_change.sh
+```
+
+Changes one field in a scratch copy of `examples/ardep_ecu`'s config (DID
+0xF187's `data_length`, 11 → 14), regenerates every artifact from it, and
+shows you the diff. Nothing is staged or faked — same `codegen.py` and
+`tools/testgen.py` (when present) as any real run. Public tier gets the C
+sources and the SOVD CDA descriptor; the pytest and CAPL sides need the
+commercial toolchain, and the script says so plainly rather than silently
+doing less than it claims.
+
+**One framing worth stating outright, since it's easy to hear as the opposite
+claim:** this generates *to* these four formats *from* a definition we own —
+not *from* someone else's schema. `sovd_cda.json` is EDS's own CDA
+configuration descriptor, not an ASAM SOVD or ISO 17978 artifact.
+
 ### Run the test suite
 
 ```bash
