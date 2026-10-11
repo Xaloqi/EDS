@@ -1,0 +1,642 @@
+{
+  "edsCdaSchemaVersion": "1.0.0",
+  "generatedBy": "Xaloqi EDS codegen v1.18.0",
+  "generatedAt": "2023-11-14T22:13:20Z",
+  "ecuIdentification": {
+    "name": "ARDEP_IOController",
+    "version": "1.0.0"
+  },
+  "transportInfo": {
+    "protocol": "ISO-TP"
+  },
+  "dataIdentifiers": [
+    {
+      "id": "0xF190",
+      "name": "VehicleIdentificationNumber",
+      "dataLengthBytes": 17,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0xF18C",
+      "name": "ECUSerialNumber",
+      "dataLengthBytes": 8,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0xF187",
+      "name": "VehicleManufacturerSparePartNumber",
+      "dataLengthBytes": 11,
+      "access": [
+        "read",
+        "write"
+      ],
+      "minSession": "extended",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": 1
+    },
+    {
+      "id": "0xF189",
+      "name": "ECUSoftwareVersionNumber",
+      "dataLengthBytes": 4,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0xF197",
+      "name": "SystemSupplierIdentifierDataIdentifier",
+      "dataLengthBytes": 5,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2001",
+      "name": "PowerIO_OutputStateBitmask",
+      "dataLengthBytes": 1,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2002",
+      "name": "PowerIO_Output1_Current_mA",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2003",
+      "name": "PowerIO_Output2_Current_mA",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2004",
+      "name": "PowerIO_Output3_Current_mA",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2005",
+      "name": "PowerIO_Output4_Current_mA",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2006",
+      "name": "PowerIO_Output5_Current_mA",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2007",
+      "name": "PowerIO_Output6_Current_mA",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2010",
+      "name": "PowerIO_OutputControl",
+      "dataLengthBytes": 1,
+      "access": [
+        "read",
+        "write"
+      ],
+      "minSession": "extended",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": 1
+    },
+    {
+      "id": "0x2101",
+      "name": "PowerIO_InputStateBitmask",
+      "dataLengthBytes": 1,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2102",
+      "name": "PowerIO_Input1_Voltage_mV",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2103",
+      "name": "PowerIO_Input2_Voltage_mV",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2104",
+      "name": "PowerIO_Input3_Voltage_mV",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2201",
+      "name": "CAN_BusStatus",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2202",
+      "name": "CAN_RxFrameCount",
+      "dataLengthBytes": 4,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2203",
+      "name": "CAN_TxFrameCount",
+      "dataLengthBytes": 4,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2211",
+      "name": "LIN_BusStatus",
+      "dataLengthBytes": 1,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2212",
+      "name": "LIN_SlaveCount",
+      "dataLengthBytes": 1,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2301",
+      "name": "ECU_SupplyVoltage_mV",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2302",
+      "name": "ECU_InternalTemperature_degC",
+      "dataLengthBytes": 1,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2303",
+      "name": "ECU_UptimeSeconds",
+      "dataLengthBytes": 4,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2304",
+      "name": "ECU_ResetCounter",
+      "dataLengthBytes": 2,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2305",
+      "name": "ECU_LastResetReason",
+      "dataLengthBytes": 1,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2306",
+      "name": "ECU_DiagnosticStackVersion",
+      "dataLengthBytes": 3,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2401",
+      "name": "CAN_BusBitrate_kbps",
+      "dataLengthBytes": 2,
+      "access": [
+        "read",
+        "write"
+      ],
+      "minSession": "extended",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": 1
+    },
+    {
+      "id": "0x2402",
+      "name": "LIN_BusBaudrate_bps",
+      "dataLengthBytes": 2,
+      "access": [
+        "read",
+        "write"
+      ],
+      "minSession": "extended",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": 1
+    },
+    {
+      "id": "0x2403",
+      "name": "PowerIO_OvercurrentThreshold_mA",
+      "dataLengthBytes": 2,
+      "access": [
+        "read",
+        "write"
+      ],
+      "minSession": "extended",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": 1
+    },
+    {
+      "id": "0x2404",
+      "name": "WatchdogTimeout_ms",
+      "dataLengthBytes": 2,
+      "access": [
+        "read",
+        "write"
+      ],
+      "minSession": "extended",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": 1
+    },
+    {
+      "id": "0x2501",
+      "name": "FirmwareVersion_Active",
+      "dataLengthBytes": 4,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2502",
+      "name": "FirmwareVersion_Pending",
+      "dataLengthBytes": 4,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    },
+    {
+      "id": "0x2503",
+      "name": "FirmwareUpdateStatus",
+      "dataLengthBytes": 1,
+      "access": [
+        "read"
+      ],
+      "minSession": "default",
+      "readSecurityLevel": 0,
+      "writeSecurityLevel": null
+    }
+  ],
+  "dtcs": [
+    {
+      "code": "0xC00100",
+      "description": "CAN bus communication loss \u2014 no frames received > 500ms",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xC00200",
+      "description": "CAN bus error passive \u2014 TX/RX error counters exceeded 127",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xC00300",
+      "description": "CAN bus off \u2014 transmitter disabled by bus-off recovery",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xC01000",
+      "description": "LIN bus no response \u2014 no slave response within timeout",
+      "severity": "maintenance_only"
+    },
+    {
+      "code": "0xC01100",
+      "description": "LIN bus framing error \u2014 break field or sync byte invalid",
+      "severity": "maintenance_only"
+    },
+    {
+      "code": "0xB00100",
+      "description": "Output 1 overcurrent \u2014 load current exceeded threshold",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xB00200",
+      "description": "Output 2 overcurrent \u2014 load current exceeded threshold",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xB00300",
+      "description": "Output 3 overcurrent \u2014 load current exceeded threshold",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xB00400",
+      "description": "Output 4 overcurrent \u2014 load current exceeded threshold",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xB00500",
+      "description": "Output 5 overcurrent \u2014 load current exceeded threshold",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xB00600",
+      "description": "Output 6 overcurrent \u2014 load current exceeded threshold",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xB01000",
+      "description": "PowerIO open load \u2014 output commanded ON but no current detected",
+      "severity": "maintenance_only"
+    },
+    {
+      "code": "0xC0FF00",
+      "description": "Supply voltage low \u2014 below 9.0V for > 500ms",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xC0FF10",
+      "description": "Supply voltage high \u2014 above 16.0V for > 100ms",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xC0FF20",
+      "description": "ECU overtemperature \u2014 internal junction > 125\u00b0C",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xC0FF30",
+      "description": "Watchdog reset event \u2014 firmware failed to service watchdog",
+      "severity": "maintenance_only"
+    },
+    {
+      "code": "0xC0FF40",
+      "description": "NVM write failure \u2014 diagnostic session statistics not persisted",
+      "severity": "maintenance_only"
+    },
+    {
+      "code": "0xC0FE00",
+      "description": "Firmware image verification failed \u2014 CRC mismatch",
+      "severity": "check_at_next_halt"
+    },
+    {
+      "code": "0xC0FE10",
+      "description": "Firmware download incomplete \u2014 transfer interrupted",
+      "severity": "maintenance_only"
+    }
+  ],
+  "routines": [
+    {
+      "id": "0xFF00",
+      "name": "ECU_SelfTest",
+      "minSession": "extended",
+      "securityLevel": 0,
+      "supportedSubFunctions": [
+        "start",
+        "results"
+      ]
+    },
+    {
+      "id": "0xFF01",
+      "name": "ResetCalibrationToDefaults",
+      "minSession": "extended",
+      "securityLevel": 1,
+      "supportedSubFunctions": [
+        "start"
+      ]
+    },
+    {
+      "id": "0xFF10",
+      "name": "EraseApplicationFlash",
+      "minSession": "programming",
+      "securityLevel": 1,
+      "supportedSubFunctions": [
+        "start",
+        "results"
+      ]
+    },
+    {
+      "id": "0xFF11",
+      "name": "VerifyApplicationImage",
+      "minSession": "programming",
+      "securityLevel": 1,
+      "supportedSubFunctions": [
+        "start",
+        "results"
+      ]
+    },
+    {
+      "id": "0xFF20",
+      "name": "ActivateOutputChannel",
+      "minSession": "extended",
+      "securityLevel": 1,
+      "supportedSubFunctions": [
+        "start",
+        "stop",
+        "results"
+      ]
+    },
+    {
+      "id": "0xFF21",
+      "name": "MeasureSupplyVoltage",
+      "minSession": "extended",
+      "securityLevel": 0,
+      "supportedSubFunctions": [
+        "start",
+        "results"
+      ]
+    }
+  ],
+  "diagnosticServices": [
+    {
+      "sid": "0x10",
+      "name": "DiagnosticSessionControl"
+    },
+    {
+      "sid": "0x11",
+      "name": "ECUReset"
+    },
+    {
+      "sid": "0x14",
+      "name": "ClearDiagnosticInformation"
+    },
+    {
+      "sid": "0x19",
+      "name": "ReadDTCInformation"
+    },
+    {
+      "sid": "0x22",
+      "name": "ReadDataByIdentifier"
+    },
+    {
+      "sid": "0x23",
+      "name": "ReadMemoryByAddress"
+    },
+    {
+      "sid": "0x27",
+      "name": "SecurityAccess"
+    },
+    {
+      "sid": "0x28",
+      "name": "CommunicationControl"
+    },
+    {
+      "sid": "0x2A",
+      "name": "ReadDataByPeriodicIdentifier"
+    },
+    {
+      "sid": "0x2E",
+      "name": "WriteDataByIdentifier"
+    },
+    {
+      "sid": "0x2F",
+      "name": "InputOutputControlByIdentifier"
+    },
+    {
+      "sid": "0x31",
+      "name": "RoutineControl"
+    },
+    {
+      "sid": "0x34",
+      "name": "RequestDownload"
+    },
+    {
+      "sid": "0x35",
+      "name": "RequestUpload"
+    },
+    {
+      "sid": "0x36",
+      "name": "TransferData"
+    },
+    {
+      "sid": "0x37",
+      "name": "RequestTransferExit"
+    },
+    {
+      "sid": "0x3D",
+      "name": "WriteMemoryByAddress"
+    },
+    {
+      "sid": "0x3E",
+      "name": "TesterPresent"
+    },
+    {
+      "sid": "0x85",
+      "name": "ControlDTCSetting"
+    }
+  ]
+}

@@ -5,7 +5,7 @@
  *
  * ECU       : ARDEP_IOController
  * Version   : 1.0.0
- * Generated : 2026-08-30T13:12:17Z
+ * Generated : 2023-11-14T22:13:20Z
  *
  * PURPOSE: Compile-time constants derived from diagnostics_config.yaml.
  *          Provides all protocol timing parameters, CAN addressing, and
@@ -102,6 +102,6 @@
 
 #define GEN_ECU_NAME            "ARDEP_IOController"
 #define GEN_ECU_VERSION         "1.0.0"
-#define GEN_GENERATED_TIMESTAMP "2026-08-30T13:12:17Z"
+#define GEN_GENERATED_TIMESTAMP "2023-11-14T22:13:20Z"
 
 #endif /* GENERATED_CONFIG_H */

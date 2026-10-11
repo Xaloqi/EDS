@@ -5,7 +5,7 @@
  *
  * ECU       : ARDEP_IOController
  * Version   : 1.0.0
- * Generated : 2026-08-30T13:12:17Z
+ * Generated : 2023-11-14T22:13:20Z
  *
  * PURPOSE: DID read/write handler stubs and static DID registration table.
  *          Each handler returns deterministic stub data (zeros) until the

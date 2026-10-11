@@ -5,7 +5,7 @@
  *
  * ECU       : ARDEP_IOController
  * Version   : 1.0.0
- * Generated : 2026-09-04T13:51:27Z
+ * Generated : 2023-11-14T22:13:20Z
  *
  * PURPOSE: Per-example DTC table, exposed as an X-macro list so any
  *          translation unit that already links against this example's

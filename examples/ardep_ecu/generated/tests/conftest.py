@@ -4,7 +4,7 @@
 #
 # ECU       : ARDEP_IOController
 # Version   : 1.0.0
-# Generated : 2026-09-27T17:13:06Z
+# Generated : 2023-11-14T22:13:20Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
