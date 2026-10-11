@@ -101,7 +101,7 @@ dids:
     min_session: "extended"
     read_security_level:  0
     write_security_level: 1
-    data_length: 11            # Supplier part number
+    data_length: 14            # Supplier part number
 
   - id:   "0xF189"
     name: "ECUSoftwareVersionNumber"

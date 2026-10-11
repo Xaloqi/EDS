@@ -117,12 +117,12 @@ uds_status_t did_safe_read_ecuserialnumber(
  *   - DID 0xF187 exists in the database    (REQ-SAFE-001)
  *   - Session >= UDS_SESSION_EXTENDED            (REQ-SAFE-002)
  *   - Security level >= 0  (REQ-SAFE-003)
- *   - buf_len >= 11 bytes      (REQ-SAFE-006)
+ *   - buf_len >= 14 bytes      (REQ-SAFE-006)
  *
  * @param[in]  session_ctx   Active UDS session context.
  * @param[in]  security_ctx  Active UDS security context.
  * @param[out] buf           Buffer to receive DID data.
- * @param[in]  buf_len       Capacity of buf in bytes (must be >= 11).
+ * @param[in]  buf_len       Capacity of buf in bytes (must be >= 14).
  * @param[out] out_len       Set to number of bytes written on success.
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_* on any check failure.
@@ -975,11 +975,11 @@ uds_status_t did_safe_read_firmwareupdatestatus(
  *   - DID 0xF187 exists in the database    (REQ-SAFE-001)
  *   - Session >= UDS_SESSION_EXTENDED            (REQ-SAFE-002)
  *   - Security level >= 1  (REQ-SAFE-003)
- *   - len == 11 bytes exactly  (REQ-SAFE-006)
+ *   - len == 14 bytes exactly  (REQ-SAFE-006)
  *
  * @param[in] session_ctx   Active UDS session context.
  * @param[in] security_ctx  Active UDS security context.
- * @param[in] buf           Buffer containing new DID data (11 byte(s)).
+ * @param[in] buf           Buffer containing new DID data (14 byte(s)).
  * @param[in] len           Number of bytes in buf.
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_* on any check failure.

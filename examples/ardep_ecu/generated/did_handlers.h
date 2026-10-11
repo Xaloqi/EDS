@@ -95,12 +95,12 @@ uds_status_t did_read_ecuserialnumber(
  *
  * Min session  : UDS_SESSION_EXTENDED
  * Security level: 0
- * Data length  : 11 byte(s)
+ * Data length  : 14 byte(s)
  *
  * TODO [APPLICATION]: Implement to return current sensor / ECU data for VehicleManufacturerSparePartNumber.
  *
  * @param[out] buf      Output buffer for DID data.
- * @param[in]  buf_len  Size of buf in bytes (must be >= 11).
+ * @param[in]  buf_len  Size of buf in bytes (must be >= 14).
  * @param[out] out_len  Set to number of bytes written.
  * @return UDS_STATUS_OK on success.
  */
@@ -726,11 +726,11 @@ uds_status_t did_read_firmwareupdatestatus(
  *
  * Min session  : UDS_SESSION_EXTENDED
  * Security level: 1
- * Data length  : 11 byte(s)
+ * Data length  : 14 byte(s)
  *
  * TODO [APPLICATION]: Implement to apply new value for VehicleManufacturerSparePartNumber.
  *
- * @param[in] buf  Buffer containing new DID data (11 byte(s)).
+ * @param[in] buf  Buffer containing new DID data (14 byte(s)).
  * @param[in] len  Number of bytes in buf.
  * @return UDS_STATUS_OK on success.
  */

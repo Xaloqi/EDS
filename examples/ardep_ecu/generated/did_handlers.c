@@ -59,9 +59,9 @@ static uint8_t s_mock_vehicleidentificationnumber[17U] = { 0U };
 /* TODO [APPLICATION]: Replace with real data source for 'ECUSerialNumber'. */
 static uint8_t s_mock_ecuserialnumber[8U] = { 0U };
 
-/** Stub backing store for DID 0xF187 — VehicleManufacturerSparePartNumber (11 byte(s)). */
+/** Stub backing store for DID 0xF187 — VehicleManufacturerSparePartNumber (14 byte(s)). */
 /* TODO [APPLICATION]: Replace with real data source for 'VehicleManufacturerSparePartNumber'. */
-static uint8_t s_mock_vehiclemanufacturersparepartnumber[11U] = { 0U };
+static uint8_t s_mock_vehiclemanufacturersparepartnumber[14U] = { 0U };
 
 /** Stub backing store for DID 0xF189 — ECUSoftwareVersionNumber (4 byte(s)). */
 /* TODO [APPLICATION]: Replace with real data source for 'ECUSoftwareVersionNumber'. */
@@ -288,23 +288,23 @@ uds_status_t did_read_ecuserialnumber(
 /**
  * @brief Read handler for DID 0xF187 — VehicleManufacturerSparePartNumber.
  *
- * Stub: copies 11 zero byte(s) into buf.
+ * Stub: copies 14 zero byte(s) into buf.
  *
  * MIN SESSION  : UDS_SESSION_EXTENDED
  * SEC LEVEL    : 0
- * DATA LENGTH  : 11 byte(s)
+ * DATA LENGTH  : 14 byte(s)
  *
  * TODO [APPLICATION]: Replace the memcpy below with real data access.
  *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_vehiclemanufacturersparepartnumber, 11U);
- *     *out_len = 11U;
+ *     (void)memcpy(buf, real_data_source_for_vehiclemanufacturersparepartnumber, 14U);
+ *     *out_len = 14U;
  *
  * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 11.
+ * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 14.
  * @param[out] out_len  Set to number of bytes written on success.
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 11.
+ * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 14.
  */
 uds_status_t did_read_vehiclemanufacturersparepartnumber(
     uint8_t  *buf,
@@ -315,13 +315,13 @@ uds_status_t did_read_vehiclemanufacturersparepartnumber(
         return UDS_STATUS_ERR_NULL_PTR;
     }
 
-    if (buf_len < (uint16_t)11U) {
+    if (buf_len < (uint16_t)14U) {
         return UDS_STATUS_ERR_BUFFER_OVERFLOW;
     }
 
     /* TODO [APPLICATION]: Replace with real sensor/NVM access for VehicleManufacturerSparePartNumber. */
-    (void)memcpy(buf, s_mock_vehiclemanufacturersparepartnumber, (size_t)11U);
-    *out_len = (uint16_t)11U;
+    (void)memcpy(buf, s_mock_vehiclemanufacturersparepartnumber, (size_t)14U);
+    *out_len = (uint16_t)14U;
 
     return UDS_STATUS_OK;
 }
@@ -1657,7 +1657,7 @@ uds_status_t did_read_firmwareupdatestatus(
  *
  * MIN SESSION  : UDS_SESSION_EXTENDED
  * SEC LEVEL    : 1
- * DATA LENGTH  : 11 byte(s) (exact length required)
+ * DATA LENGTH  : 14 byte(s) (exact length required)
  *
  * TODO [APPLICATION]: Replace stub body with NVM write, actuator command,
  *                     or calibration record update for 'VehicleManufacturerSparePartNumber'.
@@ -1665,11 +1665,11 @@ uds_status_t did_read_firmwareupdatestatus(
  * SAFETY: Write handlers that affect persistent calibration or actuators
  *         must include range checks and error handling. Review required.
  *
- * @param[in] buf  Pointer to new DID data (11 byte(s)).
- * @param[in] len  Number of bytes in buf. Must equal 11.
+ * @param[in] buf  Pointer to new DID data (14 byte(s)).
+ * @param[in] len  Number of bytes in buf. Must equal 14.
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NULL_PTR if buf is NULL.
- * @return UDS_STATUS_ERR_INVALID_PARAM if len != 11.
+ * @return UDS_STATUS_ERR_INVALID_PARAM if len != 14.
  */
 uds_status_t did_write_vehiclemanufacturersparepartnumber(
     const uint8_t *buf,
@@ -1679,12 +1679,12 @@ uds_status_t did_write_vehiclemanufacturersparepartnumber(
         return UDS_STATUS_ERR_NULL_PTR;
     }
 
-    if (len != (uint16_t)11U) {
+    if (len != (uint16_t)14U) {
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
     /* TODO [APPLICATION]: Validate range, then write to NVM/actuator. */
-    (void)memcpy(s_mock_vehiclemanufacturersparepartnumber, buf, (size_t)11U);
+    (void)memcpy(s_mock_vehiclemanufacturersparepartnumber, buf, (size_t)14U);
 
     return UDS_STATUS_OK;
 }
@@ -1932,7 +1932,7 @@ static const did_entry_t s_generated_did_table[GEN_DID_HANDLER_COUNT] = {
         .min_session        = (uint8_t)UDS_SESSION_EXTENDED,
         .read_access_level  = (uint8_t)0U,
         .write_access_level = (uint8_t)1U,
-        .data_length        = (uint16_t)11U,
+        .data_length        = (uint16_t)14U,
         .read_cb            = did_read_vehiclemanufacturersparepartnumber,
         .write_cb           = did_write_vehiclemanufacturersparepartnumber,
         .description        = "VehicleManufacturerSparePartNumber"

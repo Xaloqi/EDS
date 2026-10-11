@@ -15,12 +15,12 @@
  * Session   : extended (ordinal 3)
  * Read sec  : 0 (no auth required)
  * Write sec : 1 (SecurityAccess level 1 required)
- * Bytes     : 11
+ * Bytes     : 14
  *
  * PURPOSE: Exhaustive CAPL test cases for DID 0xF187:
  *   TC_F187_Read_HappyPath      — positive read, correct response
  *   TC_F187_Read_ResponseEcho   — DID echo bytes in response
- *   TC_F187_Read_ResponseLen    — data length = 11 bytes
+ *   TC_F187_Read_ResponseLen    — data length = 14 bytes
  *   TC_F187_Read_WrongSession   — NRC 0x7F in default session
  *   TC_F187_Write_HappyPath     — positive write
  *   TC_F187_Write_WrongLength   — NRC 0x13 for wrong data length
@@ -43,8 +43,8 @@ variables
   const word  kDid_F187            = 61831;
   const byte  kDid_F187_Hi        = 0xF1;
   const byte  kDid_F187_Lo        = 0x87;
-  const dword kDid_F187_DataLen   = 11;
-  const int   kDid_F187_RespLen   = 14;  /* 0x62 + DID_HI + DID_LO + data */
+  const dword kDid_F187_DataLen   = 14;
+  const int   kDid_F187_RespLen   = 17;  /* 0x62 + DID_HI + DID_LO + data */
   const int   kDid_F187_MinSess   = 3;
   const int   kDid_F187_RSec      = 0;
   const int   kDid_F187_WSec      = 1;
@@ -136,13 +136,13 @@ testcase TC_F187_Read_ResponseEcho()
 
 /*
  * TC_F187_Read_ResponseLen
- * Verify data payload = 11 bytes (total response = 14 bytes).
+ * Verify data payload = 14 bytes (total response = 17 bytes).
  */
 testcase TC_F187_Read_ResponseLen()
 {
   int rc;
   TestCaseDescription(
-    "DID 0xF187 (VehicleManufacturerSparePartNumber) — response data length = 11 bytes");
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — response data length = 14 bytes");
 
   if (!SetupRead_F187()) {
     TestCaseFail("Precondition setup failed");
@@ -247,15 +247,15 @@ testcase TC_F187_Read_MultipleTimes()
 /*
  * TC_F187_Write_HappyPath
  * Verify positive WriteDataByIdentifier response for DID 0xF187.
- * Writes 11 bytes of 0xAA pattern.
+ * Writes 14 bytes of 0xAA pattern.
  */
 testcase TC_F187_Write_HappyPath()
 {
   int   rc;
-  byte  data[11];
+  byte  data[14];
   dword i;
   TestCaseDescription(
-    "DID 0xF187 (VehicleManufacturerSparePartNumber) — WriteDataByIdentifier happy path (11 bytes)");
+    "DID 0xF187 (VehicleManufacturerSparePartNumber) — WriteDataByIdentifier happy path (14 bytes)");
 
   if (!SetupWrite_F187()) {
     TestCaseFail("Write precondition setup failed");
@@ -263,13 +263,13 @@ testcase TC_F187_Write_HappyPath()
   }
 
   /* Fill with 0xAA test pattern */
-  for (i = 0; i < 11; i++) {
+  for (i = 0; i < 14; i++) {
     data[i] = 0xAA;
   }
 
   rc = Uds_WriteDid(kDid_F187_Hi,
                     kDid_F187_Lo,
-                    data, 11);
+                    data, 14);
 
   AssertPositiveResponse(rc, kSidWDBI, "WDBI_0xF187_PositiveResponse");
 
@@ -290,12 +290,12 @@ testcase TC_F187_Write_HappyPath()
 /*
  * TC_F187_Write_WrongLength
  * Verify NRC 0x13 (incorrectMessageLengthOrInvalidFormat) when wrong data length.
- * Sends 10 bytes instead of 11.
+ * Sends 13 bytes instead of 14.
  */
 testcase TC_F187_Write_WrongLength()
 {
   int  rc;
-  byte shortData[10];
+  byte shortData[13];
   dword i;
   TestCaseDescription(
     "DID 0xF187 (VehicleManufacturerSparePartNumber) — NRC 0x13 for wrong data length");
@@ -305,13 +305,13 @@ testcase TC_F187_Write_WrongLength()
     return;
   }
 
-  /* Send 10 byte(s) instead of 11 */
-  for (i = 0; i < 10; i++) {
+  /* Send 13 byte(s) instead of 14 */
+  for (i = 0; i < 13; i++) {
     shortData[i] = 0x00;
   }
   rc = Uds_WriteDid(kDid_F187_Hi,
                     kDid_F187_Lo,
-                    shortData, 10);
+                    shortData, 13);
 
   AssertNegativeResponse(rc, kNrcIncorrectMsgLen,
     "WDBI_0xF187_WrongLength_NRC0x13");
@@ -325,19 +325,19 @@ testcase TC_F187_Write_WrongLength()
 testcase TC_F187_Write_WrongSession()
 {
   int   rc;
-  byte  data[11];
+  byte  data[14];
   dword i;
   TestCaseDescription(
     "DID 0xF187 (VehicleManufacturerSparePartNumber) — NRC 0x7F on write in default session");
 
   Uds_EnterSession(kSessDefault);
 
-  for (i = 0; i < 11; i++) {
+  for (i = 0; i < 14; i++) {
     data[i] = 0x00;
   }
   rc = Uds_WriteDid(kDid_F187_Hi,
                     kDid_F187_Lo,
-                    data, 11);
+                    data, 14);
 
   AssertNegativeResponse(rc, kNrcSvcNotSuppInSess,
     "WDBI_0xF187_WrongSession_NRC0x7F");
@@ -350,7 +350,7 @@ testcase TC_F187_Write_WrongSession()
 testcase TC_F187_Write_SecurityLocked()
 {
   int   rc;
-  byte  data[11];
+  byte  data[14];
   dword i;
   TestCaseDescription(
     "DID 0xF187 (VehicleManufacturerSparePartNumber) — NRC 0x33 on write when security locked");
@@ -358,12 +358,12 @@ testcase TC_F187_Write_SecurityLocked()
   /* Enter session but do NOT unlock */
   Uds_EnterSession(kSessExtended);
 
-  for (i = 0; i < 11; i++) {
+  for (i = 0; i < 14; i++) {
     data[i] = 0x00;
   }
   rc = Uds_WriteDid(kDid_F187_Hi,
                     kDid_F187_Lo,
-                    data, 11);
+                    data, 14);
 
   AssertNegativeResponse(rc, kNrcSecAccessDenied,
     "WDBI_0xF187_SecurityLocked_NRC0x33");
@@ -380,7 +380,7 @@ testcase TC_F187_Write_SecurityLocked()
 testgroup TG_DID_F187()
 {
   TestGroupDescription(
-    "DID 0xF187 — VehicleManufacturerSparePartNumber | RW | 11 bytes | extended session | R-sec=0 W-sec=1");
+    "DID 0xF187 — VehicleManufacturerSparePartNumber | RW | 14 bytes | extended session | R-sec=0 W-sec=1");
 
   TC_F187_Read_HappyPath();
   TC_F187_Read_ResponseEcho();

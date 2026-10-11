@@ -179,7 +179,7 @@ class _InlineEcuState:
         self.did_store: dict = {
             61840: bytearray([0xAA] * 17),
             61836: bytearray([0xAA] * 8),
-            61831: bytearray([0xAA] * 11),
+            61831: bytearray([0xAA] * 14),
             61833: bytearray([0xAA] * 4),
             61847: bytearray([0xAA] * 5),
             8193: bytearray([0xAA] * 1),
@@ -255,7 +255,7 @@ class _InlineEcuState:
                 "write_sec":    1,
             },
             61831: {
-                "data_length":  11,
+                "data_length":  14,
                 "access_read":  True,
                 "access_write": True,
                 "min_session":  3,

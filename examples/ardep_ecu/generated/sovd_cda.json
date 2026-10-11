@@ -35,7 +35,7 @@
     {
       "id": "0xF187",
       "name": "VehicleManufacturerSparePartNumber",
-      "dataLengthBytes": 11,
+      "dataLengthBytes": 14,
       "access": [
         "read",
         "write"

@@ -11,7 +11,7 @@
 # Session   : UDS_SESSION_EXTENDED (ordinal 3)
 # Read sec  : 0
 # Write sec : 1
-# Bytes     : 11
+# Bytes     : 14
 #
 # PURPOSE: Exhaustive per-DID pytest tests covering:
 #   - Happy-path read (all required preconditions satisfied)
@@ -44,7 +44,7 @@ DID_HEX:        str  = "0xF187"
 DID_NAME:       str  = "VehicleManufacturerSparePartNumber"
 DID_HI:         int  = 241
 DID_LO:         int  = 135
-DATA_LENGTH:    int  = 11
+DATA_LENGTH:    int  = 14
 ACCESS_READ:    bool = True
 ACCESS_WRITE:   bool = True
 MIN_SESSION:    int  = 3    # 1=default 2=programming 3=extended
@@ -127,7 +127,7 @@ class TestReadVehiclemanufacturersparepartnumber:
     """
     SID 0x22 ReadDataByIdentifier — DID 0xF187 (VehicleManufacturerSparePartNumber)
 
-    data_length : 11 byte(s)
+    data_length : 14 byte(s)
     min_session : UDS_SESSION_EXTENDED (ordinal 3)
     read_sec    : 0
     """
@@ -137,8 +137,8 @@ class TestReadVehiclemanufacturersparepartnumber:
     ) -> None:
         """
         Read DID 0xF187 with all preconditions satisfied.
-        Expected PDU: [0x62, 0xF1, 0x87, <11 data byte(s)>]
-        Total PDU length: 14 bytes.
+        Expected PDU: [0x62, 0xF1, 0x87, <14 data byte(s)>]
+        Total PDU length: 17 bytes.
         """
         _setup_preconditions(uds_bus, aes_keys, for_write=False)
         pdu = _read_did(uds_bus)
@@ -226,7 +226,7 @@ class TestWriteVehiclemanufacturersparepartnumber:
     """
     SID 0x2E WriteDataByIdentifier — DID 0xF187 (VehicleManufacturerSparePartNumber)
 
-    data_length  : 11 byte(s)
+    data_length  : 14 byte(s)
     min_session  : UDS_SESSION_EXTENDED (ordinal 3)
     write_sec    : 1
     """
@@ -235,7 +235,7 @@ class TestWriteVehiclemanufacturersparepartnumber:
         self, uds_bus: IsoTpTransport, aes_keys: dict
     ) -> None:
         """
-        Write DID 0xF187 with 11 byte(s) after satisfying all preconditions.
+        Write DID 0xF187 with 14 byte(s) after satisfying all preconditions.
         Expected: [0x6E, 0xF1, 0x87]
         """
         _setup_preconditions(uds_bus, aes_keys, for_write=True)
@@ -278,7 +278,7 @@ class TestWriteVehiclemanufacturersparepartnumber:
         self, uds_bus: IsoTpTransport, aes_keys: dict
     ) -> None:
         """
-        Write with 10 byte(s) (expected 11) must return NRC 0x13.
+        Write with 13 byte(s) (expected 14) must return NRC 0x13.
         """
         _setup_preconditions(uds_bus, aes_keys, for_write=True)
         short_data = bytes([0xBB] * (DATA_LENGTH - 1))
@@ -293,7 +293,7 @@ class TestWriteVehiclemanufacturersparepartnumber:
         self, uds_bus: IsoTpTransport, aes_keys: dict
     ) -> None:
         """
-        Write with 12 byte(s) (expected 11) must return NRC 0x13.
+        Write with 15 byte(s) (expected 14) must return NRC 0x13.
         """
         _setup_preconditions(uds_bus, aes_keys, for_write=True)
         long_data = bytes([0xCC] * (DATA_LENGTH + 1))

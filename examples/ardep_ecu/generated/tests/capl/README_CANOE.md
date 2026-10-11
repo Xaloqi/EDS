@@ -108,7 +108,7 @@ as-is. This matches the `bridge.py` simulator and `uds_security_algo.c` stub.
 |-----|------|-----|---------|-------|-------|-------|
 | 0xF190 | VehicleIdentificationNumber | R | default | 0 | 1 | 17 |
 | 0xF18C | ECUSerialNumber | R | default | 0 | 1 | 8 |
-| 0xF187 | VehicleManufacturerSparePartNumber | RW | extended | 0 | 1 | 11 |
+| 0xF187 | VehicleManufacturerSparePartNumber | RW | extended | 0 | 1 | 14 |
 | 0xF189 | ECUSoftwareVersionNumber | R | default | 0 | 0 | 4 |
 | 0xF197 | SystemSupplierIdentifierDataIdentifier | R | default | 0 | 0 | 5 |
 | 0x2001 | PowerIO_OutputStateBitmask | R | default | 0 | 0 | 1 |

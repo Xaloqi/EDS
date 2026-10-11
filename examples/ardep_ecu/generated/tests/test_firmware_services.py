@@ -97,7 +97,7 @@ DID_CATALOGUE = [
         "id":           61831,
         "id_hex":       "0xF187",
         "name":         "VehicleManufacturerSparePartNumber",
-        "data_length":  11,
+        "data_length":  14,
         "access_read":  True,
         "access_write": True,
         "min_session":  3,
@@ -927,7 +927,7 @@ class TestFirmwareReadDID:
     ) -> None:
         """
         DID 0xF187 (VehicleManufacturerSparePartNumber) — firmware read happy path.
-        Expected: RSID=0x62 DID=0xF10x87 + 11 data byte(s)
+        Expected: RSID=0x62 DID=0xF10x87 + 14 data byte(s)
         Verifies: did_safe_read_vehiclemanufacturersparepartnumber() safety wrapper + C handler
         """
         _setup_for_did(firmware_bus, DID_CATALOGUE[2])
@@ -938,10 +938,10 @@ class TestFirmwareReadDID:
         )
         assert pdu[1] == 241, f"DID hi byte echo wrong: 0x{pdu[1]:02X}"
         assert pdu[2] == 135, f"DID lo byte echo wrong: 0x{pdu[2]:02X}"
-        expected_len = 3 + 11
+        expected_len = 3 + 14
         assert len(pdu) == expected_len, (
             f"Firmware DID 0xF187 length: expected {expected_len} "
-            f"(RSID=1 + DID=2 + data=11), got {len(pdu)}"
+            f"(RSID=1 + DID=2 + data=14), got {len(pdu)}"
         )
 
     def test_read_vehiclemanufacturersparepartnumber_session_gate_firmware(
@@ -1871,7 +1871,7 @@ class TestFirmwareWriteDID:
         Proves C handler persists the value across request/response boundary.
         """
         _setup_for_did(firmware_bus, DID_CATALOGUE[2], for_write=True)
-        sentinel = bytes([(0x41 + i) & 0xFF for i in range(11)])
+        sentinel = bytes([(0x41 + i) & 0xFF for i in range(14)])
         pdu_w = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 241, 135]) + sentinel
         )
@@ -1894,7 +1894,7 @@ class TestFirmwareWriteDID:
         """Write without security unlock → NRC 0x33 from firmware ASIL-B wrapper."""
         if 3 > 1:
             _enter_session(firmware_bus, _SESSION_BYTE.get(3, SESSION_EXTENDED))
-        data = bytes([0x55] * 11)
+        data = bytes([0x55] * 14)
         pdu = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 241, 135]) + data
         )
@@ -1909,7 +1909,7 @@ class TestFirmwareWriteDID:
     ) -> None:
         """Wrong data length → NRC 0x13 from firmware bounds checker."""
         _setup_for_did(firmware_bus, DID_CATALOGUE[2], for_write=True)
-        wrong = bytes([0xBB] * (11 + 1))
+        wrong = bytes([0xBB] * (14 + 1))
         pdu = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 241, 135]) + wrong
         )
@@ -2241,15 +2241,15 @@ class TestFirmwareIsoTp:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """
-        DID 0xF187 (VehicleManufacturerSparePartNumber) data_length=11B → 14B PDU.
-        14 bytes > 7 → triggers FF+CF multi-frame from C isotp.c.
+        DID 0xF187 (VehicleManufacturerSparePartNumber) data_length=14B → 17B PDU.
+        17 bytes > 7 → triggers FF+CF multi-frame from C isotp.c.
         Verifies isotp.c segments correctly and FirmwareIsoTpTransport reassembles.
         """
         _setup_for_did(firmware_bus, DID_CATALOGUE[2])
         pdu = firmware_bus.request(bytes([SID_READ_DATA_BY_ID, 241, 135]))
         assert pdu is not None, f"No response for multi-frame DID 0xF187"
         assert pdu[0] == (SID_READ_DATA_BY_ID + POSITIVE_RESPONSE_OFFSET)
-        expected_len = 3 + 11
+        expected_len = 3 + 14
         assert len(pdu) == expected_len, (
             f"Multi-frame reassembly error for DID 0xF187: "
             f"expected {expected_len} bytes, got {len(pdu)}"

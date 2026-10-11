@@ -835,9 +835,9 @@ testcase TC_DID_Read_Smoke_F187()
   snprintf(stepName, elcount(stepName), "RDBI_0xF187_PositiveResponse");
   AssertPositiveResponse(rc, kSidRDBI, stepName);
 
-  /* Response: 0x62 DID_HI DID_LO + 11 data bytes = 14 total */
+  /* Response: 0x62 DID_HI DID_LO + 14 data bytes = 17 total */
   snprintf(stepName, elcount(stepName), "RDBI_0xF187_ResponseLength");
-  AssertResponseLength(gRxLen, 14, stepName);
+  AssertResponseLength(gRxLen, 17, stepName);
 
   Uds_EnterSession(kSessDefault);
 }
