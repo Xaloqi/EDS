@@ -268,10 +268,36 @@ ninja -C build_freertos
 
 For the full FreeRTOS integration guide (callbacks, NVM, reset, production porting), see [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md#freertos-integration).
 
+### Independent conformance vectors
+
+Protocol conformance is checked against byte-level vectors **we did not write**,
+ported from three independently authored, MIT-licensed projects:
+
+| Standard | Vector source | Test module |
+|---|---|---|
+| ISO 15765-2 (ISO-TP) | `pylessard/python-can-isotp` | `tests/unit_runnable/test_isotp_conformance_vectors.c` |
+| ISO 13400-2 (DoIP) | `jacobschaer/python-doipclient` | `tests/unit_runnable/test_doip_conformance_vectors.c` |
+| ISO 14229-1 (UDS SID framing) | `pylessard/python-udsoncan` | `tests/unit_runnable/test_uds_sid_conformance_vectors.c` |
+
+They run as part of `build_tests.sh`, need no hardware, and each module's header
+records the exact upstream tag it was ported from.
+
+**Why this exists:** a stack validated only by its own vendor's tester proves
+consistency, not conformance. Porting these surfaced three real ISO 13400-2
+defects in our own DoIP implementation ([#369](https://github.com/Xaloqi/EDS/issues/369),
+[#371](https://github.com/Xaloqi/EDS/issues/371),
+[#368](https://github.com/Xaloqi/EDS/issues/368)) on first contact — all three
+since fixed.
+
+**Scope limit, stated plainly:** these cover protocol *mechanics* — framing,
+NRCs, sequence and timing behaviour. They are not an ISO conformance
+certification, and they say nothing about any particular ECU's DID or DTC
+content.
+
 ### Run the test suite
 
 ```bash
-# 55 Unity unit tests (host-native, no Zephyr SDK needed)
+# 56 Unity unit tests (host-native, no Zephyr SDK needed)
 bash build_tests.sh
 
 # 68 harness integration tests (Professional tier — requires harness/ sources)
@@ -369,7 +395,7 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command *(Developer/Professional tier)* |
 | `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · safeboot\_freertos\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard *(Developer/Professional tier)* |
-| `tests/` | 55 Unity unit tests, harness, Python integration tests |
+| `tests/` | 56 Unity unit tests, harness, Python integration tests |
 
 ---
 
