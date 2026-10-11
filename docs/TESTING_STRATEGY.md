@@ -253,8 +253,10 @@ bash build_tests.sh
 | `test_service_0x85.c` | DTCSettingOn/Off in EXTENDED and PROGRAMMING sessions, echoed setting byte, DEFAULT session → NRC 0x7E |
 | `test_uds_sid_conformance_vectors.c` | [EDS#374] Independent ISO 14229-1 UDS SID framing vectors ported from `pylessard/python-udsoncan` (MIT) across 10 SIDs — not derived from Xaloqi's own tester. See the file's own header for full provenance and honest scope limits. |
 
-> `0x2E` (WriteDataByIdentifier) has no standalone test module — it is covered
-> by `test_phase5_access_table.c`, `test_phase5_server_access.c`, and
+> `0x2E` (WriteDataByIdentifier) is covered both by its own
+> `test_service_0x2E.c` (DID write validation, session and security gating,
+> response framing) and, at the access-control layer, by
+> `test_phase5_access_table.c`, `test_phase5_server_access.c` and
 > `test_uds_server.c`.
 
 **Transport Layer (4 modules)**
