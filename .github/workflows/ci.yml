@@ -2280,7 +2280,7 @@ jobs:
           cda = json.loads(Path("/tmp/sovd_can.json").read_text())
           cfg = yaml.safe_load(Path("examples/basic_ecu/diagnostics_config.yaml").read_text())
 
-          assert cda["sovdVersion"] == "1.0.0",                              "Wrong sovdVersion"
+          assert cda["edsCdaSchemaVersion"] == "1.0.0",                      "Wrong edsCdaSchemaVersion"
           assert cda["transportInfo"]["protocol"] == "ISO-TP",               "Expected ISO-TP"
           assert "logicalAddress" not in cda["ecuIdentification"],           "CAN ECU must not have logicalAddress"
           assert len(cda["dataIdentifiers"]) == len(cfg.get("dids", [])),    "DID count mismatch"
@@ -2313,7 +2313,7 @@ jobs:
           cda = json.loads(Path("/tmp/sovd_doip.json").read_text())
           cfg = yaml.safe_load(Path("examples/basic_ecu_doip/diagnostics_config.yaml").read_text())
 
-          assert cda["sovdVersion"] == "1.0.0",                                       "Wrong sovdVersion"
+          assert cda["edsCdaSchemaVersion"] == "1.0.0",                               "Wrong edsCdaSchemaVersion"
           assert cda["transportInfo"]["protocol"] == "DoIP",                          "Expected DoIP"
           assert cda["transportInfo"]["port"]     == 13400,                           "Wrong DoIP port"
           assert cda["ecuIdentification"]["logicalAddress"] == "0xE400",             "Wrong logical address"
