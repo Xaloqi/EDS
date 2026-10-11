@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.18.0] — 2026-10-11
+
 ### Security
 
 - **DoIP-only builds now refuse to run, in production, without registered
