@@ -31,7 +31,13 @@
 #          https://xaloqi.com/blog/change-one-line-four-artifacts
 #
 # USAGE:
-#   bash scripts/demo_gtm18_one_did_change.sh
+#   bash scripts/demo_gtm18_one_did_change.sh            # scratch dir, auto-removed
+#   bash scripts/demo_gtm18_one_did_change.sh OUTPUT_DIR # keep before/after to inspect
+#
+#          With no argument the generated trees go to a temporary directory
+#          that is removed on exit, and the script prints an excerpt of one
+#          diff inline so you still see something concrete. Pass a directory
+#          to keep the full before/after trees and diff them yourself.
 #
 # EXIT CODES:
 #   0  Demo ran to completion (commercial-tier half included or skipped, both OK).
@@ -53,8 +59,19 @@ for f in "$CODEGEN" "$CONFIG"; do
   fi
 done
 
-WORKDIR="$(mktemp -d)"
-trap 'rm -rf "$WORKDIR"' EXIT
+# [EDS#384] Only remove the directory when we created it. Previously this
+# always trapped on EXIT and then printed a diff command against those paths,
+# which were gone before the reader could run it.
+if [ "$#" -gt 0 ]; then
+  WORKDIR="$1"
+  mkdir -p "$WORKDIR"
+  WORKDIR="$(cd "$WORKDIR" && pwd)"
+  KEEP_OUTPUT=1
+else
+  WORKDIR="$(mktemp -d)"
+  trap 'rm -rf "$WORKDIR"' EXIT
+  KEEP_OUTPUT=0
+fi
 
 echo "============================================================"
 echo "  GTM-18 demo: change one DID, watch every artifact move"
@@ -137,6 +154,28 @@ echo
 echo "Every line above that differs traces back to one changed field."
 echo "No other file moved."
 echo
-echo "To see what actually changed in any one of them, e.g.:"
-echo "  diff -u $BEFORE_OUT/sovd_cda.json $AFTER_OUT/sovd_cda.json"
-echo "(this workdir is deleted when the script exits -- copy out what you want first)"
+
+# [EDS#384] Show a real excerpt rather than inviting a command against paths
+# that are about to be removed. The SOVD CDA descriptor is the most legible of
+# the four, so it is the one shown.
+if [ -r "$BEFORE_OUT/sovd_cda.json" ] && [ -r "$AFTER_OUT/sovd_cda.json" ]; then
+  echo "------------------------------------------------------------"
+  echo "  What it looks like in one of them: sovd_cda.json"
+  echo "------------------------------------------------------------"
+  diff -u "$BEFORE_OUT/sovd_cda.json" "$AFTER_OUT/sovd_cda.json" \
+    | sed -e "s#$BEFORE_OUT#BEFORE#" -e "s#$AFTER_OUT#AFTER#" \
+    | head -40 || true
+  echo
+fi
+
+if [ "$KEEP_OUTPUT" -eq 1 ]; then
+  echo "Full before/after trees kept at:"
+  echo "  $BEFORE_OUT"
+  echo "  $AFTER_OUT"
+  echo "Diff any of them yourself, e.g.:"
+  echo "  diff -u $BEFORE_OUT/did_handlers.c $AFTER_OUT/did_handlers.c"
+else
+  echo "This run used a temporary directory, now removed. To keep the full"
+  echo "before/after trees and diff any file yourself:"
+  echo "  bash scripts/demo_gtm18_one_did_change.sh ./gtm18-demo-out"
+fi
