@@ -20,10 +20,12 @@
  *   The Phase 2 reference image policy computes the digest of the downloaded
  *   firmware image from inside uds_image_policy_t::update_cb, which runs once
  *   per accepted 0x36 TransferData payload range, inside the P2server window.
- *   The server has no NRC 0x78 (responsePending) mechanism with which to buy
- *   itself time at 0x37 RequestTransferExit, so the digest CANNOT be computed
- *   in one pass over a buffered image at transfer exit — there is neither the
- *   RAM to buffer a whole image nor the time budget to hash it in one go.
+ *   0x36/0x37 have no generic NRC 0x78 (responsePending) mechanism with which
+ *   to buy themselves time at 0x37 RequestTransferExit (0x34 has grown a
+ *   service-specific 0x78 path since, but it is not shared with 0x36/0x37),
+ *   so the digest CANNOT be computed in one pass over a buffered image at
+ *   transfer exit — there is neither the RAM to buffer a whole image nor the
+ *   time budget to hash it in one go.
  *   It must be accumulated incrementally as the blocks arrive.  Chunk sizes
  *   are whatever the tester chose for its block length and are NOT multiples
  *   of the 64-byte SHA-256 block, so the context carries a partial-block

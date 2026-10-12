@@ -38,8 +38,9 @@
  *     the P2server window (50 ms on the reference configuration).  It must
  *     be O(length) and allocation-free.  This is why the image digest is
  *     STREAMED during 0x36 rather than computed over the whole image at
- *     0x37: the server has no NRC 0x78 (responsePending) mechanism to buy
- *     itself time at transfer exit (issue #282).
+ *     0x37: 0x36/0x37 have no generic NRC 0x78 (responsePending) mechanism
+ *     to buy themselves time at transfer exit (issue #282). (0x34 has a
+ *     service-specific 0x78 path, but it is not shared with 0x36/0x37.)
  *   - The policy sees only the download direction.  0x35 RequestUpload
  *     reads flash out to the tester and never reaches these hooks.
  *

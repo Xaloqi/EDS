@@ -58,8 +58,8 @@ typedef struct dtc_entry {
     uint32_t    dtc_code;                 /**< 3-byte DTC code (e.g. 0xC00100). */
     uint8_t     status_byte;              /**< Current DTC status byte (ISO 14229-1 Table D.1). */
     uint8_t     severity;                 /**< Severity class (0x00 = not available). */
-    uint8_t     fault_detection_counter;  /**< Debounce counter 0x00–0xFE; 0xFF = confirmed (excluded from 0x0B). */
-    bool        is_permanent;             /**< true = SID 0x19/0x0B-eligible, NOT clearable by SID 0x14. */
+    uint8_t     fault_detection_counter;  /**< Debounce counter 0x00–0xFE; 0xFF = confirmed (excluded from 0x14). */
+    bool        is_permanent;             /**< true = SID 0x19/0x15-eligible, NOT clearable by SID 0x14. */
     const char *description;              /**< Human-readable description (tooling/logging only). */
 } dtc_entry_t;
 
@@ -192,7 +192,7 @@ uds_status_t dtc_database_count_by_status(
  *
  * Used by the application to track debouncing state (ISO 14229-1 §11.3.11).
  * 0x00–0xFE: counter value. 0xFF is reserved (confirmed) — excluded from
- * the 0x19/0x0B reportDTCFaultDetectionCounter response.
+ * the 0x19/0x14 reportDTCFaultDetectionCounter response.
  *
  * @param[in] dtc_code  24-bit DTC code to update.
  * @param[in] counter   New fault detection counter value.
@@ -206,7 +206,7 @@ uds_status_t dtc_database_set_fault_counter(uint32_t dtc_code, uint8_t counter);
 /**
  * @brief Mark or unmark a DTC as permanent.
  *
- * Permanent DTCs are returned by SID 0x19 sub-function 0x19 and are NOT
+ * Permanent DTCs are returned by SID 0x19 sub-function 0x15 and are NOT
  * cleared by SID 0x14 ClearDiagnosticInformation. The application is
  * responsible for clearing the permanent flag after a successful drive cycle
  * without fault recurrence.
