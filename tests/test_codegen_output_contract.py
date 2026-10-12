@@ -355,3 +355,86 @@ def test_manifest_paths_are_relative_and_leak_no_absolute_paths(tmp_path: Path) 
 
     blob = json.dumps(manifest)
     assert "/home/" not in blob, "manifest leaks a developer-machine path"
+
+
+# ---------------------------------------------------------------------------
+# default_value — fixed compile-time DID backing-store initializers, added
+# for examples/basic_ecu_cda_demo (BUILD-1, 2026-10-12). Covers the one
+# codegen behavior that example relies on: without these, a default_value
+# DID silently regenerates as all-zero and the config's own comment ("the
+# CDA's Boot_Variant match depends on this exact value") would be false and
+# unenforced by anything in CI.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_VALUE_CONFIG = textwrap.dedent(
+    """\
+    schema_version: 1
+    metadata:
+      ecu_name: "DefaultValueECU"
+      version: "1.0.0"
+      description: "default_value regression fixture"
+    timing:
+      p2_server_max_ms: 25
+      p2_star_server_max_ms: 5000
+      s3_server_timeout_ms: 5000
+    can:
+      rx_can_id: "0x7E0"
+      tx_can_id: "0x7E8"
+    dids:
+      - id: "0xF100"
+        name: "Identification"
+        data_length: 3
+        access: ["read"]
+        min_session: default
+        read_security_level: 0
+        write_security_level: 0
+        default_value: "{default_value}"
+        description: "identification option, fixed value"
+      - id: "0x4001"
+        name: "NoDefault"
+        data_length: 2
+        access: ["read"]
+        min_session: default
+        read_security_level: 0
+        write_security_level: 0
+        description: "no default_value -- must stay the all-zero stub"
+    dtcs: []
+    """
+)
+
+
+def test_did_default_value_renders_as_the_exact_bytes(tmp_path: Path) -> None:
+    """A DID with default_value must not fall back to the all-zero stub."""
+    out = tmp_path / "gen"
+    cfg = _write(
+        tmp_path / "cfg.yaml",
+        _DEFAULT_VALUE_CONFIG.format(default_value="0xFF0000"),
+    )
+    result = _run_codegen(cfg, out, "--safety-wrappers", "--asil-level", "B")
+    assert result.returncode == 0, result.stderr
+
+    handlers = (out / "did_handlers.c").read_text(encoding="utf-8")
+    assert "0xFFU, 0x00U, 0x00U" in handlers, (
+        "default_value: '0xFF0000' must render as { 0xFFU, 0x00U, 0x00U } "
+        "in the DID's backing store, not fall back to the all-zero stub"
+    )
+
+    # A DID with no default_value must still fall back to the all-zero stub
+    # unchanged -- this feature is opt-in per DID, not a global behavior
+    # change for every other example in the repo.
+    assert "s_mock_nodefault[2U] = { 0U }" in handlers
+
+
+def test_did_default_value_byte_count_must_match_data_length(tmp_path: Path) -> None:
+    """default_value with the wrong byte count must fail validation, not
+    silently truncate or pad at generation time."""
+    out = tmp_path / "gen"
+    cfg = _write(
+        tmp_path / "cfg.yaml",
+        # data_length: 3 but default_value is only 2 bytes.
+        _DEFAULT_VALUE_CONFIG.format(default_value="0xFF00"),
+    )
+    result = _run_codegen(cfg, out, "--safety-wrappers", "--asil-level", "B")
+    assert result.returncode != 0
+    assert "default_value" in result.stderr
+    assert "2 byte" in result.stderr and "3" in result.stderr

@@ -347,6 +347,16 @@ def _normalise_hex(raw: str) -> str:
     return "0x" + raw[2:].upper()
 
 
+def _hex_bytes_to_c_init(raw: str) -> str:
+    """
+    Convert a '0x...' hex-byte string (even number of hex digits) into a C
+    brace-initializer body, e.g. '0xFF0000' -> '0xFFU, 0x00U, 0x00U'.
+    """
+    digits = raw[2:]
+    byte_vals = [digits[i:i + 2] for i in range(0, len(digits), 2)]
+    return ", ".join(f"0x{b.upper()}U" for b in byte_vals)
+
+
 def _parse_can_id(raw: str, field_name: str) -> int:
     """
     Parse and validate a CAN ID string from YAML.
@@ -633,6 +643,28 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                 f"got: {data_len!r}"
             )
 
+        # default_value (optional) — fixed compile-time backing-store value,
+        # instead of the usual all-zero stub. Byte count must match
+        # data_length exactly: silently truncating or zero-padding a
+        # mismatch would make the generated C disagree with what the YAML
+        # says it initializes.
+        if "default_value" in did:
+            default_value = did["default_value"]
+            if not isinstance(default_value, str) or not re.match(
+                r"^0x([0-9A-Fa-f]{2})+$", default_value
+            ):
+                _fatal(
+                    f"{pfx}: 'default_value' must be a '0x'-prefixed, "
+                    f"even-length hex byte string (e.g. '0xFF0000'), "
+                    f"got: {default_value!r}"
+                )
+            dv_byte_count = (len(default_value) - 2) // 2
+            if dv_byte_count != data_len:
+                _fatal(
+                    f"{pfx}: 'default_value' has {dv_byte_count} byte(s) "
+                    f"but data_length is {data_len}."
+                )
+
     # ── dtcs ─────────────────────────────────────────────────────────────────
     dtcs: List[Any] = cfg.get("dtcs", [])
 
@@ -860,6 +892,10 @@ def _build_did_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "write_security_level":       w_level,
             "write_security_level_label": _security_level_label(w_level),
             "data_length":                did.get("data_length", 4),
+            "default_value_c_init":       (
+                _hex_bytes_to_c_init(did["default_value"])
+                if "default_value" in did else "0U"
+            ),
         })
     return result
 

@@ -2009,6 +2009,7 @@ jobs:
           - motor_controller_ecu
           - robot_joint_controller_ecu
           - ardep_ecu
+          - basic_ecu_cda_demo
 
     steps:
       - uses: actions/checkout@v4
