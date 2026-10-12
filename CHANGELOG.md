@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`examples/basic_ecu_cda_demo`**, a disclosed fork of `examples/basic_ecu`
+  (own README.md explains why a fork, not an in-place edit), and
+  `scripts/demo_can_sovd_cda_interop.sh` extended into a one-command,
+  Docker-only reference target for the OpenSOVD/CDA ecosystem. Beyond the
+  multi-frame ISO-TP read it already proved, it now exercises session
+  control, SecurityAccess with real AES-128-CMAC cryptography (computed
+  independently from the real seed EDS sends over the wire), and
+  RoutineControl — all through the real Eclipse OpenSOVD CDA's SOVD API,
+  against real, unmodified `core/`/`transport/`/`platform/` code. The
+  native_sim build is now fully containerized (no pre-existing west
+  workspace or Zephyr SDK required on the host — only Docker).
+- **`tools/codegen.py`'s DID schema gains an optional `default_value` field**
+  (hex byte string, e.g. `"0xFF0000"`) — a real, general capability: a fixed
+  compile-time backing-store value instead of the usual all-zero stub.
+  Byte count must match `data_length` or generation fails. Added for
+  `basic_ecu_cda_demo`'s DID 0xF100 (see that example's README for why).
+
 - **`examples/basic_ecu` now installs an ISO 15765-4 physical CAN RX
   filter (`0x7E0`), not just the functional one (`0x7DF`)** (EDS#389).
   `platform/zephyr/zephyr_can.c` already supported a `physical_rx_id`
@@ -24,6 +41,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`scripts/demo_can_sovd_cda_interop.sh`'s native_sim build omitted
+  `-DDIAG_SKIP_CODEGEN=ON`** (EDS#393), so it invoked `tools/codegen.py`
+  against `tools/templates/*.j2` — gitignored, commercial-tier only, absent
+  in a clean checkout of this public repo. Masked during development by a
+  machine that already had the commercial templates installed locally.
+  Every `west build` in `.github/workflows/ci.yml` already passes this
+  flag for the same reason; the demo script just hadn't followed suit.
 - **`core/uds_services/service_0x19.c`'s dispatch switch implements
   sub-functions `0x01, 0x02, 0x03, 0x04, 0x06, 0x0A, 0x14, 0x15` — three
   separate places stated something else.** `docs/AI_CONTEXT.md` listed

@@ -89,6 +89,15 @@ DID_ENTRY_SCHEMA = {
             "type": "integer",
             "minimum": 1,
             "maximum": 64
+        },
+        "default_value": {
+            "type": "string",
+            "pattern": "^0x([0-9A-Fa-f]{2})+$",
+            "description": (
+                "Static compile-time value for the DID's backing store, as a "
+                "hex byte string (e.g. '0xFF0000'). Byte count must match "
+                "data_length. Optional — defaults to all-zero when absent."
+            )
         }
     },
     "additionalProperties": False
@@ -363,6 +372,20 @@ def validate_config(config: dict) -> list:
                     f"writable DIDs (REQ-SAFE-006). Add 'data_length: <bytes>' "
                     f"to enforce write length validation in service 0x2E."
                 )
+            if "default_value" in did:
+                dv_bytes = (len(did["default_value"]) - 2) // 2
+                if "data_length" not in did:
+                    errors.append(
+                        f"dids[{idx}] ({did_id}): 'default_value' requires "
+                        f"'data_length' to be set (so the byte count can be "
+                        f"checked)."
+                    )
+                elif dv_bytes != did["data_length"]:
+                    errors.append(
+                        f"dids[{idx}] ({did_id}): 'default_value' has "
+                        f"{dv_bytes} byte(s) but data_length is "
+                        f"{did['data_length']}."
+                    )
 
     for idx, dtc in enumerate(config.get("dtcs", [])):
         dtc_code = dtc.get("code", "")

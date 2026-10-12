@@ -318,28 +318,44 @@ claim:** this generates *to* these four formats *from* a definition we own —
 not *from* someone else's schema. `sovd_cda.json` is EDS's own CDA
 configuration descriptor, not an ASAM SOVD or ISO 17978 artifact.
 
-### A real SOVD tester, not just our own
+### A real SOVD tester, not just our own — a reference target for the OpenSOVD/CDA ecosystem
 
 The independent conformance vectors above check protocol mechanics against
 known-good byte sequences. This checks something different: does EDS
 actually interoperate with somebody else's real, independent implementation
-of the other side of the wire.
+of the other side of the wire — the real Eclipse OpenSOVD Classic
+Diagnostic Adapter (CDA), not a simulator standing in for it.
 
 ```bash
-bash scripts/demo_can_sovd_cda_interop.sh /path/to/your/west-workspace
+bash scripts/demo_can_sovd_cda_interop.sh
 ```
 
-Builds real `examples/basic_ecu` for Zephyr's `native_sim` against a real
-host SocketCAN device (not Zephyr's in-process loopback, which can only ever
-talk to itself), builds the real [Eclipse OpenSOVD Classic Diagnostic
+One command, no prior Zephyr/west setup required — the only host
+prerequisite is Docker. It builds `examples/basic_ecu_cda_demo` for
+Zephyr's `native_sim` against a real host SocketCAN device (not Zephyr's
+in-process loopback, which can only ever talk to itself), builds the real
+[Eclipse OpenSOVD Classic Diagnostic
 Adapter](https://github.com/eclipse-opensovd/classic-diagnostic-adapter)
-from its own public source, joins the two over a virtual CAN pair, and
-performs a real SOVD HTTP read (`VINDataIdentifier`) that decodes on the
-wire to a correct ISO 15765-2 multi-frame exchange. No sudo required —
-the virtual CAN pair is created inside a Docker container via
-`--cap-add=NET_ADMIN`, not a host privilege escalation. Needs Docker and a
-working west workspace; the script checks for both and says plainly what's
-missing rather than failing confusingly partway through.
+from its own public source, and joins the two over a virtual CAN pair —
+all inside containers this script builds and tears down itself. No sudo
+required: the virtual CAN pair is created via `docker run
+--cap-add=NET_ADMIN`, not a host privilege escalation.
+
+It then exercises what a fictional ODX test fixture can't, because nothing
+answers on the other end of one: a real multi-frame ISO-TP read, session
+control, SecurityAccess with real AES-128-CMAC cryptography (computed
+independently from the real seed EDS sends over the wire), and
+RoutineControl — all against real, unmodified `core/`, `transport/` and
+`platform/` code, routed entirely through the CDA's own SOVD HTTP API.
+
+**Stated plainly:** this is CAN only — the real CDA discovers DoIP gateways
+exclusively by UDP Vehicle Identification, which EDS has never implemented
+([EDS#392](https://github.com/Xaloqi/EDS/issues/392)). And
+`examples/basic_ecu_cda_demo` carries two diagnostic IDs chosen to match
+the CDA's own shipped test fixture rather than EDS's own convention —
+disclosed in that example's own README, not quietly carried. This proves
+EDS is a real, runnable test target for SOVD/CDA tooling; it is not a
+claim that EDS is "the" SoDeV diagnostics layer.
 
 ### Run the test suite
 

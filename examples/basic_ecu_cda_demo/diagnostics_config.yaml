@@ -1,0 +1,164 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/basic_ecu_cda_demo/diagnostics_config.yaml
+#
+# PURPOSE: examples/basic_ecu's diagnostics layer, forked under its own
+#          example (rather than edited in place) so that two extra entries
+#          below -- DID 0xF100 and routine 0x1001 -- never touch the
+#          widely-documented basic_ecu used throughout README.md,
+#          docs/GETTING_STARTED.md, docs/PERFORMANCE.md and others as the
+#          canonical "5 DIDs" minimal example. See README.md in this
+#          directory for why this fork exists and what those two entries
+#          are for.
+#
+#          This file is parsed by tools/config_parser.py and consumed by
+#          tools/codegen.py to generate did_handlers.c and uds_init.c.
+#
+# FIX APPLIED (Technical Review — Issue C1):
+#   Engine Speed (0x0C00) and Coolant Temperature (0x0500) were erroneously
+#   placed under the 'dtcs:' key instead of 'dids:'. YAML parsed them as
+#   DTC entries, giving them no 'code' field. codegen.py's validation of
+#   dtcs[2].get("code") returned None, triggering:
+#
+#     [codegen] ERROR: VALIDATION: dtcs[2]: 'code' must be a 6-digit hex
+#     string like 0xC00100, got: None
+#
+#   Fix: moved both entries back to 'dids:' where they belong.
+#   The 'dtcs:' list now correctly contains only the two DTC entries.
+#
+# See tools/config_parser.py for full schema documentation.
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name: "BasicECU CDA Demo"
+  version:  "0.1.0"
+  description: "basic_ecu's diagnostics layer plus two CDA-interop-only entries -- see README.md"
+
+can:
+  rx_can_id: "0x7DF"  # ISO 15765-4 functional addressing (request)
+  tx_can_id: "0x7E8"  # ISO 15765-4 physical response (ECU address 0)
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+dids:
+  - id:   "0xF190"
+    name: "Vehicle Identification Number"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+
+  - id:   "0xF18C"
+    name: "ECU Serial Number"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 4
+
+  - id:   "0xF187"
+    name: "Vehicle Manufacturer Spare Part Number"
+    access:
+      - read
+      - write
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 11
+
+  # ── Live sensor DIDs ──────────────────────────────────────────────────────
+  # These were previously misplaced under 'dtcs:' — moved here (Issue C1).
+
+  - id:   "0x0C00"
+    name: "Engine Speed"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 2
+
+  - id:   "0x0500"
+    name: "Coolant Temperature"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 1
+
+  # ── Identification (ISO 14229-1 manufacturer-specific identification
+  #    option range, 0xF100-0xF17F) ──────────────────────────────────────
+  # Real, general capability: a fixed compile-time identification value
+  # (tools/codegen.py's 'default_value' DID field). The specific value
+  # below (0xFF0000) has no significance on its own -- it is chosen
+  # because it is exactly the value the Eclipse OpenSOVD CDA's own shipped
+  # FLXC1000.mdd test fixture pattern-matches to select that ECU's
+  # Boot_Variant (see generate.py in the CDA's own repo). That match is
+  # what scripts/demo_can_sovd_cda_interop.sh relies on to exercise
+  # SecurityAccess through the real CDA -- disclosed here, in this
+  # example's README.md, and in that script, rather than carried quietly.
+  - id:   "0xF100"
+    name: "Identification"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 3
+    default_value: "0xFF0000"
+
+dtcs:
+  - code:        "0xC00100"
+    description: "CAN bus communication loss"
+    severity:    "check_at_next_halt"
+
+  - code:        "0xC00200"
+    description: "Diagnostic transport layer timeout"
+    severity:    "maintenance_only"
+
+routines:
+  - id:   "0xFF00"
+    name: "ECU_SelfTest"
+    description: "Run internal self-test (RAM, ROM checksum, sensor plausibility)"
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start", "results"]
+
+  - id:   "0xFF01"
+    name: "ResetToFactoryDefaults"
+    description: "Reset all calibration DIDs to factory default values in NVM"
+    min_session:    "extended"
+    security_level: 1
+    support:        ["start"]
+
+  - id:   "0xFF10"
+    name: "EraseNVM"
+    description: "Erase calibration NVM sector (prerequisite for firmware download)"
+    min_session:    "programming"
+    security_level: 1
+    support:        ["start", "results"]
+
+  # Real, general capability (RoutineControl Start, manufacturer-specific
+  # ID range) at an ID chosen -- disclosed, not carried quietly -- to equal
+  # the routine ID the Eclipse OpenSOVD CDA's own shipped FLXC1000.mdd test
+  # fixture declares for its "SelfTest" operation (testcontainer/odx/
+  # routine_control.py in the CDA's own repo). SOVD routes RoutineControl
+  # by the ID declared in whatever ODX database the CDA has loaded, not by
+  # anything EDS reports, so exercising it through the real CDA's SOVD API
+  # requires this ID to line up. See this directory's README.md for why a
+  # custom ODX fixture wasn't built instead (the CDA's own PDX-to-MDD
+  # converter isn't publicly distributable).
+  - id:   "0x1001"
+    name: "SelfTest"
+    description: "Run internal self-test -- ID chosen for CDA interop, see README.md"
+    min_session:    "extended"
+    security_level: 0
+    support:        ["start"]
