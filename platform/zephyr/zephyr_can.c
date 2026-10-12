@@ -301,7 +301,12 @@ static const can_transport_ops_t s_zephyr_can_ops = {
  *   // Functional + physical 0x7E0:
  *   zephyr_can_platform_init(&transport, can_dev, 0x7E0U);
  *
- * The physical_rx_id value comes from diagnostics_config.yaml can.physical_rx_id.
+ * physical_rx_id is set directly in the example's own main.c (see
+ * examples/basic_ecu/src/main.c) -- there is no diagnostics_config.yaml
+ * field for it. An earlier version of this comment claimed one existed;
+ * no such field is read anywhere in tools/config_parser.py, tools/codegen.py,
+ * or any example's YAML, and none should be assumed to exist until one is
+ * actually added.
  *
  * [NEW-H1 FIX] The 3-parameter signature here must match the declaration in
  * zephyr_can.h exactly. The former forward declaration in zephyr_port.h (both
