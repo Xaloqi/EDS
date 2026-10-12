@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.18.1] — 2026-10-12
+
 ### Added
 
 - **`examples/basic_ecu_cda_demo`**, a disclosed fork of `examples/basic_ecu`
