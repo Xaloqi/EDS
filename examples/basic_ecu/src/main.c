@@ -255,6 +255,11 @@ int main(void)
     {
         const zephyr_port_cfg_t port_cfg = {
             .can_dev = DIAG_CAN_DEV,
+            /* ISO 15765-4 physical addressing alongside the functional
+             * 0x7DF filter above -- a real SOVD/UDS tester (e.g. the
+             * Eclipse OpenSOVD CDA) probes with a physical request and
+             * will not treat a functional-only ECU as discoverable. */
+            .physical_rx_id = 0x7E0U,
         };
         status = zephyr_port_init(&port_cfg, &can);
         if (status != UDS_STATUS_OK) {
