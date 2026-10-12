@@ -318,6 +318,29 @@ claim:** this generates *to* these four formats *from* a definition we own —
 not *from* someone else's schema. `sovd_cda.json` is EDS's own CDA
 configuration descriptor, not an ASAM SOVD or ISO 17978 artifact.
 
+### A real SOVD tester, not just our own
+
+The independent conformance vectors above check protocol mechanics against
+known-good byte sequences. This checks something different: does EDS
+actually interoperate with somebody else's real, independent implementation
+of the other side of the wire.
+
+```bash
+bash scripts/demo_can_sovd_cda_interop.sh /path/to/your/west-workspace
+```
+
+Builds real `examples/basic_ecu` for Zephyr's `native_sim` against a real
+host SocketCAN device (not Zephyr's in-process loopback, which can only ever
+talk to itself), builds the real [Eclipse OpenSOVD Classic Diagnostic
+Adapter](https://github.com/eclipse-opensovd/classic-diagnostic-adapter)
+from its own public source, joins the two over a virtual CAN pair, and
+performs a real SOVD HTTP read (`VINDataIdentifier`) that decodes on the
+wire to a correct ISO 15765-2 multi-frame exchange. No sudo required —
+the virtual CAN pair is created inside a Docker container via
+`--cap-add=NET_ADMIN`, not a host privilege escalation. Needs Docker and a
+working west workspace; the script checks for both and says plainly what's
+missing rather than failing confusingly partway through.
+
 ### Run the test suite
 
 ```bash

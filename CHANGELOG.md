@@ -8,6 +8,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **`examples/basic_ecu` now installs an ISO 15765-4 physical CAN RX
+  filter (`0x7E0`), not just the functional one (`0x7DF`)** (EDS#389).
+  `platform/zephyr/zephyr_can.c` already supported a `physical_rx_id`
+  parameter; no example had ever turned it on. Found by interop-testing
+  against a real external SOVD/UDS tester (the Eclipse OpenSOVD CDA, over
+  a real CAN transport) rather than by reading the code: a tester that
+  discovers ECUs by physical address cannot reach a functional-only one
+  at all. Verified end-to-end against the real CDA: discovery, identity
+  read, and a real `ReadDataByIdentifier` SOVD read all now succeed —
+  see `scripts/demo_can_sovd_cda_interop.sh` (EDS#390), a standing,
+  re-runnable version of that same proof.
+
+### Fixed
+
+- **`core/uds_services/service_0x19.c`'s dispatch switch implements
+  sub-functions `0x01, 0x02, 0x03, 0x04, 0x06, 0x0A, 0x14, 0x15` — three
+  separate places stated something else.** `docs/AI_CONTEXT.md` listed
+  only four (`0x01, 0x02, 0x06, 0x0A`); `README.md`'s capability table had
+  the right count (eight) but two wrong values (`0x0B, 0x19` instead of
+  `0x14, 0x15`); `config/dtc_database.h`'s own struct and doc comments
+  carried the same two wrong values in three more places. All stem from
+  #148 (which fixed the source but not the surrounding docs/comments).
+  Corrected throughout (EDS#386, PR #387).
+- **`platform/zephyr/zephyr_can.c`'s own doc comment claimed
+  `physical_rx_id` is read from a `diagnostics_config.yaml
+  can.physical_rx_id` field.** No such field exists — not in
+  `tools/config_parser.py`, not in `tools/codegen.py`, not in any
+  example's YAML. It's set directly in the example's own `main.c` (see
+  `examples/basic_ecu/src/main.c`, EDS#389). Comment corrected to say so;
+  found while adding that example's first real caller of the parameter.
+
 ## [1.18.0] — 2026-10-11
 
 ### Security
