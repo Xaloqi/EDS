@@ -1,6 +1,6 @@
 # Architecture — Xaloqi EDS
 
-**Version:** v1.18.0  
+**Version:** v1.18.1  
 **Status:** Production-ready. All CI jobs passing.
 
 ---
