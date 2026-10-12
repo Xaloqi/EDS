@@ -254,10 +254,12 @@ uds_status_t uds_service_0x36_handler(
      * [#232 Phase 1] Stream the SAME byte range to the image policy.
      *
      * The digest is accumulated here, block by block, rather than computed
-     * over the whole image at 0x37, because the server has no NRC 0x78
-     * (responsePending) mechanism and P2server_max is 50 ms (issue #282) —
-     * a whole-image hash at transfer exit would blow the timer on any
-     * realistic image size.
+     * over the whole image at 0x37, because 0x36/0x37 have no generic NRC
+     * 0x78 (responsePending) mechanism to reach and P2server_max is 50 ms
+     * (issue #282) — a whole-image hash at transfer exit would blow the
+     * timer on any realistic image size. (0x34 has since grown a
+     * service-specific 0x78 path of its own, but it is not reachable from
+     * here — see issue #282.)
      *
      * OFFSET DERIVATION: bytes_remaining is decremented for this block
      * further down, AFTER the write-buffer loop.  It therefore still holds
