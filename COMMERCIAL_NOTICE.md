@@ -88,6 +88,18 @@ intellectual property rights.
 
 ---
 
+## The one standing exception — open reference implementations
+
+If the output is **published as source under an OSI-approved licence**, in a
+project anyone can read, the commercial toolchain is **free to use, perpetually
+and with nothing to sign** — codegen, testgen, the CAPL generator and
+`SovdTester` included.
+
+That is the [Open Reference Implementation Grant](LICENSE-REFERENCE-GRANT.md),
+and it is irrevocable for every version released while it stands. The safety
+work products are not covered, and a fork taken into a product whose source is
+not published needs an ordinary licence like anything else.
+
 ## How to get a commercial license
 
 EDS is available in two tiers at **https://xaloqi.com**:

@@ -70,7 +70,7 @@ EDS is dual-licensed. The runtime stack is GPL v2 and the whole thing builds and
 | Study, modify, and redistribute under GPL v2 | Generating code for **proprietary** firmware; shipping closed-source firmware |
 | | Safety documentation package (Professional tier) |
 
-**In short:** clone this repo and you can build, run, and study the full stack and every example for free. A [Developer license](COMMERCIAL_NOTICE.md) adds the generator templates (regenerate from your own YAML) and the right to ship proprietary firmware. Full boundary: [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md).
+**In short:** clone this repo and you can build, run, and study the full stack and every example for free. **Building something open-source?** The generator is free for you too, perpetually and with nothing to sign, if your output is published as source under an OSI-approved licence — see the [Open Reference Implementation Grant](LICENSE-REFERENCE-GRANT.md). A [Developer license](COMMERCIAL_NOTICE.md) adds the generator templates (regenerate from your own YAML) and the right to ship proprietary firmware. Full boundary: [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md).
 
 **On linking, explicitly:** a commercial license permits you to statically or dynamically link the GPL-licensed runtime stack (`core/`, `transport/`, `config/`, `platform/`) into closed-source ECU firmware and distribute the resulting binary to your OEM or end customer — with no GPL source-disclosure obligation for your own firmware code. Full terms: `LICENSE_COMMERCIAL.txt` §5 ("GPL v2 Runtime and Commercial License Relationship").
 
