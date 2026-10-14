@@ -662,7 +662,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             # the third flag, IS read by service_0x37.c in Phase 1 and
             # correctly does not appear here.
             "platform/uds_image_policy.h",
-            # [#412] Include guards only (EDS_ELAPSED_H, PLATFORM_API_H), as
+            # [#412] Include guards only (EDS_ELAPSED_H, EDS_PLATFORM_API_H), as
             # for every header above. platform_api.h is new to the scope
             # because both DoIP bindings in transport/ now include it for
             # eds_platform_uptime_ms().
