@@ -39,6 +39,7 @@
 #include "doip_server.h"
 #include "uds_server.h"
 #include "uds_types.h"
+#include "platform_api.h"   /* [EDS#412] eds_platform_uptime_ms() */
 
 #include <zephyr/kernel.h>
 #include <zephyr/net/socket.h>
@@ -252,6 +253,7 @@ static const eds_doip_platform_ops_t s_zephyr_doip_ops = {
     .tcp_recv          = zephyr_tcp_recv,
     .tcp_close         = zephyr_tcp_close,
     .tcp_server_close  = zephyr_tcp_server_close,
+    .uptime_ms         = eds_platform_uptime_ms,  /* [EDS#412] */
 };
 
 /* ---------------------------------------------------------------------------

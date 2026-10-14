@@ -211,6 +211,10 @@ static int mock_tcp_recv(void *conn_ctx, uint8_t *buf, size_t buf_len, uint32_t 
 static void mock_tcp_close(void *conn_ctx) { (void)conn_ctx; }
 static void mock_tcp_server_close(void *server_ctx) { (void)server_ctx; }
 
+/* [EDS#412] Fixed clock: no test here runs long enough to reach
+ * DOIP_MAX_CONNECTION_LIFETIME_MS. */
+static uint32_t mock_uptime_ms(void) { return 0U; }
+
 static const eds_doip_platform_ops_t g_mock_ops = {
     .tcp_listen        = mock_tcp_listen,
     .tcp_accept        = mock_tcp_accept,
@@ -218,6 +222,7 @@ static const eds_doip_platform_ops_t g_mock_ops = {
     .tcp_recv          = mock_tcp_recv,
     .tcp_close         = mock_tcp_close,
     .tcp_server_close  = mock_tcp_server_close,
+    .uptime_ms         = mock_uptime_ms,
 };
 
 /* =========================================================================

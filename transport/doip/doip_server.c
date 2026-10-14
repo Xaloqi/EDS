@@ -32,6 +32,7 @@
 #include "doip_server.h"
 #include "uds_server.h"
 #include "uds_types.h"
+#include "eds_elapsed.h"      /* [EDS#412] connection lifetime */
 #include "uds_security_algo.h" /* [EDS#358] EDS_BUILD_IS_PRODUCTION (SEC-BUILD-MODE-01) */
 
 /* [#31] WCET measurement scaffolding — see platform/zephyr/zephyr_wcet.h's
@@ -156,7 +157,8 @@ uds_status_t eds_doip_register_platform(const eds_doip_platform_ops_t *ops)
         ops->tcp_send         == NULL ||
         ops->tcp_recv         == NULL ||
         ops->tcp_close        == NULL ||
-        ops->tcp_server_close == NULL) {
+        ops->tcp_server_close == NULL ||
+        ops->uptime_ms        == NULL) {
         return UDS_STATUS_ERR_NULL_PTR;
     }
     s_ops = ops;
@@ -493,6 +495,25 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
 }
 
 /* ---------------------------------------------------------------------------
+ * Internal: doip_lifetime_spent  [EDS#412]
+ *
+ * True once the connection opened at conn_age has been open for
+ * DOIP_MAX_CONNECTION_LIFETIME_MS; counts the forced close.
+ * ------------------------------------------------------------------------ */
+
+static bool doip_lifetime_spent(doip_server_state_t *s, const eds_elapsed_t *conn_age)
+{
+    bool spent = false;
+
+    if (eds_elapsed_since(conn_age, s_ops->uptime_ms()) >=
+        (uint32_t)DOIP_MAX_CONNECTION_LIFETIME_MS) {
+        s->connections_lifetime_capped++;
+        spent = true;
+    }
+    return spent;
+}
+
+/* ---------------------------------------------------------------------------
  * Public: eds_doip_server_run
  *
  * Blocking server loop. One connection at a time per logical address.
@@ -506,9 +527,8 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
  * with the optional supervision callback.
  *
  * [EDS#218] Two additional bounds:
- *   - DOIP_MAX_CONNECTION_FRAMES forces a disconnect after that many
- *     frames on one connection, bounding both connection lifetime and
- *     in-connection request rate.
+ *   - [EDS#412] DOIP_MAX_CONNECTION_LIFETIME_MS forces a disconnect once
+ *     a connection has been open that long, idle or busy.
  *   - DOIP_RAPID_RECONNECT_THRESHOLD / DOIP_RECONNECT_BACKOFF_REJECTS
  *     reject new connections outright for a while after a burst of
  *     connections that never dispatched a single frame, mitigating
@@ -556,9 +576,7 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
 
     /* [EDS#218] Rapid-reconnect tracking across connections — see
      * DOIP_RAPID_RECONNECT_THRESHOLD / DOIP_RECONNECT_BACKOFF_REJECTS in
-     * doip_server.h for the rationale (no direct wall-clock in this
-     * file, so a bounded-count proxy is used instead of a real cooldown
-     * timer). */
+     * doip_server.h (a bounded count used in place of a cooldown timer). */
     uint32_t rapid_reconnects          = 0U;
     uint32_t backoff_rejects_remaining = 0U;
 
@@ -591,12 +609,13 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
         s->tester_address = 0U;
         s->conn_ctx       = conn_ctx;
 
-        /* [EDS#218] Frames dispatched on this connection so far — bounds
-         * both total connection lifetime and in-connection request rate
-         * via DOIP_MAX_CONNECTION_FRAMES (see doip_server.h), and tells
-         * the rapid-reconnect tracking below whether this connection did
-         * any real work. */
-        uint32_t conn_frame_count = 0U;
+        /* [EDS#218] Whether this connection dispatched any frame — tells
+         * the rapid-reconnect tracking below whether it did real work. */
+        bool conn_did_work = false;
+
+        /* [EDS#412] Connection age, for DOIP_MAX_CONNECTION_LIFETIME_MS. */
+        eds_elapsed_t conn_age;
+        eds_elapsed_init(&conn_age, s_ops->uptime_ms());
 
         /* [EDS#400] Idle polls on this connection so far, in total — see
          * DOIP_INITIAL_INACTIVITY_POLLS / DOIP_MAX_CONNECTION_IDLE_POLLS. */
@@ -632,6 +651,9 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
                     goto connection_closed;
                 }
                 if (conn_idle_polls >= (uint32_t)DOIP_MAX_CONNECTION_IDLE_POLLS) {
+                    goto connection_closed;
+                }
+                if (doip_lifetime_spent(s, &conn_age)) {
                     goto connection_closed;
                 }
             }
@@ -754,14 +776,11 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
                 goto connection_closed;
             }
 
-            /* [EDS#218] Enforce the per-connection frame cap — see
-             * DOIP_MAX_CONNECTION_FRAMES in doip_server.h. Force a
-             * disconnect once reached, same cleanup path as any other
-             * connection-ending condition, so the single serial slot is
-             * freed for the next client. */
-            conn_frame_count++;
-            if (conn_frame_count >= (uint32_t)DOIP_MAX_CONNECTION_FRAMES) {
-                s->connections_lifetime_capped++;
+            /* [EDS#412] Enforce the connection lifetime after every frame
+             * too: a client that is never idle never reaches the check in
+             * the idle loop above. */
+            conn_did_work = true;
+            if (doip_lifetime_spent(s, &conn_age)) {
                 goto connection_closed;
             }
         }
@@ -778,7 +797,7 @@ connection_closed:
          * connect/disconnect-cycling threshold; any connection that did
          * real work resets it. See DOIP_RAPID_RECONNECT_THRESHOLD /
          * DOIP_RECONNECT_BACKOFF_REJECTS in doip_server.h. */
-        if (conn_frame_count > 0U) {
+        if (conn_did_work) {
             rapid_reconnects = 0U;
         } else {
             rapid_reconnects++;

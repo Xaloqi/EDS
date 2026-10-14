@@ -37,7 +37,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   the IWDG and the `watchdog0` alias. native_sim is unchanged (no watchdog,
   degraded mode logged).
 
+### Changed
+
+- **Breaking for out-of-tree DoIP bindings: `eds_doip_platform_ops_t` has a
+  new required `uptime_ms` op** (`#412`). It returns uptime in ms and is
+  used to measure connection lifetime. Both in-tree bindings set it to
+  `eds_platform_uptime_ms`. A binding without it is refused by
+  `eds_doip_register_platform()` (`UDS_STATUS_ERR_NULL_PTR`) at startup.
+  This is intentional: a missing clock would otherwise give a lifetime
+  bound that never fires.
+- **A DoIP connection now lasts at most `DOIP_MAX_CONNECTION_LIFETIME_MS`
+  (30 min) of wall time, busy or idle** (`#412`). This replaces the
+  500-frame cap as the `#218` bound against one client holding the single
+  connection slot. The idle limits cannot do that job: a client sending a
+  frame every 0.9 s is never idle. Long sessions are cut at 30 min instead
+  of ~17 min (TesterPresent every 2 s). Any fixed cap still cuts some
+  legitimate workshop sessions; `#409` (evict only when another tester
+  arrives) is the intended replacement.
+
 ### Fixed
+
+- **DoIP firmware downloads above ~0.5 MB no longer fail** (`#412`). The
+  server closed every connection after 500 frames, and each TransferData
+  block is a frame. The close also reset session and SecurityAccess, so a
+  download was cut off at about 500 blocks, and on hardware it looked like
+  a tester hang. Measured on NUCLEO-H753ZI with 1 KiB blocks:
+  before, the ECU closed the connection after 495 blocks; after, 2000 blocks
+  (2 MB) completed on one connection with security still unlocked.
 
 - **DoIP responses no longer wait ~40 ms for the tester's delayed ACK**
   (`#406`). Every DiagnosticMessage is answered with two writes, the
@@ -83,6 +109,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Removed
 
+- **`DOIP_MAX_CONNECTION_FRAMES`** (`#412`), replaced by
+  `DOIP_MAX_CONNECTION_LIFETIME_MS`. A build that still defines it fails
+  with an `#error` naming the replacement, so an override is never
+  silently ignored.
 - **`DOIP_ALIVE_CHECK_PERIOD_MS`**, which documented a periodic alive
   check that was never implemented and was referenced nowhere (`#400`).
 
