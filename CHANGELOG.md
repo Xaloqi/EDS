@@ -20,6 +20,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   replacement `nvm_store.c`. No ops registered (every existing Zephyr
   target, since none call `eds_platform_init()` as of this change) keeps
   the original built-in NVS behaviour exactly unchanged.
+- **`eds_doip_set_checkin_callback()`** (`#399`): an optional callback the
+  DoIP server loop calls on every wake — each accept poll, each
+  `tcp_recv()` return, each frame dispatch — so an integrator can
+  supervise `eds_doip_server_run()` itself, which a watchdog fed from
+  another thread cannot. An idle server with no client still checks in on
+  every `DOIP_ACCEPT_POLL_TIMEOUT_MS` wake, so it never looks hung.
+  `DOIP_CHECKIN_MAX_WAIT_MS` gives the longest EDS-bounded wait between
+  check-ins. Not registering one changes nothing.
+
+### Fixed
+
+- **DoIP connections no longer drop after ~150 ms of silence between
+  requests** (`#400`). `DOIP_TCP_RECV_TIMEOUT_MS` was applied to the wait
+  for each new frame, so any pause longer than that — including a normal
+  ~2 s TesterPresent keep-alive — closed the connection, and with it the
+  session and any SecurityAccess unlock. It now bounds only a stall
+  inside a frame. Between frames the server waits in `DOIP_IDLE_POLL_MS`
+  polls bounded by ISO 13400-2's inactivity timers: 2 s before routing
+  activation, 5 min after (`DOIP_INITIAL_INACTIVITY_POLLS`,
+  `DOIP_GENERAL_INACTIVITY_POLLS`), plus a 30 min total-idleness cap per
+  connection (`DOIP_MAX_CONNECTION_IDLE_POLLS`). **Behaviour change:**
+  because the server is serial, a quiet tester can now hold the single
+  connection for up to the inactivity bound while other testers wait;
+  see `doip_server.h`. **Ops contract:** `tcp_recv()` now returns
+  `DOIP_TCP_RECV_TIMEOUT` on a timeout. Both shipped bindings are updated.
+  A custom binding that does not return it keeps closing on the first
+  quiet poll.
+
+### Removed
+
+- **`DOIP_ALIVE_CHECK_PERIOD_MS`**, which documented a periodic alive
+  check that was never implemented and was referenced nowhere (`#400`).
 
 ## [1.18.1] — 2026-10-12
 

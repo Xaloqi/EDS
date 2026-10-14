@@ -183,7 +183,7 @@ static int zephyr_tcp_recv(void *conn_ctx, uint8_t *buf,
     };
     int rc = zsock_poll(&pfd, 1, (int)timeout_ms);
     if (rc == 0) {
-        return -EAGAIN; /* timeout */
+        return DOIP_TCP_RECV_TIMEOUT; /* [EDS#400] quiet, not dead */
     }
     if (rc < 0) {
         return -errno;

@@ -63,6 +63,10 @@ static const eds_doip_platform_ops_t *s_ops = NULL;
 static eds_doip_lock_cb_t   s_doip_lock_cb   = NULL;
 static eds_doip_unlock_cb_t s_doip_unlock_cb = NULL;
 
+/* [EDS#399] Optional supervision check-in -- see
+ * eds_doip_set_checkin_callback() in doip_server.h. */
+static eds_doip_checkin_cb_t s_doip_checkin_cb = NULL;
+
 /* ---------------------------------------------------------------------------
  * Internal helpers — forward declarations
  * ------------------------------------------------------------------------ */
@@ -165,6 +169,23 @@ void eds_doip_set_lock_callbacks(
 {
     s_doip_lock_cb   = lock_cb;
     s_doip_unlock_cb = unlock_cb;
+}
+
+/* ---------------------------------------------------------------------------
+ * Public: eds_doip_set_checkin_callback  [EDS#399]
+ * ------------------------------------------------------------------------ */
+
+void eds_doip_set_checkin_callback(eds_doip_checkin_cb_t cb)
+{
+    s_doip_checkin_cb = cb;
+}
+
+/* [EDS#399] Called by eds_doip_server_run() every time it wakes. */
+static void doip_checkin(void)
+{
+    if (s_doip_checkin_cb != NULL) {
+        s_doip_checkin_cb();
+    }
 }
 
 /* ---------------------------------------------------------------------------
@@ -478,9 +499,13 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
  * Multiple clients connect sequentially; concurrent clients share the same
  * UDS session (routing_active is reset on new connection).
  *
- * [EDS#218] Two additional bounds beyond the per-read timeout
- * (DOIP_TCP_RECV_TIMEOUT_MS) and per-frame read-attempt cap
- * (DOIP_MAX_FRAME_READ_ATTEMPTS, EDS#193):
+ * [EDS#400] Between frames the server waits in DOIP_IDLE_POLL_MS polls,
+ * bounded by the inactivity counts in doip_server.h; inside a frame each
+ * read is bounded by DOIP_TCP_RECV_TIMEOUT_MS and the read-attempt cap
+ * (DOIP_MAX_FRAME_READ_ATTEMPTS, EDS#193). [EDS#399] Every wake checks in
+ * with the optional supervision callback.
+ *
+ * [EDS#218] Two additional bounds:
  *   - DOIP_MAX_CONNECTION_FRAMES forces a disconnect after that many
  *     frames on one connection, bounding both connection lifetime and
  *     in-connection request rate.
@@ -541,6 +566,9 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
     for (;;) {
         void *conn_ctx = NULL;
         rc = s_ops->tcp_accept(server_ctx, &conn_ctx, DOIP_ACCEPT_POLL_TIMEOUT_MS);
+        /* [EDS#399] Every accept wake checks in, client or not: an idle
+         * server must never look hung to a supervisor. */
+        doip_checkin();
         if (rc != 0) {
             /* Timeout or transient error — keep listening */
             continue;
@@ -570,12 +598,50 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
          * any real work. */
         uint32_t conn_frame_count = 0U;
 
+        /* [EDS#400] Idle polls on this connection so far, in total — see
+         * DOIP_INITIAL_INACTIVITY_POLLS / DOIP_MAX_CONNECTION_IDLE_POLLS. */
+        uint32_t conn_idle_polls = 0U;
+
         /* Per-connection receive loop */
         for (;;) {
-            /* --- Read header --- */
+            /* --- Wait for the next frame [EDS#400] ---
+             * Silence between frames is the tester's to choose (ISO 13400-2
+             * T_TCP_General_Inactivity), not a stall: wait in
+             * DOIP_IDLE_POLL_MS polls and close only once an inactivity
+             * bound is spent. Only DOIP_TCP_RECV_TIMEOUT is silence; any
+             * other non-positive return is a closed or dead socket. */
             uint8_t hdr_buf[DOIP_HEADER_LEN];
-            uint32_t hdr_received = 0U;
-            uint32_t hdr_read_attempts = 0U;
+            uint32_t idle_polls = 0U;
+            int first = 0;
+
+            for (;;) {
+                first = s_ops->tcp_recv(s->conn_ctx, hdr_buf,
+                                        (size_t)DOIP_HEADER_LEN,
+                                        DOIP_IDLE_POLL_MS);
+                doip_checkin();
+                if (first != DOIP_TCP_RECV_TIMEOUT) {
+                    break;
+                }
+                idle_polls++;
+                conn_idle_polls++;
+                if (!s->routing_active &&
+                    (conn_idle_polls >= (uint32_t)DOIP_INITIAL_INACTIVITY_POLLS)) {
+                    goto connection_closed;
+                }
+                if (idle_polls >= (uint32_t)DOIP_GENERAL_INACTIVITY_POLLS) {
+                    goto connection_closed;
+                }
+                if (conn_idle_polls >= (uint32_t)DOIP_MAX_CONNECTION_IDLE_POLLS) {
+                    goto connection_closed;
+                }
+            }
+            if (first <= 0) {
+                goto connection_closed;
+            }
+
+            /* --- Read rest of header --- */
+            uint32_t hdr_received = (uint32_t)first;
+            uint32_t hdr_read_attempts = 1U;
 
             while (hdr_received < (uint32_t)DOIP_HEADER_LEN) {
                 /* [EDS#193] Bound total partial reads, not just each read's
@@ -598,6 +664,7 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
                                             &hdr_buf[hdr_received],
                                             (size_t)((uint32_t)DOIP_HEADER_LEN - hdr_received),
                                             DOIP_TCP_RECV_TIMEOUT_MS);
+                doip_checkin();
                 if (bytes <= 0) {
                     goto connection_closed;
                 }
@@ -637,6 +704,7 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
                                                 &s->rx_buf[received],
                                                 (size_t)(payload_len - received),
                                                 DOIP_TCP_RECV_TIMEOUT_MS);
+                    doip_checkin();
                     if (bytes <= 0) {
                         goto connection_closed;
                     }
@@ -658,6 +726,7 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
                 s, uds_ctx, payload_type,
                 (payload_len > 0U) ? s->rx_buf : NULL,
                 payload_len);
+            doip_checkin(); /* [EDS#399] */
 #if defined(DIAG_WCET_MEASURE)
             timing_t wcet_t1 = timing_counter_get();
             uint64_t wcet_cyc = timing_cycles_get(&wcet_t0, &wcet_t1);

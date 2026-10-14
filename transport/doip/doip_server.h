@@ -102,14 +102,87 @@ extern "C" {
 #define DOIP_MAX_CONNECTIONS    (4U)
 #endif
 
-/** TCP receive timeout in ms — P2Server equivalent. */
+/**
+ * [EDS#400] Per-read timeout in ms once a frame has STARTED — how long the
+ * rest of a partially received header or payload may stall before the
+ * connection is closed. This bounds a stall inside one frame only. It is
+ * not P2Server (which bounds the ECU's own response time) and it is not
+ * how long a tester may stay silent between requests — see
+ * DOIP_IDLE_POLL_MS and the inactivity bounds below for that.
+ */
 #ifndef DOIP_TCP_RECV_TIMEOUT_MS
 #define DOIP_TCP_RECV_TIMEOUT_MS (150U)
 #endif
 
-/** Keepalive period — Alive Check Request sent every N ms if idle. */
-#ifndef DOIP_ALIVE_CHECK_PERIOD_MS
-#define DOIP_ALIVE_CHECK_PERIOD_MS (500U)
+/*
+ * [EDS#400] Inactivity between frames.
+ *
+ * Waiting for the first byte of the next frame is a different job from
+ * finishing a frame already started, and gets its own timeout: each wait
+ * is one tcp_recv() of DOIP_IDLE_POLL_MS, and the connection is closed
+ * after a COUNT of consecutive waits that return DOIP_TCP_RECV_TIMEOUT.
+ * This file has no direct RTOS clock (see DOIP_MAX_CONNECTION_FRAMES
+ * below), and needs none here: a recv that timed out has already spent
+ * its full timeout, so N timed-out polls are N x DOIP_IDLE_POLL_MS of
+ * silence, as accurate as the kernel's own timeouts. (Measured on a
+ * NUCLEO-H753ZI: 300 polls closed the connection after 298.96 s of host
+ * wall time.)
+ *
+ * TRADE-OFF — the main risk of these values. The server holds ONE
+ * connection at a time (DOIP_MAX_CONNECTIONS is a listen() backlog). Any
+ * tolerance long enough for a real tester's ~2 s TesterPresent keep-alive
+ * also lets a quiet tester, or one whose link died without a FIN/RST,
+ * hold that slot while other testers wait in the backlog. Before EDS#400
+ * that hold was ~150 ms, which also made it impossible to keep a session
+ * or SecurityAccess unlock across any normal pause. Mitigations:
+ *   - before routing activation the bound is ISO 13400-2's 2 s
+ *     T_TCP_Initial_Inactivity, so a client that connects and never
+ *     activates routing is still released quickly;
+ *   - after it, ISO's 5 min T_TCP_General_Inactivity default;
+ *   - total idleness per connection is capped
+ *     (DOIP_MAX_CONNECTION_IDLE_POLLS), so a client sending one frame
+ *     just inside every inactivity window cannot multiply 5 min by
+ *     DOIP_MAX_CONNECTION_FRAMES;
+ *   - a peer that closes or resets its socket is dropped at once, since
+ *     only DOIP_TCP_RECV_TIMEOUT counts as idleness.
+ * A deployment where a second tester must never wait minutes should lower
+ * DOIP_GENERAL_INACTIVITY_POLLS. Releasing a dead connection the moment
+ * another tester arrives (ISO's alive check on socket contention) would
+ * need the serial server to accept a second socket and is not implemented.
+ */
+
+/** [EDS#400] Per-read timeout in ms while waiting for a new frame. Also the
+ * longest gap between supervision check-ins while connected and idle —
+ * see eds_doip_set_checkin_callback(). */
+#ifndef DOIP_IDLE_POLL_MS
+#define DOIP_IDLE_POLL_MS (1000U)
+#endif
+
+/** [EDS#400] Idle polls allowed from accept until routing activation —
+ * ISO 13400-2 T_TCP_Initial_Inactivity (2 s) at the default poll. Counted
+ * from accept and not reset by frames that do not activate routing. */
+#ifndef DOIP_INITIAL_INACTIVITY_POLLS
+#define DOIP_INITIAL_INACTIVITY_POLLS (2U)
+#endif
+
+/** [EDS#400] Consecutive idle polls allowed between frames once routing is
+ * active — ISO 13400-2 T_TCP_General_Inactivity (5 min) at the default
+ * poll. */
+#ifndef DOIP_GENERAL_INACTIVITY_POLLS
+#define DOIP_GENERAL_INACTIVITY_POLLS (300U)
+#endif
+
+/** [EDS#400] Total idle polls allowed over one connection's lifetime (30 min
+ * at the default poll), whether or not frames arrive in between. Takes
+ * over the lifetime bound DOIP_MAX_CONNECTION_FRAMES gave when the gap
+ * between frames was capped at DOIP_TCP_RECV_TIMEOUT_MS. */
+#ifndef DOIP_MAX_CONNECTION_IDLE_POLLS
+#define DOIP_MAX_CONNECTION_IDLE_POLLS (1800U)
+#endif
+
+#if (DOIP_IDLE_POLL_MS == 0U) || (DOIP_INITIAL_INACTIVITY_POLLS == 0U) || \
+    (DOIP_GENERAL_INACTIVITY_POLLS == 0U) || (DOIP_MAX_CONNECTION_IDLE_POLLS == 0U)
+#error "DoIP inactivity bounds must be non-zero (EDS#400)"
 #endif
 
 /**
@@ -145,7 +218,11 @@ extern "C" {
  * client sending valid traffic slowly enough to stay under
  * DOIP_TCP_RECV_TIMEOUT_MS on every read, and so never trip the
  * per-frame read-attempt bound, would otherwise be able to hold the
- * single active connection indefinitely.
+ * single active connection indefinitely. [EDS#400] That reasoning held
+ * while the gap between frames was capped at DOIP_TCP_RECV_TIMEOUT_MS; the
+ * gap is now an inactivity bound of minutes, so connection lifetime is
+ * bounded in time by DOIP_MAX_CONNECTION_IDLE_POLLS, with this cap still
+ * bounding the request count.
  */
 #ifndef DOIP_MAX_CONNECTION_FRAMES
 #define DOIP_MAX_CONNECTION_FRAMES (500U)
@@ -186,11 +263,23 @@ extern "C" {
  * Error conventions:
  *   tcp_listen / tcp_accept / tcp_send : return 0 on success, negative on error.
  *   tcp_recv  : return bytes received (>0), 0 if connection closed cleanly,
- *               negative on error/timeout.
+ *               DOIP_TCP_RECV_TIMEOUT if no data arrived within timeout_ms,
+ *               any other negative value on error.
  *   tcp_close / tcp_server_close : void, best-effort.
  *
  * All pointer arguments are non-NULL unless otherwise noted.
  * ========================================================================== */
+
+/**
+ * [EDS#400] tcp_recv() return value for "no data within timeout_ms, socket
+ * still open". Only this value counts as an idle client; any other
+ * negative return means the socket is dead and closes the connection at
+ * once. Chosen outside every errno range, so a binding's -errno can never
+ * alias it. A binding that reports timeouts as some other negative value
+ * still works: its connections close on the first quiet DOIP_IDLE_POLL_MS
+ * wait, as they did after DOIP_TCP_RECV_TIMEOUT_MS before EDS#400.
+ */
+#define DOIP_TCP_RECV_TIMEOUT   (-1000)
 
 typedef struct eds_doip_platform_ops {
     /**
@@ -239,7 +328,9 @@ typedef struct eds_doip_platform_ops {
      * @param[out] buf         Destination buffer.
      * @param[in]  buf_len     Buffer capacity.
      * @param[in]  timeout_ms  Receive timeout in milliseconds.
-     * @return Bytes received (>0), 0 if connection closed, negative on error/timeout.
+     * @return Bytes received (>0), 0 if connection closed,
+     *         DOIP_TCP_RECV_TIMEOUT if nothing arrived within timeout_ms,
+     *         any other negative value on error.
      */
     int (*tcp_recv)(void *conn_ctx, uint8_t *buf, size_t buf_len, uint32_t timeout_ms);
 
@@ -343,6 +434,58 @@ void eds_doip_set_lock_callbacks(
     eds_doip_lock_cb_t   lock_cb,
     eds_doip_unlock_cb_t unlock_cb
 );
+
+/* --------------------------------------------------------------------------
+ * [EDS#399] Supervision check-in -- optional
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Check-in callback signature, called from the DoIP server thread.
+ *
+ * Runs on the server thread between platform calls, so it must not block.
+ * Typical use: record "DoIP alive" (a counter or timestamp) that the
+ * thread feeding the watchdog checks before it feeds, or feed a per-thread
+ * channel such as Zephyr's task watchdog.
+ */
+typedef void (*eds_doip_checkin_cb_t)(void);
+
+/**
+ * @brief Register a callback the server loop calls each time it wakes.
+ *
+ * A watchdog fed from another thread does not supervise
+ * eds_doip_server_run(): wedged in a socket call, or returned on a fatal
+ * error, that thread stops while the feeding thread carries on. This
+ * callback lets an integrator supervise the loop itself.
+ *
+ * Called after every tcp_accept() return (each accept poll, with or without
+ * a client), every tcp_recv() return, and every frame dispatch. In normal
+ * operation, idle or busy, the gap between two calls is therefore at most
+ * DOIP_CHECKIN_MAX_WAIT_MS plus the time of one frame dispatch, including
+ * its response tcp_send(). With no client connected the server is still
+ * healthy and still checks in on every DOIP_ACCEPT_POLL_TIMEOUT_MS wake.
+ * Size the supervision window above DOIP_CHECKIN_MAX_WAIT_MS with margin.
+ *
+ * Gaps the window will report, by design: a tcp_accept()/tcp_recv() that
+ * overruns its timeout, a dispatch blocked on the EDS#353 locks, and
+ * eds_doip_server_run() having returned. Also tcp_send() blocking on a
+ * peer that stops reading its socket: with a blocking binding and no send
+ * timeout that can last indefinitely, so with this callback wired to a
+ * watchdog such a peer can cause a reset. Weigh that before supervising.
+ *
+ * Not registering one leaves the server unchanged.
+ *
+ * Call before eds_doip_server_run(), as with eds_doip_set_lock_callbacks().
+ *
+ * @param[in] cb  Check-in callback. NULL clears it.
+ */
+void eds_doip_set_checkin_callback(eds_doip_checkin_cb_t cb);
+
+/** [EDS#399] Longest wait inside eds_doip_server_run() that EDS itself
+ * bounds: the accept poll with no client, or one idle poll while
+ * connected. See eds_doip_set_checkin_callback(). */
+#define DOIP_CHECKIN_MAX_WAIT_MS \
+    ((DOIP_ACCEPT_POLL_TIMEOUT_MS > DOIP_IDLE_POLL_MS) ? \
+     DOIP_ACCEPT_POLL_TIMEOUT_MS : DOIP_IDLE_POLL_MS)
 
 /**
  * @brief Initialise the DoIP server state for one ECU logical address.
