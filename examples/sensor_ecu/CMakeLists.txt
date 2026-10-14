@@ -25,6 +25,10 @@ cmake_minimum_required(VERSION 3.20.0)
 # find_package(Zephyr) parses devicetree.
 list(APPEND DTS_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 
+# [#414] EDS Kconfig comes from this tree, not whichever EDS module the
+# workspace has. Must precede find_package(Zephyr).
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/eds_zephyr_module.cmake)
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(sensor_ecu
