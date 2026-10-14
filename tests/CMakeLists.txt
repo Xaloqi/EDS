@@ -665,6 +665,12 @@ add_diag_test(test_doip_conformance_vectors
         "${TEST_UNIT_DIR}/test_doip_conformance_vectors.c"
 )
 
+# [EDS#400, EDS#399] Connection lifecycle of eds_doip_server_run() itself.
+add_diag_test(test_doip_lifecycle
+    SOURCES
+        "${TEST_UNIT_DIR}/test_doip_lifecycle.c"
+)
+
 # ---------------------------------------------------------------------------
 # test_trng_fail_closed  [SEC-TRNG-FAILCLOSED-01]
 #      Module under test: core/uds_security_algo.c in its PRODUCTION

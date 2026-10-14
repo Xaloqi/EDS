@@ -164,7 +164,7 @@ static int freertos_tcp_recv(void *conn_ctx, uint8_t *buf,
 
     int rc = lwip_select(fd + 1, &read_fds, NULL, NULL, &tv);
     if (rc == 0) {
-        return -1; /* timeout */
+        return DOIP_TCP_RECV_TIMEOUT; /* [EDS#400] quiet, not dead */
     }
     if (rc < 0) {
         return -1;
