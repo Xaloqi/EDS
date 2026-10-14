@@ -52,6 +52,7 @@
  */
 
 #include <zephyr/ztest.h>
+#include <stdio.h>
 #include <string.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -974,6 +975,38 @@ ZTEST(doip_server_suite, test_doip_short_write_stalled_peer_bounded_retry_gives_
                  "small and bounded, not unbounded");
 }
 
+/* [SEC-DOIP-SEND-01] A NEGATIVE tcp_send() return is final, unlike a
+ * zero-byte one. With a send timeout set on the socket (both bindings),
+ * a peer that stops reading makes tcp_send() block for that timeout and
+ * then fail; retrying would block again, DOIP_SEND_ALL_MAX_STALLS times,
+ * holding the server for 128 x the timeout. One failed call must end the
+ * send so the connection is closed at once. */
+ZTEST(doip_server_suite, test_doip_send_error_is_not_retried)
+{
+    setup_mock_platform();
+    uds_server_ctx_t *uds = init_uds_server();
+    doip_server_state_t s = init_state(0xE400U);
+
+    g_mock_send_rc         = -11;  /* e.g. send timeout (EAGAIN) */
+    g_mock_send_call_count = 0;
+
+    uint8_t ra_payload[7];
+    build_routing_req_payload(ra_payload, 0x0E00U, 0x00U);
+    uds_status_t rc = doip_handle_frame(&s, uds, DOIP_PT_ROUTING_ACT_REQ,
+                                         ra_payload, 7U);
+    (void)rc;
+
+    if (g_mock_send_call_count != 1) {
+        char msg[160];
+        (void)snprintf(msg, sizeof(msg),
+                       "failed tcp_send() was retried: %d calls, expected 1 "
+                       "(SEC-DOIP-SEND-01)",
+                       g_mock_send_call_count);
+        TEST_FAIL_MESSAGE(msg);
+        return;
+    }
+}
+
 ZTEST(doip_server_suite, test_doip_short_write_slow_but_progressing_succeeds)
 {
     /* [Issue #105 follow-up] A send that is merely SLOW — real Ethernet
@@ -1330,6 +1363,7 @@ void run_all_tests(void)
     RUN_TEST(doip_server_suite__test_doip_short_write_reassembles_large_response);
     RUN_TEST(doip_server_suite__test_doip_short_write_slow_but_progressing_succeeds);
     RUN_TEST(doip_server_suite__test_doip_short_write_stalled_peer_bounded_retry_gives_up);
+    RUN_TEST(doip_server_suite__test_doip_send_error_is_not_retried);
     RUN_TEST(doip_server_suite__test_doip_max_pdu_size_boundary);
     RUN_TEST(doip_server_suite__test_doip_oversized_response_returns_nrc_0x14);
     RUN_TEST(doip_server_suite__test_doip_response_4084_bytes_still_sent_positive);

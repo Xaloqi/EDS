@@ -42,6 +42,7 @@ typedef struct { unsigned long fds_bits[1]; } fd_set;
 #define IPPROTO_TCP    6
 #define SOL_SOCKET     1
 #define SO_REUSEADDR   2
+#define SO_SNDTIMEO    0x1005  /* lwIP's value */
 #define INADDR_ANY     0U
 
 /* Stubs — never called in compile-only build */

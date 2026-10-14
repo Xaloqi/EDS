@@ -820,8 +820,10 @@ connection_closed:
  * Internal: send helpers — all build in s->tx_buf to avoid stack allocation
  * ------------------------------------------------------------------------ */
 
-/* Maximum CONSECUTIVE no-progress tcp_send() calls (return <= 0) that
- * doip_send_all() will tolerate before giving up.
+/* Maximum CONSECUTIVE no-progress tcp_send() calls (return == 0) that
+ * doip_send_all() will tolerate before giving up. [SEC-DOIP-SEND-01] A
+ * negative return (error, or the binding's send timeout) is not retried
+ * at all — see doip_send_all().
  *
  * Deliberately NOT a cap on the total number of calls: a call that sends
  * at least one byte, however few, resets this counter to zero and does not
@@ -831,9 +833,9 @@ connection_closed:
  * length itself (every successful call advances by >=1 byte, so the loop
  * always terminates for a healthy link, however long it takes) and can
  * never be killed here. Only a connection that is genuinely stalled —
- * DOIP_SEND_ALL_MAX_STALLS calls in a row that accept zero bytes or error
- * out — hits this cap, so a wedged/broken peer still cannot spin the UDS
- * task forever. (An earlier version of this fix counted every call,
+ * DOIP_SEND_ALL_MAX_STALLS calls in a row that accept zero bytes — hits
+ * this cap, so a wedged/broken peer still cannot spin the UDS task
+ * forever; an erroring call ends the send at once. (An earlier version of this fix counted every call,
  * progress or not, against one flat cap — that could drop a perfectly
  * good response under exactly the "real Ethernet under congestion"
  * scenario issue #105 was filed for; see the PR discussion.) */
@@ -873,8 +875,14 @@ static uds_status_t doip_send_all(doip_server_state_t *s, const uint8_t *buf, si
             stalls = 0U;
             continue;
         }
+        if (n < 0) {
+            /* [SEC-DOIP-SEND-01] An error is final: a dead socket, or the
+             * binding's DOIP_TCP_SEND_TIMEOUT_MS expiring against a peer
+             * that stopped reading. Retrying would block again each time. */
+            return UDS_STATUS_ERR_PLATFORM;
+        }
 
-        /* No bytes accepted this call (or a hard error) — retry, bounded. */
+        /* No bytes accepted this call — retry, bounded. */
         stalls++;
         if (stalls >= DOIP_SEND_ALL_MAX_STALLS) {
             return UDS_STATUS_ERR_PLATFORM;
