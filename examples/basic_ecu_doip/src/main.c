@@ -19,7 +19,8 @@
  *
  * THREAD MODEL:
  *   main()        — init → uds_generated_init → start tick + DoIP → return
- *   uds_tick_task — 1 ms poll loop: uds_server_tick_1ms() + uds_periodic_tick_1ms().
+ *   uds_tick_task — 1 ms poll loop: uds_server_tick_1ms() + uds_periodic_tick_1ms(),
+ *                   once per millisecond actually elapsed [EDS#401].
  *                   [EDS#191] A DoIP-only build has no CAN diag_task, so
  *                   without this thread the S3 session timeout and the
  *                   SecurityAccess lockout countdown never progress — a
@@ -128,6 +129,11 @@ LOG_MODULE_REGISTER(basic_ecu_doip, LOG_LEVEL_INF);
  * request handling, same rationale as the CAN example's own priority split.
  * ============================================================================= */
 
+/* [EDS#401] Most 1 ms ticks one loop iteration will catch up. A gap this
+ * long cannot happen while the 100 ms watchdog window holds; the cap only
+ * keeps the catch-up loop bounded. */
+#define DIAG_TICK_CATCHUP_MAX_MS          (1000)
+
 #ifndef CONFIG_DIAG_TICK_TASK_STACK_SIZE
 #define CONFIG_DIAG_TICK_TASK_STACK_SIZE   (1024U)
 #endif
@@ -199,14 +205,30 @@ static void uds_tick_task_entry(void *p1, void *p2, void *p3)
     atomic_val_t doip_seen       = atomic_get(&s_doip_checkins);
     int64_t      doip_checkin_ms = k_uptime_get();
 
+    /* [EDS#401] One loop iteration is NOT 1 ms: k_msleep(1) rounds up and
+     * adds a tick (~2 ms at 1 kHz), and a dispatch holding the locks below
+     * delays it further. Counting iterations ran every UDS timer (S3,
+     * SecurityAccess lockout, periodic) at about half speed. Run one tick
+     * per millisecond actually elapsed instead. */
+    int64_t last_tick_ms = k_uptime_get();
+
     while (true) {
         k_msleep(1);
+        int64_t now_ms  = k_uptime_get();
+        int64_t elapsed = now_ms - last_tick_ms;
+        last_tick_ms    = now_ms;
+        if (elapsed > DIAG_TICK_CATCHUP_MAX_MS) {
+            elapsed = DIAG_TICK_CATCHUP_MAX_MS;
+        }
+
         /* [EDS#353] Same lock doip_lock_cb()/doip_unlock_cb() wrap
          * uds_server_process_request() with below. */
         (void)diag_mutex_lock(&s_session_lock);
         (void)diag_mutex_lock(&s_security_lock);
-        (void)uds_server_tick_1ms(srv);
-        (void)uds_periodic_tick_1ms();
+        for (int64_t i = 0; i < elapsed; i++) {
+            (void)uds_server_tick_1ms(srv);
+            (void)uds_periodic_tick_1ms();
+        }
         (void)diag_mutex_unlock(&s_security_lock);
         (void)diag_mutex_unlock(&s_session_lock);
 
@@ -214,7 +236,6 @@ static void uds_tick_task_entry(void *p1, void *p2, void *p3)
          * after the lock pair, so a dispatch hung holding the locks stops
          * the feed too. */
         atomic_val_t doip_now = atomic_get(&s_doip_checkins);
-        int64_t      now_ms   = k_uptime_get();
         if (doip_now != doip_seen) {
             doip_seen       = doip_now;
             doip_checkin_ms = now_ms;

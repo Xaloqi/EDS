@@ -48,6 +48,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `CONFIG_NET_CONTEXT_SNDTIMEO=y` for socket builds, and
   `zephyr_lwip.c` refuses to build with it off. A connection whose send
   timeout cannot be set is refused.
+- **`examples/basic_ecu_doip` UDS timers now run at real time** (`#401`).
+  The tick task counted each `k_msleep(1)` loop as 1 ms, but at a 1 kHz
+  kernel tick each loop takes about 2 ms, so S3, SecurityAccess lockout
+  and periodic scheduling all ran at about half speed. On hardware, S3
+  expired between 9.0 and 10.5 s instead of 5 s. The loop now runs one
+  tick per millisecond actually elapsed (`k_uptime_get()`), which also
+  catches up after waiting on the UDS locks. Measured after the fix: S3
+  expires at 5.0 s.
 - **DoIP connections no longer drop after ~150 ms of silence between
   requests** (`#400`). `DOIP_TCP_RECV_TIMEOUT_MS` was applied to the wait
   for each new frame, so any pause longer than that — including a normal
