@@ -49,6 +49,12 @@ checkout — [EDS#198](https://github.com/Xaloqi/EDS/issues/198)).
 > [Xaloqi TestLab Core](https://github.com/Xaloqi/xaloqi-testlab-core) — a
 > free Python UDS client and ECU simulator, `pip install xaloqi-tester`.
 
+> **Want a complete application built on EDS, not just the runtime?** →
+> [Zephyr Reference ECU](https://github.com/Xaloqi/Zephyr-Reference-ECU) — a
+> body-control-module app on real NUCLEO-H753ZI hardware: CAN and DoIP
+> transports, MCUboot secure boot, and Eclipse SOVD/CDA interop, all driven
+> from one `diagnostics_config.yaml`.
+
 ---
 
 ## The problem it solves
