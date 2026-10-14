@@ -27,6 +27,19 @@
  *   doip_thread   — started via a semaphore (zephyr_lwip.c), not a fixed
  *                   delay [EDS#192]; runs eds_doip_server_run()
  *
+ * WATCHDOG SUPERVISION [EDS#399] (real hardware, CONFIG_WATCHDOG=y; a
+ * no-op on native_sim):
+ *   The IWDG is armed in main() just before uds_tick_task starts, and fed
+ *   only from uds_tick_task. That thread feeds only while doip_thread has
+ *   checked in, through eds_doip_set_checkin_callback(), within
+ *   DOIP_SUPERVISION_WINDOW_MS. A hung tick loop, a dispatch hung holding
+ *   the UDS locks, or doip_thread wedged on its socket or exited all reset
+ *   the ECU. An idle server with no client checks in every accept poll
+ *   (5 s), so it is never reset for being idle.
+ *   NOT supervised: boot before the arming point (pre-main network wait
+ *   and the init in main()), and a dead Ethernet link (accept still times
+ *   out and checks in).
+ *
  * TARGET: native_sim (CI — loopback networking) and any Ethernet-capable
  *         Zephyr board (e.g. FRDM-K64F, STM32H7 with ETH).
  *
@@ -68,6 +81,7 @@
 #include "platform_doip.h"   /* eds_doip_platform_start() */
 #include "doip_server.h"     /* DOIP_PORT */
 #include "zephyr_mutex.h"
+#include "zephyr_wdt.h"
 #include "nvm_store.h"
 #if defined(DIAG_WCET_MEASURE)
 #include "zephyr_wcet.h"     /* [#31] see header comment */
@@ -84,6 +98,7 @@
  * Zephyr headers
  * -------------------------------------------------------------------------- */
 #include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(basic_ecu_doip, LOG_LEVEL_INF);
@@ -133,6 +148,19 @@ static struct k_thread s_tick_thread;
 static diag_mutex_t s_session_lock;
 static diag_mutex_t s_security_lock;
 
+/* [EDS#399] Fed only by uds_tick_task, and only while doip_thread has
+ * checked in recently. The window is the longest wait the server bounds
+ * between check-ins (the accept poll with no client), plus margin for one
+ * dispatch and its response send. See "WATCHDOG SUPERVISION" above. */
+#define DOIP_SUPERVISION_WINDOW_MS  (DOIP_CHECKIN_MAX_WAIT_MS + 2000U)
+static diag_wdt_t   s_wdt;
+static atomic_t     s_doip_checkins;
+
+static void doip_checkin_cb(void)
+{
+    (void)atomic_inc(&s_doip_checkins);
+}
+
 static void doip_lock_cb(void)
 {
     (void)diag_mutex_lock(&s_session_lock);
@@ -166,6 +194,11 @@ static void uds_tick_task_entry(void *p1, void *p2, void *p3)
 
     LOG_INF("UDS tick task started");
 
+    /* [EDS#399] Time of the last DoIP check-in seen. Starts now, so a DoIP
+     * thread that never starts is caught one window after arming. */
+    atomic_val_t doip_seen       = atomic_get(&s_doip_checkins);
+    int64_t      doip_checkin_ms = k_uptime_get();
+
     while (true) {
         k_msleep(1);
         /* [EDS#353] Same lock doip_lock_cb()/doip_unlock_cb() wrap
@@ -176,6 +209,19 @@ static void uds_tick_task_entry(void *p1, void *p2, void *p3)
         (void)uds_periodic_tick_1ms();
         (void)diag_mutex_unlock(&s_security_lock);
         (void)diag_mutex_unlock(&s_session_lock);
+
+        /* [EDS#399] Feed only while the DoIP server loop is alive. Placed
+         * after the lock pair, so a dispatch hung holding the locks stops
+         * the feed too. */
+        atomic_val_t doip_now = atomic_get(&s_doip_checkins);
+        int64_t      now_ms   = k_uptime_get();
+        if (doip_now != doip_seen) {
+            doip_seen       = doip_now;
+            doip_checkin_ms = now_ms;
+        }
+        if ((now_ms - doip_checkin_ms) < (int64_t)DOIP_SUPERVISION_WINDOW_MS) {
+            (void)diag_wdt_feed(&s_wdt);
+        }
     }
 }
 
@@ -258,6 +304,23 @@ int main(void)
         return -1;
     }
     eds_doip_set_lock_callbacks(doip_lock_cb, doip_unlock_cb);
+    eds_doip_set_checkin_callback(doip_checkin_cb);   /* [EDS#399] */
+
+    /*
+     * [EDS#399] Arm the watchdog here, immediately before its only feeder
+     * starts. Not earlier: on this example's NVS backend, nvm_store_init()
+     * above may erase a flash sector, which can block far past the 100 ms
+     * window, and there is no feeder yet. Fail closed: Zephyr's boot-time
+     * arming is off (boards/nucleo_h753zi/nucleo_h753zi_doip.conf), so
+     * ignoring a failure here would run unsupervised while appearing
+     * supervised (EDS#306's class). On native_sim (CONFIG_WATCHDOG=n) this
+     * returns OK in degraded mode. From here on, a `return -1` leaves no
+     * DoIP check-ins and ends in a watchdog reset on hardware.
+     */
+    if (diag_wdt_init(&s_wdt) != UDS_STATUS_OK) {
+        LOG_ERR("Watchdog arming failed — refusing to run unsupervised.");
+        return -1;
+    }
 
     /*
      * [EDS#191] Start the 1 ms UDS tick task before the DoIP server so

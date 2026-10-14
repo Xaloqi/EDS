@@ -130,10 +130,11 @@ target_sources(app PRIVATE
     ${DIAG_ROOT}/config/dtc_mirror.c
 
     # ── Zephyr platform abstraction ───────────────────────────────────────
-    # Minimal set for DoIP-only: no zephyr_can.c, no zephyr_timer.c,
-    # no zephyr_wdt.c (those are CAN-path dependencies).
+    # Minimal set for DoIP-only: no zephyr_can.c, no zephyr_timer.c
+    # (CAN-path dependencies).
     ${DIAG_ROOT}/platform/zephyr/zephyr_platform_api.c
     ${DIAG_ROOT}/platform/zephyr/zephyr_mutex.c  # [EDS#353] s_session_lock/s_security_lock
+    ${DIAG_ROOT}/platform/zephyr/zephyr_wdt.c    # [EDS#399] no-op on native_sim (CONFIG_WATCHDOG=n)
 
     # ── Generated sources ─────────────────────────────────────────────────
     ${DIAG_GENERATED_DIR}/did_handlers.c
