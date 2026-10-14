@@ -150,6 +150,14 @@ static int freertos_tcp_accept(void *server_ctx, void **conn_ctx,
         return -1;
     }
 
+    /* [EDS#406] Disable Nagle. Each request is answered with two writes,
+     * the 0x8002 ack and then the response; with Nagle the response waits
+     * for the tester to ACK the first, which a Linux tester delays ~40 ms.
+     * A failure only costs latency, so the connection is still served. */
+    const int nodelay = 1;
+    (void)lwip_setsockopt(conn_fd, IPPROTO_TCP, TCP_NODELAY,
+                          &nodelay, sizeof(nodelay));
+
     *conn_ctx = (void *)(uintptr_t)(int32_t)conn_fd;
     return 0;
 }

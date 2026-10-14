@@ -39,6 +39,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DoIP responses no longer wait ~40 ms for the tester's delayed ACK**
+  (`#406`). Every DiagnosticMessage is answered with two writes, the
+  0x8002 ack and then the response. With Nagle on, the response was held
+  until the tester ACKed the first write, and a Linux tester delays that
+  ACK by about 40 ms, so every back-to-back request took ~42 ms. Both
+  bindings now set `TCP_NODELAY` on each accepted connection. Measured
+  on hardware, back-to-back TesterPresent: 42.0 ms before, 1.1 ms
+  after.
 - **A DoIP tester that stops reading its socket can no longer stall the
   DoIP server indefinitely** (`SEC-DOIP-SEND-01`). Both bindings now set
   a send timeout (`DOIP_TCP_SEND_TIMEOUT_MS`, 2 s) on every accepted
