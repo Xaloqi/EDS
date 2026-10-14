@@ -167,9 +167,10 @@ static int zephyr_tcp_accept(void *server_ctx, void **conn_ctx,
      * send timeout, zsock_send() waits K_FOREVER for window space, so a
      * peer that stops reading parks the server thread for good. Fail
      * closed: a connection that cannot get the bound is not served. */
+    const uint32_t snd_ms = DOIP_TCP_SEND_TIMEOUT_MS;
     struct zsock_timeval snd_tv = {
-        .tv_sec  = (long)(DOIP_TCP_SEND_TIMEOUT_MS / 1000U),
-        .tv_usec = (long)((DOIP_TCP_SEND_TIMEOUT_MS % 1000U) * 1000U),
+        .tv_sec  = (long)(snd_ms / 1000U),
+        .tv_usec = (long)((snd_ms % 1000U) * 1000U),
     };
     if (zsock_setsockopt(conn_fd, SOL_SOCKET, SO_SNDTIMEO,
                          &snd_tv, sizeof(snd_tv)) < 0) {

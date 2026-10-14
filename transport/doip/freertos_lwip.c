@@ -140,9 +140,10 @@ static int freertos_tcp_accept(void *server_ctx, void **conn_ctx,
      * until the peer reads, so a peer that stops reading parks the server
      * thread for good. Fail closed: a connection that cannot get the bound
      * is not served. */
+    const uint32_t snd_ms = DOIP_TCP_SEND_TIMEOUT_MS;
     struct timeval snd_tv;
-    snd_tv.tv_sec  = (long)(DOIP_TCP_SEND_TIMEOUT_MS / 1000U);
-    snd_tv.tv_usec = (long)((DOIP_TCP_SEND_TIMEOUT_MS % 1000U) * 1000U);
+    snd_tv.tv_sec  = (long)(snd_ms / 1000U);
+    snd_tv.tv_usec = (long)((snd_ms % 1000U) * 1000U);
     if (lwip_setsockopt(conn_fd, SOL_SOCKET, SO_SNDTIMEO,
                         &snd_tv, sizeof(snd_tv)) < 0) {
         (void)lwip_close(conn_fd);
