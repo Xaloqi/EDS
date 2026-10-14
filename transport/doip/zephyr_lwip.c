@@ -179,6 +179,17 @@ static int zephyr_tcp_accept(void *server_ctx, void **conn_ctx,
         return -EIO;
     }
 
+    /* [EDS#406] Disable Nagle. Each request is answered with two writes,
+     * the 0x8002 ack and then the response; with Nagle the response waits
+     * for the tester to ACK the first, which a Linux tester delays ~40 ms.
+     * Needs no Kconfig (native TCP handles it unconditionally). A failure
+     * only costs latency, so the connection is still served. */
+    const int nodelay = 1;
+    if (zsock_setsockopt(conn_fd, IPPROTO_TCP, TCP_NODELAY,
+                         &nodelay, sizeof(nodelay)) < 0) {
+        LOG_WRN("DoIP: TCP_NODELAY failed: %d; responses may be delayed", errno);
+    }
+
     LOG_INF("DoIP: client connected (fd=%d)", conn_fd);
     *conn_ctx = (void *)(uintptr_t)(uint32_t)conn_fd;
     return 0;
