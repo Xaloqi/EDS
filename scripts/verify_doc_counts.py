@@ -45,6 +45,11 @@ DEAD_PATHS = ("scripts/build_tests.sh", "scripts/build_harness.sh")
 COUNT_PATTERNS = (
     r"(\d+)\s+Unity\s+(?:C\s+)?(?:unit\s+)?test\s+modules?",
     r"(\d+)\s+Unity\s+modules?",
+    # "56 Unity unit tests" (README.md) — distinct from "...test modules?"
+    # above: no trailing "module(s)" at all, caught by #304 Stage 1's own
+    # doc-count fixup after this exact phrasing slipped past every existing
+    # pattern.
+    r"(\d+)\s+Unity\s+unit\s+tests?\b",
     r"(\d+)\s+unit\s+test\s+modules?",
     r"(\d+)\s+unit\s+tests?\b",
     r"Coverage\s+—\s+(\d+)\s+unit",
