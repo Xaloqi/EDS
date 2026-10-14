@@ -52,6 +52,13 @@
 
 LOG_MODULE_REGISTER(doip_zephyr, LOG_LEVEL_INF);
 
+/* [SEC-DOIP-SEND-01] SO_SNDTIMEO is a silent no-op unless net_context
+ * supports it. EDS's Kconfig defaults it on for every socket build;
+ * refuse to build if a configuration has turned it off. */
+#if !defined(CONFIG_NET_CONTEXT_SNDTIMEO)
+#error "EDS DoIP needs CONFIG_NET_CONTEXT_SNDTIMEO=y: without a send timeout a tester that stops reading wedges the DoIP server (SEC-DOIP-SEND-01)."
+#endif
+
 /* ---------------------------------------------------------------------------
  * Kconfig-tunable thread parameters
  * ------------------------------------------------------------------------ */
@@ -154,6 +161,21 @@ static int zephyr_tcp_accept(void *server_ctx, void **conn_ctx,
     if (conn_fd < 0) {
         LOG_ERR("DoIP: zsock_accept failed: %d", errno);
         return -errno;
+    }
+
+    /* [SEC-DOIP-SEND-01] Bound every send on this connection. Without a
+     * send timeout, zsock_send() waits K_FOREVER for window space, so a
+     * peer that stops reading parks the server thread for good. Fail
+     * closed: a connection that cannot get the bound is not served. */
+    struct zsock_timeval snd_tv = {
+        .tv_sec  = (long)(DOIP_TCP_SEND_TIMEOUT_MS / 1000U),
+        .tv_usec = (long)((DOIP_TCP_SEND_TIMEOUT_MS % 1000U) * 1000U),
+    };
+    if (zsock_setsockopt(conn_fd, SOL_SOCKET, SO_SNDTIMEO,
+                         &snd_tv, sizeof(snd_tv)) < 0) {
+        LOG_ERR("DoIP: SO_SNDTIMEO failed: %d; refusing connection", errno);
+        (void)zsock_close(conn_fd);
+        return -EIO;
     }
 
     LOG_INF("DoIP: client connected (fd=%d)", conn_fd);

@@ -180,9 +180,23 @@ extern "C" {
 #define DOIP_MAX_CONNECTION_IDLE_POLLS (1800U)
 #endif
 
+/**
+ * [SEC-DOIP-SEND-01] Send timeout in ms that both platform bindings set
+ * (SO_SNDTIMEO) on every accepted connection. Without it a blocking
+ * tcp_send() against a peer that stops reading waits for window space
+ * forever, and the server never serves another tester. On expiry
+ * tcp_send() fails, doip_send_all() gives up at once, and the connection
+ * is closed. Bounds one dispatch's response send for
+ * eds_doip_set_checkin_callback() supervision too.
+ */
+#ifndef DOIP_TCP_SEND_TIMEOUT_MS
+#define DOIP_TCP_SEND_TIMEOUT_MS (2000U)
+#endif
+
 #if (DOIP_IDLE_POLL_MS == 0U) || (DOIP_INITIAL_INACTIVITY_POLLS == 0U) || \
-    (DOIP_GENERAL_INACTIVITY_POLLS == 0U) || (DOIP_MAX_CONNECTION_IDLE_POLLS == 0U)
-#error "DoIP inactivity bounds must be non-zero (EDS#400)"
+    (DOIP_GENERAL_INACTIVITY_POLLS == 0U) || (DOIP_MAX_CONNECTION_IDLE_POLLS == 0U) || \
+    (DOIP_TCP_SEND_TIMEOUT_MS == 0U)
+#error "DoIP inactivity and send-timeout bounds must be non-zero (EDS#400)"
 #endif
 
 /**
@@ -317,6 +331,10 @@ typedef struct eds_doip_platform_ops {
      * @param[in] conn_ctx  Connection handle from tcp_accept().
      * @param[in] data      Bytes to transmit.
      * @param[in] len       Number of bytes.
+     * [SEC-DOIP-SEND-01] Must not block longer than DOIP_TCP_SEND_TIMEOUT_MS
+     * waiting for the peer: set the socket's send timeout at accept. A
+     * negative return is final; doip_send_all() does not retry it.
+     *
      * @return Bytes sent (>0) or negative errno.
      */
     int (*tcp_send)(void *conn_ctx, const uint8_t *data, size_t len);
@@ -461,16 +479,18 @@ typedef void (*eds_doip_checkin_cb_t)(void);
  * a client), every tcp_recv() return, and every frame dispatch. In normal
  * operation, idle or busy, the gap between two calls is therefore at most
  * DOIP_CHECKIN_MAX_WAIT_MS plus the time of one frame dispatch, including
- * its response tcp_send(). With no client connected the server is still
+ * its response tcp_send() (at most DOIP_TCP_SEND_TIMEOUT_MS per send in
+ * the shipped bindings). With no client connected the server is still
  * healthy and still checks in on every DOIP_ACCEPT_POLL_TIMEOUT_MS wake.
  * Size the supervision window above DOIP_CHECKIN_MAX_WAIT_MS with margin.
  *
  * Gaps the window will report, by design: a tcp_accept()/tcp_recv() that
  * overruns its timeout, a dispatch blocked on the EDS#353 locks, and
- * eds_doip_server_run() having returned. Also tcp_send() blocking on a
- * peer that stops reading its socket: with a blocking binding and no send
- * timeout that can last indefinitely, so with this callback wired to a
- * watchdog such a peer can cause a reset. Weigh that before supervising.
+ * eds_doip_server_run() having returned. A peer that stops reading its
+ * socket blocks a response tcp_send() for at most DOIP_TCP_SEND_TIMEOUT_MS
+ * in both shipped bindings, then the connection is closed; a custom
+ * binding without a send timeout can block indefinitely there, which
+ * with this callback wired to a watchdog becomes a reset.
  *
  * Not registering one leaves the server unchanged.
  *

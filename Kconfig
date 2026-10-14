@@ -17,6 +17,13 @@
 #         that would violate ISO 15765-2 or ISO 14229-1 timing requirements.
 # =============================================================================
 
+# [SEC-DOIP-SEND-01] The DoIP bindings bound every send with SO_SNDTIMEO
+# (DOIP_TCP_SEND_TIMEOUT_MS). On Zephyr that option is ignored unless
+# net_context supports it, so turn it on by default for any socket build;
+# transport/doip/zephyr_lwip.c refuses to build with it explicitly off.
+configdefault NET_CONTEXT_SNDTIMEO
+	default y if NET_SOCKETS
+
 menu "Xaloqi EDS"
 
 # ---------------------------------------------------------------------------

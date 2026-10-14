@@ -39,6 +39,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A DoIP tester that stops reading its socket can no longer stall the
+  DoIP server indefinitely** (`SEC-DOIP-SEND-01`). Both bindings now set
+  a send timeout (`DOIP_TCP_SEND_TIMEOUT_MS`, 2 s) on every accepted
+  connection, and `doip_send_all()` no longer retries a failed
+  `tcp_send()`, so the connection is closed and the server goes on
+  serving. On Zephyr, EDS's Kconfig now defaults
+  `CONFIG_NET_CONTEXT_SNDTIMEO=y` for socket builds, and
+  `zephyr_lwip.c` refuses to build with it off. A connection whose send
+  timeout cannot be set is refused.
 - **DoIP connections no longer drop after ~150 ms of silence between
   requests** (`#400`). `DOIP_TCP_RECV_TIMEOUT_MS` was applied to the wait
   for each new frame, so any pause longer than that — including a normal

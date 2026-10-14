@@ -135,6 +135,20 @@ static int freertos_tcp_accept(void *server_ctx, void **conn_ctx,
         return -1;
     }
 
+    /* [SEC-DOIP-SEND-01] Bound every send on this connection (needs
+     * LWIP_SO_SNDTIMEO=1 in lwipopts.h). Without it lwip_send() blocks
+     * until the peer reads, so a peer that stops reading parks the server
+     * thread for good. Fail closed: a connection that cannot get the bound
+     * is not served. */
+    struct timeval snd_tv;
+    snd_tv.tv_sec  = (long)(DOIP_TCP_SEND_TIMEOUT_MS / 1000U);
+    snd_tv.tv_usec = (long)((DOIP_TCP_SEND_TIMEOUT_MS % 1000U) * 1000U);
+    if (lwip_setsockopt(conn_fd, SOL_SOCKET, SO_SNDTIMEO,
+                        &snd_tv, sizeof(snd_tv)) < 0) {
+        (void)lwip_close(conn_fd);
+        return -1;
+    }
+
     *conn_ctx = (void *)(uintptr_t)(int32_t)conn_fd;
     return 0;
 }
