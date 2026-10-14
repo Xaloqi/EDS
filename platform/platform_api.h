@@ -266,14 +266,32 @@ typedef struct {
 /**
  * @brief Platform initialisation configuration.
  *
- * Zephyr: all fields ignored — pass NULL or a zero-initialised struct.
+ * Zephyr: can_send and the uds_task_* fields are ignored (CAN is configured
+ * via DTS/Kconfig; there is no Zephyr task to size). .nvm IS honoured —
+ * [#304] Stage 1 — see its own doc comment. Pass NULL, or a cfg whose .nvm
+ * fields are all NULL, to keep the original Zephyr behaviour (built-in NVS)
+ * exactly.
  * FreeRTOS: populate can_send at minimum.
  */
 typedef struct {
     /** CAN send function. Required for FreeRTOS. Ignored on Zephyr. */
     eds_can_send_fn_t  can_send;
 
-    /** NVM ops. Optional for FreeRTOS (RAM stub used if NULL). Ignored on Zephyr. */
+    /** NVM ops. Optional for FreeRTOS (RAM stub used if NULL).
+     *
+     *  [#304] Stage 1: also honoured on Zephyr, via
+     *  platform/zephyr/nvm_store.c's zephyr_nvm_store_register_ops() —
+     *  closes the asymmetry with FreeRTOS this comment used to describe
+     *  ("Ignored on Zephyr"). All-NULL (the default — pass NULL for `cfg`
+     *  entirely, or leave this field zero-initialised) keeps Zephyr's
+     *  original, unchanged behaviour: the built-in NVS backend
+     *  (platform/zephyr/nvm_store.c) for most targets, or whichever
+     *  compile-time backend an example's CMakeLists.txt selects (e.g.
+     *  platform/zephyr/nvm_store_append.c for STM32H7 — see #304's full
+     *  analysis). Populate this field instead when the application needs
+     *  flash behaviour neither of those built-in choices provides, exactly
+     *  the way a FreeRTOS customer already supplies their own flash
+     *  driver here. */
     eds_nvm_ops_t      nvm;
 
     /** UDS task stack size in bytes. 0 = use default (2048). FreeRTOS only. */

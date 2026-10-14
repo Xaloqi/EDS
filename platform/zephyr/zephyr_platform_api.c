@@ -8,9 +8,18 @@
  * PURPOSE: Implements platform/platform_api.h using Zephyr RTOS APIs.
  *
  *          This file provides the eds_platform_* functions for Zephyr builds.
- *          The eds_platform_init() function is a no-op on Zephyr — DTS and
- *          Kconfig wire CAN and NVM. The reset and NVM flush implementations
- *          are extracted from the existing zephyr_port.c logic.
+ *          eds_platform_init() is a thin wrapper on Zephyr — DTS and Kconfig
+ *          wire CAN, and the built-in NVM backend is the default — but
+ *          [#304] Stage 1 it DOES forward cfg->nvm to
+ *          platform/zephyr/nvm_store.c's zephyr_nvm_store_register_ops(),
+ *          so an application that supplies ops there gets them honoured
+ *          instead of the built-in backend, exactly as
+ *          platform/freertos/freertos_platform_api.c's eds_platform_init()
+ *          already does for FreeRTOS. Passing cfg as NULL (every Zephyr
+ *          example as of this Stage's introduction does not call this
+ *          function at all) keeps the original Zephyr behaviour unchanged.
+ *          The reset and NVM flush implementations are extracted from the
+ *          existing zephyr_port.c logic.
  *
  *          RELATIONSHIP TO zephyr_port.c:
  *            zephyr_port.c  — Zephyr-specific startup (CAN init, port init).
@@ -37,6 +46,11 @@
 
 LOG_MODULE_REGISTER(zephyr_platform_api, LOG_LEVEL_INF);
 
+/* Forward declaration — implemented in platform/zephyr/nvm_store.c. Mirrors
+ * platform/freertos/freertos_platform_api.c's identical forward
+ * declaration of freertos_nvm_register_ops(). [#304] Stage 1. */
+void zephyr_nvm_store_register_ops(const eds_nvm_ops_t *ops);
+
 /* --------------------------------------------------------------------------
  * Reset sub-function values (ISO 14229-1 Table 186)
  * -------------------------------------------------------------------------- */
@@ -51,11 +65,20 @@ LOG_MODULE_REGISTER(zephyr_platform_api, LOG_LEVEL_INF);
 uds_status_t eds_platform_init(const eds_platform_cfg_t *cfg)
 {
     /*
-     * Zephyr: no-op. CAN is configured via DTS (DEVICE_DT_GET / can0 alias).
-     * NVM is configured via zephyr_port.c / nvm_store_init().
-     * The cfg pointer is intentionally unused on this platform.
+     * Zephyr: CAN is configured via DTS (DEVICE_DT_GET / can0 alias),
+     * independently of this function — cfg->can_send and the uds_task_*
+     * fields remain unused here.
+     *
+     * [#304] Stage 1: cfg->nvm IS forwarded to
+     * platform/zephyr/nvm_store.c's zephyr_nvm_store_register_ops(), so an
+     * application that populates it gets those ops honoured by
+     * nvm_store_init()/_write()/_read()/_delete()/_erase_all()/_is_ready()
+     * in place of the built-in NVS backend — see eds_nvm_ops_t's doc
+     * comment, platform_api.h. Passing cfg as NULL here (as every Zephyr
+     * example does before this Stage) registers NULL ops, which is exactly
+     * this platform's original, unchanged behaviour.
      */
-    (void)cfg;
+    zephyr_nvm_store_register_ops((cfg != NULL) ? &cfg->nvm : NULL);
     return UDS_STATUS_OK;
 }
 
