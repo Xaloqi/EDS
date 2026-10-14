@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **`platform/zephyr/nvm_store.c` now honours `eds_nvm_ops_t`** (`#304`,
+  Stage 1): `eds_platform_cfg_t.nvm`, previously documented "Ignored on
+  Zephyr", is forwarded by `eds_platform_init()` to the Zephyr NVM backend
+  exactly as it already was for FreeRTOS, via the new
+  `zephyr_nvm_store_register_ops()`. A Zephyr application that needs flash
+  behaviour the built-in NVS backend cannot provide can now supply its own
+  `read`/`write`/`is_ready`/`remove` callbacks without writing a whole
+  replacement `nvm_store.c`. No ops registered (every existing Zephyr
+  target, since none call `eds_platform_init()` as of this change) keeps
+  the original built-in NVS behaviour exactly unchanged.
+
 ## [1.18.1] — 2026-10-12
 
 ### Added

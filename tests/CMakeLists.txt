@@ -841,6 +841,53 @@ set_tests_properties(test_nvm_store_append PROPERTIES
     TIMEOUT 30
 )
 
+# ---------------------------------------------------------------------------
+# test_nvm_store_zephyr_ops  [#304 Stage 1]
+#
+# Same reasoning as test_nvm_store_append above, and for the same reason:
+# platform/zephyr/nvm_store.c (the module under test here) defines the exact
+# same public symbols (nvm_store_init/write/read/...) as
+# platform/zephyr/nvm_store_mock.c, which STACK_SRCS already includes —
+# linking both is a duplicate-symbol error. Built and linked directly
+# against only its own dependencies, bypassing the shared archive.
+#
+# Exercises the eds_nvm_ops_t dispatch path added to honour "Ignored on
+# Zephyr" no longer (platform_api.h) — see test_nvm_store_zephyr_ops.c's own
+# header comment for full coverage and the pre-fix build failure this test
+# was confirmed to produce (undefined references to
+# zephyr_nvm_store_register_ops()/nvm_store_*, naming the real defect: that
+# registration entry point did not exist at all before this fix).
+# ---------------------------------------------------------------------------
+add_executable(test_nvm_store_zephyr_ops
+    "${TEST_RUNNER_DIR}/test_main.c"
+    "${TEST_UNIT_DIR}/test_nvm_store_zephyr_ops.c"
+    "${DIAG_PLATFORM_ZEPHYR}/nvm_store.c"
+)
+
+target_include_directories(test_nvm_store_zephyr_ops PRIVATE
+    ${DIAG_INCLUDE_DIRS}
+)
+
+target_compile_options(test_nvm_store_zephyr_ops PRIVATE
+    ${DIAG_TEST_COMPILE_OPTIONS}
+)
+
+target_compile_definitions(test_nvm_store_zephyr_ops PRIVATE
+    UNIT_TEST=1
+    NVM_STORE_HOST_MOCK=1
+    EDS_MSG_BUF_MAX_STACK_BYTES=8192
+)
+
+target_link_libraries(test_nvm_store_zephyr_ops PRIVATE unity)
+
+add_test(NAME test_nvm_store_zephyr_ops COMMAND test_nvm_store_zephyr_ops)
+
+set_tests_properties(test_nvm_store_zephyr_ops PROPERTIES
+    PASS_REGULAR_EXPRESSION "PASS"
+    FAIL_REGULAR_EXPRESSION "FAIL;ERROR;Segmentation fault"
+    TIMEOUT 30
+)
+
 # ===========================================================================
 # Summary target: print all registered tests
 # ===========================================================================

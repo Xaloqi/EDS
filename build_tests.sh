@@ -447,6 +447,11 @@ TESTS=(
     # [#304] Append-only NVM backend for STM32H7. Bypasses the shared stack
     # archive entirely — see direct_link_srcs_for_test() below for why.
     test_nvm_store_append
+    # [#304 Stage 1] eds_nvm_ops_t support in platform/zephyr/nvm_store.c
+    # (closes the "Ignored on Zephyr" asymmetry vs. freertos_nvm.c). Same
+    # duplicate-symbol reasoning as test_nvm_store_append above — bypasses
+    # the shared stack archive entirely.
+    test_nvm_store_zephyr_ops
 )
 
 # ---------------------------------------------------------------------------
@@ -476,6 +481,15 @@ direct_link_srcs_for_test() {
             echo "${ROOT}/project/unity/unity.c"
             echo "${ROOT}/platform/zephyr/nvm_store_append.c"
             echo "${ROOT}/core/uds_transfer_ctx.c"
+            ;;
+        test_nvm_store_zephyr_ops)
+            # [#304 Stage 1] Same reasoning as test_nvm_store_append above:
+            # platform/zephyr/nvm_store.c defines the exact same public
+            # nvm_store_* symbols STACK_SRCS's nvm_store_mock.c already
+            # provides — linking both is a duplicate-symbol error.
+            echo "${ROOT}/tests/runner/test_main.c"
+            echo "${ROOT}/project/unity/unity.c"
+            echo "${ROOT}/platform/zephyr/nvm_store.c"
             ;;
         *)
             ;;
