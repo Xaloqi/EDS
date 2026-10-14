@@ -68,6 +68,33 @@ west flash
 Ensure your board DTS includes an Ethernet driver and that `CONFIG_NETWORKING=y` is
 satisfied. The DoIP server listens on port 13400 immediately after boot.
 
+### NUCLEO-H753ZI (real Ethernet, hardware-verified bench setup)
+
+```bash
+B=examples/basic_ecu_doip/boards/nucleo_h753zi
+west build -b nucleo_h753zi examples/basic_ecu_doip -- \
+  -DDIAG_SKIP_CODEGEN=ON -DDIAG_USE_MOCK_NVM=ON \
+  -DEXTRA_CONF_FILE=$PWD/$B/nucleo_h753zi_doip.conf \
+  -DEXTRA_DTC_OVERLAY_FILE=$PWD/$B/nucleo_h753zi_doip.overlay
+west flash
+```
+
+- **Network:** static `10.10.10.1/24` on a direct cable to the host. Give
+  the host an address on the same subnet, e.g.
+  `sudo ip addr add 10.10.10.2/24 dev <iface>`. The console is the
+  ST-LINK virtual COM port at 115200.
+- **Storage is RAM-backed on this board (supported bench setup).**
+  `DIAG_USE_MOCK_NVM=ON` keeps the DTC mirror in RAM, so it does not
+  survive a reset. Without it the build does not link: the conf provides
+  no flash partition for the real backend
+  ([#403](https://github.com/Xaloqi/EDS/issues/403)). Real flash storage
+  with the append backend is tracked in
+  [#408](https://github.com/Xaloqi/EDS/issues/408).
+- **Watchdog:** the overlay enables the IWDG. `main()` arms it and the
+  UDS tick task feeds it only while the DoIP server keeps checking in
+  ([#399](https://github.com/Xaloqi/EDS/issues/399)). The comment at the
+  top of `src/main.c` lists exactly what is supervised.
+
 ---
 
 ## Running
