@@ -1,0 +1,22 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright (c) 2026 Xaloqi */
+/*
+ * examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.overlay
+ *
+ * [EDS#399] Exposes the STM32 independent watchdog (IWDG) as the system
+ * watchdog. Zephyr's nucleo_h753zi board leaves &iwdg disabled and defines
+ * no watchdog0 alias; platform/zephyr/zephyr_wdt.c resolves the watchdog
+ * through that alias and refuses to build with CONFIG_WATCHDOG=y without it
+ * (EDS#306). Same two settings as examples/safeboot_ecu's overlay for this
+ * board. Pass with -DEXTRA_DTC_OVERLAY_FILE (see nucleo_h753zi_doip.conf).
+ */
+
+/ {
+	aliases {
+		watchdog0 = &iwdg;
+	};
+};
+
+&iwdg {
+	status = "okay";
+};

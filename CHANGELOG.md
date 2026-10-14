@@ -28,6 +28,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   every `DOIP_ACCEPT_POLL_TIMEOUT_MS` wake, so it never looks hung.
   `DOIP_CHECKIN_MAX_WAIT_MS` gives the longest EDS-bounded wait between
   check-ins. Not registering one changes nothing.
+- **`examples/basic_ecu_doip` is watchdog-supervised on NUCLEO-H753ZI**
+  (`#399`). It arms the IWDG in `main()` and feeds it from the UDS tick
+  task, only while the DoIP server loop keeps checking in through
+  `eds_doip_set_checkin_callback()`. A wedged or exited DoIP thread now
+  resets the board; an idle server does not. The board build now needs
+  the new `boards/nucleo_h753zi/nucleo_h753zi_doip.overlay`, which enables
+  the IWDG and the `watchdog0` alias. native_sim is unchanged (no watchdog,
+  degraded mode logged).
 
 ### Fixed
 
