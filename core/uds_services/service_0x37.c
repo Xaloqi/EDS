@@ -39,8 +39,9 @@
  *                                                       rejected the image on
  *                                                       format/digest/signature
  *                                                       grounds; commit_cb failed
- *   NRC 0x31 (requestOutOfRange)                      — bytes_remaining != 0, or
- *                                                       image policy rejected on
+ *   NRC 0x24 (requestSequenceError)                   — bytes_remaining != 0
+ *                                                       [EDS#442, was 0x31]
+ *   NRC 0x31 (requestOutOfRange)                      — image policy rejected on
  *                                                       anti-rollback grounds
  *   NRC 0x22 (conditionsNotCorrect)                   — flash ops de-registered;
  *                                                       image policy raised an
@@ -271,10 +272,14 @@ uds_status_t uds_service_0x37_handler(
 
     /* --- REQ-DL-002: All declared bytes must have been received --- */
     if (tctx->bytes_remaining != (uint32_t)0U) {
-        /* Tester sent fewer bytes than declared in RequestDownload. */
+        /* Tester sent fewer bytes than declared in RequestDownload.
+         * [EDS#442] ISO 14229-1:2026 Table 459: "the programming process is
+         * not completed when a request for this service is received" is
+         * NRC 0x24 (was 0x31, which Table 459 reserves for an invalid
+         * parameter record). Still aborted (REQ-DL-003). */
         uds_image_policy_notify_abort();   /* [#232] drop partial state */
         uds_transfer_ctx_reset(tctx);
-        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;   /* mapped → NRC 0x24 */
     }
 
     /* --- Flush any remaining bytes in the write accumulation buffer --- */

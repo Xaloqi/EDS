@@ -32,6 +32,7 @@
 #include "doip_server.h"
 #include "uds_server.h"
 #include "uds_comm_control.h"   /* [SEC-SESS-COMMRESTORE-01] */
+#include "services.h"           /* uds_service_0x34_abort_transfer() [EDS#442] */
 #include "uds_types.h"
 #include "eds_elapsed.h"      /* [EDS#412] connection lifetime */
 #include "uds_security_algo.h" /* [EDS#358] EDS_BUILD_IS_PRODUCTION (SEC-BUILD-MODE-01) */
@@ -961,6 +962,8 @@ connection_closed:
          * ControlDTCSetting here too, or a dropped tester leaves the ECU
          * silent with DTC recording off. */
         (void)uds_comm_control_restore_defaults();
+        /* [EDS#442] Session ended: abort any transfer. */
+        uds_service_0x34_abort_transfer();
     }
 
     /* Unreachable in normal operation */

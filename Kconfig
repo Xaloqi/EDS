@@ -2,16 +2,14 @@
 # Xaloqi EDS
 # Kconfig
 #
-# Module-level Kconfig definitions. These expose UDS stack parameters as
-# first-class Zephyr Kconfig symbols, allowing board-level prj.conf overrides
-# without touching generated_config.h or diagnostics_config.yaml.
-#
-# All defaults match diagnostics_config.yaml so the two sources stay in sync.
-# If both are set, the Kconfig value wins at compile time (generated_config.h
-# uses #ifndef guards around its #define blocks).
+# Module-level Kconfig definitions: ISO-TP transport timing and padding,
+# diagnostics task, watchdog window, key and ACL policy. Every symbol here is
+# read by the code (build_tests.sh checks it, EDS#455). UDS session timing and
+# the SecurityAccess lockout are configured in diagnostics_config.yaml, not
+# here.
 #
 # USAGE: Override in prj.conf:
-#   CONFIG_UDS_SESSION_S3_TIMEOUT_MS=2000
+#   CONFIG_ISOTP_TIMEOUT_CR_MS=1000
 #
 # SAFETY: Parameter ranges are bounded to prevent accidental mis-configuration
 #         that would violate ISO 15765-2 or ISO 14229-1 timing requirements.
@@ -97,38 +95,13 @@ config ISOTP_TIMEOUT_AR_MS
 	  confirmation. ISO 15765-2:2024 Table 22: 1000 ms (lower limit).
 
 # ---------------------------------------------------------------------------
-# UDS session parameters (ISO 14229-1 §7.4.2)
+# UDS session timing and SecurityAccess lockout are NOT Kconfig parameters.
+# They come from diagnostics_config.yaml via codegen (GEN_S3_SERVER_TIMEOUT_MS,
+# GEN_SAFETY_MAX_SA_ATTEMPTS, GEN_SAFETY_SA_LOCKOUT_MS). [EDS#455] The
+# CONFIG_UDS_SESSION_S3_TIMEOUT_MS / _SECURITY_MAX_ATTEMPTS / _SECURITY_LOCKOUT_MS
+# symbols that used to be here were never read; they are removed so a prj.conf
+# that still sets them fails the build instead of being silently ignored.
 # ---------------------------------------------------------------------------
-
-config UDS_SESSION_S3_TIMEOUT_MS
-	int "UDS S3server session timeout (ms)"
-	default 5000
-	range 1000 10000
-	help
-	  Time after the last tester request before the ECU returns to the
-	  Default session. ISO 14229-1 default = 5000 ms. Reducing this
-	  value increases security by limiting exposure of programming/extended
-	  sessions, but may cause test tool timeouts if set too low.
-
-# ---------------------------------------------------------------------------
-# UDS security access parameters
-# ---------------------------------------------------------------------------
-
-config UDS_SECURITY_MAX_ATTEMPTS
-	int "Maximum failed security access attempts before lockout"
-	default 3
-	range 1 10
-	help
-	  Number of consecutive failed SendKey requests before the ECU enters
-	  a timed lockout. ISO 14229-1 §10.4.1.3.
-
-config UDS_SECURITY_LOCKOUT_MS
-	int "Security access lockout duration (ms)"
-	default 10000
-	range 1000 60000
-	help
-	  Duration of the lockout period after exceeding max failed attempts.
-	  Must be long enough to deter brute-force attacks.
 
 # ---------------------------------------------------------------------------
 # Diagnostics task parameters

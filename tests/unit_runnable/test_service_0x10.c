@@ -45,6 +45,7 @@
 #include "uds_security.h"
 #include "uds_types.h"
 #include "uds_comm_control.h"
+#include "uds_transfer_ctx.h"
 
 /* =========================================================================
  * Minimal security stubs
@@ -469,6 +470,28 @@ ZTEST(test_service_0x10, tc020_nondefault_transition_keeps_comm_state)
         "CommunicationControl state must be kept across extended -> programming");
 }
 
+/* [EDS#442] A session change aborts any transfer, so refusing a 0x34 during
+ * a download (Table 444) can't let an abandoned one block the next. */
+ZTEST(test_service_0x10, tc021_session_change_aborts_transfer)
+{
+    setup();
+    enter(0x02U);
+    uds_transfer_ctx_get()->state = UDS_TRANSFER_ACTIVE;
+    enter(0x02U);
+    zassert_equal(UDS_TRANSFER_IDLE, uds_transfer_ctx_get()->state,
+        "a DSC transition must abort the active transfer (EDS#442)");
+}
+
+ZTEST(test_service_0x10, tc022_s3_timeout_aborts_transfer)
+{
+    setup();
+    enter(0x02U);
+    uds_transfer_ctx_get()->state = UDS_TRANSFER_ACTIVE;
+    for (uint32_t i = 0U; i < 5001U; i++) { (void)uds_server_tick_1ms(&g_srv); }
+    zassert_equal(UDS_TRANSFER_IDLE, uds_transfer_ctx_get()->state,
+        "an S3 timeout must abort the active transfer (EDS#442)");
+}
+
 void run_all_tests(void)
 {
     RUN_TEST(test_service_0x10__tc001_default_session);
@@ -491,4 +514,6 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x10__tc018_default_restores_comm_and_dtc_setting);
     RUN_TEST(test_service_0x10__tc019_s3_timeout_restores_comm_and_dtc_setting);
     RUN_TEST(test_service_0x10__tc020_nondefault_transition_keeps_comm_state);
+    RUN_TEST(test_service_0x10__tc021_session_change_aborts_transfer);
+    RUN_TEST(test_service_0x10__tc022_s3_timeout_aborts_transfer);
 }

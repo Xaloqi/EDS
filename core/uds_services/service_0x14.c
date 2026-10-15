@@ -9,24 +9,18 @@
  *
  * ISO 14229-1:2026 §11.2 — ClearDiagnosticInformation
  *
- * The tester transmits a 3-byte group-of-DTC identifier (groupOfDTC).
- * The ECU clears all DTC status bytes for any DTC whose code falls within
- * the requested group, then persists the cleared state to NVM.
+ * The tester transmits a 3-byte groupOfDTC: a group or a single DTC
+ * (§11.2.1). The ECU clears exactly what was asked, then persists it.
  *
- * SUPPORTED GROUPS (ISO 14229-1 §D.3):
- *   0xFFFFFF  — OBD group: all emissions-related DTCs
- *   0xFFFFFE  — SAE J2012-DA group: all powertrain DTCs (0x0xxxxx – 0x3xxxxx)
- *   0xFFFFFF  — ISO/SAE group: all supported DTCs (implementation-defined)
- *
- * IMPLEMENTATION NOTE:
- *   This implementation treats 0xFFFFFF as "clear all registered DTCs"
- *   (the most common tester request). All other group codes are also
- *   handled as "clear all". NOT conformant: ISO 14229-1:2026 §11.2.1 clears the
- *   requested group or single DTC, and Table 299 answers 0x31 for an
- *   unsupported group (EDS#450).
- *
- *   If group-specific filtering is required, add a per-entry group
- *   field to dtc_entry_t and filter the clear loop accordingly.
+ * SUPPORTED groupOfDTC VALUES (ISO 14229-1:2026 Annex D.1 Table D.1) [EDS#450]:
+ *   0xFFFFFF          — all groups: every non-permanent DTC is cleared.
+ *   a registered DTC  — that one DTC is cleared (unless permanent).
+ *   anything else     — NRC 0x31, nothing cleared (Table 299). Includes the
+ *                       reserved 0x000000-0x0000FF range and the functional
+ *                       groups 0xFFFF00-0xFFFFFE, which need group membership
+ *                       data EDS doesn't hold.
+ *   Previously every non-zero value cleared everything, so clearing one
+ *   repaired DTC erased every other fault record.
  *
  * SESSION REQUIREMENT (ISO 14229-1:2026 §9.2.1 Table 22):
  *   ClearDiagnosticInformation is available in all sessions.
@@ -90,7 +84,7 @@ uds_status_t uds_service_0x14_handler(
 {
     uds_status_t status;
     uint32_t     group_of_dtc;
-    uint16_t     dtc_count;
+    dtc_entry_t *entry;
 
     (void)ctx; /* server context not needed for this service */
 
@@ -112,64 +106,43 @@ uds_status_t uds_service_0x14_handler(
                  | ((uint32_t)req->data[2] <<  8U)
                  |  (uint32_t)req->data[3];
 
-    /*
-     * Validate that there are DTCs registered.
-     * If the database is empty, returning NRC 0x31 (requestOutOfRange) is
-     * the correct ISO 14229-1 response — there is nothing to clear.
-     */
-    status = dtc_database_get_count(&dtc_count);
-    if (status != UDS_STATUS_OK) {
-        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
-    }
+    /* ── Clear exactly the requested group or DTC [EDS#450] ───────────── */
 
-    if (dtc_count == (uint16_t)0U) {
-        /*
-         * No DTC registered at all: no group is supported, so NRC 0x31
-         * (ISO 14229-1:2026 §11.2.4 Table 299). A supported group with no stored
-         * DTCs still gets a positive response (§11.2.1).
-         */
-        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
-    }
-
-    /*
-     * ── Group filtering ──────────────────────────────────────────────────
-     *
-     * ISO 14229-1:2026 Annex D.1 Table D.1 defines the group values:
-     *   0xFFFFFF — all emission-related DTCs (or "all DTCs" for non-OBD)
-     *   0xFFFFFE — all powertrain DTCs (by SAE J2012-DA)
-     *   0xFFFF00-0xFFFFFD — OBD system groups
-     *
-     * This implementation accepts any non-zero group value and maps it to
-     * "clear all registered DTCs" — the conservative, universally-correct
-     * approach for ECUs without group-filtered DTC storage.
-     *
-     * Future enhancement: filter dtc_database entries by DTC range when
-     * group-specific clearing is required.
-     */
-    if (group_of_dtc == (uint32_t)0U) {
-        /* Group 0x000000 is not defined in ISO 14229-1 — reject. */
-        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
-    }
-
-    /* ── Clear non-permanent DTC status bytes ───────────────────────────── */
-
-    status = dtc_database_clear_non_permanent();
-    if (status != UDS_STATUS_OK) {
-        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
-    }
-
-    /* ── Persist cleared state to NVM (Phase 3 integration) ────────────── */
-
-    if (dtc_mirror_is_ready()) {
-        status = dtc_mirror_clear_all();
+    if (group_of_dtc == (uint32_t)SVC_0x14_GROUP_ALL) {
+        /* All groups. Positive even if no DTC is stored (§11.2.1). Permanent
+         * DTCs survive, as before. */
+        status = dtc_database_clear_non_permanent();
         if (status != UDS_STATUS_OK) {
-            /*
-             * NVM write failure is non-fatal for the UDS transaction
-             * (the in-RAM database is already cleared), but we log by
-             * returning conditions-not-correct so the tester is aware.
-             * Production builds may relax this to a warning log only.
-             */
             return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+        }
+        if (dtc_mirror_is_ready()) {
+            status = dtc_mirror_clear_all();
+            if (status != UDS_STATUS_OK) {
+                /* NVM write failure: the RAM database is already cleared, but
+                 * the tester is told (Table 299 0x22: internal conditions
+                 * prevent clearing the stored information). */
+                return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+            }
+        }
+    } else {
+        /* A single DTC. The reserved legislative range 0x000000-0x0000FF
+         * (Table D.1) is never a DTC number; anything not registered is an
+         * unsupported groupOfDTC: NRC 0x31 (Table 299), nothing cleared. */
+        entry = (group_of_dtc <= (uint32_t)0xFFU) ? NULL : dtc_database_find(group_of_dtc);
+        if (entry == NULL) {
+            return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+        }
+        if (!entry->is_permanent) {
+            status = dtc_database_set_status(group_of_dtc, (uint8_t)0x00U);
+            if (status != UDS_STATUS_OK) {
+                return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+            }
+            if (dtc_mirror_is_ready()) {
+                status = dtc_mirror_save_one(group_of_dtc, (uint8_t)0x00U);
+                if (status != UDS_STATUS_OK) {
+                    return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+                }
+            }
         }
     }
 

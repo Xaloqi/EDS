@@ -30,7 +30,8 @@
  *   lengthFormatIdentifier:
  *     Bits [7:4] = 2  (number of bytes encoding maxNumberOfBlockLength)
  *     Bits [3:0] = 0  (reserved)
- *   maxNumberOfBlockLength: uint16_t, includes the 1-byte blockSequenceCounter.
+ *   maxNumberOfBlockLength: uint16_t, complete message length incl. SID and
+ *   blockSequenceCounter (ISO 14229-1:2026 Table 448) [EDS#442].
  *
  * TRANSFER EXCHANGE:
  *   Tester                           ECU
@@ -234,9 +235,11 @@ uds_status_t uds_service_0x35_handler(
     /* lengthFormatIdentifier: bits [7:4] = 2 (2 bytes for maxBlockLen), [3:0] = 0. */
     resp->data[1U] = (uint8_t)((uint8_t)SVC_0x35_MXBL_BYTE_COUNT << (uint8_t)4U);
 
-    /* maxNumberOfBlockLength includes the 1-byte block counter field. */
+    /* [EDS#442] Complete TransferData response length: SID + counter + data
+     * (ISO 14229-1:2026 Table 448; Table 471 example). Each upload block
+     * returns write_buf_capacity data bytes, so 2 + capacity fits exactly. */
     {
-        uint16_t max_block = (uint16_t)(tctx->write_buf_capacity + (uint16_t)1U);
+        uint16_t max_block = (uint16_t)(tctx->write_buf_capacity + (uint16_t)2U);
         resp->data[2U] = (uint8_t)((max_block >> (uint16_t)8U) & (uint16_t)0xFFU);
         resp->data[3U] = (uint8_t)( max_block                  & (uint16_t)0xFFU);
     }
