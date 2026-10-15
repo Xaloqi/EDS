@@ -25,7 +25,7 @@
  *   TC-0x36-014  CRC accumulator updated over payload bytes
  *   TC-0x36-015  No flash ops after 0x34 → ERR_CONDITIONS_NOT_MET
  *   TC-0x36-016  Oversized block (payload > bytes_remaining) rejected with
- *                NRC 0x31 and aborts the transfer (issue #112)
+ *                NRC 0x71 (EDS#441; was 0x31) and aborts the transfer (issue #112)
  *   TC-0x36-017  Second block accepted with correct incremented counter
  *   TC-0x36-018  Issue #112 regression: size=100 download, 98-byte block 1
  *                accepted, then a 20-byte block 2 (only 2 bytes remaining)
@@ -416,7 +416,7 @@ ZTEST(svc_0x36, test_flash_ops_null_after_active_transfer)
 }
 
 /* TC-0x36-016  Oversized block (payload > bytes_remaining) is rejected with
- * NRC 0x31 (requestOutOfRange) and the transfer is aborted (issue #112).
+ * NRC 0x71 (transferDataSuspended, EDS#441) and the transfer is aborted (issue #112).
  *
  * Formerly this handler silently clamped payload_len down to
  * bytes_remaining, discarded the excess bytes, fed the truncated data into
@@ -429,9 +429,9 @@ ZTEST(svc_0x36, test_oversized_block_rejected_and_aborted)
     prime_active_transfer(4U);
 
     build_req(0x01U, 0xCCU, 16U);
-    zassert_equal(UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+    zassert_equal(UDS_STATUS_ERR_TRANSFER_SUSPENDED,
                   uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
-                  "oversized block must be rejected with NRC 0x31, not clamped");
+                  "oversized block must be rejected with NRC 0x71 (EDS#441), not clamped");
     zassert_equal(UDS_TRANSFER_IDLE,
                   uds_transfer_ctx_get()->state,
                   "REQ-DL-003: transfer must be aborted (IDLE) after oversized block");
@@ -482,9 +482,9 @@ ZTEST(svc_0x36, test_issue_112_oversized_final_block_rejected)
     /* Block 2: 20 bytes sent, only 2 remaining -> reject + abort. */
     memset(&s_resp, 0, sizeof(s_resp));
     build_req(0x02U, 0x22U, 20U);
-    zassert_equal(UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+    zassert_equal(UDS_STATUS_ERR_TRANSFER_SUSPENDED,
                   uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
-                  "oversized final block must be rejected with NRC 0x31");
+                  "oversized final block must be rejected with NRC 0x71 (EDS#441)");
     zassert_equal(UDS_TRANSFER_IDLE,
                   uds_transfer_ctx_get()->state,
                   "transfer must be aborted (IDLE), not clamped and continued");
@@ -509,7 +509,7 @@ ZTEST(svc_0x36, test_post_abort_transfer_state_is_clean_idle)
 
     memset(&s_resp, 0, sizeof(s_resp));
     build_req(0x02U, 0x22U, 20U);
-    zassert_equal(UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+    zassert_equal(UDS_STATUS_ERR_TRANSFER_SUSPENDED,
                   uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
 
     /* Context must read back as a clean, fully-reset IDLE context. */
@@ -630,6 +630,84 @@ ZTEST(svc_0x36, test_upload_block_counter_wrap)
 }
 
 /* ==========================================================================
+ * [EDS#441] ISO 14229-1:2026 §14.4.4 Table 454 / Figure 34
+ * ========================================================================== */
+
+/* A repeat of the last accepted block (lost positive response) is accepted:
+ * positive response, nothing written, nothing consumed, and the sequence
+ * carries on. */
+ZTEST(svc_0x36, test_repeated_block_accepted_without_rewrite)
+{
+    uint32_t writes, remaining;
+
+    prime_active_transfer((uint32_t)MOCK_BLOCK_LEN * 2U);
+    build_req(0x01U, 0x11U, MOCK_BLOCK_LEN);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "block 1");
+    writes    = s_write_call_count;
+    remaining = uds_transfer_ctx_get()->bytes_remaining;
+
+    memset(&s_resp, 0, sizeof(s_resp));
+    build_req(0x01U, 0x11U, MOCK_BLOCK_LEN);   /* the retry */
+    zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "repeated block refused: ISO 14229-1:2026 Table 454 says it shall be accepted (EDS#441)");
+    zassert_equal(0x76U, s_resp.data[0], "positive response");
+    zassert_equal(0x01U, s_resp.data[1], "echoes the repeated counter");
+    zassert_equal(writes, s_write_call_count, "a repeated block must not be written again");
+    zassert_equal(remaining, uds_transfer_ctx_get()->bytes_remaining, "a repeat must not consume memorySize");
+    zassert_equal(0x02U, uds_transfer_ctx_get()->next_expected_block_seq, "sequence must be unchanged");
+
+    build_req(0x02U, 0x22U, MOCK_BLOCK_LEN);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "block 2 after the repeat");
+}
+
+/* All data received: a new block is NRC 0x24; a repeat of the last is OK. */
+ZTEST(svc_0x36, test_block_after_all_data_is_sequence_error)
+{
+    prime_active_transfer(4U);
+    build_req(0x01U, 0x11U, 4U);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "only block");
+
+    build_req(0x02U, 0x22U, 4U);
+    zassert_equal(UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE, uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "block after all memorySize data must be NRC 0x24 (Table 454, EDS#441)");
+
+    build_req(0x01U, 0x11U, 4U);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "repeat of the final block must still be accepted");
+}
+
+/* Figure 34: memorySize (0x71) is evaluated before the counter (0x73). */
+ZTEST(svc_0x36, test_oversize_checked_before_counter)
+{
+    prime_active_transfer(4U);
+    build_req(0x05U, 0xCCU, 16U);   /* wrong counter AND too long */
+    zassert_equal(UDS_STATUS_ERR_TRANSFER_SUSPENDED, uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "Figure 34 order: memorySize (0x71) before blockSequenceCounter (0x73)");
+}
+
+/* Upload: a repeat resends the previous data without reading again. */
+ZTEST(svc_0x36, test_upload_repeated_block_resent)
+{
+    uint8_t first[MOCK_BLOCK_LEN];
+    uint32_t reads;
+
+    prime_active_upload((uint32_t)MOCK_BLOCK_LEN * 2U);
+    s_req.data[0] = 0x36U; s_req.data[1] = 0x01U; s_req.length = 2U;
+    zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "upload block 1");
+    memcpy(first, &s_resp.data[2], MOCK_BLOCK_LEN);
+    reads = s_read_call_count;
+
+    memset(&s_resp, 0, sizeof(s_resp));
+    s_req.data[0] = 0x36U; s_req.data[1] = 0x01U; s_req.length = 2U;
+    zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "repeated upload block refused (EDS#441)");
+    zassert_equal((uint16_t)(2U + MOCK_BLOCK_LEN), s_resp.length, "same length resent");
+    zassert_mem_equal(first, &s_resp.data[2], MOCK_BLOCK_LEN, "previous data must be resent");
+    zassert_equal(reads, s_read_call_count, "a repeat must not read the next block");
+    zassert_equal(0x02U, uds_transfer_ctx_get()->next_expected_block_seq, "sequence unchanged");
+}
+
+/* ==========================================================================
  * run_all_tests
  * ========================================================================== */
 
@@ -658,4 +736,8 @@ void run_all_tests(void)
     RUN_TEST(svc_0x36__test_upload_read_cb_failure);
     RUN_TEST(svc_0x36__test_upload_bytes_remaining_decremented);
     RUN_TEST(svc_0x36__test_upload_block_counter_wrap);
+    RUN_TEST(svc_0x36__test_repeated_block_accepted_without_rewrite);
+    RUN_TEST(svc_0x36__test_block_after_all_data_is_sequence_error);
+    RUN_TEST(svc_0x36__test_oversize_checked_before_counter);
+    RUN_TEST(svc_0x36__test_upload_repeated_block_resent);
 }

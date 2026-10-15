@@ -387,6 +387,9 @@ static uds_nrc_t srv_status_to_nrc(uds_status_t status)
         case UDS_STATUS_ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED:
             return UDS_NRC_UPLOAD_DOWNLOAD_NOT_ACCEPTED;   /* NRC 0x70 */
 
+        case UDS_STATUS_ERR_TRANSFER_SUSPENDED:
+            return UDS_NRC_TRANSFER_DATA_SUSPENDED;        /* NRC 0x71 [EDS#441] */
+
         /*
          * [#232] DFU image policy gate.  Both map to NRC 0x22
          * (conditionsNotCorrect) — the same NRC the `default:` arm would

@@ -28,11 +28,14 @@
  *
  * NRC BEHAVIOUR:
  *   NRC 0x13 (incorrectMessageLengthOrInvalidFormat) — request < 3 bytes
- *   NRC 0x24 (requestSequenceError)                  — no active transfer
- *   NRC 0x73 (wrongBlockSequenceCounter)              — counter mismatch
- *   NRC 0x31 (requestOutOfRange)                      — payload exceeds
+ *   NRC 0x24 (requestSequenceError)                  — no active transfer, or
+ *                                                        all data already
+ *                                                        transferred [EDS#441]
+ *   NRC 0x71 (transferDataSuspended)                 — payload exceeds
  *                                                        bytes_remaining;
  *                                                        transfer is aborted
+ *                                                        [EDS#441, was 0x31]
+ *   NRC 0x73 (wrongBlockSequenceCounter)              — counter mismatch
  *   NRC 0x72 (generalProgrammingFailure)              — flash write failed, or
  *                                                        the registered image
  *                                                        policy's update_cb
@@ -41,6 +44,9 @@
  *
  * BLOCK COUNTER WRAP LOGIC (REQ-DL-001):
  *
+ *   received == last accepted             → positive response, nothing
+ *                                            written (download) / previous
+ *                                            data resent (upload) [EDS#441]
  *   received == next_expected             → accept
  *   received != next_expected             → NRC 0x73
  *
@@ -218,16 +224,31 @@ uds_status_t uds_service_0x36_handler(
         return s_handle_upload_block(ctx, req, resp);
     }
 
-    /* --- Validate block sequence counter --- */
-    block_seq = req->data[SVC_0x36_BLOCK_SEQ_OFFSET];
-
-    if (block_seq != tctx->next_expected_block_seq) {
-        return UDS_STATUS_ERR_TP_UNEXPECTED_PDU;   /* mapped → NRC 0x73 */
-    }
-
-    /* --- Extract payload --- */
+    block_seq   = req->data[SVC_0x36_BLOCK_SEQ_OFFSET];
     payload     = &req->data[SVC_0x36_DATA_OFFSET];
     payload_len = (uint16_t)(req->length - (uint16_t)SVC_0x36_DATA_OFFSET);
+
+    /* [EDS#441] A repeat of the last accepted block is the client's retry
+     * after a lost positive response. ISO 14229-1:2026 §14.4.4 Table 454
+     * (under NRC 0x24 and 0x73): it "shall be accepted by the server".
+     * Table 451: answer positively without writing the data again, so no
+     * write, CRC or image-policy update, and bytes_remaining is untouched. */
+    if (tctx->last_block_valid && (block_seq == tctx->last_block_seq)) {
+        status = uds_service_write_pos_sid((uint8_t)UDS_SID_TRANSFER_DATA, resp);
+        if (status != UDS_STATUS_OK) {
+            return status;
+        }
+        resp->data[1U] = block_seq;
+        resp->length   = (uint16_t)2U;
+        return UDS_STATUS_OK;
+    }
+
+    /* [EDS#441] Evaluation order per Figure 34: sequence (0x24), then
+     * memorySize (0x71), then blockSequenceCounter (0x73).
+     * All data already received: Table 454 NRC 0x24. */
+    if (tctx->bytes_remaining == (uint32_t)0U) {
+        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;   /* mapped → NRC 0x24 */
+    }
 
     /* REQ-DL-002: A block must not carry more data than bytes_remaining.
      * Silently truncating and continuing would discard tester bytes while
@@ -237,7 +258,15 @@ uds_status_t uds_service_0x36_handler(
     if ((uint32_t)payload_len > tctx->bytes_remaining) {
         uds_image_policy_notify_abort();            /* [#232] drop partial state */
         uds_transfer_ctx_reset(tctx); /* abort — REQ-DL-003 */
-        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE; /* NRC 0x31 */
+        /* [EDS#441] Table 454: "the download module length does not meet the
+         * requirements of the memorySize parameter" is NRC 0x71
+         * transferDataSuspended (was 0x31). */
+        return UDS_STATUS_ERR_TRANSFER_SUSPENDED;   /* NRC 0x71 */
+    }
+
+    /* --- Validate block sequence counter --- */
+    if (block_seq != tctx->next_expected_block_seq) {
+        return UDS_STATUS_ERR_TP_UNEXPECTED_PDU;   /* mapped → NRC 0x73 */
     }
 
     /* --- Update running CRC-32 (REQ-FLASH-003) --- */
@@ -327,6 +356,10 @@ uds_status_t uds_service_0x36_handler(
     /* Update bytes_remaining. */
     tctx->bytes_remaining -= (uint32_t)payload_len;
 
+    /* [EDS#441] Remember it so a repeat is recognised. */
+    tctx->last_block_valid = true;
+    tctx->last_block_seq   = block_seq;
+
     /* --- Advance block counter (with wrap, REQ-DL-001) --- */
     if (tctx->next_expected_block_seq == (uint8_t)SVC_0x36_MAX_BLOCK_SEQ) {
         tctx->next_expected_block_seq = (uint8_t)SVC_0x36_WRAP_BLOCK_SEQ;
@@ -383,9 +416,28 @@ static uds_status_t s_handle_upload_block(
     tctx = uds_transfer_ctx_get();
     ops  = uds_flash_ops_get();
 
-    /* --- Validate block sequence counter (same logic as download) --- */
     block_seq = req->data[SVC_0x36_BLOCK_SEQ_OFFSET];
 
+    /* [EDS#441] Repeat of the last block (lost response): Table 451 has the
+     * server resend the previous data. It's still in write_buf, which is
+     * only refilled by the next new block. */
+    if (tctx->last_block_valid && (block_seq == tctx->last_block_seq)) {
+        status = uds_service_write_pos_sid((uint8_t)UDS_SID_TRANSFER_DATA, resp);
+        if (status != UDS_STATUS_OK) {
+            return status;
+        }
+        resp->data[1U] = block_seq;
+        (void)memcpy(&resp->data[2U], tctx->write_buf, (size_t)tctx->last_block_len);
+        resp->length = (uint16_t)(2U + tctx->last_block_len);
+        return UDS_STATUS_OK;
+    }
+
+    /* [EDS#441] All data already sent: NRC 0x24 (Table 454). */
+    if (tctx->bytes_remaining == (uint32_t)0U) {
+        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE; /* mapped → NRC 0x24 */
+    }
+
+    /* --- Validate block sequence counter (same logic as download) --- */
     if (block_seq != tctx->next_expected_block_seq) {
         return UDS_STATUS_ERR_TP_UNEXPECTED_PDU; /* mapped → NRC 0x73 */
     }
@@ -408,6 +460,11 @@ static uds_status_t s_handle_upload_block(
     /* Advance read address and decrement remaining. */
     tctx->next_write_address += bytes_to_read;
     tctx->bytes_remaining    -= bytes_to_read;
+
+    /* [EDS#441] Remember it so a repeat can be resent. */
+    tctx->last_block_valid = true;
+    tctx->last_block_seq   = block_seq;
+    tctx->last_block_len   = (uint16_t)bytes_to_read;
 
     /* --- Advance block counter with wrap (REQ-DL-001 applies to upload too) --- */
     if (tctx->next_expected_block_seq == (uint8_t)SVC_0x36_MAX_BLOCK_SEQ) {

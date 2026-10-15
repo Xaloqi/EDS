@@ -25,6 +25,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **TransferData accepts a repeated block** (`#441`). ISO 14229-1:2026
+  §14.4.4 Table 454: a request repeating the previous blockSequenceCounter
+  "shall be accepted by the server". That's the client's retry after a lost
+  positive response. EDS answered NRC 0x73, failing the whole transfer. A
+  repeat now gets a positive response without re-writing (download) or
+  resends the previous data (upload). Excess data now gets ISO's NRCs: a
+  block after all memorySize data → 0x24, a block longer than what remains
+  → 0x71 transferDataSuspended (was 0x31). The checks run in Figure 34's
+  order.
 - **Session transitions now follow ISO 14229-1:2026 §9.2.1** (`SEC-DSC-RELOCK-01`,
   `SEC-SESS-COMMRESTORE-01`). Every accepted DiagnosticSessionControl
   transition re-locks SecurityAccess: to the default session, and between
