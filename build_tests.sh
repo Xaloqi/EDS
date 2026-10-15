@@ -407,6 +407,8 @@ TESTS=(
     test_doip_lifecycle
     # [EDS#418] FreeRTOS tick-to-ms conversion behind eds_platform_uptime_ms().
     test_freertos_ticks
+    # [EDS#411, EDS#412] core/eds_elapsed.h: carry, saturation, wrap.
+    test_eds_elapsed
     # [SEC-TRNG-FAILCLOSED-01] Production-configuration entropy fail-closed
     # behaviour. Compiled separately (see extra_flags_for_test above) with
     # CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 because that behaviour cannot be

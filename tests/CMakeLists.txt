@@ -677,6 +677,12 @@ add_diag_test(test_freertos_ticks
         "${TEST_UNIT_DIR}/test_freertos_ticks.c"
 )
 
+# [EDS#411, EDS#412] core/eds_elapsed.h: carry, saturation, wrap.
+add_diag_test(test_eds_elapsed
+    SOURCES
+        "${TEST_UNIT_DIR}/test_eds_elapsed.c"
+)
+
 # ---------------------------------------------------------------------------
 # test_trng_fail_closed  [SEC-TRNG-FAILCLOSED-01]
 #      Module under test: core/uds_security_algo.c in its PRODUCTION
