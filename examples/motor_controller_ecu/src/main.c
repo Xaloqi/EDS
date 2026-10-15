@@ -81,6 +81,8 @@
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
 #include "nvm_store.h"
+#include "platform_api.h"   /* eds_platform_uptime_ms() */
+#include "eds_elapsed.h"    /* [EDS#426] elapsed-time ticking */
 
 /* --------------------------------------------------------------------------
  * Generated headers (from diagnostics_config.yaml via codegen.py)
@@ -96,6 +98,8 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/can.h>
 #include <zephyr/logging/log.h>
+
+#include <string.h>
 
 LOG_MODULE_REGISTER(motor_controller_ecu, LOG_LEVEL_INF);
 
@@ -117,6 +121,10 @@ LOG_MODULE_REGISTER(motor_controller_ecu, LOG_LEVEL_INF);
 
 #define DIAG_OVERRUN_LOG_THRESHOLD    (3U)
 
+/* [EDS#426] Most 1 ms ticks one loop iteration runs. Time beyond it is
+ * carried by eds_elapsed_consume() into the next iterations, not lost. */
+#define DIAG_TICK_MAX_PER_LOOP_MS     (100U)
+
 /* =============================================================================
  * DTC Registration helpers
  * Called from uds_generated_init() via generated/uds_init.c
@@ -128,6 +136,32 @@ extern void register_dtcs(void);
 /* =============================================================================
  * Diagnostics task (1 ms poll loop)
  * ============================================================================= */
+
+/* [EDS#426] A complete ISO-TP request: dispatch it and send the response.
+ * Single diagnostics thread, so no session lock is needed (unlike
+ * basic_ecu, where another thread shares uds_server_ctx_t). */
+static void on_isotp_rx_complete(const uint8_t *data, uint32_t length, void *arg)
+{
+    uds_server_ctx_t *srv = (uds_server_ctx_t *)arg;
+    isotp_ctx_t      *tp  = uds_generated_get_isotp();
+
+    /* Static buffers — no stack allocation of uds_msg_buf_t. */
+    static uds_msg_buf_t s_req;
+    static uds_msg_buf_t s_resp;
+
+    if ((data == NULL) || (srv == NULL) || (tp == NULL)) { return; }
+    if ((length == 0U) || (length > (uint32_t)UDS_MAX_PAYLOAD_LEN)) { return; }
+
+    (void)memcpy(s_req.data, data, (size_t)length);
+    s_req.length  = (uint16_t)length;
+    s_resp.length = 0U;
+
+    (void)uds_server_process_request(srv, &s_req, &s_resp);
+
+    if (s_resp.length > 0U) {
+        (void)isotp_transmit(tp, s_resp.data, s_resp.length);
+    }
+}
 
 static void s_on_session_change(uds_session_type_t old_sess,
                                 uds_session_type_t new_sess)
@@ -187,58 +221,68 @@ static void diag_task_fn(void *p1, void *p2, void *p3)
         return;
     }
 
-    {
-        uds_server_ctx_t *mc_srv = uds_generated_get_server();
-        if (mc_srv != NULL) {
-            (void)uds_periodic_init();
-            (void)uds_session_register_change_cb(mc_srv->cfg.session_ctx,
-                                                  s_on_session_change);
-        }
+    uds_server_ctx_t *mc_srv = uds_generated_get_server();
+    isotp_ctx_t      *mc_tp  = uds_generated_get_isotp();
+    if ((mc_srv == NULL) || (mc_tp == NULL)) {
+        LOG_ERR("[MC] UDS server or ISO-TP context NULL after init");
+        return;
     }
+    (void)uds_periodic_init();
+    (void)uds_session_register_change_cb(mc_srv->cfg.session_ctx,
+                                          s_on_session_change);
 
     LOG_INF("[MC] Motor controller diagnostics running");
     LOG_INF("[MC] RX=0x%03X TX=0x%03X", DIAG_RX_CAN_ID, DIAG_TX_CAN_ID);
 
-    /* ── 1 ms poll loop ───────────────────────────────────────────────────── */
-    int64_t next_tick = k_uptime_get() + 1LL;
+    /* ── 1 ms poll loop ─────────────────────────────────────────────────────
+     * [EDS#426] Until this fix the loop never read CAN RX (so no request was
+     * ever answered), never ticked ISO-TP, and passed NULL to
+     * uds_server_tick_1ms() (so S3 and the security lockout never ran).
+     * Ticks follow elapsed time [EDS#411]: one iteration is at least a
+     * kernel tick plus the loop's own work, not 1 ms. */
+    eds_elapsed_t tick_clock;
+    eds_elapsed_init(&tick_clock, eds_platform_uptime_ms());
 
     while (true) {
-        int64_t now = k_uptime_get();
+        k_msleep(1);
 
-        if (now >= next_tick) {
-            if ((now - next_tick) > (int64_t)DIAG_OVERRUN_LOG_THRESHOLD) {
-                overrun_count++;
-                if ((overrun_count % (uint32_t)10U) == (uint32_t)1U) {
-                    LOG_WRN("[MC] Tick overrun (×%u)", (unsigned)overrun_count);
-                }
+        uds_can_frame_t rx_frame;
+        bool            frame_ready = false;
+        status = can_transport_receive(can, &rx_frame, &frame_ready);
+        if ((status == UDS_STATUS_OK) && frame_ready) {
+            (void)isotp_process_rx_frame(mc_tp, &rx_frame,
+                                          on_isotp_rx_complete, mc_srv);
+        }
+
+        uint32_t elapsed = eds_elapsed_consume(&tick_clock, eds_platform_uptime_ms(),
+                                               DIAG_TICK_MAX_PER_LOOP_MS);
+        if (elapsed > (1U + DIAG_OVERRUN_LOG_THRESHOLD)) {
+            overrun_count++;
+            if ((overrun_count % (uint32_t)10U) == (uint32_t)1U) {
+                LOG_WRN("[MC] Tick overrun (×%u)", (unsigned)overrun_count);
             }
-            next_tick = now + 1LL;
-
-            /* Drive all 1 ms tick functions */
-            (void)uds_server_tick_1ms(NULL);
+        }
+        for (uint32_t i = 0U; i < elapsed; i++) {
+            (void)isotp_tick_1ms(mc_tp);
+            (void)uds_server_tick_1ms(mc_srv);
             (void)uds_periodic_tick_1ms();
         }
 
         {
             static uds_msg_buf_t s_periodic_frame;
-            isotp_ctx_t *mc_tp = uds_generated_get_isotp();
-            if (mc_tp != NULL) {
-                while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
-                    /* [EDS#194] Re-queue on ISO-TP busy instead of silently dropping
-                     * this period -- isotp_transmit() can legitimately return BUSY
-                     * mid multi-frame send; retry on the next 1ms tick rather than
-                     * losing the period, and stop draining this tick (the same busy
-                     * channel would just fail the next pop too). */
-                    if (isotp_transmit(mc_tp, s_periodic_frame.data,
-                                       (uint32_t)s_periodic_frame.length) != UDS_STATUS_OK) {
-                        (void)uds_periodic_requeue_last();
-                        break;
-                    }
+            while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
+                /* [EDS#194] Re-queue on ISO-TP busy instead of silently dropping
+                 * this period -- isotp_transmit() can legitimately return BUSY
+                 * mid multi-frame send; retry on the next 1ms tick rather than
+                 * losing the period, and stop draining this tick (the same busy
+                 * channel would just fail the next pop too). */
+                if (isotp_transmit(mc_tp, s_periodic_frame.data,
+                                   (uint32_t)s_periodic_frame.length) != UDS_STATUS_OK) {
+                    (void)uds_periodic_requeue_last();
+                    break;
                 }
             }
         }
-
-        k_sleep(K_USEC(500));
     }
 }
 
