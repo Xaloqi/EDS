@@ -54,6 +54,7 @@
 #include "uds_session.h"
 #include "generated_config.h"
 #include "uds_security_algo.h"
+#include "eds_elapsed.h"      /* [EDS#411] elapsed-time ticking */
 
 /* DoIP platform */
 #include "platform_doip.h"
@@ -129,18 +130,33 @@ static void doip_unlock_cb(void)
  * UDS tick task [EDS#191]
  * ============================================================================= */
 
+/* [EDS#411] Most 1 ms ticks one loop iteration runs while holding the
+ * locks. Time beyond it is carried by eds_elapsed_consume(), not lost. */
+#define DIAG_TICK_MAX_PER_LOOP_MS (100U)
+
 static void uds_tick_task(void *pvParameters)
 {
     uds_server_ctx_t *srv = (uds_server_ctx_t *)pvParameters;
+    eds_elapsed_t     tick_clock;
+
+    /* [EDS#411] Tick once per millisecond actually elapsed, not once per
+     * loop: vTaskDelay(1) is one tick, which is 10 ms at 100 Hz, and a
+     * dispatch holding the locks delays the loop further. Per-loop ticking
+     * ran S3 10x long at 100 Hz (measured on #411). */
+    eds_elapsed_init(&tick_clock, eds_platform_uptime_ms());
 
     for (;;) {
         vTaskDelay((TickType_t)1U);
+        uint32_t elapsed = eds_elapsed_consume(&tick_clock, eds_platform_uptime_ms(),
+                                               DIAG_TICK_MAX_PER_LOOP_MS);
         /* [EDS#353] Same lock doip_lock_cb()/doip_unlock_cb() wrap
          * uds_server_process_request() with below. */
         (void)xSemaphoreTake(s_session_lock, portMAX_DELAY);
         (void)xSemaphoreTake(s_security_lock, portMAX_DELAY);
-        (void)uds_server_tick_1ms(srv);
-        (void)uds_periodic_tick_1ms();
+        for (uint32_t i = 0U; i < elapsed; i++) {
+            (void)uds_server_tick_1ms(srv);
+            (void)uds_periodic_tick_1ms();
+        }
         (void)xSemaphoreGive(s_security_lock);
         (void)xSemaphoreGive(s_session_lock);
     }

@@ -64,6 +64,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **UDS timers on FreeRTOS run at the right speed at any tick rate**
+  (`#411`, `#413`). The platform poll task that `eds_freertos_start()`
+  creates for every FreeRTOS CAN integration, and the FreeRTOS examples' own
+  tick loops, called the 1 ms tick functions once per `vTaskDelay(1)`, i.e.
+  once per kernel tick. Below 1 kHz every timer (S3, SecurityAccess lockout,
+  ISO-TP N_Cr/N_Bs/N_As, periodic scheduling) ran slow by
+  `1000 / configTICK_RATE_HZ`, and above 1 kHz they ran fast. All now tick
+  once per millisecond actually elapsed via `eds_elapsed_consume()`.
+  Measured in QEMU (`basic_ecu_doip_freertos`, S3 = 5 s): before, S3
+  expired between 45 and 52 s at 100 Hz, 16 and 17.5 s at 300 Hz, and
+  before 2.6 s at 2000 Hz; after, between 4.8 and 5.2 s at 100, 300, 1000
+  and 2000 Hz.
+  `examples/basic_ecu_doip` (Zephyr) uses the same helper in place of its
+  inline `#407` copy, and now carries time past its per-iteration cap
+  instead of dropping it.
+- **`CONFIG_WATCHDOG=n` builds no longer fail to link on boards whose
+  devicetree enables a watchdog** (`#420`). `zephyr_wdt.c` now takes its
+  documented degraded mode whenever watchdog support is not built.
+  `examples/basic_ecu_doip` builds for FRDM-K64F as the README documents.
 - **FreeRTOS `eds_platform_uptime_ms()` is exact at any
   `configTICK_RATE_HZ`** (`#418`). It multiplied ticks by
   `portTICK_PERIOD_MS`, the integer `1000 / configTICK_RATE_HZ`. At 300 Hz

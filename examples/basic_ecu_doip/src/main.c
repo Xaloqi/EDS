@@ -20,7 +20,7 @@
  * THREAD MODEL:
  *   main()        — init → uds_generated_init → start tick + DoIP → return
  *   uds_tick_task — 1 ms poll loop: uds_server_tick_1ms() + uds_periodic_tick_1ms(),
- *                   once per millisecond actually elapsed [EDS#401].
+ *                   once per millisecond actually elapsed [EDS#401, EDS#411].
  *                   [EDS#191] A DoIP-only build has no CAN diag_task, so
  *                   without this thread the S3 session timeout and the
  *                   SecurityAccess lockout countdown never progress — a
@@ -75,10 +75,12 @@
 #include "uds_security_algo.h"
 #include "uds_periodic.h"
 #include "uds_session.h"
+#include "eds_elapsed.h"     /* [EDS#411] elapsed-time ticking */
 
 /* --------------------------------------------------------------------------
  * DoIP platform headers
  * -------------------------------------------------------------------------- */
+#include "platform_api.h"    /* eds_platform_uptime_ms() */
 #include "platform_doip.h"   /* eds_doip_platform_start() */
 #include "doip_server.h"     /* DOIP_PORT */
 #include "zephyr_mutex.h"
@@ -129,10 +131,11 @@ LOG_MODULE_REGISTER(basic_ecu_doip, LOG_LEVEL_INF);
  * request handling, same rationale as the CAN example's own priority split.
  * ============================================================================= */
 
-/* [EDS#401] Most 1 ms ticks one loop iteration will catch up. A gap this
- * long cannot happen while the 100 ms watchdog window holds; the cap only
- * keeps the catch-up loop bounded. */
-#define DIAG_TICK_CATCHUP_MAX_MS          (1000)
+/* [EDS#411] Most 1 ms ticks one loop iteration runs, which bounds the work
+ * done while the session/security locks are held. Time beyond it is not
+ * lost: eds_elapsed_consume() carries it into the next iterations (up to
+ * EDS_ELAPSED_MAX_CARRY_MS). */
+#define DIAG_TICK_MAX_PER_LOOP_MS         (100U)
 
 #ifndef CONFIG_DIAG_TICK_TASK_STACK_SIZE
 #define CONFIG_DIAG_TICK_TASK_STACK_SIZE   (1024U)
@@ -209,23 +212,22 @@ static void uds_tick_task_entry(void *p1, void *p2, void *p3)
      * adds a tick (~2 ms at 1 kHz), and a dispatch holding the locks below
      * delays it further. Counting iterations ran every UDS timer (S3,
      * SecurityAccess lockout, periodic) at about half speed. Run one tick
-     * per millisecond actually elapsed instead. */
-    int64_t last_tick_ms = k_uptime_get();
+     * per millisecond actually elapsed instead, via the shared helper
+     * [EDS#411]. */
+    eds_elapsed_t tick_clock;
+    eds_elapsed_init(&tick_clock, eds_platform_uptime_ms());
 
     while (true) {
         k_msleep(1);
-        int64_t now_ms  = k_uptime_get();
-        int64_t elapsed = now_ms - last_tick_ms;
-        last_tick_ms    = now_ms;
-        if (elapsed > DIAG_TICK_CATCHUP_MAX_MS) {
-            elapsed = DIAG_TICK_CATCHUP_MAX_MS;
-        }
+        int64_t  now_ms  = k_uptime_get();
+        uint32_t elapsed = eds_elapsed_consume(&tick_clock, eds_platform_uptime_ms(),
+                                               DIAG_TICK_MAX_PER_LOOP_MS);
 
         /* [EDS#353] Same lock doip_lock_cb()/doip_unlock_cb() wrap
          * uds_server_process_request() with below. */
         (void)diag_mutex_lock(&s_session_lock);
         (void)diag_mutex_lock(&s_security_lock);
-        for (int64_t i = 0; i < elapsed; i++) {
+        for (uint32_t i = 0U; i < elapsed; i++) {
             (void)uds_server_tick_1ms(srv);
             (void)uds_periodic_tick_1ms();
         }

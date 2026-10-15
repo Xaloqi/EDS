@@ -53,6 +53,7 @@
 #include "uds_server.h"
 #include "uds_periodic.h"
 #include "uds_session.h"
+#include "eds_elapsed.h"      /* [EDS#411] elapsed-time ticking */
 #include "isotp.h"
 #include "can_transport.h"
 #include "freertos_can.h"
@@ -172,6 +173,10 @@ static void on_isotp_rx_complete(
  * UDS poll task  (1 ms tick — identical to basic_ecu_freertos)
  * =============================================================================*/
 
+/* [EDS#411] Most 1 ms ticks one poll iteration runs. Time beyond it is
+ * carried by eds_elapsed_consume() into the next iterations, not lost. */
+#define DIAG_TICK_MAX_PER_LOOP_MS (100U)
+
 static void uds_poll_task(void *arg)
 {
     uds_server_ctx_t *srv = (uds_server_ctx_t *)arg;
@@ -180,6 +185,13 @@ static void uds_poll_task(void *arg)
     uds_can_frame_t   rx_frame;
     bool              frame_ready;
     uds_status_t      status;
+    eds_elapsed_t     tick_clock;
+    uint32_t          elapsed;
+    uint32_t          i;
+
+    /* [EDS#411] Tick once per millisecond actually elapsed, not once per
+     * loop: vTaskDelay(1) is one tick (10 ms at 100 Hz). */
+    eds_elapsed_init(&tick_clock, eds_platform_uptime_ms());
 
     for (;;) {
         vTaskDelay((TickType_t)1U);
@@ -192,9 +204,13 @@ static void uds_poll_task(void *arg)
                                           on_isotp_rx_complete, (void *)srv);
         }
 
-        (void)isotp_tick_1ms(tp);
-        (void)uds_server_tick_1ms(srv);
-        (void)uds_periodic_tick_1ms();
+        elapsed = eds_elapsed_consume(&tick_clock, eds_platform_uptime_ms(),
+                                      DIAG_TICK_MAX_PER_LOOP_MS);
+        for (i = 0U; i < elapsed; i++) {
+            (void)isotp_tick_1ms(tp);
+            (void)uds_server_tick_1ms(srv);
+            (void)uds_periodic_tick_1ms();
+        }
 
         {
             static uds_msg_buf_t s_periodic_frame;
