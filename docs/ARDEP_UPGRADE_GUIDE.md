@@ -257,7 +257,7 @@ is compatible with ARDEP's MCUboot-based DFU because:
    service trio:
    - **0x34 RequestDownload** — validates address range, erases flash, initialises
      the transfer state machine, returns `maxNumberOfBlockLength`
-   - **0x36 TransferData** — validates block sequence counter (wraps 0xFF→0x01),
+   - **0x36 TransferData** — validates block sequence counter (rolls over 0xFF→0x00),
      accumulates data, calls `flash_write_cb` per block, maintains running CRC-32
    - **0x37 RequestTransferExit** — validates optional CRC-32 record, calls
      `flash_verify_cb`, resets transfer state to IDLE
