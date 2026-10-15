@@ -1,0 +1,23 @@
+/*
+ * Xaloqi EDS — examples/basic_ecu_doip, NUCLEO-H753ZI flash-download bench [EDS#423]
+ *
+ * Applied only with -DDIAG_DOIP_FLASH_BENCH=ON (CMakeLists.txt). Adds the
+ * partition platform/zephyr/zephyr_flash_ops.c writes RequestDownload data
+ * to: FIXED_PARTITION_ID(image_1) resolves by devicetree NODE label.
+ *
+ * Placed in flash bank 2 (offset 0x100000, 1 MB), which the board's default
+ * partitions (up to 0xE0000) and this example's image (linked at 0x08000000,
+ * ~160 KB) never touch. Addresses in RequestDownload are partition-relative
+ * flash offsets: this region is 0x00100000..0x001FFFFF.
+ *
+ * Bench only: nothing boots from here. Booting a downloaded image is phase 2
+ * (EDS#425).
+ */
+&flash0 {
+	partitions {
+		eds_dl_bench: image_1: partition@100000 {
+			label = "eds-dl-bench";
+			reg = <0x00100000 DT_SIZE_M(1)>;
+		};
+	};
+};

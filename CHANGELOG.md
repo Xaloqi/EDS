@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`eds_doip_set_pending_callback()`** (`#423`): lets the DoIP server
+  finish requests that answer NRC 0x78 (response pending) and complete
+  later, one bounded step at a time. RequestDownload's chunked erase does
+  this whenever the flash ops provide `erase_step_cb`
+  (`zephyr_flash_ops.c`). Over DoIP nothing drove those steps, so the
+  tester got 0x78 and never a final response, and no firmware download
+  over DoIP could start. The server calls the callback inside the lock
+  pair, checks in before each call, sends each frame, and stops at the
+  final response or after `DOIP_MAX_PENDING_MS` (120 s). Not registering
+  one changes nothing.
+- **NUCLEO-H753ZI firmware-download bench** (`#423`):
+  `-DDIAG_DOIP_FLASH_BENCH=ON` on `examples/basic_ecu_doip` makes
+  RequestDownload / TransferData / RequestTransferExit write a 1 MiB
+  partition in flash bank 2 over DoIP. Measured: 1 MiB erased in 6.6 s,
+  transferred in 7.7 s on one connection, verified at 0x37, read back
+  over SWD byte-identical, watchdog clean. Bench only; booting the image
+  is `#425`.
 - **`eds_elapsed_consume()` in `core/eds_elapsed.h`** (`#411`): the
   shared elapsed-time helper for poll loops that tick 1 ms timers. It hands
   out the ms elapsed since the last call, at most `cap_ms` per call. The
@@ -64,6 +81,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Firmware downloads above ~750 KiB no longer reset the board at
+  RequestTransferExit** (`#428`). `zephyr_flash_ops.c` reads back and CRCs
+  the whole image at 0x37 with nothing feeding the watchdog. That takes
+  34 ms per 256 KiB on STM32H753, past the 100 ms window for larger
+  images (IWDG reset measured at 1 MiB). The read-back is now bridged by
+  the same feed timer as an erase step (`#312`). This affects CAN secure
+  boot as well as DoIP.
 - **UDS timers on FreeRTOS run at the right speed at any tick rate**
   (`#411`, `#413`). The platform poll task that `eds_freertos_start()`
   creates for every FreeRTOS CAN integration, and the FreeRTOS examples' own

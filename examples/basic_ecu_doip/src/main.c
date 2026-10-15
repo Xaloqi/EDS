@@ -85,6 +85,10 @@
 #include "doip_server.h"     /* DOIP_PORT */
 #include "zephyr_mutex.h"
 #include "zephyr_wdt.h"
+#if defined(DIAG_DOIP_FLASH_BENCH)
+#include "zephyr_flash_ops.h" /* [EDS#423] bench flash download */
+#include "services.h"         /* uds_service_0x34_pending_tick() */
+#endif
 #include "nvm_store.h"
 #if defined(DIAG_WCET_MEASURE)
 #include "zephyr_wcet.h"     /* [#31] see header comment */
@@ -299,6 +303,20 @@ int main(void)
      *
      * For a "transport: both" build, pass the real CAN transport here.
      */
+#if defined(DIAG_DOIP_FLASH_BENCH)
+    /* [EDS#423] Bench only: RequestDownload writes to real flash (bank 2,
+     * partition image_1, see nucleo_h753zi_flash_bench.overlay). The erase
+     * runs in steps after a 0x78; the pending callback lets the DoIP server
+     * drive those steps and send the final response. Registered before
+     * uds_generated_init(), as zephyr_flash_ops.h requires. */
+    LOG_WRN("[BENCH] Flash-download build: 0x34/0x36/0x37 write flash bank 2.");
+    if (zephyr_flash_ops_init() != UDS_STATUS_OK) {
+        LOG_ERR("Flash ops init failed.");
+        return -1;
+    }
+    eds_doip_set_pending_callback(uds_service_0x34_pending_tick);
+#endif
+
     status = uds_generated_init(NULL, 0U, 0U);
     if (status != UDS_STATUS_OK) {
         LOG_ERR("UDS stack init failed: 0x%02X", (unsigned)status);
@@ -329,6 +347,7 @@ int main(void)
     eds_doip_set_lock_callbacks(doip_lock_cb, doip_unlock_cb);
     eds_doip_set_checkin_callback(doip_checkin_cb);   /* [EDS#399] */
 
+
     /*
      * [EDS#399] Arm the watchdog here, immediately before its only feeder
      * starts. Not earlier: on this example's NVS backend, nvm_store_init()
@@ -344,6 +363,10 @@ int main(void)
         LOG_ERR("Watchdog arming failed — refusing to run unsupervised.");
         return -1;
     }
+#if defined(DIAG_DOIP_FLASH_BENCH)
+    /* [EDS#423] Feed across each bounded erase step (#312). */
+    zephyr_flash_ops_set_wdt(&s_wdt);
+#endif
 
     /*
      * [EDS#191] Start the 1 ms UDS tick task before the DoIP server so

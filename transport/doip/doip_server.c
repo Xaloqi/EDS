@@ -68,6 +68,9 @@ static eds_doip_unlock_cb_t s_doip_unlock_cb = NULL;
  * eds_doip_set_checkin_callback() in doip_server.h. */
 static eds_doip_checkin_cb_t s_doip_checkin_cb = NULL;
 
+/* [EDS#423] Response-pending continuation -- see eds_doip_set_pending_callback(). */
+static eds_doip_pending_cb_t s_doip_pending_cb = NULL;
+
 /* ---------------------------------------------------------------------------
  * Internal helpers — forward declarations
  * ------------------------------------------------------------------------ */
@@ -80,6 +83,13 @@ static uds_status_t doip_send_diagnostic_positive_ack(doip_server_state_t *s,
 static uds_status_t doip_send_diagnostic_negative_ack(doip_server_state_t *s,
                                                         uint8_t nack_code);
 static uds_status_t doip_send_alive_check_response(doip_server_state_t *s);
+static uds_status_t doip_send_uds_response(doip_server_state_t *s,
+                                           uint8_t original_sid,
+                                           uds_msg_buf_t *resp_buf);
+static bool doip_is_response_pending(const uds_msg_buf_t *resp_buf);
+static uds_status_t doip_run_pending(doip_server_state_t *s,
+                                     uint8_t original_sid,
+                                     uds_msg_buf_t *resp_buf);
 static uds_status_t doip_send_frame(doip_server_state_t *s,
                                      uint16_t payload_type,
                                      const uint8_t *payload,
@@ -180,6 +190,11 @@ void eds_doip_set_lock_callbacks(
 void eds_doip_set_checkin_callback(eds_doip_checkin_cb_t cb)
 {
     s_doip_checkin_cb = cb;
+}
+
+void eds_doip_set_pending_callback(eds_doip_pending_cb_t cb)
+{
+    s_doip_pending_cb = cb;
 }
 
 /* [EDS#399] Called by eds_doip_server_run() every time it wakes. */
@@ -411,63 +426,12 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
         }
         uds_status_t resp_send_rc = UDS_STATUS_OK;
         if (dispatch_rc == UDS_STATUS_OK && resp_buf->length > 0U) {
-            /* Encode DoIP Diagnostic Message response:
-             * payload = our_logical_addr(2B) + tester_addr(2B) + UDS_resp(N) */
-            uint32_t resp_payload_len = (uint32_t)resp_buf->length + 4U;
-
-            /* [Issue #108] The dispatched positive response does not fit
-             * this connection's DoIP frame budget (uds_msg_buf_t.data is
-             * sized up to UDS_MAX_PAYLOAD_LEN=4095 bytes, 11 bytes above
-             * what a DOIP_MAX_PDU_SIZE frame can carry after the 4-byte
-             * DoIP address header and DOIP_HEADER_LEN). The request's
-             * positive ack was already sent (ISO 13400-2 §9.5), so the
-             * tester is committed to waiting for a response frame here —
-             * dropping it silently just leaves the tester to time out on
-             * its own P2 timer. Downgrade to a UDS negative response
-             * (NRC 0x14 RESPONSE_TOO_LONG, ISO 14229-1) instead: it is
-             * always small (SID + 0x7F + original SID + NRC), so it is
-             * guaranteed to fit, and gives the tester a deterministic
-             * protocol-level rejection rather than silence.
-             *
-             * Deliberately NOT counted in ctx->negative_response_count: that
-             * counter lives in the UDS core (core/uds_server.c) and tracks
-             * outcomes of the *dispatch* itself (bad SID, access denied,
-             * handler error) — see uds_server_process_request(). Here,
-             * dispatch succeeded (dispatch_rc == UDS_STATUS_OK); the
-             * *transport* is what could not carry the result. Folding this
-             * in would blur two different failure classes behind one
-             * counter and would mean reaching into uds_server_ctx_t's
-             * internals from the transport layer, which this module
-             * otherwise never does (uds_ctx is always treated as opaque,
-             * passed only to uds_server_process_request()). */
-            if (resp_payload_len > (uint32_t)(DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN)) {
-                (void)uds_server_build_negative_response(original_sid,
-                                                          UDS_NRC_RESPONSE_TOO_LONG,
-                                                          resp_buf);
-                resp_payload_len = (uint32_t)resp_buf->length + 4U;
-            }
-            /* This guard now always holds once the downgrade above has run
-             * (the NRC PDU it builds is a fixed 3 bytes, well under budget);
-             * kept as an explicit, self-contained check anyway — rather than
-             * an `else`/unconditional fall-through — so this block's
-             * correctness never silently depends on that invariant holding
-             * elsewhere. */
-            if (resp_payload_len <= (uint32_t)(DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN)) {
-                (void)doip_encode_header(s->tx_buf, DOIP_PT_DIAGNOSTIC_MSG,
-                                         resp_payload_len);
-                s->tx_buf[DOIP_HEADER_LEN + 0U] = (uint8_t)((s->logical_address >> 8U) & 0xFFU);
-                s->tx_buf[DOIP_HEADER_LEN + 1U] = (uint8_t)(s->logical_address & 0xFFU);
-                s->tx_buf[DOIP_HEADER_LEN + 2U] = (uint8_t)((s->tester_address >> 8U) & 0xFFU);
-                s->tx_buf[DOIP_HEADER_LEN + 3U] = (uint8_t)(s->tester_address & 0xFFU);
-                (void)memcpy(&s->tx_buf[DOIP_HEADER_LEN + 4U],
-                             resp_buf->data,
-                             (size_t)resp_buf->length);
-
-                resp_send_rc = doip_send_all(
-                    s, s->tx_buf, (size_t)(DOIP_HEADER_LEN + resp_payload_len));
-                if (resp_send_rc == UDS_STATUS_OK) {
-                    s->frames_sent++;
-                }
+            resp_send_rc = doip_send_uds_response(s, original_sid, resp_buf);
+            /* [EDS#423] A 7F xx 78 answer is not the end of the exchange:
+             * finish it here if the application registered a continuation. */
+            if ((resp_send_rc == UDS_STATUS_OK) && (s_doip_pending_cb != NULL) &&
+                doip_is_response_pending(resp_buf)) {
+                resp_send_rc = doip_run_pending(s, original_sid, resp_buf);
             }
         }
         /* Suppress-positive-response: if dispatch returned suppress status,
@@ -492,6 +456,131 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
     default:
         return UDS_STATUS_OK;
     }
+}
+
+/* ---------------------------------------------------------------------------
+ * Internal: doip_send_uds_response
+ *
+ * Send one UDS response as a DoIP DiagnosticMessage from this ECU to the
+ * tester. Moved out of doip_handle_frame() unchanged (EDS#423) so the
+ * response-pending continuation sends its frames the same way.
+ * ------------------------------------------------------------------------ */
+
+static uds_status_t doip_send_uds_response(doip_server_state_t *s,
+                                           uint8_t original_sid,
+                                           uds_msg_buf_t *resp_buf)
+{
+    uds_status_t resp_send_rc = UDS_STATUS_OK;
+
+    /* Encode DoIP Diagnostic Message response:
+     * payload = our_logical_addr(2B) + tester_addr(2B) + UDS_resp(N) */
+    uint32_t resp_payload_len = (uint32_t)resp_buf->length + 4U;
+
+    /* [Issue #108] The dispatched positive response does not fit
+     * this connection's DoIP frame budget (uds_msg_buf_t.data is
+     * sized up to UDS_MAX_PAYLOAD_LEN=4095 bytes, 11 bytes above
+     * what a DOIP_MAX_PDU_SIZE frame can carry after the 4-byte
+     * DoIP address header and DOIP_HEADER_LEN). The request's
+     * positive ack was already sent (ISO 13400-2 §9.5), so the
+     * tester is committed to waiting for a response frame here —
+     * dropping it silently just leaves the tester to time out on
+     * its own P2 timer. Downgrade to a UDS negative response
+     * (NRC 0x14 RESPONSE_TOO_LONG, ISO 14229-1) instead: it is
+     * always small (SID + 0x7F + original SID + NRC), so it is
+     * guaranteed to fit, and gives the tester a deterministic
+     * protocol-level rejection rather than silence.
+     *
+     * Deliberately NOT counted in ctx->negative_response_count: that
+     * counter lives in the UDS core (core/uds_server.c) and tracks
+     * outcomes of the *dispatch* itself (bad SID, access denied,
+     * handler error) — see uds_server_process_request(). Here,
+     * dispatch succeeded (dispatch_rc == UDS_STATUS_OK); the
+     * *transport* is what could not carry the result. Folding this
+     * in would blur two different failure classes behind one
+     * counter and would mean reaching into uds_server_ctx_t's
+     * internals from the transport layer, which this module
+     * otherwise never does (uds_ctx is always treated as opaque,
+     * passed only to uds_server_process_request()). */
+    if (resp_payload_len > (uint32_t)(DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN)) {
+        (void)uds_server_build_negative_response(original_sid,
+                                                  UDS_NRC_RESPONSE_TOO_LONG,
+                                                  resp_buf);
+        resp_payload_len = (uint32_t)resp_buf->length + 4U;
+    }
+    /* This guard now always holds once the downgrade above has run
+     * (the NRC PDU it builds is a fixed 3 bytes, well under budget);
+     * kept as an explicit, self-contained check anyway — rather than
+     * an `else`/unconditional fall-through — so this block's
+     * correctness never silently depends on that invariant holding
+     * elsewhere. */
+    if (resp_payload_len <= (uint32_t)(DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN)) {
+        (void)doip_encode_header(s->tx_buf, DOIP_PT_DIAGNOSTIC_MSG,
+                                 resp_payload_len);
+        s->tx_buf[DOIP_HEADER_LEN + 0U] = (uint8_t)((s->logical_address >> 8U) & 0xFFU);
+        s->tx_buf[DOIP_HEADER_LEN + 1U] = (uint8_t)(s->logical_address & 0xFFU);
+        s->tx_buf[DOIP_HEADER_LEN + 2U] = (uint8_t)((s->tester_address >> 8U) & 0xFFU);
+        s->tx_buf[DOIP_HEADER_LEN + 3U] = (uint8_t)(s->tester_address & 0xFFU);
+        (void)memcpy(&s->tx_buf[DOIP_HEADER_LEN + 4U],
+                     resp_buf->data,
+                     (size_t)resp_buf->length);
+
+        resp_send_rc = doip_send_all(
+            s, s->tx_buf, (size_t)(DOIP_HEADER_LEN + resp_payload_len));
+        if (resp_send_rc == UDS_STATUS_OK) {
+            s->frames_sent++;
+        }
+    }
+
+    return resp_send_rc;
+}
+
+/* True for a 7F xx 78 (requestCorrectlyReceived-ResponsePending) response. */
+static bool doip_is_response_pending(const uds_msg_buf_t *resp_buf)
+{
+    return (resp_buf->length == 3U) &&
+           (resp_buf->data[0] == 0x7FU) &&
+           (resp_buf->data[2] == (uint8_t)UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING);
+}
+
+/* ---------------------------------------------------------------------------
+ * Internal: doip_run_pending  [EDS#423]
+ *
+ * Drive a response-pending exchange to its final response through the
+ * registered continuation -- see eds_doip_set_pending_callback().
+ * ------------------------------------------------------------------------ */
+
+static uds_status_t doip_run_pending(doip_server_state_t *s,
+                                     uint8_t original_sid,
+                                     uds_msg_buf_t *resp_buf)
+{
+    uds_status_t  rc = UDS_STATUS_OK;
+    bool          more = true;
+    eds_elapsed_t pending_age;
+
+    eds_elapsed_init(&pending_age, s_ops->uptime_ms());
+
+    while (more && doip_is_response_pending(resp_buf)) {
+        if (eds_elapsed_since(&pending_age, s_ops->uptime_ms()) >=
+            (uint32_t)DOIP_MAX_PENDING_MS) {
+            rc = UDS_STATUS_ERR_TIMEOUT;
+            break;
+        }
+        doip_checkin();
+        if (s_doip_lock_cb != NULL) {
+            s_doip_lock_cb();
+        }
+        more = s_doip_pending_cb(resp_buf);
+        if (s_doip_unlock_cb != NULL) {
+            s_doip_unlock_cb();
+        }
+        if (more) {
+            rc = doip_send_uds_response(s, original_sid, resp_buf);
+            if (rc != UDS_STATUS_OK) {
+                break;
+            }
+        }
+    }
+    return rc;
 }
 
 /* ---------------------------------------------------------------------------
