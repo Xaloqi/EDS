@@ -2211,8 +2211,19 @@ extern void test_isotp_padding__test_fd_sf_padded_one_tail_byte(void);
 #endif /* ISOTP_ENABLE_CAN_FD */
 #endif /* ISOTP_TX_PADDING */
 
+/* [EDS#453] ISO 15765-2:2024 Table 22: N_As, N_Ar, N_Bs and N_Cr time out
+ * at 1000 ms (a lower limit). EDS defaulted to 25/25/75/150 ms. */
+ZTEST(test_isotp_init, test_isotp_timeouts_default_to_iso_15765_2_2024)
+{
+    zassert_equal(1000U, (uint32_t)ISOTP_TIMEOUT_AS_MS, "N_As default is not ISO 15765-2:2024's 1000 ms (EDS#453)");
+    zassert_equal(1000U, (uint32_t)ISOTP_TIMEOUT_AR_MS, "N_Ar default is not ISO 15765-2:2024's 1000 ms (EDS#453)");
+    zassert_equal(1000U, (uint32_t)ISOTP_TIMEOUT_BS_MS, "N_Bs default is not ISO 15765-2:2024's 1000 ms (EDS#453)");
+    zassert_equal(1000U, (uint32_t)ISOTP_TIMEOUT_CR_MS, "N_Cr default is not ISO 15765-2:2024's 1000 ms (EDS#453)");
+}
+
 void run_all_tests(void)
 {
+    RUN_TEST(test_isotp_init__test_isotp_timeouts_default_to_iso_15765_2_2024);
     RUN_TEST(test_isotp_init__test_null_ctx);
     RUN_TEST(test_isotp_init__test_null_cfg);
     RUN_TEST(test_isotp_init__test_null_can);

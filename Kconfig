@@ -61,29 +61,40 @@ config ISOTP_TX_PADDING_BYTE
 
 config ISOTP_TIMEOUT_CR_MS
 	int "ISO-TP N_Cr timeout (ms)"
-	default 150
-	range 50 1000
+	default 1000
+	range 25 1500
 	help
-	  Maximum time between consecutive frames in a multi-frame message.
-	  ISO 15765-2 specifies N_Cr <= 150 ms by default. Reduce for high-speed
-	  networks; increase only if the tester explicitly extends STmin.
+	  Receiver: maximum wait for the next Consecutive Frame. ISO 15765-2:2024
+	  Table 22 specifies 1000 ms as a lower limit; a conformant timeout fires
+	  between 1000 and 1500 ms (§9.8.1). Values below 1000 are only for
+	  networks whose specification mandates shorter timing (e.g. legislated
+	  OBD profiles); they abort transfers with slower ISO 15765-2 peers.
+	  [EDS#453] was 150 ms, and before EDS#453 this symbol was not read.
 
 config ISOTP_TIMEOUT_BS_MS
 	int "ISO-TP N_Bs timeout (ms)"
-	default 75
-	range 25 500
+	default 1000
+	range 25 1500
 	help
-	  Maximum time to wait for a Flow Control frame after transmitting
-	  the First Frame. ISO 15765-2 N_Bs default = 75 ms.
+	  Sender: maximum wait for a Flow Control frame after a First Frame or
+	  block. ISO 15765-2:2024 Table 22: 1000 ms (lower limit). See
+	  ISOTP_TIMEOUT_CR_MS for shorter values. [EDS#453] was 75 ms.
 
 config ISOTP_TIMEOUT_AS_MS
 	int "ISO-TP N_As timeout (ms)"
-	default 25
-	range 10 100
+	default 1000
+	range 10 1500
 	help
-	  Maximum time for CAN frame transmission acknowledgment. Must be
-	  >= the CAN bus arbitration + transmission time for a max-length frame.
-	  ISO 15765-2 N_As default = 25 ms.
+	  Sender: maximum time for a CAN frame's transmission confirmation.
+	  ISO 15765-2:2024 Table 22: 1000 ms (lower limit). [EDS#453] was 25 ms.
+
+config ISOTP_TIMEOUT_AR_MS
+	int "ISO-TP N_Ar timeout (ms)"
+	default 1000
+	range 10 1500
+	help
+	  Receiver: maximum time for the Flow Control frame's transmission
+	  confirmation. ISO 15765-2:2024 Table 22: 1000 ms (lower limit).
 
 # ---------------------------------------------------------------------------
 # UDS session parameters (ISO 14229-1 §7.4.2)
