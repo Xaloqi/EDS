@@ -22,6 +22,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   **Integrators who set these symbols get those values from now on.** Added
   `CONFIG_ISOTP_TIMEOUT_AR_MS`. The UDS Kconfig symbols that are also never
   read stay tracked in #455.
+- **`eds_doip_platform_ops_t` has a required `ecu_reset` member** (`#434`).
+  A custom DoIP binding without it now fails
+  `eds_doip_register_platform()`, the same rule `uptime_ms` follows since
+  #412. Migration: implement it as nvm flush, a short grace delay, then
+  `eds_platform_ecu_reset()`, as `transport/doip/zephyr_lwip.c` does.
+- **Zephyr DoIP builds now default `CONFIG_REBOOT=y`** (`#434`), the same
+  way `NET_CONTEXT_SNDTIMEO` is defaulted: the binding's reset ends in
+  `sys_reboot()`. `zephyr_lwip.c` refuses to build with it explicitly off.
 
 ### Fixed
 
@@ -95,17 +103,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   multi-sector erase lost it before the `74`. `uds_service_0x34_pending_tick()`
   now restarts S3 on every frame it produces (each 0x78 and the final
   response), on CAN and DoIP alike.
-
-### Changed
-
-- **`eds_doip_platform_ops_t` has a required `ecu_reset` member** (`#434`).
-  A custom DoIP binding without it now fails
-  `eds_doip_register_platform()`, the same rule `uptime_ms` follows since
-  #412. Migration: implement it as nvm flush, a short grace delay, then
-  `eds_platform_ecu_reset()`, as `transport/doip/zephyr_lwip.c` does.
-- **Zephyr DoIP builds now default `CONFIG_REBOOT=y`** (`#434`), the same
-  way `NET_CONTEXT_SNDTIMEO` is defaulted: the binding's reset ends in
-  `sys_reboot()`. `zephyr_lwip.c` refuses to build with it explicitly off.
 
 ### Removed
 
