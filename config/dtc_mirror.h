@@ -20,7 +20,7 @@
  *
  *          Wire points:
  *            - dtc_mirror_load()        → called from uds_stack_init()
- *            - dtc_mirror_save()        → called from dtc_database_set_status()
+ *            - dtc_mirror_save_one()    → called from SID 0x14 (single-DTC clear)
  *            - dtc_mirror_flush_all()   → called from zephyr_port_nvm_flush()
  *
  * WIRE FORMAT (NVM_KEY_DTC_MIRROR) — v1, integrity-checked (issue #114):
@@ -147,7 +147,8 @@ uds_status_t dtc_mirror_init(void);
  *
  * Reads the NVM mirror, validates it as a whole (magic, version, declared
  * length, CRC-32), and — only if every check passes — calls
- * dtc_database_set_status() for each entry. Validation happens before any
+ * dtc_database_restore_status() for each entry (not gated by
+ * ControlDTCSetting, EDS#448). Validation happens before any
  * entry is applied, so a corrupt record can never partially apply (issue
  * #114). Entries in a valid mirror for DTCs not registered in the current
  * database are silently skipped (e.g. after a firmware update removes a
@@ -209,7 +210,7 @@ uds_status_t dtc_mirror_flush_all(void);
 /**
  * @brief Persist a single DTC status update to NVM immediately.
  *
- * Called by dtc_database_set_status() whenever a status byte changes.
+ * Called by SID 0x14 after a single-DTC clear.
  * Performs a full flush (atomic overwrite of the whole mirror record)
  * since NVS does not support partial record update.
  *

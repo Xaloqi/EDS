@@ -176,6 +176,16 @@ config DIAG_PLACEHOLDER_KEYS_ONLY
 # Access control table  [#113 FIX]
 # ---------------------------------------------------------------------------
 
+config UDS_DTC_STATUS_AVAILABILITY_MASK
+	hex "DTCStatusAvailabilityMask reported by ReadDTCInformation"
+	default 0xFF
+	range 0x00 0xFF
+	help
+	  The DTC status bits this ECU's monitors actually maintain (ISO
+	  14229-1:2026 §11.3, Annex D.2). Reported in 0x19 responses, and request
+	  status masks are processed using only these bits. Default 0xFF (all
+	  eight). Clear the bits your application does not maintain. [EDS#451]
+
 config UDS_ACL_ALLOW_UNLISTED_SERVICES
 	bool "Permit UDS services with no access-table entry (NOT RECOMMENDED)"
 	default n

@@ -355,8 +355,11 @@ static uds_nrc_t srv_status_to_nrc(uds_status_t status)
         case UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED:
             return UDS_NRC_EXCEEDED_NUM_OF_ATTEMPTS;
 
+        case UDS_STATUS_ERR_SEC_DELAY_ACTIVE:
+            return UDS_NRC_REQUIRED_TIME_DELAY_NOT_EXPIRED; /* 0x37 [EDS#446] */
+
         case UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE:
-            return UDS_NRC_REQUEST_SEQUENCE_ERROR;     /* 0x24; for seed-generation failure ISO 14229-1:2026 Table 45 gives 0x22 (EDS#446) */
+            return UDS_NRC_REQUEST_SEQUENCE_ERROR;     /* 0x24: sendKey without requestSeed (ISO 14229-1:2026 Table 45) */
 
         case UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE:
             return UDS_NRC_REQUEST_OUT_OF_RANGE;

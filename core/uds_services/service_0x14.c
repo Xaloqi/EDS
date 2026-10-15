@@ -133,12 +133,12 @@ uds_status_t uds_service_0x14_handler(
             return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
         }
         if (!entry->is_permanent) {
-            status = dtc_database_set_status(group_of_dtc, (uint8_t)0x00U);
+            status = dtc_database_clear_one(group_of_dtc);   /* 0x50, FDC 0 [EDS#448] */
             if (status != UDS_STATUS_OK) {
                 return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
             }
             if (dtc_mirror_is_ready()) {
-                status = dtc_mirror_save_one(group_of_dtc, (uint8_t)0x00U);
+                status = dtc_mirror_save_one(group_of_dtc, (uint8_t)DTC_STATUS_INIT_AND_CLEARED);
                 if (status != UDS_STATUS_OK) {
                     return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
                 }

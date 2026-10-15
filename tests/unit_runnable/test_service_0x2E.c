@@ -22,7 +22,7 @@
  *   TC-0x2E-001  NULL ctx                                → ERR_NULL_PTR
  *   TC-0x2E-002  Request < 4 bytes (no data byte)         → ERR_INVALID_PARAM (NRC 0x13)
  *   TC-0x2E-003  DID not registered                       → ERR_DID_NOT_FOUND (NRC 0x31)
- *   TC-0x2E-004  Wrong session (DEFAULT, DID needs EXTENDED) → ERR_SESSION_INVALID (NRC 0x22)
+ *   TC-0x2E-004  Wrong session (DEFAULT, DID needs EXTENDED) → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
  *   TC-0x2E-005  Wrong security (locked, DID needs level 1) → ERR_SEC_NOT_UNLOCKED (NRC 0x33)
  *   TC-0x2E-006  Wrong data length (short)                → ERR_INVALID_PARAM (NRC 0x13)
  *   TC-0x2E-007  Wrong data length (long)                 → ERR_INVALID_PARAM (NRC 0x13)
@@ -33,6 +33,8 @@
  *   TC-0x2E-012  Boundary: 1-byte data_length write        → OK
  *   TC-0x2E-013  Response format: [0x6E, DID_hi, DID_lo], length == 3
  *   TC-0x2E-014  Two DIDs in sequence don't cross-contaminate write_cb args
+ *   TC-0x2E-015  Read-only DID                            → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
+ *   TC-0x2E-016  Wrong length + security locked            → ERR_INVALID_PARAM (NRC 0x13 before 0x33)
  *
  * FRAMEWORK: Zephyr Ztest (host shim in tests/runner/ztest_shim.h)
  * =============================================================================
@@ -65,6 +67,7 @@
 #define TEST_DID_GATED    (0xA011U)  /**< EXTENDED + level 1 required. */
 #define TEST_DID_ONEBYTE  (0xA012U)  /**< data_length == 1 (boundary). */
 #define TEST_DID_NO_CB    (0xA013U)  /**< write_cb == NULL. */
+#define TEST_DID_RDONLY   (0xA014U)  /**< Read-only (no DID_ACCESS_WRITE). */
 #define TEST_DATA_LEN     (2U)
 
 /* =========================================================================
@@ -187,6 +190,19 @@ static void register_test_dids(void)
     entry.write_cb           = NULL;
     entry.description        = "Test no-write-cb DID";
     (void)did_database_register(&entry);
+
+    /* DID 0xA014: read-only. */
+    memset(&entry, 0, sizeof(entry));
+    entry.did_id             = TEST_DID_RDONLY;
+    entry.access_flags       = (uint8_t)DID_ACCESS_READ;
+    entry.min_session        = (uint8_t)UDS_SESSION_DEFAULT;
+    entry.read_access_level  = (uint8_t)0U;
+    entry.write_access_level = (uint8_t)0U;
+    entry.data_length        = (uint16_t)TEST_DATA_LEN;
+    entry.read_cb            = stub_read_cb;
+    entry.write_cb           = mock_write_cb;
+    entry.description        = "Test read-only DID";
+    (void)did_database_register(&entry);
 }
 
 static void setup(void)
@@ -306,7 +322,7 @@ ZTEST(test_service_0x2E, tc003_did_not_found)
 
 /**
  * TC-0x2E-004: Wrong session — DID needs EXTENDED, session is DEFAULT
- *              → ERR_SESSION_INVALID (NRC 0x22).
+ *              → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31) [EDS#449].
  */
 ZTEST(test_service_0x2E, tc004_wrong_session)
 {
@@ -318,8 +334,8 @@ ZTEST(test_service_0x2E, tc004_wrong_session)
     /* session stays DEFAULT (setup() default); TEST_DID_GATED needs EXTENDED */
     uds_status_t rc = uds_service_0x2E_handler(&g_srv, &req, &resp);
 
-    zassert_equal(rc, UDS_STATUS_ERR_SESSION_INVALID,
-                  "wrong session must return ERR_SESSION_INVALID (NRC 0x22)");
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  "DID not writable in this session must return NRC 0x31 (EDS#449)");
     zassert_equal(s_write_call_count, (uint16_t)0U,
                   "write_cb must not be invoked when session check fails");
 }
@@ -535,6 +551,45 @@ ZTEST(test_service_0x2E, tc014_sequential_writes_no_cross_contamination)
                   "second write's recorded byte must not be contaminated by the first write");
 }
 
+/**
+ * TC-0x2E-015: Read-only DID → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31,
+ *              ISO 14229-1:2026 Table 281) [EDS#449].
+ */
+ZTEST(test_service_0x2E, tc015_read_only_did)
+{
+    setup();
+    uint8_t       data[TEST_DATA_LEN] = { 0x11U, 0x22U };
+    uds_msg_buf_t req  = make_req(TEST_DID_RDONLY, data, (uint16_t)TEST_DATA_LEN);
+    uds_msg_buf_t resp = {0};
+
+    uds_status_t rc = uds_service_0x2E_handler(&g_srv, &req, &resp);
+
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  "read-only DID must return NRC 0x31 (EDS#449)");
+    zassert_equal(s_write_call_count, (uint16_t)0U,
+                  "write_cb must not be invoked for a read-only DID");
+}
+
+/**
+ * TC-0x2E-016: Wrong length AND security locked → length wins (NRC 0x13
+ *              before 0x33, ISO 14229-1:2026 Figure 27) [EDS#449].
+ */
+ZTEST(test_service_0x2E, tc016_length_checked_before_security)
+{
+    setup();
+    uds_session_transition(&g_sess, UDS_SESSION_EXTENDED);
+    /* security stays locked; TEST_DID_GATED needs level 1 */
+
+    uint8_t       data[1] = { 0x11U };
+    uds_msg_buf_t req  = make_req(TEST_DID_GATED, data, (uint16_t)1U);
+    uds_msg_buf_t resp = {0};
+
+    uds_status_t rc = uds_service_0x2E_handler(&g_srv, &req, &resp);
+
+    zassert_equal(rc, UDS_STATUS_ERR_INVALID_PARAM,
+                  "length (NRC 0x13) must be checked before security (EDS#449)");
+}
+
 /* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
@@ -553,6 +608,8 @@ extern void test_service_0x2E__tc011_valid_write_gated(void);
 extern void test_service_0x2E__tc012_boundary_one_byte(void);
 extern void test_service_0x2E__tc013_response_format(void);
 extern void test_service_0x2E__tc014_sequential_writes_no_cross_contamination(void);
+extern void test_service_0x2E__tc015_read_only_did(void);
+extern void test_service_0x2E__tc016_length_checked_before_security(void);
 
 void run_all_tests(void)
 {
@@ -570,4 +627,6 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x2E__tc012_boundary_one_byte);
     RUN_TEST(test_service_0x2E__tc013_response_format);
     RUN_TEST(test_service_0x2E__tc014_sequential_writes_no_cross_contamination);
+    RUN_TEST(test_service_0x2E__tc015_read_only_did);
+    RUN_TEST(test_service_0x2E__tc016_length_checked_before_security);
 }

@@ -253,7 +253,7 @@ void test_lockout_active_after_power_cycle(void)
         uint8_t seed[UDS_SECURITY_SEED_LEN]; uint8_t seed_len;
         uds_status_t rc = uds_security_request_seed(
             &ctx, 0x01U, seed, sizeof(seed), &seed_len);
-        TEST_ASSERT_EQUAL(UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED, rc);
+        TEST_ASSERT_EQUAL(UDS_STATUS_ERR_SEC_DELAY_ACTIVE, rc);   /* NRC 0x37 [EDS#446] */
     }
 }
 

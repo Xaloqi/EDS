@@ -195,6 +195,10 @@ typedef enum uds_status {
                                                          more data than memorySize left
                                                          (NRC 0x71 transferDataSuspended,
                                                          ISO 14229-1:2026 Table 454). */
+    UDS_STATUS_ERR_SEC_DELAY_ACTIVE      = 0x66U, /**< [EDS#446] requestSeed while the
+                                                         SecurityAccess delay timer runs
+                                                         (NRC 0x37, ISO 14229-1:2026
+                                                         Table 45). */
 
     UDS_STATUS_MAX                                /**< Sentinel — do not use as return value. */
 } uds_status_t;

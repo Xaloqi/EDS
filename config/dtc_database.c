@@ -15,7 +15,10 @@
  *              during stack initialisation to populate DTC entries derived
  *              from diagnostics_config.yaml.
  *            - dtc_database_find() performs read-only linear lookup.
- *            - dtc_database_set_status() is the sole runtime mutation path.
+ *            - dtc_database_set_status() is the runtime status-update path
+ *              (refused while ControlDTCSetting is off, EDS#448);
+ *              dtc_database_restore_status() (boot-time mirror load) and the
+ *              clear functions bypass that gate.
  *
  *          No modification to this file is required when DTCs change in
  *          the YAML config — only re-running tools/codegen.py is needed.
@@ -28,6 +31,7 @@
 
 #include "dtc_database.h"
 #include "uds_types.h"
+#include "uds_comm_control.h"   /* uds_comm_control_dtc_setting_is_on() [EDS#448] */
 
 #include <string.h>
 #include <stddef.h>
@@ -145,7 +149,7 @@ uds_status_t dtc_database_register(
     }
 
     s_dtc_table[s_dtc_count].dtc_code                = dtc_code;
-    s_dtc_table[s_dtc_count].status_byte             = (uint8_t)0x00U;
+    s_dtc_table[s_dtc_count].status_byte             = (uint8_t)DTC_STATUS_INIT_AND_CLEARED; /* [EDS#448] */
     s_dtc_table[s_dtc_count].severity                = severity;
     s_dtc_table[s_dtc_count].fault_detection_counter = (uint8_t)0x00U;
     s_dtc_table[s_dtc_count].is_permanent            = false;
@@ -170,7 +174,9 @@ dtc_entry_t *dtc_database_find(uint32_t dtc_code)
     return entry;
 }
 
-uds_status_t dtc_database_set_status(uint32_t dtc_code, uint8_t status_byte)
+/* Set a status byte without the ControlDTCSetting gate (restore/clear). */
+static uds_status_t dtc_set_status_internal(uint32_t dtc_code, uint8_t status_byte,
+                                            bool clear_fdc)
 {
     dtc_entry_t *entry;
 
@@ -182,10 +188,34 @@ uds_status_t dtc_database_set_status(uint32_t dtc_code, uint8_t status_byte)
     entry = dtc_find_internal(dtc_code);
     if (entry != NULL) {
         entry->status_byte = status_byte;
+        if (clear_fdc) {
+            entry->fault_detection_counter = (uint8_t)0U;
+        }
     }
     dtc_db_unlock();
 
     return (entry != NULL) ? UDS_STATUS_OK : UDS_STATUS_ERR_DID_NOT_FOUND;
+}
+
+uds_status_t dtc_database_set_status(uint32_t dtc_code, uint8_t status_byte)
+{
+    /* [EDS#448] ISO 14229-1:2026 Annex D.2.1: no status transition while
+     * ControlDTCSetting is off. (Not initialised = on, see
+     * uds_comm_control_dtc_setting_is_on().) */
+    if (!uds_comm_control_dtc_setting_is_on()) {
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+    }
+    return dtc_set_status_internal(dtc_code, status_byte, false);
+}
+
+uds_status_t dtc_database_restore_status(uint32_t dtc_code, uint8_t status_byte)
+{
+    return dtc_set_status_internal(dtc_code, status_byte, false);
+}
+
+uds_status_t dtc_database_clear_one(uint32_t dtc_code)
+{
+    return dtc_set_status_internal(dtc_code, (uint8_t)DTC_STATUS_INIT_AND_CLEARED, true);
 }
 
 uds_status_t dtc_database_clear_all(void)
@@ -198,7 +228,8 @@ uds_status_t dtc_database_clear_all(void)
 
     dtc_db_lock();
     for (i = (uint16_t)0U; i < s_dtc_count; i++) {
-        s_dtc_table[i].status_byte = (uint8_t)0x00U;
+        s_dtc_table[i].status_byte             = (uint8_t)DTC_STATUS_INIT_AND_CLEARED; /* [EDS#448] */
+        s_dtc_table[i].fault_detection_counter = (uint8_t)0U;                          /* [EDS#451] */
     }
     dtc_db_unlock();
 
@@ -306,7 +337,8 @@ uds_status_t dtc_database_clear_non_permanent(void)
     dtc_db_lock();
     for (i = (uint16_t)0U; i < s_dtc_count; i++) {
         if (!s_dtc_table[i].is_permanent) {
-            s_dtc_table[i].status_byte = (uint8_t)0x00U;
+            s_dtc_table[i].status_byte             = (uint8_t)DTC_STATUS_INIT_AND_CLEARED; /* [EDS#448] */
+            s_dtc_table[i].fault_detection_counter = (uint8_t)0U;                          /* [EDS#451] */
         }
     }
     dtc_db_unlock();
