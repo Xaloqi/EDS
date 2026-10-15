@@ -90,6 +90,7 @@ static bool doip_is_response_pending(const uds_msg_buf_t *resp_buf);
 static uds_status_t doip_run_pending(doip_server_state_t *s,
                                      uint8_t original_sid,
                                      uds_msg_buf_t *resp_buf);
+static void doip_run_pending_reset(uds_server_ctx_t *uds_ctx);
 static uds_status_t doip_send_frame(doip_server_state_t *s,
                                      uint16_t payload_type,
                                      const uint8_t *payload,
@@ -168,7 +169,8 @@ uds_status_t eds_doip_register_platform(const eds_doip_platform_ops_t *ops)
         ops->tcp_recv         == NULL ||
         ops->tcp_close        == NULL ||
         ops->tcp_server_close == NULL ||
-        ops->uptime_ms        == NULL) {
+        ops->uptime_ms        == NULL ||
+        ops->ecu_reset        == NULL) {   /* [EDS#434] */
         return UDS_STATUS_ERR_NULL_PTR;
     }
     s_ops = ops;
@@ -439,6 +441,13 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
          * handled inside uds_server_process_request — resp_buf->length == 0. */
         s->frames_received++;
 
+        /* [EDS#434] An ECUReset is performed only now, with its response
+         * handed to the stack (or suppressed). Not after a failed send: the
+         * tester never got its answer, and the connection is torn down. */
+        if (resp_send_rc == UDS_STATUS_OK) {
+            doip_run_pending_reset(uds_ctx);
+        }
+
         /* [Issue #105 follow-up] Same reasoning as the ack above: a failed
          * response send can leave a partial DoIP frame on the wire, so the
          * connection must be torn down rather than left open — the peer
@@ -500,7 +509,8 @@ static uds_status_t doip_send_uds_response(doip_server_state_t *s,
      * counter and would mean reaching into uds_server_ctx_t's
      * internals from the transport layer, which this module
      * otherwise never does (uds_ctx is always treated as opaque,
-     * passed only to uds_server_process_request()). */
+     * passed only to uds_server_process_request() and, for EDS#434,
+     * uds_server_take_pending_reset()). */
     if (resp_payload_len > (uint32_t)(DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN)) {
         (void)uds_server_build_negative_response(original_sid,
                                                   UDS_NRC_RESPONSE_TOO_LONG,
@@ -581,6 +591,34 @@ static uds_status_t doip_run_pending(doip_server_state_t *s,
         }
     }
     return rc;
+}
+
+/* ---------------------------------------------------------------------------
+ * Internal: doip_run_pending_reset  [EDS#434]
+ *
+ * service_0x11 only records a reset (pending_reset_type) so that its
+ * positive response goes out first; CAN poll loops then perform it, and
+ * until EDS#434 no DoIP path did. Take it inside the lock pair, as dispatch
+ * set it, and hand it to the binding's ecu_reset op, which drains the
+ * response, flushes NVM and resets. Returns only if the platform does not
+ * support the reset type.
+ * ------------------------------------------------------------------------ */
+
+static void doip_run_pending_reset(uds_server_ctx_t *uds_ctx)
+{
+    uint8_t reset_type = 0U;
+
+    if (s_doip_lock_cb != NULL) {
+        s_doip_lock_cb();
+    }
+    (void)uds_server_take_pending_reset(uds_ctx, &reset_type);
+    if (s_doip_unlock_cb != NULL) {
+        s_doip_unlock_cb();
+    }
+
+    if (reset_type != 0U) {
+        s_ops->ecu_reset(reset_type);
+    }
 }
 
 /* ---------------------------------------------------------------------------

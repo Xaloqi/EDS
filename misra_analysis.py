@@ -727,6 +727,10 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "are called from main.c (a separate translation unit) and must retain external "
             "linkage to be reachable across the link boundary. Making them static would "
             "produce linker errors. "
+            "[EDS#434] The same holds for platform/platform_api.h: its functions "
+            "(e.g. eds_platform_nvm_flush(), eds_platform_ecu_reset()) are defined per "
+            "RTOS in platform/<rtos>/*_platform_api.c, outside this analysis scope, and "
+            "called from the DoIP bindings and application loops in other translation units. "
             "Risk: NONE — external linkage is required by the architectural boundary."
         ),
         "files":       [
@@ -746,6 +750,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "config/routine_database.h",
             "config/dtc_mirror.h",
             "core/uds_server.h",
+            "platform/platform_api.h",   # [EDS#434]
             "core/uds_session.h",
             "core/uds_safety.h",
             "core/uds_security.h",

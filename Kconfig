@@ -24,6 +24,13 @@
 configdefault NET_CONTEXT_SNDTIMEO
 	default y if NET_SOCKETS
 
+# [EDS#434] The Zephyr DoIP binding performs ECUReset through
+# eds_platform_ecu_reset(), which calls sys_reboot(). Without REBOOT that
+# fails to link, so turn it on for any socket build, as above;
+# transport/doip/zephyr_lwip.c refuses to build with it explicitly off.
+configdefault REBOOT
+	default y if NET_SOCKETS
+
 menu "Xaloqi EDS"
 
 # ---------------------------------------------------------------------------

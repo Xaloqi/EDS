@@ -24,8 +24,11 @@
  *      confirmed transmitted by the transport layer.
  *
  *   The handler marks ctx->pending_reset_type != 0 as the deferred-reset
- *   signal. The server tick or application main loop calls
- *   uds_server_execute_pending_reset() to complete the sequence.
+ *   signal. The integration layer takes it with
+ *   uds_server_take_pending_reset() and performs the reset: CAN poll loops
+ *   after transmitting, the DoIP server through its ecu_reset platform op
+ *   [EDS#434]. (This used to name uds_server_execute_pending_reset(), which
+ *   never existed, and no DoIP path performed the reset at all.)
  *
  * SAFETY  : Safety-critical — reset must coordinate with safety monitors.
  *           ASIL-B candidate. Platform reset callback meets ASIL requirements.
