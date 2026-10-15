@@ -81,6 +81,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`examples/motor_controller_ecu` answers diagnostic requests** (`#426`).
+  Its diagnostics loop never read CAN RX, so no request was ever answered.
+  It also never ticked ISO-TP, and it passed NULL to `uds_server_tick_1ms()`,
+  so S3 and the SecurityAccess lockout never ran. This dates to the initial
+  public release; CI only validated the example's generated files. The loop
+  now drains CAN RX into ISO-TP and ticks by elapsed time
+  (`eds_elapsed_consume()`). Measured on native_sim over SocketCAN: before,
+  no response to anything; after, TesterPresent and a multi-frame VIN read
+  are answered and S3 expires between 4.8 and 5.2 s.
 - **Firmware downloads above ~750 KiB no longer reset the board at
   RequestTransferExit** (`#428`). `zephyr_flash_ops.c` reads back and CRCs
   the whole image at 0x37 with nothing feeding the watchdog. That takes
