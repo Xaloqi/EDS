@@ -531,6 +531,65 @@ typedef void (*eds_doip_checkin_cb_t)(void);
  */
 void eds_doip_set_checkin_callback(eds_doip_checkin_cb_t cb);
 
+/* --------------------------------------------------------------------------
+ * [EDS#423] Response-pending continuation -- optional
+ * -------------------------------------------------------------------------- */
+
+/**
+ * [EDS#423] Longest the server keeps one request's response-pending phase
+ * going (see eds_doip_set_pending_callback()), in ms. ASSUMPTION: no pending
+ * job needs longer. The one shipped user is RequestDownload's chunked erase,
+ * at most 4 s per 128 KB step (the STM32H7 devicetree max-erase-time), so a
+ * 2 MB region needs at most 64 s. A larger region on slow flash breaks this:
+ * raise it, or the server closes the connection mid-erase.
+ */
+#ifndef DOIP_MAX_PENDING_MS
+#define DOIP_MAX_PENDING_MS (120000U)
+#endif
+
+#if (DOIP_MAX_PENDING_MS == 0U)
+#error "DOIP_MAX_PENDING_MS must be non-zero (EDS#423)"
+#endif
+
+/**
+ * @brief Produce the next frame of a response-pending (NRC 0x78) exchange.
+ *
+ * @param[out] out_frame  The frame to send: another 7F xx 78, or the final
+ *                        response.
+ * @return true if out_frame holds a frame to send, false if nothing is pending.
+ */
+typedef bool (*eds_doip_pending_cb_t)(uds_msg_buf_t *out_frame);
+
+/**
+ * @brief Register the callback that completes response-pending requests.
+ *
+ * Some services answer NRC 0x78 (requestCorrectlyReceived-ResponsePending)
+ * and finish the job afterwards, one bounded step at a time. RequestDownload's
+ * chunked erase does this when the flash ops provide erase_step_cb
+ * (uds_service_0x34_pending_tick(), platform/zephyr/zephyr_flash_ops.c). On
+ * CAN the application's poll loop drives those steps. Over DoIP nothing did,
+ * so the tester got 0x78 and never a final response.
+ *
+ * With a callback registered, after the server sends a 7F xx 78 response it
+ * calls cb inside the eds_doip_set_lock_callbacks() pair, sends the frame cb
+ * returns, and repeats while cb keeps returning 7F xx 78. It stops at the
+ * first other frame (the final response, sent), when cb returns false, or
+ * after DOIP_MAX_PENDING_MS. In the last case the connection is closed.
+ * The server checks in (eds_doip_set_checkin_callback()) before each call,
+ * so the supervision gap during this phase is one cb call: for a chunked
+ * erase, one sector erase (up to 4 s on STM32H7).
+ *
+ * The server does not read from the connection meanwhile; ISO 14229-1 has
+ * the tester wait for the final response.
+ *
+ * Not registering one leaves the server unchanged. Call before
+ * eds_doip_server_run().
+ *
+ * @param[in] cb  Continuation callback, e.g. uds_service_0x34_pending_tick.
+ *                NULL clears it.
+ */
+void eds_doip_set_pending_callback(eds_doip_pending_cb_t cb);
+
 /** [EDS#399] Longest wait inside eds_doip_server_run() that EDS itself
  * bounds: the accept poll with no client, or one idle poll while
  * connected. See eds_doip_set_checkin_callback(). */

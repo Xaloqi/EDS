@@ -101,6 +101,37 @@ west flash
   ([#399](https://github.com/Xaloqi/EDS/issues/399)). The comment at the
   top of `src/main.c` lists exactly what is supervised.
 
+### NUCLEO-H753ZI firmware-download bench (bench only)
+
+Adds `-DDIAG_DOIP_FLASH_BENCH=ON` to the command above, so that
+RequestDownload / TransferData / RequestTransferExit write **real flash**
+over DoIP ([#423](https://github.com/Xaloqi/EDS/issues/423)):
+
+```bash
+B=examples/basic_ecu_doip/boards/nucleo_h753zi
+west build -b nucleo_h753zi examples/basic_ecu_doip -- \
+  -DDIAG_SKIP_CODEGEN=ON -DDIAG_USE_MOCK_NVM=ON -DDIAG_DOIP_FLASH_BENCH=ON \
+  -DEXTRA_CONF_FILE=$PWD/$B/nucleo_h753zi_doip.conf \
+  -DEXTRA_DTC_OVERLAY_FILE=$PWD/$B/nucleo_h753zi_doip.overlay
+west flash
+```
+
+- **Target:** a 1 MiB `image_1` partition in flash bank 2
+  (`nucleo_h753zi_flash_bench.overlay`), written by
+  `platform/zephyr/zephyr_flash_ops.c`. RequestDownload addresses are
+  partition-relative flash offsets: `0x00100000`..`0x001FFFFF`.
+- **Sequence:** 0x10 03, 0x10 02, SecurityAccess level 1, then
+  `34 00 44 <addr> <size>`. The ECU answers 0x78 while it erases one
+  128 KB sector per step, then `74`. Then 0x36 blocks
+  (`maxNumberOfBlockLength - 2` data bytes each), and `37` with the image's
+  CRC-32 (optional). The 0x37 response follows the ECU's read-back CRC check.
+- **Measured** (1 MiB, one connection): erase 6.6 s, 4113 blocks in 7.7 s
+  (~133 KiB/s), 0x37 in 0.14 s. The flash read back over SWD matches the
+  image byte for byte, and the watchdog stays clean.
+- **Bench only:** off by default, refused for other boards, and nothing
+  boots from the written image. Booting a downloaded, signed image is
+  [#425](https://github.com/Xaloqi/EDS/issues/425).
+
 ---
 
 ## Running

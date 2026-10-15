@@ -256,6 +256,18 @@ static uds_status_t z_flash_verify(uint32_t address,
     remaining = size_bytes;
     offset    = (uint32_t)0U;
 
+    /* [EDS#428] Bridge the watchdog across this read-back too, same as one
+     * erase step (see the [#312] block above). It runs inside the 0x37
+     * dispatch, where the loop that feeds the watchdog is blocked, and
+     * measured 34 ms per 256 KiB on STM32H753 at 480 MHz: past the 100 ms
+     * window for any image above ~750 KiB, so the board reset at transfer
+     * exit. Bounded by the region size (the image_1 partition at most). */
+    if (sp_erase_wdt != NULL) {
+        k_timer_start(&s_erase_feed_timer,
+                      K_MSEC(ZEPHYR_FLASH_ERASE_FEED_PERIOD_MS),
+                      K_MSEC(ZEPHYR_FLASH_ERASE_FEED_PERIOD_MS));
+    }
+
     while (remaining > (uint32_t)0U) {
         chunk = (remaining < (uint32_t)sizeof(buf)) ? remaining
                                                      : (uint32_t)sizeof(buf);
@@ -273,6 +285,10 @@ static uds_status_t z_flash_verify(uint32_t address,
 
         offset    += chunk;
         remaining -= chunk;
+    }
+
+    if (sp_erase_wdt != NULL) {
+        k_timer_stop(&s_erase_feed_timer);
     }
 
     flash_area_close(fa);

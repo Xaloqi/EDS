@@ -26,6 +26,21 @@ cmake_minimum_required(VERSION 3.20.0)
 # workspace has. Must precede find_package(Zephyr).
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/eds_zephyr_module.cmake)
 
+# [EDS#423] Bench-only firmware-download build: RequestDownload writes to
+# real flash (bank 2) through platform/zephyr/zephyr_flash_ops.c. Off by
+# default; NUCLEO-H753ZI only. Nothing boots from the written image (that is
+# EDS#425). Must precede find_package(Zephyr) to add the conf and overlay.
+option(DIAG_DOIP_FLASH_BENCH "Bench only: DoIP firmware download into real flash (NUCLEO-H753ZI)" OFF)
+if(DIAG_DOIP_FLASH_BENCH)
+    if(NOT BOARD MATCHES "^nucleo_h753zi")
+        message(FATAL_ERROR "[DIAG] DIAG_DOIP_FLASH_BENCH is defined for nucleo_h753zi only (got '${BOARD}').")
+    endif()
+    list(APPEND EXTRA_CONF_FILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h753zi/nucleo_h753zi_flash_bench.conf")
+    list(APPEND EXTRA_DTC_OVERLAY_FILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h753zi/nucleo_h753zi_flash_bench.overlay")
+endif()
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(basic_ecu_doip
@@ -161,6 +176,12 @@ if(CONFIG_BOARD_NATIVE_SIM OR DIAG_USE_MOCK_NVM)
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
 else()
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store.c)
+endif()
+
+# [EDS#423] Bench flash-download build: see DIAG_DOIP_FLASH_BENCH above.
+if(DIAG_DOIP_FLASH_BENCH)
+    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/zephyr_flash_ops.c)
+    target_compile_definitions(app PRIVATE DIAG_DOIP_FLASH_BENCH=1)
 endif()
 
 if(NOT DIAG_SKIP_CODEGEN AND TARGET run_codegen)

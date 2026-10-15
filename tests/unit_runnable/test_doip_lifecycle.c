@@ -33,6 +33,10 @@
  *   Connection lifetime (EDS#412, replaces the EDS#218 frame cap):
  *     - test_doip_long_download_not_cut_off
  *     - test_doip_busy_client_loses_slot_at_lifetime
+ *   Response-pending continuation (EDS#423):
+ *     - test_doip_pending_without_callback_sends_only_0x78
+ *     - test_doip_pending_callback_completes_exchange
+ *     - test_doip_pending_phase_is_time_bounded
  *   Supervision check-in (EDS#399):
  *     - test_doip_checkin_while_idle_without_client
  *     - test_doip_checkin_while_connected_idle
@@ -182,9 +186,24 @@ static int mock_tcp_accept(void *server_ctx, void **conn_ctx, uint32_t timeout_m
     return 0;
 }
 
+/* [EDS#423] First 3 bytes of every UDS response the server sends, in order. */
+#define MAX_RESPS 64U
+static uint8_t  g_resp[MAX_RESPS][3];
+static uint32_t g_resp_count;
+
 static int mock_tcp_send(void *conn_ctx, const uint8_t *data, size_t len)
 {
-    (void)conn_ctx; (void)data;
+    (void)conn_ctx;
+    /* A DiagnosticMessage (0x8001) from us: header, 4 address bytes, UDS. */
+    if ((len >= (size_t)(DOIP_HEADER_LEN + 5U)) &&
+        (data[2] == 0x80U) && (data[3] == 0x01U) && (g_resp_count < MAX_RESPS)) {
+        const uint8_t *uds = &data[DOIP_HEADER_LEN + 4U];
+        size_t ulen = len - (size_t)(DOIP_HEADER_LEN + 4U);
+        g_resp[g_resp_count][0] = uds[0];
+        g_resp[g_resp_count][1] = (ulen > 1U) ? uds[1] : 0U;
+        g_resp[g_resp_count][2] = (ulen > 2U) ? uds[2] : 0U;
+        g_resp_count++;
+    }
     return (int)len;
 }
 
@@ -303,12 +322,70 @@ static uds_status_t stub_seed_gen(uint8_t level, uint8_t *seed_buf,
     return UDS_STATUS_OK;
 }
 
+/* [EDS#423] A service that answers 7F 22 78 and finishes later, as
+ * RequestDownload's chunked erase does. */
+static uds_status_t handler_pending_0x22(uds_server_ctx_t *ctx,
+                                          const uds_msg_buf_t *req,
+                                          uds_msg_buf_t *resp)
+{
+    (void)ctx; (void)req;
+    resp->data[0] = 0x7FU;
+    resp->data[1] = 0x22U;
+    resp->data[2] = 0x78U;
+    resp->length  = 3U;
+    return UDS_STATUS_OK;
+}
+
+/* [EDS#423] Scripted continuation: g_pending_left more 0x78 frames, then
+ * the final 62 response; or 0x78 forever when g_pending_forever. Each call
+ * advances the simulated clock by g_pending_step_ms (one erase step). */
+static uint32_t g_pending_calls;
+static uint32_t g_pending_left;
+static bool     g_pending_forever;
+static uint32_t g_pending_step_ms;
+static bool     g_locked;
+static uint32_t g_pending_calls_unlocked;
+static uint32_t g_checkins_at_pending;
+
+static void lock_cb(void)   { g_locked = true; }
+static void unlock_cb(void) { g_locked = false; }
+
+static bool pending_cb(uds_msg_buf_t *out)
+{
+    g_pending_calls++;
+    if (!g_locked) {
+        g_pending_calls_unlocked++;
+    }
+    g_checkins_at_pending = g_checkins;
+    g_sim_now_ms += g_pending_step_ms;
+    /* A server that never bounds the phase would loop here forever: leave
+     * the server instead, so the test fails on the call count, not a hang. */
+    if (g_pending_forever && (g_pending_calls > 1000U)) {
+        longjmp(g_server_exit, 1);
+    }
+    out->data[0] = 0x7FU;
+    out->data[1] = 0x22U;
+    out->data[2] = 0x78U;
+    out->length  = 3U;
+    if (!g_pending_forever) {
+        if (g_pending_left == 0U) {
+            out->data[0] = 0x62U;
+            out->data[1] = 0xF1U;
+            out->data[2] = 0x90U;
+        } else {
+            g_pending_left--;
+        }
+    }
+    return true;
+}
+
 static uds_server_ctx_t *uds_ctx(void)
 {
     static bool done;
     if (!done) {
         static const uds_service_entry_t table[] = {
             { 0x3EU, handler_tester_present, false },
+            { 0x22U, handler_pending_0x22, false },
         };
         static const uds_security_cfg_t sec_cfg = {
             .max_attempts     = 3U,
@@ -322,7 +399,7 @@ static uds_server_ctx_t *uds_ctx(void)
             .session_ctx           = &g_session_ctx,
             .security_ctx          = &g_security_ctx,
             .service_table         = table,
-            .service_table_count   = 1U,
+            .service_table_count   = 2U,
             .access_table          = NULL,
             .access_table_count    = 0U,
         };
@@ -342,6 +419,14 @@ static const uint8_t k_routing_activation[] = {
     0x02U, 0xFDU, 0x00U, 0x05U, 0x00U, 0x00U, 0x00U, 0x07U,
     (uint8_t)(TEST_TESTER_ADDR >> 8U), (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
     0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+};
+
+/* ReadDataByIdentifier F190, answered through the pending handler above. */
+static const uint8_t k_rdbi_pending[] = {
+    0x02U, 0xFDU, 0x80U, 0x01U, 0x00U, 0x00U, 0x00U, 0x07U,
+    (uint8_t)(TEST_TESTER_ADDR >> 8U), (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
+    (uint8_t)(TEST_ECU_ADDR >> 8U),    (uint8_t)(TEST_ECU_ADDR & 0xFFU),
+    0x22U, 0xF1U, 0x90U,
 };
 
 static const uint8_t k_tester_present[] = {
@@ -385,6 +470,16 @@ static void reset_observations(void)
 
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, eds_doip_register_platform(&g_mock_ops));
     eds_doip_set_checkin_callback(NULL);
+    eds_doip_set_pending_callback(NULL);
+    eds_doip_set_lock_callbacks(NULL, NULL);
+    g_resp_count             = 0U;
+    g_pending_calls          = 0U;
+    g_pending_left           = 0U;
+    g_pending_forever        = false;
+    g_pending_step_ms        = 0U;
+    g_locked                 = false;
+    g_pending_calls_unlocked = 0U;
+    g_checkins_at_pending    = 0U;
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, eds_doip_server_init(&g_doip, TEST_ECU_ADDR));
 
     /* Every scenario starts in the extended session so a test can see
@@ -611,6 +706,75 @@ ZTEST(doip_lifecycle_suite, test_doip_busy_client_loses_slot_at_lifetime)
 }
 
 /* =========================================================================
+ * Response-pending continuation (EDS#423)
+ * ========================================================================= */
+
+/* No continuation registered: the server sends the 7F 22 78 and nothing
+ * more, as before, and goes on serving the connection. */
+ZTEST(doip_lifecycle_suite, test_doip_pending_without_callback_sends_only_0x78)
+{
+    reset_observations();
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_rdbi_pending, sizeof(k_rdbi_pending));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(2U, g_resp_count, "unexpected response count without a continuation");
+    EXPECT_EQ_MSG(0x78U, g_resp[0][2], "first response is not the 0x78");
+    EXPECT_EQ_MSG(0x7EU, g_resp[1][0], "connection not served after the 0x78");
+}
+
+/* With a continuation: the 0x78 from dispatch, two more from the
+ * continuation, then the final response, in that order, each continuation
+ * call made inside the lock pair and after a check-in. Before EDS#423 the
+ * tester got the first 0x78 and never a final response. */
+ZTEST(doip_lifecycle_suite, test_doip_pending_callback_completes_exchange)
+{
+    reset_observations();
+    eds_doip_set_lock_callbacks(lock_cb, unlock_cb);
+    eds_doip_set_checkin_callback(checkin_cb);
+    eds_doip_set_pending_callback(pending_cb);
+    g_pending_left = 2U;
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_rdbi_pending, sizeof(k_rdbi_pending));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(3U, g_pending_calls, "continuation not driven to the final response");
+    EXPECT_EQ_MSG(5U, g_resp_count, "wrong number of responses sent");
+    EXPECT_EQ_MSG(0x78U, g_resp[0][2], "response 1 is not 0x78");
+    EXPECT_EQ_MSG(0x78U, g_resp[1][2], "response 2 is not 0x78");
+    EXPECT_EQ_MSG(0x78U, g_resp[2][2], "response 3 is not 0x78");
+    EXPECT_EQ_MSG(0x62U, g_resp[3][0], "final response missing (EDS#423)");
+    EXPECT_EQ_MSG(0x7EU, g_resp[4][0], "connection not served after the exchange");
+    EXPECT_EQ_MSG(0U, g_pending_calls_unlocked,
+        "continuation called outside the EDS#353 lock pair");
+    EXPECT_TRUE_MSG(g_checkins_at_pending > 0U,
+        "no supervision check-in during the pending phase");
+}
+
+/* A continuation that never finishes is cut off at DOIP_MAX_PENDING_MS and
+ * the connection closed, so a stuck job cannot hold the slot. */
+ZTEST(doip_lifecycle_suite, test_doip_pending_phase_is_time_bounded)
+{
+    const uint32_t step_ms = 4000U;
+
+    reset_observations();
+    eds_doip_set_pending_callback(pending_cb);
+    g_pending_forever = true;
+    g_pending_step_ms = step_ms;
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_rdbi_pending, sizeof(k_rdbi_pending));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_TRUE_MSG(!g_script_done_at_close,
+        "stuck response-pending phase never ended (EDS#423)");
+    EXPECT_EQ_MSG(DOIP_MAX_PENDING_MS / step_ms, g_pending_calls,
+        "pending phase not bounded at DOIP_MAX_PENDING_MS");
+}
+
+/* =========================================================================
  * Supervision check-in (EDS#399)
  * ========================================================================= */
 
@@ -678,6 +842,9 @@ void run_all_tests(void)
     RUN_TEST(doip_lifecycle_suite__test_doip_payload_trickle_still_capped);
     RUN_TEST(doip_lifecycle_suite__test_doip_long_download_not_cut_off);
     RUN_TEST(doip_lifecycle_suite__test_doip_busy_client_loses_slot_at_lifetime);
+    RUN_TEST(doip_lifecycle_suite__test_doip_pending_without_callback_sends_only_0x78);
+    RUN_TEST(doip_lifecycle_suite__test_doip_pending_callback_completes_exchange);
+    RUN_TEST(doip_lifecycle_suite__test_doip_pending_phase_is_time_bounded);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_idle_without_client);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_connected_idle);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_cleared_is_never_called);
