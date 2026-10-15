@@ -90,6 +90,19 @@ static uint8_t isotp_decode_stmin_ms(uint8_t stmin_raw);
 static void isotp_tx_pump(isotp_ctx_t *ctx);
 
 /**
+ * [EDS#444] True when isotp_cfg_t.functional_rx_can_id is set and the frame
+ * arrived on it (and with the matching 11/29-bit identifier format).
+ */
+static bool isotp_is_functional(const isotp_ctx_t *ctx, const uds_can_frame_t *frame);
+
+/**
+ * [EDS#452] ISO 15765-2:2024 §9.6.2.2 / §11.3.2: a Classic CAN SF must be
+ * padded (CAN_DL == 8) or optimised (CAN_DL == SF_DL + 1), as selected by
+ * ISOTP_RX_PADDING_MODE.
+ */
+static bool isotp_sf_padding_ok(uint8_t can_dl, uint8_t sf_dl);
+
+/**
  * [#132] Clear every RX-direction field of the context.
  *
  * Guard-free: every caller (isotp_reset_rx(), isotp_reset()) has already
@@ -132,6 +145,8 @@ uds_status_t isotp_init(isotp_ctx_t *ctx, const isotp_cfg_t *cfg)
 
     ctx->rx_can_id        = cfg->rx_can_id;
     ctx->tx_can_id        = cfg->tx_can_id;
+    ctx->functional_rx_can_id = cfg->functional_rx_can_id;
+    ctx->rx_addressing    = UDS_ADDRESSING_PHYSICAL;
     ctx->local_block_size = cfg->block_size;
     ctx->local_stmin_ms   = cfg->stmin_ms;
 #if ISOTP_ENABLE_CAN_FD
@@ -152,6 +167,7 @@ uds_status_t isotp_process_rx_frame(
     void                   *rx_cb_arg)
 {
     uint8_t frame_type;
+    bool    functional;
 
     if ((ctx == NULL) || (frame == NULL) || (rx_cb == NULL)) {
         return UDS_STATUS_ERR_NULL_PTR;
@@ -166,6 +182,17 @@ uds_status_t isotp_process_rx_frame(
     }
 
     frame_type = isotp_get_frame_type(frame);
+    functional = isotp_is_functional(ctx, frame);
+
+    /* [EDS#445] A functional request is a Single Frame. A functional FF would
+     * make every addressed ECU answer with an FC, and a functional CF or FC
+     * belongs to no reception or transmission of ours, so all three are
+     * ignored without touching the physical channel state. (The ISO 15765-2
+     * clause stating functional addressing is single-frame only has not
+     * been reviewed; ignoring is the safe reading either way.) */
+    if (functional && (frame_type != (uint8_t)ISOTP_FRAME_TYPE_SF)) {
+        return UDS_STATUS_ERR_TP_FRAME_INVALID;
+    }
 
     switch (frame_type) {
 
@@ -192,7 +219,15 @@ uds_status_t isotp_process_rx_frame(
                     return UDS_STATUS_ERR_TP_FRAME_INVALID;
                 }
 
-                ctx->rx_state = ISOTP_STATE_IDLE;
+                if (functional) {
+                    /* [EDS#445] Leave any physical reception intact. */
+                    (void)memcpy(ctx->rx_func_buf, &frame->data[2], (size_t)sf_dl);
+                    ctx->rx_addressing = UDS_ADDRESSING_FUNCTIONAL;
+                    rx_cb(ctx->rx_func_buf, (uint32_t)sf_dl, rx_cb_arg);
+                    return UDS_STATUS_OK;
+                }
+                ctx->rx_state      = ISOTP_STATE_IDLE;
+                ctx->rx_addressing = UDS_ADDRESSING_PHYSICAL;
                 (void)memcpy(ctx->rx_buf, &frame->data[2], (size_t)sf_dl);
                 rx_cb(ctx->rx_buf, (uint32_t)sf_dl, rx_cb_arg);
                 return UDS_STATUS_OK;
@@ -223,8 +258,25 @@ uds_status_t isotp_process_rx_frame(
                 return UDS_STATUS_ERR_TP_OVERFLOW;
             }
 
-            /* Abort any in-progress multi-frame RX. */
-            ctx->rx_state = ISOTP_STATE_IDLE;
+            /* [EDS#452] Neither padded nor optimised: ignore. */
+            if (!isotp_sf_padding_ok(frame->dlc, sf_dl)) {
+                return UDS_STATUS_ERR_TP_FRAME_INVALID;
+            }
+
+            if (functional) {
+                /* [EDS#445] ISO 14229-1:2026 §7.7.6: a functional keep-alive
+                 * (3E 80) must not block the server, so it is delivered
+                 * from its own buffer and a physical reception in progress
+                 * continues. */
+                (void)memcpy(ctx->rx_func_buf, &frame->data[1], (size_t)sf_dl);
+                ctx->rx_addressing = UDS_ADDRESSING_FUNCTIONAL;
+                rx_cb(ctx->rx_func_buf, (uint32_t)sf_dl, rx_cb_arg);
+                return UDS_STATUS_OK;
+            }
+
+            /* A physical SF aborts any in-progress multi-frame RX. */
+            ctx->rx_state      = ISOTP_STATE_IDLE;
+            ctx->rx_addressing = UDS_ADDRESSING_PHYSICAL;
 
             (void)memcpy(ctx->rx_buf, &frame->data[1], (size_t)sf_dl);
             rx_cb(ctx->rx_buf, (uint32_t)sf_dl, rx_cb_arg);
@@ -243,39 +295,44 @@ uds_status_t isotp_process_rx_frame(
             uint8_t      ff_data_offset;
             uds_status_t fc_rc;
 
+            /* [EDS#452] ISO 15765-2:2024 §9.6.3.2: an FF with CAN_DL < 8 is
+             * ignored (no FC). */
+            if (frame->dlc < (uint8_t)8U) {
+                return UDS_STATUS_ERR_TP_FRAME_INVALID;
+            }
+
             /* FF_DL: 12 bits from (byte0 & 0x0F) << 8 | byte1. */
             ff_dl = (uint32_t)(((uint32_t)(frame->data[0] & (uint8_t)0x0FU) << 8U)
                                | (uint32_t)frame->data[1]);
 
             if (ff_dl == (uint32_t)0U) {
-#if ISOTP_ENABLE_CAN_FD
                 /*
-                 * ISO 15765-2 §9.8.2: FF_DL == 0 signals the CAN FD escape
-                 * sequence.  Classic CAN never uses this encoding — reject it.
+                 * Escape sequence: 32-bit FF_DL in bytes 2-5 (big-endian).
+                 * [EDS#452] §9.6.3.1 Table 16 defines it by FF_DL > 4095, on
+                 * Classic CAN as well as CAN FD (EDS used to reject it on
+                 * Classic CAN, so an oversized message got silence instead
+                 * of FC.Overflow). §9.6.3.2: escape with FF_DL <= 4095 is
+                 * ignored (no FC).
                  */
-                if (!frame->is_fd) {
-                    return UDS_STATUS_ERR_TP_FRAME_INVALID;
-                }
-                /* Escape header requires at least 6 bytes: 2 PCI + 4 length. */
-                if (frame->dlc < (uint8_t)6U) {
-                    return UDS_STATUS_ERR_TP_FRAME_INVALID;
-                }
-                /* Extract 32-bit FF_DL from bytes 2-5 (big-endian). */
                 ff_dl = ((uint32_t)frame->data[2] << 24U)
                       | ((uint32_t)frame->data[3] << 16U)
                       | ((uint32_t)frame->data[4] <<  8U)
                       |  (uint32_t)frame->data[5];
 
-                if (ff_dl == (uint32_t)0U) {
+                if (ff_dl <= (uint32_t)ISOTP_FF_DL_12BIT_MAX) {
                     return UDS_STATUS_ERR_TP_FRAME_INVALID;
                 }
                 ff_data_offset = (uint8_t)6U;
-#else
-                /* FF_DL == 0 is reserved on Classic CAN — always reject. */
-                return UDS_STATUS_ERR_TP_FRAME_INVALID;
-#endif /* ISOTP_ENABLE_CAN_FD */
             } else {
-                /* Standard 12-bit FF_DL (values 1-4095). */
+                /* [EDS#452] §9.6.3.2 Table 15 (normal addressing): FF_DLmin
+                 * is 8 when CAN_DL is 8, else CAN_DL - 1. A shorter message
+                 * fits a Single Frame, so the FF is ignored (no FC). */
+                uint32_t ff_dl_min = (frame->dlc == (uint8_t)8U)
+                                   ? (uint32_t)8U
+                                   : (uint32_t)((uint32_t)frame->dlc - 1U);
+                if (ff_dl < ff_dl_min) {
+                    return UDS_STATUS_ERR_TP_FRAME_INVALID;
+                }
                 ff_data_offset = (uint8_t)2U;
             }
 
@@ -301,11 +358,6 @@ uds_status_t isotp_process_rx_frame(
                 return UDS_STATUS_ERR_TP_OVERFLOW;
             }
 
-            /* Need at least the PCI header + some data. */
-            if (frame->dlc <= ff_data_offset) {
-                return UDS_STATUS_ERR_TP_FRAME_INVALID;
-            }
-
             ff_data_bytes = (uint8_t)(frame->dlc - ff_data_offset);
             if ((uint32_t)ff_data_bytes > ff_dl) {
                 ff_data_bytes = (uint8_t)ff_dl;
@@ -315,6 +367,7 @@ uds_status_t isotp_process_rx_frame(
 
             ctx->rx_expected_len    = ff_dl;
             ctx->rx_received_len    = (uint32_t)ff_data_bytes;
+            ctx->rx_dl              = frame->dlc;   /* [EDS#452] RX_DL */
             ctx->rx_expected_sn     = (uint8_t)1U;
             ctx->rx_blocks_received = (uint8_t)0U;  /* [#121] new block starts here */
             ctx->rx_cr_timer_ms     = (uint32_t)ISOTP_TIMEOUT_CR_MS;
@@ -363,6 +416,16 @@ uds_status_t isotp_process_rx_frame(
                 return UDS_STATUS_ERR_TP_UNEXPECTED_PDU;
             }
 
+            /* [EDS#452] ISO 15765-2:2024 §9.6.4.1: a CF's CAN_DL must equal
+             * RX_DL; only the last CF may be shorter, and it still has to
+             * carry every remaining byte. Anything else is ignored. */
+            remaining = ctx->rx_expected_len - ctx->rx_received_len;
+            if ((frame->dlc != ctx->rx_dl) &&
+                ((frame->dlc > ctx->rx_dl) ||
+                 ((uint32_t)((uint32_t)frame->dlc - 1U) < remaining))) {
+                return UDS_STATUS_ERR_TP_FRAME_INVALID;
+            }
+
             /* SN = lower nibble of byte 0; wraps 0..15. */
             sn = (uint8_t)(frame->data[0] & (uint8_t)0x0FU);
             if (sn != (uint8_t)(ctx->rx_expected_sn & (uint8_t)0x0FU)) {
@@ -370,13 +433,6 @@ uds_status_t isotp_process_rx_frame(
                 return UDS_STATUS_ERR_TP_UNEXPECTED_PDU;
             }
 
-            /* Need at least CF PCI (1 byte) + some data. */
-            if (frame->dlc < (uint8_t)2U) {
-                ctx->rx_state = ISOTP_STATE_ERROR;
-                return UDS_STATUS_ERR_TP_FRAME_INVALID;
-            }
-
-            remaining = ctx->rx_expected_len - ctx->rx_received_len;
             cf_data   = (uint8_t)(frame->dlc - (uint8_t)1U);
             copy_len  = ((uint32_t)cf_data < remaining) ? (uint32_t)cf_data : remaining;
 
@@ -400,6 +456,7 @@ uds_status_t isotp_process_rx_frame(
             if (ctx->rx_received_len >= ctx->rx_expected_len) {
                 ctx->rx_state           = ISOTP_STATE_IDLE;
                 ctx->rx_blocks_received = (uint8_t)0U;
+                ctx->rx_addressing      = UDS_ADDRESSING_PHYSICAL;
                 rx_cb(ctx->rx_buf, ctx->rx_expected_len, rx_cb_arg);
             } else {
                 /* [#121][P2-TP-05] RX-side block-size handling, the mirror of
@@ -962,6 +1019,23 @@ uds_status_t isotp_get_rx_state(
     return UDS_STATUS_OK;
 }
 
+uds_status_t isotp_get_rx_addressing(
+    const isotp_ctx_t *ctx,
+    uds_addressing_t  *out_addressing)
+{
+    if ((ctx == NULL) || (out_addressing == NULL)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    if (!ctx->initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    *out_addressing = ctx->rx_addressing;
+
+    return UDS_STATUS_OK;
+}
+
 uds_status_t isotp_get_tx_state(
     const isotp_ctx_t *ctx,
     isotp_state_t     *out_state)
@@ -1092,6 +1166,31 @@ static uint8_t isotp_decode_stmin_ms(uint8_t stmin_raw)
  * open-coded isotp_reset() had it — deliberately, so this refactor
  * introduces no new behaviour of any kind.
  */
+static bool isotp_is_functional(const isotp_ctx_t *ctx, const uds_can_frame_t *frame)
+{
+    bool functional = false;
+
+    if ((ctx->functional_rx_can_id != (uint32_t)0U) &&
+        (frame->id == ctx->functional_rx_can_id)) {
+        /* 0x7DF must not match a 29-bit frame with the same numeric ID. */
+        functional = (frame->is_extended_id ==
+                      (ctx->functional_rx_can_id > (uint32_t)ISOTP_CAN_STD_ID_MAX));
+    }
+    return functional;
+}
+
+static bool isotp_sf_padding_ok(uint8_t can_dl, uint8_t sf_dl)
+{
+#if ISOTP_RX_PADDING_MODE == ISOTP_RX_PADDING_REQUIRED
+    (void)sf_dl;
+    return (can_dl == (uint8_t)8U);
+#elif ISOTP_RX_PADDING_MODE == ISOTP_RX_PADDING_OPTIMISED
+    return (can_dl == (uint8_t)(sf_dl + (uint8_t)1U));
+#else
+    return (can_dl == (uint8_t)8U) || (can_dl == (uint8_t)(sf_dl + (uint8_t)1U));
+#endif
+}
+
 static void isotp_clear_rx(isotp_ctx_t *ctx)
 {
     /*
@@ -1107,6 +1206,7 @@ static void isotp_clear_rx(isotp_ctx_t *ctx)
     ctx->rx_blocks_received = (uint8_t)0U;
     ctx->rx_cr_timer_ms     = 0U;
     ctx->rx_ar_timer_ms     = 0U;
+    ctx->rx_dl              = (uint8_t)0U;
 }
 
 static void isotp_clear_tx(isotp_ctx_t *ctx)

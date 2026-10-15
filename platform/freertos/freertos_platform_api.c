@@ -594,6 +594,7 @@ static void eds_on_isotp_rx_complete(
     uds_server_ctx_t *srv = (uds_server_ctx_t *)arg;
     isotp_ctx_t      *tp  = uds_generated_get_isotp();
     uds_status_t      status;
+    uds_addressing_t  addressing = UDS_ADDRESSING_PHYSICAL;
     uint16_t          i;
 
     if ((data == NULL) || (srv == NULL) || (tp == NULL)) {
@@ -610,7 +611,10 @@ static void eds_on_isotp_rx_complete(
     s_poll_req_buf.length  = (uint16_t)length;
     s_poll_resp_buf.length = (uint16_t)0U;
 
-    status = uds_server_process_request(srv, &s_poll_req_buf, &s_poll_resp_buf);
+    /* [EDS#444] Functional only if isotp_cfg_t.functional_rx_can_id is set. */
+    (void)isotp_get_rx_addressing(tp, &addressing);
+    status = uds_server_process_request_ex(srv, &s_poll_req_buf, &s_poll_resp_buf,
+                                           addressing);
 
     if ((status != UDS_STATUS_OK) && (s_poll_resp_buf.length == (uint16_t)0U)) {
         return;

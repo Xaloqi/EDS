@@ -359,6 +359,15 @@ _Static_assert(
 /**
  * @brief Descriptor for a single CAN or CAN FD frame.
  */
+/**
+ * @brief [EDS#444] Addressing type of a received request (ISO 14229-1:2026
+ *        §7.7): physical (one server) or functional (broadcast).
+ */
+typedef enum uds_addressing {
+    UDS_ADDRESSING_PHYSICAL   = 0U, /**< Physically addressed request. */
+    UDS_ADDRESSING_FUNCTIONAL = 1U  /**< Functionally addressed request. */
+} uds_addressing_t;
+
 typedef struct uds_can_frame {
     uint32_t id;                              /**< CAN identifier (11-bit or 29-bit). */
     uint8_t  data[UDS_CAN_FRAME_MAX_LEN];     /**< Frame payload bytes. */

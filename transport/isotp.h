@@ -193,6 +193,31 @@ extern "C" {
 #define ISOTP_RX_BUF_LEN (UDS_MAX_PAYLOAD_LEN)
 #endif
 
+/**
+ * [EDS#452] Receive-side Single Frame data padding check (ISO 15765-2:2024
+ * §9.6.2.2, §11.3.2). A Classic CAN SF (CAN_DL <= 8) is accepted when:
+ *   ISOTP_RX_PADDING_ANY       (0, default): CAN_DL == 8 (padded) or
+ *                              CAN_DL == SF_DL + 1 (optimised);
+ *   ISOTP_RX_PADDING_REQUIRED  (1): CAN_DL == 8 only;
+ *   ISOTP_RX_PADDING_OPTIMISED (2): CAN_DL == SF_DL + 1 only.
+ * Any other SF is ignored.
+ */
+#define ISOTP_RX_PADDING_ANY        (0)
+#define ISOTP_RX_PADDING_REQUIRED   (1)
+#define ISOTP_RX_PADDING_OPTIMISED  (2)
+#if !defined(ISOTP_RX_PADDING_MODE) && defined(CONFIG_ISOTP_RX_PADDING_MODE)
+#define ISOTP_RX_PADDING_MODE CONFIG_ISOTP_RX_PADDING_MODE
+#endif
+#ifndef ISOTP_RX_PADDING_MODE
+#define ISOTP_RX_PADDING_MODE ISOTP_RX_PADDING_ANY
+#endif
+
+/** Largest FF_DL the 12-bit First Frame field encodes (ISO 15765-2 Table 16). */
+#define ISOTP_FF_DL_12BIT_MAX  (4095U)
+
+/** Largest 11-bit CAN identifier. */
+#define ISOTP_CAN_STD_ID_MAX   (0x7FFU)
+
 /** Default block size (0 = no block size limit). */
 #ifndef ISOTP_DEFAULT_BLOCK_SIZE
 #define ISOTP_DEFAULT_BLOCK_SIZE (0U)
@@ -250,6 +275,9 @@ typedef struct isotp_ctx {
     uint8_t          rx_blocks_received;                /**< [#121] CFs received in current block. */
     uint32_t         rx_cr_timer_ms;                    /**< Cr timeout countdown (ms). */
     uint32_t         rx_ar_timer_ms;                    /**< Ar timeout countdown (ms) — armed only across the FC frame's transmission confirmation. */
+    uint8_t          rx_dl;                             /**< [EDS#452] RX_DL: CAN_DL of the FF of the reception in progress. */
+    uds_addressing_t rx_addressing;                     /**< [EDS#444] Addressing of the PDU most recently passed to rx_cb. */
+    uint8_t          rx_func_buf[UDS_CAN_FRAME_MAX_LEN]; /**< [EDS#445] Functional SF payload, kept apart from rx_buf. */
 
     /* TX state */
     isotp_state_t    tx_state;                          /**< Current TX state. */
@@ -267,6 +295,7 @@ typedef struct isotp_ctx {
     /* Configuration */
     uint32_t         rx_can_id;                         /**< CAN ID to receive on. */
     uint32_t         tx_can_id;                         /**< CAN ID to transmit on. */
+    uint32_t         functional_rx_can_id;              /**< [EDS#444] Functional request CAN ID (0 = none). */
     uint8_t          local_block_size;                  /**< Block size to advertise in FC. */
     uint8_t          local_stmin_ms;                    /**< STmin to advertise in FC (ms). */
 #if ISOTP_ENABLE_CAN_FD
@@ -287,6 +316,16 @@ typedef struct isotp_ctx {
 typedef struct isotp_cfg {
     uint32_t         rx_can_id;         /**< CAN ID to listen for incoming frames. */
     uint32_t         tx_can_id;         /**< CAN ID to use for outgoing frames. */
+    /**
+     * [EDS#444/#445] CAN ID of functionally addressed requests (ISO 15765-4:
+     * 0x7DF), or 0 for none: every frame is then treated as physical, as
+     * before. When set, a frame received on this ID is functional: a Single
+     * Frame is delivered without disturbing a physical reception in progress
+     * (ISO 14229-1:2026 §7.7.6), and a First or Consecutive Frame is ignored.
+     * The integrator passes the addressing on with isotp_get_rx_addressing()
+     * and uds_server_process_request_ex().
+     */
+    uint32_t         functional_rx_can_id;
     uint8_t          block_size;        /**< Block size to advertise to sender (0 = unlimited). */
     uint8_t          stmin_ms;          /**< Minimum separation time to advertise (ms). */
 #if ISOTP_ENABLE_CAN_FD
@@ -551,6 +590,25 @@ uds_status_t isotp_get_state(
 uds_status_t isotp_get_rx_state(
     const isotp_ctx_t *ctx,
     isotp_state_t     *out_state
+);
+
+/**
+ * @brief [EDS#444] Addressing of the PDU most recently passed to rx_cb.
+ *
+ * Call it from inside rx_cb, and hand the result to
+ * uds_server_process_request_ex(). UDS_ADDRESSING_FUNCTIONAL only when
+ * isotp_cfg_t.functional_rx_can_id is set and the PDU arrived on it.
+ *
+ * @param[in]  ctx             Initialized ISO-TP context.
+ * @param[out] out_addressing  Receives the addressing type.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NULL_PTR if any pointer is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
+ */
+uds_status_t isotp_get_rx_addressing(
+    const isotp_ctx_t *ctx,
+    uds_addressing_t  *out_addressing
 );
 
 /**

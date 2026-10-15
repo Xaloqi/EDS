@@ -183,6 +183,33 @@ uds_status_t uds_server_process_request(
 );
 
 /**
+ * @brief [EDS#444] Process a request whose addressing type is known.
+ *
+ * Identical to uds_server_process_request() (which is this function with
+ * UDS_ADDRESSING_PHYSICAL), except that for UDS_ADDRESSING_FUNCTIONAL a
+ * negative response with NRC 0x11, 0x12, 0x31, 0x7E or 0x7F is not sent
+ * (resp->length = 0, as for a suppressed positive response), per
+ * ISO 14229-1:2026 §7.7.1 and Table 4. The NRC still counts in
+ * negative_response_count.
+ *
+ * On CAN, take the addressing from isotp_get_rx_addressing() inside the
+ * ISO-TP rx callback.
+ *
+ * @param[in]  ctx         Pointer to initialized server context.
+ * @param[in]  req         Pointer to the assembled request PDU buffer.
+ * @param[out] resp        Pointer to the response buffer to populate.
+ * @param[in]  addressing  How the request was addressed.
+ *
+ * @return As uds_server_process_request().
+ */
+uds_status_t uds_server_process_request_ex(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp,
+    uds_addressing_t     addressing
+);
+
+/**
  * @brief Periodic tick function — must be called at 1 ms resolution.
  *
  * Drives session timeout and security delay timers.
