@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.18.1  
-**Status:** 57/59 unit test modules passing. All CI jobs green — the count is
+**Status:** 57/60 unit test modules passing. All CI jobs green — the count is
 deliberately not restated here, because a hand-maintained one has now drifted
 twice (#97, then again while this line read "25"); `.github/workflows/ci.yml`'s
 `jobs:` block is the count. 68/68 harness tests passing — **Professional tier
@@ -219,7 +219,7 @@ bash build_tests.sh
 # Expected: 55 passed, 0 failed
 ```
 
-### Coverage — 59 unit test modules
+### Coverage — 60 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -608,7 +608,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          59 Unity modules via build_tests.sh
+   ├── unit-tests          60 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── cmake-ctest-build   The same modules via cmake -S tests + ctest

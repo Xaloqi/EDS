@@ -10,6 +10,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`eds_elapsed_consume()` in `core/eds_elapsed.h`** (`#411`): the
+  shared elapsed-time helper for poll loops that tick 1 ms timers. It hands
+  out the ms elapsed since the last call, at most `cap_ms` per call. The
+  rest is carried to later calls, not dropped, so a stall never makes S3
+  run long. The carry saturates at `EDS_ELAPSED_MAX_CARRY_MS` (5 s), so a
+  debugger halt is not replayed as a burst of ticks. Adopters (the DoIP
+  examples, the FreeRTOS poll task) follow separately.
 - **`platform/zephyr/nvm_store.c` now honours `eds_nvm_ops_t`** (`#304`,
   Stage 1): `eds_platform_cfg_t.nvm`, previously documented "Ignored on
   Zephyr", is forwarded by `eds_platform_init()` to the Zephyr NVM backend
