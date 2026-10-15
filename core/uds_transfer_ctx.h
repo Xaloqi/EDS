@@ -26,7 +26,8 @@
  *   Any state ── ECUReset  ──→  IDLE   (reset clears transfer)
  *
  * CRC ACCUMULATION:
- *   A running CRC-32 (ISO 3309 / MPEG-2 polynomial 0xEDB88320) is maintained
+ *   A running CRC-32/ISO-HDLC (zlib's crc32: reflected 0xEDB88320, init and
+ *   final XOR 0xFFFFFFFF, check 0xCBF43926) is maintained
  *   over all transferred payload bytes (excluding block sequence counter byte).
  *   Service 0x37 compares this accumulated value against the
  *   transferRequestParameterRecord CRC if one is supplied.
@@ -144,7 +145,9 @@ uds_transfer_ctx_t *uds_transfer_ctx_get(void);
 /**
  * @brief Update the running CRC-32 accumulator.
  *
- * Uses ISO 3309 / MPEG-2 polynomial (0xEDB88320, reflected).
+ * CRC-32/ISO-HDLC (ISO 3309; zlib's crc32): reflected polynomial 0xEDB88320,
+ * init 0xFFFFFFFF, final XOR 0xFFFFFFFF, check value 0xCBF43926 for
+ * "123456789". Not CRC-32/MPEG-2, which is unreflected with no final XOR.
  * Called by service_0x36 for each payload byte of each TransferData block.
  *
  * @param[in] crc_in  Current CRC accumulator value (initialise with 0xFFFFFFFFU).
