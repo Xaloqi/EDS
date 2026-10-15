@@ -293,6 +293,10 @@ uds_status_t uds_service_0x34_handler(
  *
  * @return true if out_frame was populated and must be transmitted.
  * @return false if no erase is pending (nothing to do this tick).
+ *
+ * @note [EDS#435] Restarts the S3server timer each time it returns true (every
+ *       0x78 and the final response), so a long erase can't run the session
+ *       out. Call it under the same lock as uds_server_process_request().
  */
 bool uds_service_0x34_pending_tick(uds_msg_buf_t *out_frame);
 

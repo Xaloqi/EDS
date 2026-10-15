@@ -26,6 +26,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   binding's new `ecu_reset` op. Both in-tree bindings flush NVM, wait
   `DOIP_RESET_TX_GRACE_MS` (50 ms) and reset through
   `eds_platform_ecu_reset()`.
+- **S3 no longer runs out during a chunked erase** (`#435`): S3 was
+  restarted only when a request arrived, so it kept counting through
+  RequestDownload's response-pending phase. A tester pausing 1.5 s after a
+  4 s erase lost the session, and at STM32H7's 4 s/sector worst case a
+  multi-sector erase lost it before the `74`. `uds_service_0x34_pending_tick()`
+  now restarts S3 on every frame it produces (each 0x78 and the final
+  response), on CAN and DoIP alike.
 
 ### Changed
 

@@ -116,6 +116,7 @@ typedef struct {
     uint16_t write_buf_capacity;     /**< Precomputed for the eventual [0x74]
                                        *   response and transfer_ctx setup.    */
     bool     crc_check_requested;    /**< Precomputed — see #279 note below.  */
+    uds_session_ctx_t *session_ctx;  /**< [EDS#435] S3 restarted per frame.   */
 } svc_0x34_erase_pending_t;
 
 static svc_0x34_erase_pending_t s_erase_pending;
@@ -341,6 +342,7 @@ uds_status_t uds_service_0x34_handler(
      * -------------------------------------------------------------------- */
     if (ops->erase_step_cb != NULL) {
         s_erase_pending.active           = true;
+        s_erase_pending.session_ctx      = ctx->cfg.session_ctx;   /* [EDS#435] */
         s_erase_pending.address          = mem_address;
         s_erase_pending.remaining        = mem_size;
         s_erase_pending.target_address   = mem_address;
@@ -486,7 +488,35 @@ uds_status_t uds_service_0x34_handler(
  * [#312] Chunked-erase driver
  * -------------------------------------------------------------------------- */
 
+static bool s_pending_step(uds_msg_buf_t *out_frame);
+
+/* [EDS#435] S3 was restarted only when a request arrived, so it ran down
+ * through the whole response-pending phase. Measured on NUCLEO-H753ZI: a
+ * tester pausing 1.5 s after a 4.15 s erase's final 0x74 had lost the
+ * session, and at the 4 s/sector worst case a multi-sector erase loses it
+ * before the 0x74. ISO 14229-2 keeps S3 stopped while the server is busy and
+ * restarts it at the final response. Restart it on every frame produced
+ * here: each 0x78 (the server is busy, not idle) and the final response,
+ * positive or negative.
+ * ASSUMPTION: one erase step is shorter than S3. True for STM32H7's 4000 ms
+ * max-erase-time per 128 KB step against the reference 5000 ms S3; a slower
+ * step or a shorter S3 breaks it. Deliberately not a "hold S3" flag: a hold
+ * some abort path failed to release would keep a programming session, and
+ * its unlock, alive forever. A restart has no state to leak; if nothing
+ * drives this function, S3 simply runs out. */
 bool uds_service_0x34_pending_tick(uds_msg_buf_t *out_frame)
+{
+    /* Read before the step: completing or aborting clears s_erase_pending. */
+    uds_session_ctx_t *session_ctx = s_erase_pending.session_ctx;
+    bool               produced    = s_pending_step(out_frame);
+
+    if (produced && (session_ctx != NULL)) {
+        (void)uds_session_reset_s3_timer(session_ctx);
+    }
+    return produced;
+}
+
+static bool s_pending_step(uds_msg_buf_t *out_frame)
 {
     const uds_flash_ops_t *ops;
     uint32_t                erased = (uint32_t)0U;
