@@ -31,6 +31,7 @@
 
 #include "doip_server.h"
 #include "uds_server.h"
+#include "uds_comm_control.h"   /* [SEC-SESS-COMMRESTORE-01] */
 #include "uds_types.h"
 #include "eds_elapsed.h"      /* [EDS#412] connection lifetime */
 #include "uds_security_algo.h" /* [EDS#358] EDS_BUILD_IS_PRODUCTION (SEC-BUILD-MODE-01) */
@@ -955,6 +956,11 @@ connection_closed:
          * 14229-1 §10.4.5.3 — same two calls SEC-S3-RESET-01 makes. */
         (void)uds_session_transition(uds_ctx->cfg.session_ctx, UDS_SESSION_DEFAULT);
         (void)uds_security_reset(uds_ctx->cfg.security_ctx);
+        /* [SEC-SESS-COMMRESTORE-01] The third return-to-DEFAULT producer:
+         * ISO 14229-1:2026 §9.2.1 d) resets CommunicationControl and
+         * ControlDTCSetting here too, or a dropped tester leaves the ECU
+         * silent with DTC recording off. */
+        (void)uds_comm_control_restore_defaults();
     }
 
     /* Unreachable in normal operation */

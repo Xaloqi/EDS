@@ -63,10 +63,12 @@
  *   The server dispatcher enforces this — the handler also double-checks.
  *
  * ON SESSION TIMEOUT / DEFAULT TRANSITION:
- *   ISO 14229-1 §14.1: The ECU shall restore full communication on any
- *   session return to Default session. The handler in service_0x10.c is
- *   responsible for calling the comm_restore callback. This handler
- *   records state changes only.
+ *   ISO 14229-1:2026 §9.2.1 d): normal communication is re-enabled on
+ *   every return to the Default session; the state is kept across
+ *   non-default transitions (c). uds_comm_control_restore_defaults() is
+ *   called on every return to Default: an explicit 10 01 (service_0x10.c), S3 timeout
+ *   (uds_server_tick_1ms) and a DoIP disconnect (doip_server.c)
+ *   [SEC-SESS-COMMRESTORE-01]. This handler records state changes only.
  *
  * REQUEST FORMAT:
  *   [0x28, controlType, communicationType]   (3 bytes)

@@ -287,8 +287,9 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
          *
          * SAFETY: Suppresses safety-relevant fault recording. Must be
          *         re-enabled before leaving the diagnostic session.
-         *         Automatic restoration on Default session transition is
-         *         enforced by service_0x10.c via uds_comm_control_restore_defaults().
+         *         Automatic restoration on every return to Default (10 01,
+         *         S3 timeout, DoIP disconnect) via
+         *         uds_comm_control_restore_defaults() [SEC-SESS-COMMRESTORE-01].
          */
         .service_id                    = UDS_SID_CONTROL_DTC_SETTING,
         .handler                       = uds_service_0x85_handler,
