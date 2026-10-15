@@ -682,7 +682,8 @@ is produced. Real hardware (STM32H743ZI) path is covered by customer integration
 Added in v1.6.0. Three stages:
 
 1. **Build:** `west build -b native_sim examples/basic_ecu_doip` with
-   `-DEDS_DOIP_ONLY_BUILD` and `-DDIAG_SKIP_CODEGEN=ON` (pre-generated files committed).
+   `-DDIAG_SKIP_CODEGEN=ON` (pre-generated files committed). `EDS_DOIP_ONLY_BUILD=1`
+   comes from the example's `CMakeLists.txt`, not the command line.
    `-DDIAG_SKIP_CODEGEN=ON` is used because the Jinja2 templates live in the private
    EDS-toolchain repo and are not available in public CI. The committed generated files
    are ground truth and match template output byte-for-byte.

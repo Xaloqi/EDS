@@ -18,7 +18,7 @@ YAML schema are identical to `basic_ecu`. The only differences are:
 - `ecu.transport: doip` in `diagnostics_config.yaml`
 - `eds_doip_platform_start()` called in `main.c` instead of the CAN diagnostic task
 - Zephyr networking Kconfig enabled (`CONFIG_NETWORKING=y`, `CONFIG_NET_TCP=y`)
-- `-DEDS_DOIP_ONLY_BUILD` in `CMakeLists.txt` — omits ISO-TP init from generated `uds_init.c`
+- `EDS_DOIP_ONLY_BUILD=1`, set by `CMakeLists.txt` (not passed on the command line) — omits ISO-TP init from generated `uds_init.c`
 
 This is the canonical reference for adding DoIP to any Zephyr EDS ECU.
 
@@ -48,20 +48,21 @@ Existing `diagnostics_config.yaml` files without an `ecu:` block are unchanged �
 west build -b native_sim examples/basic_ecu_doip \
   -- \
   -DEXTRA_CONF_FILE="${PWD}/examples/basic_ecu_doip/boards/native_sim/native_sim_doip.conf" \
-  -DEDS_DOIP_ONLY_BUILD \
+  -DDIAG_SKIP_CODEGEN=ON \
   -DZEPHYR_TOOLCHAIN_VARIANT=host
 ```
 
-> **Note:** `-DDIAG_SKIP_CODEGEN=ON` is used in public CI because the Jinja2 templates
-> live in the private EDS-toolchain repo. Omit it when you have the full toolchain installed:
-> codegen will re-run automatically and produce identical output.
+> **Note:** `-DDIAG_SKIP_CODEGEN=ON` builds from the pre-generated files committed in
+> `generated/`. Without it the build runs codegen, which needs the Jinja2 templates from the
+> EDS toolchain; a public clone does not have them, so the build fails. With the toolchain
+> installed you can drop it, and codegen produces identical output.
 
 ### Hardware (any Zephyr Ethernet board)
 
 ```bash
 # Example: FRDM-K64F
 west build -b frdm_k64f examples/basic_ecu_doip \
-  -- -DEDS_DOIP_ONLY_BUILD
+  -- -DDIAG_SKIP_CODEGEN=ON
 west flash
 ```
 
@@ -186,7 +187,7 @@ basic_ecu_doip/
 | `uds_generated_init` call | `init(can, rx_id, tx_id)` | `init(NULL, 0, 0)` |
 | CAN diagnostic task | Started in `main.c` | Not present |
 | DoIP platform start | Not present | `eds_doip_platform_start()` |
-| Build flag | — | `-DEDS_DOIP_ONLY_BUILD` |
+| Build define | — | `EDS_DOIP_ONLY_BUILD=1` (set in `CMakeLists.txt`) |
 | YAML difference | No `ecu:` block | `ecu.transport: doip` |
 | UDS core, safety, security | Identical | Identical |
 | Generated DID/DTC/routine files | Identical structure | Identical structure |
