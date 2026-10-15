@@ -62,6 +62,7 @@
 #include "platform_api.h"
 #include "freertos_can.h"
 #include "freertos_ticks.h"   /* [EDS#418] */
+#include "eds_elapsed.h"      /* [EDS#413] elapsed-time ticking */
 #include "nvm_store.h"
 #include "dtc_mirror.h"
 #include "uds_security_algo.h" /* EDS_BUILD_IS_PRODUCTION, SEC-BUILD-MODE-01 */
@@ -620,14 +621,20 @@ static void eds_on_isotp_rx_complete(
     }
 }
 
+/* [EDS#413] Most 1 ms ticks one poll iteration runs. Time beyond it is
+ * carried by eds_elapsed_consume() into the next iterations, not lost. */
+#define EDS_FREERTOS_TICK_MAX_PER_LOOP_MS (100U)
+
 /*
  * UDS poll task body.
  *
- * Runs at 1ms resolution. Each iteration:
- *   1. vTaskDelay(1) — yield for 1 tick (assumes configTICK_RATE_HZ >= 1000).
- *   2. Drain CAN RX queue — forward frames to ISO-TP reassembler.
- *   3. Advance ISO-TP timers (N_Cr, N_As, N_Bs).
- *   4. Advance UDS server timers (S3server session timeout, security lockout).
+ * Each iteration:
+ *   1. vTaskDelay(1) — yield for 1 tick (1 ms at 1 kHz, 10 ms at 100 Hz).
+ *   2. Take one frame from the CAN RX queue and forward it to ISO-TP.
+ *   3. Advance ISO-TP timers (N_Cr, N_As, N_Bs), UDS server timers (S3,
+ *      security lockout) and periodic scheduling once per millisecond
+ *      actually elapsed [EDS#413]. Ticking once per iteration ran every
+ *      timer slow by 1000 / configTICK_RATE_HZ (10x at 100 Hz).
  */
 static void eds_uds_poll_task(void *arg)
 {
@@ -637,6 +644,11 @@ static void eds_uds_poll_task(void *arg)
     uds_can_frame_t   rx_frame;
     bool              frame_ready;
     uds_status_t      status;
+    eds_elapsed_t     tick_clock;
+    uint32_t          elapsed;
+    uint32_t          i;
+
+    eds_elapsed_init(&tick_clock, eds_platform_uptime_ms());
 
     for (;;) {
         vTaskDelay((TickType_t)1U);
@@ -649,9 +661,13 @@ static void eds_uds_poll_task(void *arg)
                 tp, &rx_frame, eds_on_isotp_rx_complete, (void *)srv);
         }
 
-        (void)isotp_tick_1ms(tp);
-        (void)uds_server_tick_1ms(srv);
-        (void)uds_periodic_tick_1ms();
+        elapsed = eds_elapsed_consume(&tick_clock, eds_platform_uptime_ms(),
+                                      EDS_FREERTOS_TICK_MAX_PER_LOOP_MS);
+        for (i = 0U; i < elapsed; i++) {
+            (void)isotp_tick_1ms(tp);
+            (void)uds_server_tick_1ms(srv);
+            (void)uds_periodic_tick_1ms();
+        }
 
         {
             static uds_msg_buf_t s_periodic_frame;

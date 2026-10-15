@@ -144,7 +144,14 @@ uds_status_t diag_wdt_init(diag_wdt_t *wdt)
      * is what every board above defines. The DT_NODELABEL(wdt0) fallback is
      * kept for boards that do use that label (e.g. several Nordic ones), so
      * this resolves on both conventions. */
-#if DT_NODE_EXISTS(DT_ALIAS(watchdog0))
+#if !defined(CONFIG_WATCHDOG)
+    /* [EDS#420] No watchdog support built: degraded mode, on every board.
+     * DEVICE_DT_GET_OR_NULL() checks only the node's devicetree status, so
+     * on a board whose watchdog0 is enabled in devicetree (FRDM-K64F) it
+     * referenced a device the disabled driver never instantiated, and the
+     * build failed to link instead of degrading. */
+    dev = NULL;
+#elif DT_NODE_EXISTS(DT_ALIAS(watchdog0))
     dev = DEVICE_DT_GET_OR_NULL(DT_ALIAS(watchdog0));
 #else
     dev = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(wdt0));
