@@ -45,6 +45,7 @@
 #include "doip_server.h"
 #include "uds_server.h"
 #include "uds_types.h"
+#include "platform_api.h"   /* [EDS#412] eds_platform_uptime_ms() */
 
 /* FreeRTOS */
 #include "FreeRTOS.h"
@@ -220,6 +221,7 @@ static const eds_doip_platform_ops_t s_freertos_doip_ops = {
     .tcp_recv          = freertos_tcp_recv,
     .tcp_close         = freertos_tcp_close,
     .tcp_server_close  = freertos_tcp_server_close,
+    .uptime_ms         = eds_platform_uptime_ms,  /* [EDS#412] */
 };
 
 /* ---------------------------------------------------------------------------

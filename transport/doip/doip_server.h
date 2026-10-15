@@ -121,9 +121,8 @@ extern "C" {
  * finishing a frame already started, and gets its own timeout: each wait
  * is one tcp_recv() of DOIP_IDLE_POLL_MS, and the connection is closed
  * after a COUNT of consecutive waits that return DOIP_TCP_RECV_TIMEOUT.
- * This file has no direct RTOS clock (see DOIP_MAX_CONNECTION_FRAMES
- * below), and needs none here: a recv that timed out has already spent
- * its full timeout, so N timed-out polls are N x DOIP_IDLE_POLL_MS of
+ * Idleness needs no clock: a recv that timed out has already spent its
+ * full timeout, so N timed-out polls are N x DOIP_IDLE_POLL_MS of
  * silence, as accurate as the kernel's own timeouts. (Measured on a
  * NUCLEO-H753ZI: 300 polls closed the connection after 298.96 s of host
  * wall time.)
@@ -140,9 +139,10 @@ extern "C" {
  *     activates routing is still released quickly;
  *   - after it, ISO's 5 min T_TCP_General_Inactivity default;
  *   - total idleness per connection is capped
- *     (DOIP_MAX_CONNECTION_IDLE_POLLS), so a client sending one frame
- *     just inside every inactivity window cannot multiply 5 min by
- *     DOIP_MAX_CONNECTION_FRAMES;
+ *     (DOIP_MAX_CONNECTION_IDLE_POLLS), and so is total connection
+ *     lifetime (DOIP_MAX_CONNECTION_LIFETIME_MS, EDS#412), so neither a
+ *     client sending one frame just inside every inactivity window nor
+ *     one sending frames continuously holds the slot indefinitely;
  *   - a peer that closes or resets its socket is dropped at once, since
  *     only DOIP_TCP_RECV_TIMEOUT counts as idleness.
  * A deployment where a second tester must never wait minutes should lower
@@ -173,9 +173,9 @@ extern "C" {
 #endif
 
 /** [EDS#400] Total idle polls allowed over one connection's lifetime (30 min
- * at the default poll), whether or not frames arrive in between. Takes
- * over the lifetime bound DOIP_MAX_CONNECTION_FRAMES gave when the gap
- * between frames was capped at DOIP_TCP_RECV_TIMEOUT_MS. */
+ * at the default poll), whether or not frames arrive in between. Counts
+ * only idle time: a client that sends a frame within every poll never
+ * accumulates any, which is what DOIP_MAX_CONNECTION_LIFETIME_MS bounds. */
 #ifndef DOIP_MAX_CONNECTION_IDLE_POLLS
 #define DOIP_MAX_CONNECTION_IDLE_POLLS (1800U)
 #endif
@@ -221,25 +221,42 @@ extern "C" {
 #endif
 
 /**
- * [EDS#218] Maximum diagnostic frames dispatched on one TCP connection
- * before the server forces a disconnect, freeing the single serial slot
- * (DOIP_MAX_CONNECTIONS is a listen() backlog, not a concurrency limit —
- * see eds_doip_server_run()) for the next client. This is also the
- * mechanism that bounds total connection lifetime: this file has no
- * direct RTOS clock access — all platform interaction is ops-only (see
- * file header) — so, exactly like DOIP_MAX_FRAME_READ_ATTEMPTS above
- * (EDS#193), a bounded count stands in for a wall-clock deadline. A
- * client sending valid traffic slowly enough to stay under
- * DOIP_TCP_RECV_TIMEOUT_MS on every read, and so never trip the
- * per-frame read-attempt bound, would otherwise be able to hold the
- * single active connection indefinitely. [EDS#400] That reasoning held
- * while the gap between frames was capped at DOIP_TCP_RECV_TIMEOUT_MS; the
- * gap is now an inactivity bound of minutes, so connection lifetime is
- * bounded in time by DOIP_MAX_CONNECTION_IDLE_POLLS, with this cap still
- * bounding the request count.
+ * [EDS#412] Total lifetime of one TCP connection in ms (default 30 min),
+ * measured from accept with the uptime_ms platform op. When it is spent the
+ * server closes the connection, which also runs the EDS#191 session and
+ * security reset, so the single serial slot (DOIP_MAX_CONNECTIONS is a
+ * listen() backlog, not a concurrency limit) passes to the next tester.
+ *
+ * This is the EDS#218 bound against a client holding the slot forever with
+ * valid traffic. The idle limits above cannot provide it: a client sending a
+ * frame every 0.9 s is never idle. Removing this constant removes that
+ * protection.
+ *
+ * ASSUMPTION, KNOWN TO BE FALSE IN PART: 30 minutes bounds total connection
+ * lifetime, which assumes no legitimate session exceeds it. Long workshop
+ * sessions do, and are cut. It exists only until EDS#409 makes eviction
+ * demand-driven (alive check when a second tester arrives), which can tell
+ * a long session from a squatter. A firmware download is not at risk: 2 MB
+ * transfers in well under a minute.
+ *
+ * Replaces DOIP_MAX_CONNECTION_FRAMES (500), which counted frames as a
+ * stand-in for this deadline and cut every download above ~0.5 MB
+ * (EDS#412).
+ *
+ * Debugger halts: the platform clock keeps running while the core is
+ * halted, so a halt longer than this drops the tester on resume. Harmless;
+ * the tester reconnects.
  */
-#ifndef DOIP_MAX_CONNECTION_FRAMES
-#define DOIP_MAX_CONNECTION_FRAMES (500U)
+#ifndef DOIP_MAX_CONNECTION_LIFETIME_MS
+#define DOIP_MAX_CONNECTION_LIFETIME_MS (1800000U)
+#endif
+
+#if (DOIP_MAX_CONNECTION_LIFETIME_MS == 0U)
+#error "DOIP_MAX_CONNECTION_LIFETIME_MS must be non-zero (EDS#412)"
+#endif
+
+#ifdef DOIP_MAX_CONNECTION_FRAMES
+#error "DOIP_MAX_CONNECTION_FRAMES was removed (EDS#412): set DOIP_MAX_CONNECTION_LIFETIME_MS instead"
 #endif
 
 /**
@@ -260,8 +277,9 @@ extern "C" {
  * [EDS#218] Number of subsequent connection attempts rejected outright
  * (accepted, then immediately closed with no processing) once
  * DOIP_RAPID_RECONNECT_THRESHOLD is hit. Counts down per rejected
- * attempt rather than a wall-clock cooldown, for the same "no direct
- * RTOS clock" reason as DOIP_MAX_CONNECTION_FRAMES above.
+ * attempt rather than a wall-clock cooldown: written when this file had
+ * no clock. The uptime_ms op now provides one; converting this count is
+ * left out of EDS#412 to keep that change small.
  */
 #ifndef DOIP_RECONNECT_BACKOFF_REJECTS
 #define DOIP_RECONNECT_BACKOFF_REJECTS (4U)
@@ -365,6 +383,19 @@ typedef struct eds_doip_platform_ops {
      * @param[in] server_ctx  Server socket handle to close.
      */
     void (*tcp_server_close)(void *server_ctx);
+
+    /**
+     * @brief Current uptime in milliseconds.  [EDS#412]
+     *
+     * Monotonic, wrapping at UINT32_MAX. Measures connection lifetime
+     * (DOIP_MAX_CONNECTION_LIFETIME_MS). Both in-tree bindings return
+     * eds_platform_uptime_ms(). Required: a binding without it fails
+     * eds_doip_register_platform(), because a clock stuck at 0 would give
+     * a lifetime bound that never fires.
+     *
+     * @return Uptime in ms.
+     */
+    uint32_t (*uptime_ms)(void);
 } eds_doip_platform_ops_t;
 
 /* ============================================================================
@@ -385,7 +416,7 @@ typedef struct doip_server_state {
     uint32_t frames_received;    /**< Diagnostic counter: total frames received. */
     uint32_t frames_sent;        /**< Diagnostic counter: total frames sent. */
     /** [EDS#218] Resource-accounting counters — connections force-closed
-     * for hitting DOIP_MAX_CONNECTION_FRAMES, and connection attempts
+     * for reaching DOIP_MAX_CONNECTION_LIFETIME_MS (EDS#412), and connection attempts
      * rejected outright during a DOIP_RECONNECT_BACKOFF_REJECTS window.
      * Diagnostic/telemetry only; never reset except at server init. */
     uint32_t connections_lifetime_capped;

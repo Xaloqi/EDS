@@ -17,7 +17,9 @@
  *   error events, and mock_tcp_accept() longjmp()s back into the test once
  *   the scripted connection has closed (or after a scripted number of idle
  *   accept polls). Simulated time is the sum of the timeout_ms of every
- *   recv that timed out, which is exactly what the server sees on target.
+ *   recv that timed out, which is exactly what the server sees on target,
+ *   plus g_ms_per_data_read for every read that returned data. The
+ *   uptime_ms op returns it (EDS#412).
  *
  *   Inactivity (EDS#400):
  *     - test_doip_idle_gap_holds_session
@@ -28,7 +30,9 @@
  *     - test_doip_partial_frame_stall_still_closes_fast
  *     - test_doip_hard_error_while_idle_closes_immediately
  *     - test_doip_payload_trickle_still_capped
- *     - test_doip_connection_frame_cap_still_enforced
+ *   Connection lifetime (EDS#412, replaces the EDS#218 frame cap):
+ *     - test_doip_long_download_not_cut_off
+ *     - test_doip_busy_client_loses_slot_at_lifetime
  *   Supervision check-in (EDS#399):
  *     - test_doip_checkin_while_idle_without_client
  *     - test_doip_checkin_while_connected_idle
@@ -111,6 +115,10 @@ static uint32_t    g_accept_calls;
 static uint32_t    g_close_calls;
 static bool        g_script_done_at_close;  /* true: peer closed it, not us */
 static uint32_t    g_sim_idle_ms;            /* sum of timed-out recv waits */
+static uint32_t    g_sim_now_ms;             /* uptime_ms op: the simulated clock */
+static uint32_t    g_ms_per_data_read;       /* clock advance per data read */
+static uint32_t    g_conn_open_ms;           /* clock at accept */
+static uint32_t    g_sim_now_ms_at_close;
 static uint32_t    g_sim_idle_ms_at_close;
 static uint32_t    g_recv_calls;
 static uint32_t    g_last_recv_timeout_ms;
@@ -169,6 +177,7 @@ static int mock_tcp_accept(void *server_ctx, void **conn_ctx, uint32_t timeout_m
         longjmp(g_server_exit, 1);
     }
     g_conn_given = true;
+    g_conn_open_ms = g_sim_now_ms;
     *conn_ctx = (void *)(uintptr_t)0xCAFEBABEU;
     return 0;
 }
@@ -199,6 +208,7 @@ static int mock_tcp_recv(void *conn_ctx, uint8_t *buf, size_t buf_len, uint32_t 
         }
         memcpy(buf, &st->data[g_step_off], n);
         g_step_off += n;
+        g_sim_now_ms += g_ms_per_data_read;
         if (g_step_off >= st->len) {
             g_step_idx++;
             g_step_off = 0U;
@@ -207,6 +217,7 @@ static int mock_tcp_recv(void *conn_ctx, uint8_t *buf, size_t buf_len, uint32_t 
     }
     case STEP_TIMEOUT:
         g_sim_idle_ms += timeout_ms;
+        g_sim_now_ms  += timeout_ms;
         g_step_rep++;
         if (g_step_rep >= st->repeat) {
             g_step_idx++;
@@ -227,11 +238,17 @@ static void mock_tcp_close(void *conn_ctx)
     g_close_calls++;
     g_script_done_at_close  = script_done();
     g_sim_idle_ms_at_close  = g_sim_idle_ms;
+    g_sim_now_ms_at_close   = g_sim_now_ms;
 }
 
 static void mock_tcp_server_close(void *server_ctx)
 {
     (void)server_ctx;
+}
+
+static uint32_t mock_uptime_ms(void)
+{
+    return g_sim_now_ms;
 }
 
 static const eds_doip_platform_ops_t g_mock_ops = {
@@ -241,6 +258,7 @@ static const eds_doip_platform_ops_t g_mock_ops = {
     .tcp_recv          = mock_tcp_recv,
     .tcp_close         = mock_tcp_close,
     .tcp_server_close  = mock_tcp_server_close,
+    .uptime_ms         = mock_uptime_ms,
 };
 
 static void checkin_cb(void)
@@ -355,6 +373,10 @@ static void reset_observations(void)
     g_script_done_at_close  = false;
     g_sim_idle_ms           = 0U;
     g_sim_idle_ms_at_close  = 0U;
+    g_sim_now_ms            = 0U;
+    g_ms_per_data_read      = 0U;
+    g_conn_open_ms          = 0U;
+    g_sim_now_ms_at_close   = 0U;
     g_recv_calls            = 0U;
     g_last_recv_timeout_ms  = 0U;
     g_checkins              = 0U;
@@ -439,7 +461,7 @@ ZTEST(doip_lifecycle_suite, test_doip_initial_inactivity_without_routing_activat
 
 /* Total idleness per connection is bounded, so a client sending one frame
  * just inside every inactivity window still cannot hold the single serial
- * slot for DOIP_MAX_CONNECTION_FRAMES x 5 min. */
+ * slot indefinitely. */
 ZTEST(doip_lifecycle_suite, test_doip_connection_idle_budget_bounds_lifetime)
 {
     const uint32_t gap = DOIP_GENERAL_INACTIVITY_POLLS - 1U;
@@ -513,24 +535,79 @@ ZTEST(doip_lifecycle_suite, test_doip_payload_trickle_still_capped)
     TEST_ASSERT_FALSE(g_script_done_at_close);
 }
 
-/* [EDS#218] The per-connection frame cap still forces a disconnect. */
-ZTEST(doip_lifecycle_suite, test_doip_connection_frame_cap_still_enforced)
+/* =========================================================================
+ * Connection lifetime (EDS#412)
+ * ========================================================================= */
+
+/* Enough TesterPresent frames for either test below. The old cap counted
+ * frames whatever the SID, so each stands in for a TransferData block. */
+#define LIFETIME_TEST_MAX_FRAMES (2100U)
+static uint8_t g_many_tp[LIFETIME_TEST_MAX_FRAMES * sizeof(k_tester_present)];
+
+static void add_tester_presents(uint32_t n)
 {
-    static uint8_t many_tp[DOIP_MAX_CONNECTION_FRAMES * sizeof(k_tester_present)];
-    for (uint32_t i = 0U; i < DOIP_MAX_CONNECTION_FRAMES; i++) {
-        memcpy(&many_tp[i * sizeof(k_tester_present)], k_tester_present,
+    for (uint32_t i = 0U; i < n; i++) {
+        memcpy(&g_many_tp[i * sizeof(k_tester_present)], k_tester_present,
                sizeof(k_tester_present));
     }
+    add_data(g_many_tp, (size_t)n * sizeof(k_tester_present));
+}
+
+/* A 2 MB download (2000 x 1 KB blocks) finishes on one connection, with
+ * its session intact. The EDS#218 frame cap closed the connection after 500
+ * frames, ~0.5 MB, and reset session and security with it. */
+ZTEST(doip_lifecycle_suite, test_doip_long_download_not_cut_off)
+{
+    const uint32_t blocks = 2000U;
 
     reset_observations();
+    g_ms_per_data_read = 5U;    /* 10 ms per frame: 20 s for the download */
     add_data(k_routing_activation, sizeof(k_routing_activation));
-    add_data(many_tp, sizeof(many_tp));
+    add_tester_presents(blocks);
     run_server();
 
-    TEST_ASSERT_EQUAL_UINT32(1U, g_close_calls);
-    TEST_ASSERT_FALSE(g_script_done_at_close);
-    /* Routing activation counts as one of the capped frames. */
-    TEST_ASSERT_EQUAL_UINT32(DOIP_MAX_CONNECTION_FRAMES - 1U, g_tp_calls);
+    EXPECT_EQ_MSG(blocks, g_tp_calls,
+        "download cut off: the server closed the connection after a count of "
+        "frames, not a time (EDS#412)");
+    EXPECT_TRUE_MSG(g_script_done_at_close,
+        "server closed a 20 s download before the tester did (EDS#412)");
+    EXPECT_TRUE_MSG(g_session_at_last_tp == UDS_SESSION_EXTENDED,
+        "session was reset during the download (EDS#412)");
+    EXPECT_EQ_MSG(0U, g_doip.connections_lifetime_capped,
+        "a 20 s connection was counted as lifetime-capped");
+}
+
+/* [EDS#218] The protection the frame cap gave must survive its removal: a
+ * client sending a frame every 900 ms is never idle, so no idle bound ever
+ * fires, and only the connection lifetime frees the slot. The clock starts
+ * just below UINT32_MAX and wraps mid-connection. */
+ZTEST(doip_lifecycle_suite, test_doip_busy_client_loses_slot_at_lifetime)
+{
+    const uint32_t frame_ms = 900U;
+    const uint32_t frames   = (DOIP_MAX_CONNECTION_LIFETIME_MS / frame_ms) + 50U;
+
+    EXPECT_TRUE_MSG(frames <= LIFETIME_TEST_MAX_FRAMES,
+        "test buffer too small for DOIP_MAX_CONNECTION_LIFETIME_MS");
+    reset_observations();
+    g_sim_now_ms       = 0xFFF00000U;   /* wraps ~17 min into the connection */
+    g_ms_per_data_read = frame_ms / 2U; /* header read + payload read */
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_tester_presents(frames);
+    run_server();
+
+    const uint32_t age = g_sim_now_ms_at_close - g_conn_open_ms;
+
+    EXPECT_TRUE_MSG(!g_script_done_at_close,
+        "a never-idle client held the single connection slot past "
+        "DOIP_MAX_CONNECTION_LIFETIME_MS (EDS#218 protection lost)");
+    EXPECT_EQ_MSG(0U, g_sim_idle_ms,
+        "client went idle: the test no longer isolates the lifetime bound");
+    EXPECT_TRUE_MSG(age >= DOIP_MAX_CONNECTION_LIFETIME_MS,
+        "connection closed before DOIP_MAX_CONNECTION_LIFETIME_MS");
+    EXPECT_TRUE_MSG(age < (DOIP_MAX_CONNECTION_LIFETIME_MS + frame_ms),
+        "connection outlived DOIP_MAX_CONNECTION_LIFETIME_MS by more than one frame");
+    EXPECT_EQ_MSG(1U, g_doip.connections_lifetime_capped,
+        "lifetime close not counted in connections_lifetime_capped");
 }
 
 /* =========================================================================
@@ -599,7 +676,8 @@ void run_all_tests(void)
     RUN_TEST(doip_lifecycle_suite__test_doip_partial_frame_stall_still_closes_fast);
     RUN_TEST(doip_lifecycle_suite__test_doip_hard_error_while_idle_closes_immediately);
     RUN_TEST(doip_lifecycle_suite__test_doip_payload_trickle_still_capped);
-    RUN_TEST(doip_lifecycle_suite__test_doip_connection_frame_cap_still_enforced);
+    RUN_TEST(doip_lifecycle_suite__test_doip_long_download_not_cut_off);
+    RUN_TEST(doip_lifecycle_suite__test_doip_busy_client_loses_slot_at_lifetime);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_idle_without_client);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_connected_idle);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_cleared_is_never_called);
