@@ -378,7 +378,7 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
          * SESSION:  Programming session required (enforced by ACL table).
          * SECURITY: Active transfer (started by 0x34) required.
          *
-         * SAFETY: Block counter wrap 0xFF→0x01 enforced (REQ-DL-001).
+         * SAFETY: Block counter sequence enforced, rolls over 0xFF→0x00 (REQ-DL-001).
          *         Incorrect counter validation is the most common
          *         implementation defect in DFU stacks.
          */

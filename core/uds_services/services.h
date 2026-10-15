@@ -325,7 +325,7 @@ uds_status_t uds_service_0x35_handler(
  * SESSION:  Programming session required (enforced by ACL table).
  * SECURITY: Active transfer (initiated by 0x34) required.
  *
- * SAFETY: Block counter wrap 0xFF→0x01 strictly enforced.
+ * SAFETY: Block counter sequence strictly enforced; rolls over 0xFF→0x00 (ISO 14229-1).
  */
 uds_status_t uds_service_0x36_handler(
     uds_server_ctx_t    *ctx,

@@ -16,8 +16,8 @@
  *   blockSequenceCounter (1 byte):
  *     Starts at 0x01 on the first block after RequestDownload.
  *     Increments by 1 per block.
- *     WRAPS from 0xFF to 0x01 — value 0x00 is never valid.
- *     This is the most common implementation mistake.
+ *     Rolls over from 0xFF to 0x00 (ISO 14229-1, TransferData) [EDS#433].
+ *     0x00 is invalid only as the first block, where 0x01 is expected.
  *
  *   transferRequestParameterRecord (variable):
  *     Raw firmware image bytes for this block.
@@ -42,12 +42,15 @@
  * BLOCK COUNTER WRAP LOGIC (REQ-DL-001):
  *
  *   received == next_expected             → accept
- *   received == 0x00                      → NRC 0x73 (always invalid)
  *   received != next_expected             → NRC 0x73
  *
  *   After acceptance:
- *     if (next_expected == 0xFF) next_expected = 0x01   (wrap)
+ *     if (next_expected == 0xFF) next_expected = 0x00   (wrap)
  *     else                       next_expected++
+ *
+ *   [EDS#433] This used to wrap to 0x01 and reject 0x00 outright, so every
+ *   conformant tester failed a download longer than 255 blocks with NRC
+ *   0x73.
  *
  * WRITE FLUSH LOGIC:
  *   Payload bytes are accumulated in tctx->write_buf[].
@@ -96,14 +99,12 @@
 /** Offset of the first payload data byte. */
 #define SVC_0x36_DATA_OFFSET          (2U)
 
-/** Block counter value that is never valid (ISO 14229-1 §14.3.2). */
-#define SVC_0x36_INVALID_BLOCK_SEQ    (0x00U)
-
 /** Maximum valid block sequence counter value before wrap. */
 #define SVC_0x36_MAX_BLOCK_SEQ        (0xFFU)
 
-/** Value to which the counter wraps after reaching MAX (REQ-DL-001). */
-#define SVC_0x36_WRAP_BLOCK_SEQ       (0x01U)
+/** Value to which the counter rolls over after MAX (REQ-DL-001, ISO
+ *  14229-1) [EDS#433]. */
+#define SVC_0x36_WRAP_BLOCK_SEQ       (0x00U)
 
 /* --------------------------------------------------------------------------
  * Forward declaration
@@ -219,11 +220,6 @@ uds_status_t uds_service_0x36_handler(
 
     /* --- Validate block sequence counter --- */
     block_seq = req->data[SVC_0x36_BLOCK_SEQ_OFFSET];
-
-    /* 0x00 is always invalid (REQ-DL-001). */
-    if (block_seq == (uint8_t)SVC_0x36_INVALID_BLOCK_SEQ) {
-        return UDS_STATUS_ERR_TP_UNEXPECTED_PDU;   /* mapped → NRC 0x73 */
-    }
 
     if (block_seq != tctx->next_expected_block_seq) {
         return UDS_STATUS_ERR_TP_UNEXPECTED_PDU;   /* mapped → NRC 0x73 */
@@ -389,10 +385,6 @@ static uds_status_t s_handle_upload_block(
 
     /* --- Validate block sequence counter (same logic as download) --- */
     block_seq = req->data[SVC_0x36_BLOCK_SEQ_OFFSET];
-
-    if (block_seq == (uint8_t)SVC_0x36_INVALID_BLOCK_SEQ) {
-        return UDS_STATUS_ERR_TP_UNEXPECTED_PDU; /* mapped → NRC 0x73 */
-    }
 
     if (block_seq != tctx->next_expected_block_seq) {
         return UDS_STATUS_ERR_TP_UNEXPECTED_PDU; /* mapped → NRC 0x73 */

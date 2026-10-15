@@ -32,7 +32,7 @@
  *   transferRequestParameterRecord CRC if one is supplied.
  *
  * SAFETY:
- *   REQ-DL-001: next_expected_block_seq must wrap at 0xFF → 0x01 (never 0x00).
+ *   REQ-DL-001: next_expected_block_seq starts at 0x01 and rolls over 0xFF → 0x00 (ISO 14229-1) [EDS#433].
  *   REQ-DL-002: bytes_remaining must reach exactly 0 before 0x37 is accepted.
  *   REQ-DL-003: transfer_ctx must be reset to IDLE on any abnormal termination.
  *
@@ -99,7 +99,7 @@ typedef struct uds_transfer_ctx {
     uint32_t  bytes_remaining;             /**< Bytes not yet written to flash. */
     uint32_t  next_write_address;          /**< Next flash write target address.*/
 
-    uint8_t   next_expected_block_seq;     /**< Wraps 0x01–0xFF; 0x00 invalid.  */
+    uint8_t   next_expected_block_seq;     /**< 0x01 first, then 0xFF → 0x00 rollover. */
 
     uint32_t  crc_accumulator;            /**< Running CRC-32 over payload data.*/
 

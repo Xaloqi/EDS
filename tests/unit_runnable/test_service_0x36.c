@@ -12,14 +12,14 @@
  *   TC-0x36-001  NULL ctx                            → ERR_NULL_PTR
  *   TC-0x36-002  Request too short (< 3 bytes)       → ERR_INVALID_PARAM
  *   TC-0x36-003  No active transfer (IDLE state)     → ERR_SEC_SEED_UNAVAILABLE (NRC 0x24)
- *   TC-0x36-004  Block sequence counter 0x00         → ERR_TP_UNEXPECTED_PDU (NRC 0x73)
+ *   TC-0x36-004  First block with counter 0x00        → ERR_TP_UNEXPECTED_PDU (NRC 0x73)
  *   TC-0x36-005  Block counter mismatch (wrong value) → ERR_TP_UNEXPECTED_PDU (NRC 0x73)
  *   TC-0x36-006  First block (seq=0x01) accepted      → UDS_STATUS_OK
  *   TC-0x36-007  Positive response format [0x76, blockSeq]
  *   TC-0x36-008  bytes_remaining decremented per payload byte
  *   TC-0x36-009  Block counter advances after acceptance
- *   TC-0x36-010  Block counter wrap: 0xFF → 0x01 (REQ-DL-001)
- *   TC-0x36-011  Counter never 0x00 after wrap
+ *   TC-0x36-010  Block counter rollover: 0xFF → 0x00 (REQ-DL-001, ISO 14229-1) [EDS#433]
+ *   TC-0x36-011  300 blocks numbered (n & 0xFF) all accepted, across the rollover [EDS#433]
  *   TC-0x36-012  Write callback invoked when buffer is full
  *   TC-0x36-013  Write failure → ERR_PLATFORM, transfer reset to IDLE
  *   TC-0x36-014  CRC accumulator updated over payload bytes
@@ -37,7 +37,7 @@
  *   TC-0x36-UL-001  Upload: [0x36, 0x01] → response [0x76, 0x01, data[0..N]]
  *   TC-0x36-UL-002  Upload: read_cb failure → ERR_PLATFORM (NRC 0x72)
  *   TC-0x36-UL-003  Upload: bytes_remaining decremented after each block
- *   TC-0x36-UL-004  Upload: block counter wraps 0xFF → 0x01 (REQ-DL-001 applies to upload)
+ *   TC-0x36-UL-004  Upload: block counter rolls over 0xFF → 0x00 (REQ-DL-001 applies to upload)
  *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h for host compilation)
  * =============================================================================
@@ -256,8 +256,8 @@ ZTEST(svc_0x36, test_no_active_transfer)
                   uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
 }
 
-/* TC-0x36-004  Block sequence counter 0x00 → NRC 0x73 */
-ZTEST(svc_0x36, test_block_seq_zero_always_invalid)
+/* TC-0x36-004  First block with counter 0x00 → NRC 0x73 (0x01 is expected) */
+ZTEST(svc_0x36, test_block_seq_zero_first_block_invalid)
 {
     prime_active_transfer(0x100U);
     build_req(0x00U, 0xCCU, 4U);
@@ -321,8 +321,8 @@ ZTEST(svc_0x36, test_block_counter_advances)
                   "counter must advance to 0x02 after first block");
 }
 
-/* TC-0x36-010  Block counter wrap: 0xFF → 0x01 (REQ-DL-001) */
-ZTEST(svc_0x36, test_block_counter_wrap_ff_to_01)
+/* TC-0x36-010  Block counter rollover: 0xFF → 0x00 (REQ-DL-001, ISO 14229-1) */
+ZTEST(svc_0x36, test_block_counter_wrap_ff_to_00)
 {
     prime_active_transfer(0x2000U);
     /* Manually set the counter to 0xFF — the next accepted block must wrap. */
@@ -332,23 +332,28 @@ ZTEST(svc_0x36, test_block_counter_wrap_ff_to_01)
     zassert_equal(UDS_STATUS_OK,
                   uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
 
-    zassert_equal(0x01U,
+    zassert_equal(0x00U,
                   uds_transfer_ctx_get()->next_expected_block_seq,
-                  "REQ-DL-001: counter must wrap 0xFF → 0x01");
+                  "ISO 14229-1: counter must roll over 0xFF → 0x00 [EDS#433]");
 }
 
-/* TC-0x36-011  Counter never 0x00 after wrap */
-ZTEST(svc_0x36, test_counter_never_zero_after_wrap)
+/* TC-0x36-011  [EDS#433] A conformant tester numbers block n (from 1) as
+ * n & 0xFF. All 300 must be accepted; block 256 carries 0x00. Before the
+ * fix it was answered NRC 0x73 and every download over 255 blocks failed. */
+ZTEST(svc_0x36, test_counter_rolls_over_across_long_download)
 {
-    prime_active_transfer(0x2000U);
-    uds_transfer_ctx_get()->next_expected_block_seq = (uint8_t)0xFFU;
+    uint32_t n;
 
-    build_req(0xFFU, 0x66U, 4U);
-    (void)uds_service_0x36_handler(&s_srv, &s_req, &s_resp);
+    prime_active_transfer(300U * 4U);
 
-    zassert_not_equal(0x00U,
-                      uds_transfer_ctx_get()->next_expected_block_seq,
-                      "counter 0x00 is always invalid — must never be next expected");
+    for (n = 1U; n <= 300U; n++) {
+        build_req((uint8_t)(n & 0xFFU), 0x66U, 4U);
+        zassert_equal(UDS_STATUS_OK,
+                      uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                      "block counter rollover rejected: ISO 14229-1 rolls 0xFF over to 0x00 [EDS#433]");
+    }
+    zassert_equal(0U, uds_transfer_ctx_get()->bytes_remaining,
+                  "all 300 blocks must have been written");
 }
 
 /* TC-0x36-012  Write callback invoked when buffer is full */
@@ -606,7 +611,7 @@ ZTEST(svc_0x36, test_upload_bytes_remaining_decremented)
                   "bytes_remaining must decrease by MOCK_BLOCK_LEN after upload block");
 }
 
-/* TC-0x36-UL-004  Upload: block counter wraps 0xFF → 0x01 (REQ-DL-001 applies) */
+/* TC-0x36-UL-004  Upload: block counter rolls over 0xFF → 0x00 (REQ-DL-001 applies) */
 ZTEST(svc_0x36, test_upload_block_counter_wrap)
 {
     prime_active_upload(0x2000U);
@@ -619,9 +624,9 @@ ZTEST(svc_0x36, test_upload_block_counter_wrap)
     zassert_equal(UDS_STATUS_OK,
                   uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
 
-    zassert_equal(0x01U,
+    zassert_equal(0x00U,
                   uds_transfer_ctx_get()->next_expected_block_seq,
-                  "REQ-DL-001: upload counter must wrap 0xFF → 0x01");
+                  "ISO 14229-1: upload counter must roll over 0xFF → 0x00 [EDS#433]");
 }
 
 /* ==========================================================================
@@ -633,14 +638,14 @@ void run_all_tests(void)
     RUN_TEST(svc_0x36__test_null_ctx);
     RUN_TEST(svc_0x36__test_request_too_short);
     RUN_TEST(svc_0x36__test_no_active_transfer);
-    RUN_TEST(svc_0x36__test_block_seq_zero_always_invalid);
+    RUN_TEST(svc_0x36__test_block_seq_zero_first_block_invalid);
     RUN_TEST(svc_0x36__test_block_counter_mismatch);
     RUN_TEST(svc_0x36__test_first_block_accepted);
     RUN_TEST(svc_0x36__test_positive_response_format);
     RUN_TEST(svc_0x36__test_bytes_remaining_decremented);
     RUN_TEST(svc_0x36__test_block_counter_advances);
-    RUN_TEST(svc_0x36__test_block_counter_wrap_ff_to_01);
-    RUN_TEST(svc_0x36__test_counter_never_zero_after_wrap);
+    RUN_TEST(svc_0x36__test_block_counter_wrap_ff_to_00);
+    RUN_TEST(svc_0x36__test_counter_rolls_over_across_long_download);
     RUN_TEST(svc_0x36__test_write_callback_invoked_when_buffer_full);
     RUN_TEST(svc_0x36__test_write_failure_resets_transfer);
     RUN_TEST(svc_0x36__test_crc_accumulator_updated);

@@ -8,6 +8,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **TransferData block counter rollover** (`#433`): the expected
+  blockSequenceCounter wrapped 0xFF → 0x01 and 0x00 was always refused.
+  ISO 14229-1 rolls it over to 0x00. So every conformant tester, Xaloqi's
+  own included, failed any download over 255 blocks (about 64 KB at
+  256-byte blocks) with NRC 0x73. It now rolls over to 0x00, in upload as
+  well as download. 0x00 is still refused as the first block after
+  0x34/0x35, where 0x01 is expected. Found on NUCLEO-H753ZI during #425.
+
 ## [1.19.0] — 2026-10-15
 
 ### Added

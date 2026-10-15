@@ -9,7 +9,7 @@
  * table-driven implementation (ISO 3309 / MPEG-2 polynomial, reflected).
  *
  * SAFETY:
- *   REQ-DL-001: Block counter wraps 0xFF → 0x01.
+ *   REQ-DL-001: Block counter starts at 0x01 and rolls over 0xFF → 0x00 (ISO 14229-1) [EDS#433].
  *   REQ-DL-003: Reset zeroes all fields including the write buffer.
  *
  * STANDARD: MISRA C:2012 alignment intended.
