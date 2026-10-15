@@ -60,6 +60,13 @@ LOG_MODULE_REGISTER(doip_zephyr, LOG_LEVEL_INF);
 #error "EDS DoIP needs CONFIG_NET_CONTEXT_SNDTIMEO=y: without a send timeout a tester that stops reading wedges the DoIP server (SEC-DOIP-SEND-01)."
 #endif
 
+/* [EDS#434] The ecu_reset op ends in sys_reboot(). EDS's Kconfig defaults
+ * REBOOT on for every socket build; refuse to build if it was turned off,
+ * rather than fail at link time or silently not reset. */
+#if !defined(CONFIG_REBOOT)
+#error "EDS DoIP needs CONFIG_REBOOT=y: ECUReset over DoIP is performed with sys_reboot() (EDS#434)."
+#endif
+
 /* ---------------------------------------------------------------------------
  * Kconfig-tunable thread parameters
  * ------------------------------------------------------------------------ */

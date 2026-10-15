@@ -34,6 +34,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `eds_doip_register_platform()`, the same rule `uptime_ms` follows since
   #412. Migration: implement it as nvm flush, a short grace delay, then
   `eds_platform_ecu_reset()`, as `transport/doip/zephyr_lwip.c` does.
+- **Zephyr DoIP builds now default `CONFIG_REBOOT=y`** (`#434`), the same
+  way `NET_CONTEXT_SNDTIMEO` is defaulted: the binding's reset ends in
+  `sys_reboot()`. `zephyr_lwip.c` refuses to build with it explicitly off.
 
 ## [1.19.0] — 2026-10-15
 
