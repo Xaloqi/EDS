@@ -262,6 +262,23 @@ uds_status_t uds_server_get_counters(
     return UDS_STATUS_OK;
 }
 
+uds_status_t uds_server_take_pending_reset(uds_server_ctx_t *ctx,
+                                           uint8_t          *out_reset_type)
+{
+    if ((ctx == NULL) || (out_reset_type == NULL)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    if (!ctx->initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    *out_reset_type         = ctx->pending_reset_type;
+    ctx->pending_reset_type = (uint8_t)0U;
+
+    return UDS_STATUS_OK;
+}
+
 /* --------------------------------------------------------------------------
  * Internal helper implementations
  * -------------------------------------------------------------------------- */

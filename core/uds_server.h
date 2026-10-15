@@ -231,6 +231,28 @@ uds_status_t uds_server_get_counters(
     uint32_t               *out_neg_response_count
 );
 
+/**
+ * @brief [EDS#434] Take the reset a 0x11 ECUReset left pending, and clear it.
+ *
+ * service_0x11 only records the reset, so the positive response can go out
+ * first (ISO 14229-1). The integration layer performs it once that response
+ * is on its way, or straight away when it was suppressed: CAN poll loops
+ * after transmitting, and the DoIP server after sending (doip_server.c,
+ * through the ecu_reset platform op). Call under the same lock as
+ * uds_server_process_request().
+ *
+ * @param[in,out] ctx             Initialized server context.
+ * @param[out]    out_reset_type  ECUReset sub-function (0x01 hard, 0x02
+ *                                key off/on, 0x03 soft), or 0 if none is
+ *                                pending.
+ *
+ * @return UDS_STATUS_OK on success, with or without a pending reset.
+ * @return UDS_STATUS_ERR_NULL_PTR if any pointer is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
+ */
+uds_status_t uds_server_take_pending_reset(uds_server_ctx_t *ctx,
+                                           uint8_t          *out_reset_type);
+
 #ifdef __cplusplus
 }
 #endif

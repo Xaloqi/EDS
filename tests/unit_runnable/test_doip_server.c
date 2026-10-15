@@ -169,6 +169,7 @@ static void mock_tcp_server_close(void *server_ctx)
 /* [EDS#412] Fixed clock: no test here runs long enough to reach
  * DOIP_MAX_CONNECTION_LIFETIME_MS. */
 static uint32_t mock_uptime_ms(void) { return 0U; }
+static void     mock_ecu_reset(uint8_t reset_type) { (void)reset_type; }
 
 static const eds_doip_platform_ops_t g_mock_ops = {
     .tcp_listen        = mock_tcp_listen,
@@ -178,6 +179,7 @@ static const eds_doip_platform_ops_t g_mock_ops = {
     .tcp_close         = mock_tcp_close,
     .tcp_server_close  = mock_tcp_server_close,
     .uptime_ms         = mock_uptime_ms,
+    .ecu_reset         = mock_ecu_reset,
 };
 
 /* =========================================================================
@@ -1339,6 +1341,18 @@ ZTEST(doip_server_suite, test_doip_register_platform_requires_uptime)
                   "bound would never fire (EDS#412)");
 }
 
+/* [EDS#434] A binding that cannot reset is refused at registration: ECUReset
+ * over DoIP would otherwise answer 51 xx and never reset. */
+ZTEST(doip_server_suite, test_doip_register_platform_requires_ecu_reset)
+{
+    eds_doip_platform_ops_t no_reset = g_mock_ops;
+    no_reset.ecu_reset = NULL;
+    uds_status_t rc = eds_doip_register_platform(&no_reset);
+    zassert_equal(rc, UDS_STATUS_ERR_NULL_PTR,
+                  "ops without ecu_reset were accepted: ECUReset over DoIP "
+                  "would answer 51 xx and never reset (EDS#434)");
+}
+
 /* =========================================================================
  * Test suite registration
  * ========================================================================= */
@@ -1392,4 +1406,5 @@ void run_all_tests(void)
     RUN_TEST(doip_server_suite__test_doip_handle_frame_null_uds);
     RUN_TEST(doip_server_suite__test_doip_register_platform_null_guard);
     RUN_TEST(doip_server_suite__test_doip_register_platform_requires_uptime);
+    RUN_TEST(doip_server_suite__test_doip_register_platform_requires_ecu_reset);
 }

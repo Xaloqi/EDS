@@ -37,6 +37,10 @@
  *     - test_doip_pending_without_callback_sends_only_0x78
  *     - test_doip_pending_callback_completes_exchange
  *     - test_doip_pending_phase_is_time_bounded
+ *   ECUReset performed by the server (EDS#434):
+ *     - test_doip_ecu_reset_performed_after_response
+ *     - test_doip_ecu_reset_suppressed_response_still_resets
+ *     - test_doip_no_reset_without_ecu_reset_request
  *   Supervision check-in (EDS#399):
  *     - test_doip_checkin_while_idle_without_client
  *     - test_doip_checkin_while_connected_idle
@@ -58,6 +62,7 @@
 #include "doip_server.h"
 #include "uds_server.h"
 #include "uds_session.h"
+#include "services.h"   /* uds_service_0x11_handler() [EDS#434] */
 #include "uds_types.h"
 
 #define TEST_ECU_ADDR     (0x0E00U)
@@ -270,6 +275,16 @@ static uint32_t mock_uptime_ms(void)
     return g_sim_now_ms;
 }
 
+/* [EDS#434] ecu_reset op: records instead of resetting, then returns (as
+ * for an unsupported type), so the server carries on with the script. */
+static uint32_t g_reset_calls;
+static uint8_t  g_reset_type;
+static uint32_t g_resp_count_at_reset;
+static bool     g_locked_at_reset;
+static bool     g_locked;
+
+static void mock_ecu_reset(uint8_t reset_type);
+
 static const eds_doip_platform_ops_t g_mock_ops = {
     .tcp_listen        = mock_tcp_listen,
     .tcp_accept        = mock_tcp_accept,
@@ -278,6 +293,7 @@ static const eds_doip_platform_ops_t g_mock_ops = {
     .tcp_close         = mock_tcp_close,
     .tcp_server_close  = mock_tcp_server_close,
     .uptime_ms         = mock_uptime_ms,
+    .ecu_reset         = mock_ecu_reset,
 };
 
 static void checkin_cb(void)
@@ -343,9 +359,16 @@ static uint32_t g_pending_calls;
 static uint32_t g_pending_left;
 static bool     g_pending_forever;
 static uint32_t g_pending_step_ms;
-static bool     g_locked;
 static uint32_t g_pending_calls_unlocked;
 static uint32_t g_checkins_at_pending;
+
+static void mock_ecu_reset(uint8_t reset_type)
+{
+    g_reset_calls++;
+    g_reset_type          = reset_type;
+    g_resp_count_at_reset = g_resp_count;
+    g_locked_at_reset     = g_locked;
+}
 
 static void lock_cb(void)   { g_locked = true; }
 static void unlock_cb(void) { g_locked = false; }
@@ -386,6 +409,7 @@ static uds_server_ctx_t *uds_ctx(void)
         static const uds_service_entry_t table[] = {
             { 0x3EU, handler_tester_present, false },
             { 0x22U, handler_pending_0x22, false },
+            { 0x11U, uds_service_0x11_handler, true },   /* [EDS#434] */
         };
         static const uds_security_cfg_t sec_cfg = {
             .max_attempts     = 3U,
@@ -399,7 +423,7 @@ static uds_server_ctx_t *uds_ctx(void)
             .session_ctx           = &g_session_ctx,
             .security_ctx          = &g_security_ctx,
             .service_table         = table,
-            .service_table_count   = 2U,
+            .service_table_count   = 3U,
             .access_table          = NULL,
             .access_table_count    = 0U,
         };
@@ -427,6 +451,20 @@ static const uint8_t k_rdbi_pending[] = {
     (uint8_t)(TEST_TESTER_ADDR >> 8U), (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
     (uint8_t)(TEST_ECU_ADDR >> 8U),    (uint8_t)(TEST_ECU_ADDR & 0xFFU),
     0x22U, 0xF1U, 0x90U,
+};
+
+/* [EDS#434] ECUReset hardReset, and the same with the suppress bit. */
+static const uint8_t k_ecu_reset_hard[] = {
+    0x02U, 0xFDU, 0x80U, 0x01U, 0x00U, 0x00U, 0x00U, 0x06U,
+    (uint8_t)(TEST_TESTER_ADDR >> 8U), (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
+    (uint8_t)(TEST_ECU_ADDR >> 8U),    (uint8_t)(TEST_ECU_ADDR & 0xFFU),
+    0x11U, 0x01U,
+};
+static const uint8_t k_ecu_reset_hard_suppressed[] = {
+    0x02U, 0xFDU, 0x80U, 0x01U, 0x00U, 0x00U, 0x00U, 0x06U,
+    (uint8_t)(TEST_TESTER_ADDR >> 8U), (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
+    (uint8_t)(TEST_ECU_ADDR >> 8U),    (uint8_t)(TEST_ECU_ADDR & 0xFFU),
+    0x11U, 0x81U,
 };
 
 static const uint8_t k_tester_present[] = {
@@ -480,6 +518,10 @@ static void reset_observations(void)
     g_locked                 = false;
     g_pending_calls_unlocked = 0U;
     g_checkins_at_pending    = 0U;
+    g_reset_calls            = 0U;
+    g_reset_type             = 0U;
+    g_resp_count_at_reset    = 0U;
+    g_locked_at_reset        = false;
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, eds_doip_server_init(&g_doip, TEST_ECU_ADDR));
 
     /* Every scenario starts in the extended session so a test can see
@@ -822,6 +864,58 @@ ZTEST(doip_lifecycle_suite, test_doip_checkin_cleared_is_never_called)
     TEST_ASSERT_EQUAL_UINT32(1U, g_tp_calls);
 }
 
+/* =========================================================================
+ * ECUReset performed by the server (EDS#434)
+ * ========================================================================= */
+
+/* 11 01: the server sends 51 01, then calls ecu_reset with the type, outside
+ * the lock pair. Before EDS#434 nothing called it and the ECU kept running. */
+ZTEST(doip_lifecycle_suite, test_doip_ecu_reset_performed_after_response)
+{
+    reset_observations();
+    eds_doip_set_lock_callbacks(lock_cb, unlock_cb);
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_ecu_reset_hard, sizeof(k_ecu_reset_hard));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(1U, g_reset_calls,
+        "ECUReset answered but never performed: ecu_reset op not called (EDS#434)");
+    EXPECT_EQ_MSG(0x01U, g_reset_type, "ecu_reset got the wrong reset type");
+    EXPECT_EQ_MSG(0x51U, g_resp[0][0], "positive response 51 missing");
+    EXPECT_EQ_MSG(1U, g_resp_count_at_reset,
+        "reset performed before the 51 01 response was sent");
+    EXPECT_TRUE_MSG(!g_locked_at_reset, "ecu_reset called while holding the lock pair");
+}
+
+/* 11 81: no response is sent, and the reset is still performed. */
+ZTEST(doip_lifecycle_suite, test_doip_ecu_reset_suppressed_response_still_resets)
+{
+    reset_observations();
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_ecu_reset_hard_suppressed, sizeof(k_ecu_reset_hard_suppressed));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(1U, g_reset_calls,
+        "suppressed ECUReset never performed (EDS#434)");
+    EXPECT_EQ_MSG(0x01U, g_reset_type, "suppress bit leaked into the reset type");
+    EXPECT_EQ_MSG(0U, g_resp_count_at_reset, "a response was sent for 11 81");
+    EXPECT_EQ_MSG(0x7EU, g_resp[0][0], "connection not served after the reset returned");
+}
+
+/* Ordinary requests never reach ecu_reset. */
+ZTEST(doip_lifecycle_suite, test_doip_no_reset_without_ecu_reset_request)
+{
+    reset_observations();
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    add_data(k_rdbi_pending, sizeof(k_rdbi_pending));
+    run_server();
+
+    EXPECT_EQ_MSG(0U, g_reset_calls, "ecu_reset called without an ECUReset request");
+}
+
 ZTEST_SUITE(doip_lifecycle_suite, NULL, NULL, NULL, NULL, NULL);
 
 /* =========================================================================
@@ -845,6 +939,9 @@ void run_all_tests(void)
     RUN_TEST(doip_lifecycle_suite__test_doip_pending_without_callback_sends_only_0x78);
     RUN_TEST(doip_lifecycle_suite__test_doip_pending_callback_completes_exchange);
     RUN_TEST(doip_lifecycle_suite__test_doip_pending_phase_is_time_bounded);
+    RUN_TEST(doip_lifecycle_suite__test_doip_ecu_reset_performed_after_response);
+    RUN_TEST(doip_lifecycle_suite__test_doip_ecu_reset_suppressed_response_still_resets);
+    RUN_TEST(doip_lifecycle_suite__test_doip_no_reset_without_ecu_reset_request);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_idle_without_client);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_connected_idle);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_cleared_is_never_called);

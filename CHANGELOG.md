@@ -17,6 +17,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   256-byte blocks) with NRC 0x73. It now rolls over to 0x00, in upload as
   well as download. 0x00 is still refused as the first block after
   0x34/0x35, where 0x01 is expected. Found on NUCLEO-H753ZI during #425.
+- **ECUReset over DoIP now resets** (`#434`): `service_0x11` only records
+  the reset, and no DoIP path ever performed it, so `11 xx` answered
+  `51 xx` and the ECU kept running. In a firmware update that meant the
+  new image never reached the bootloader. The DoIP server now takes the
+  pending reset (new `uds_server_take_pending_reset()`) once the response
+  has been sent, or right away when it was suppressed, and calls the
+  binding's new `ecu_reset` op. Both in-tree bindings flush NVM, wait
+  `DOIP_RESET_TX_GRACE_MS` (50 ms) and reset through
+  `eds_platform_ecu_reset()`.
+
+### Changed
+
+- **`eds_doip_platform_ops_t` has a required `ecu_reset` member** (`#434`).
+  A custom DoIP binding without it now fails
+  `eds_doip_register_platform()`, the same rule `uptime_ms` follows since
+  #412. Migration: implement it as nvm flush, a short grace delay, then
+  `eds_platform_ecu_reset()`, as `transport/doip/zephyr_lwip.c` does.
 
 ## [1.19.0] — 2026-10-15
 

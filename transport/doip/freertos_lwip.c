@@ -45,7 +45,7 @@
 #include "doip_server.h"
 #include "uds_server.h"
 #include "uds_types.h"
-#include "platform_api.h"   /* [EDS#412] eds_platform_uptime_ms() */
+#include "platform_api.h"   /* [EDS#412] eds_platform_uptime_ms(); [EDS#434] reset */
 
 /* FreeRTOS */
 #include "FreeRTOS.h"
@@ -214,6 +214,15 @@ static void freertos_tcp_server_close(void *server_ctx)
     (void)lwip_close(fd);
 }
 
+/* [EDS#434] Same sequence as the CAN loops: persist, let the 0x11
+ * response leave the stack, reset. Does not return for a supported type. */
+static void freertos_doip_ecu_reset(uint8_t reset_type)
+{
+    (void)eds_platform_nvm_flush();
+    vTaskDelay(pdMS_TO_TICKS(DOIP_RESET_TX_GRACE_MS));
+    (void)eds_platform_ecu_reset(reset_type);
+}
+
 static const eds_doip_platform_ops_t s_freertos_doip_ops = {
     .tcp_listen        = freertos_tcp_listen,
     .tcp_accept        = freertos_tcp_accept,
@@ -222,6 +231,7 @@ static const eds_doip_platform_ops_t s_freertos_doip_ops = {
     .tcp_close         = freertos_tcp_close,
     .tcp_server_close  = freertos_tcp_server_close,
     .uptime_ms         = eds_platform_uptime_ms,  /* [EDS#412] */
+    .ecu_reset         = freertos_doip_ecu_reset, /* [EDS#434] */
 };
 
 /* ---------------------------------------------------------------------------

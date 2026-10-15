@@ -396,7 +396,40 @@ typedef struct eds_doip_platform_ops {
      * @return Uptime in ms.
      */
     uint32_t (*uptime_ms)(void);
+
+    /**
+     * @brief Perform an ECUReset that a 0x11 request left pending.  [EDS#434]
+     *
+     * The server calls this after the 0x11 positive response has been
+     * handed to tcp_send(), or right after dispatch when the response was
+     * suppressed (0x11 with bit 7 set). service_0x11 only records the reset
+     * (see uds_server_take_pending_reset()), so without this op ECUReset
+     * over DoIP answered 51 xx and the ECU kept running.
+     *
+     * tcp_send() returning means the stack has the bytes, not the peer, so
+     * the op must let them drain before resetting. Both in-tree bindings
+     * call eds_platform_nvm_flush(), wait DOIP_RESET_TX_GRACE_MS, then call
+     * eds_platform_ecu_reset(), the same sequence the CAN loops use.
+     * Required: a binding without it fails eds_doip_register_platform(),
+     * because a missing op would make ECUReset lie.
+     *
+     * Returns only for a reset type the platform does not support; the
+     * server then carries on serving the connection.
+     *
+     * @param[in] reset_type  ECUReset sub-function, bit 7 cleared (0x01-0x7F).
+     */
+    void (*ecu_reset)(uint8_t reset_type);
 } eds_doip_platform_ops_t;
+
+/**
+ * [EDS#434] Time the in-tree bindings' ecu_reset op waits, after the 0x11
+ * response was handed to tcp_send(), before resetting. ASSUMPTION: the TCP
+ * stack puts one small frame on the wire within this time on a direct
+ * link. Same 50 ms the CAN loops give ISO-TP.
+ */
+#ifndef DOIP_RESET_TX_GRACE_MS
+#define DOIP_RESET_TX_GRACE_MS (50U)
+#endif
 
 /* ============================================================================
  * Internal server state (one instance per ECU logical address).
