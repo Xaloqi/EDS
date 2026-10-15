@@ -35,6 +35,7 @@
 
 #include "dtc_database.h"
 #include "uds_types.h"
+#include "uds_comm_control.h"
 
 /* =========================================================================
  * Helpers
@@ -135,17 +136,17 @@ ZTEST(test_dtc_db_register, test_duplicate_rejected)
 }
 
 /**
- * TC-DTC-REG-005: status_byte initialised to 0x00 on registration
- *                 (no fault active at boot).
+ * TC-DTC-REG-005: status_byte initialised to 0x50 on registration
+ *                 (testNotCompleted bits set, ISO 14229-1:2026 D.2) [EDS#448].
  */
-ZTEST(test_dtc_db_register, test_status_byte_initialised_to_zero)
+ZTEST(test_dtc_db_register, test_status_byte_initialised_to_0x50)
 {
     dtc_init_fresh();
     dtc_database_register(0xC00200U, 0x40U, "transport timeout");
     dtc_entry_t *e = dtc_database_find(0xC00200U);
     if (e != NULL) {
-        zassert_equal(e->status_byte, 0x00U,
-                      "status_byte must be 0x00 on registration");
+        zassert_equal(e->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED,
+                      "status_byte must be 0x50 on registration (EDS#448)");
         zassert_equal(e->severity, 0x40U, "severity must match");
     }
     /* If e is NULL, DTC was pre-registered by another test with same code */
@@ -248,6 +249,37 @@ ZTEST(test_dtc_db_set_status, test_set_all_bits)
     dtc_database_set_status(0xC00200U, 0x00U);
 }
 
+/**
+ * TC-DTC-SETSTAT-004: ControlDTCSetting off → status updates refused, clears
+ * still allowed (ISO 14229-1:2026 Annex D.2.1) [EDS#448].
+ */
+ZTEST(test_dtc_db_set_status, test_dtc_setting_off_blocks_status_not_clear)
+{
+    register_generated_dtcs();
+    zassert_equal(dtc_database_set_status(0xC00100U, DTC_STATUS_TEST_FAILED),
+                  UDS_STATUS_OK, "setting ON: update must succeed");
+
+    uds_comm_control_test_reset();
+    zassert_equal(uds_comm_control_init(NULL), UDS_STATUS_OK, "comm init");
+    zassert_equal(uds_comm_control_set_dtc_setting((uint8_t)UDS_DTC_SETTING_OFF),
+                  UDS_STATUS_OK, "DTC setting off");
+
+    zassert_equal(dtc_database_set_status(0xC00100U, DTC_STATUS_CONFIRMED_DTC),
+                  UDS_STATUS_ERR_CONDITIONS_NOT_MET,
+                  "setting OFF: status update must be refused");
+    dtc_entry_t *e = dtc_database_find(0xC00100U);
+    zassert_not_null(e, "DTC must be found");
+    zassert_equal(e->status_byte, (uint8_t)DTC_STATUS_TEST_FAILED,
+                  "setting OFF: status must not change");
+
+    zassert_equal(dtc_database_clear_one(0xC00100U), UDS_STATUS_OK,
+                  "setting OFF: clear must still succeed");
+    zassert_equal(e->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED,
+                  "clear sets 0x50 even with DTC setting off");
+
+    uds_comm_control_test_reset();
+}
+
 /* =========================================================================
  * Test suite: dtc_database_clear_all
  * ========================================================================= */
@@ -276,8 +308,8 @@ ZTEST(test_dtc_db_clear_all, test_clear_resets_all_status_bytes)
     uds_status_t rc = dtc_database_clear_all();
     zassert_equal(rc, UDS_STATUS_OK, "clear_all must return OK");
 
-    zassert_equal(e1->status_byte, 0x00U, "DTC1 status must be 0x00 after clear");
-    zassert_equal(e2->status_byte, 0x00U, "DTC2 status must be 0x00 after clear");
+    zassert_equal(e1->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED, "DTC1 status must be 0x50 after clear (EDS#448)");
+    zassert_equal(e2->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED, "DTC2 status must be 0x50 after clear (EDS#448)");
 }
 
 /* =========================================================================
@@ -370,13 +402,14 @@ extern void test_dtc_db_register__test_zero_dtc_code(void);
 extern void test_dtc_db_register__test_null_description_ok(void);
 extern void test_dtc_db_register__test_happy_path_can_bus_loss(void);
 extern void test_dtc_db_register__test_duplicate_rejected(void);
-extern void test_dtc_db_register__test_status_byte_initialised_to_zero(void);
+extern void test_dtc_db_register__test_status_byte_initialised_to_0x50(void);
 extern void test_dtc_db_find__test_find_both_generated_dtcs(void);
 extern void test_dtc_db_find__test_unknown_dtc_returns_null(void);
 extern void test_dtc_db_find__test_returned_pointer_mutable(void);
 extern void test_dtc_db_set_status__test_set_status_known_dtc(void);
 extern void test_dtc_db_set_status__test_set_status_unknown_dtc(void);
 extern void test_dtc_db_set_status__test_set_all_bits(void);
+extern void test_dtc_db_set_status__test_dtc_setting_off_blocks_status_not_clear(void);
 extern void test_dtc_db_clear_all__test_clear_resets_all_status_bytes(void);
 extern void test_dtc_db_count_by_status__test_null_out_count(void);
 extern void test_dtc_db_count_by_status__test_count_zero_when_none_active(void);
@@ -392,13 +425,14 @@ void run_all_tests(void)
     RUN_TEST(test_dtc_db_register__test_null_description_ok);
     RUN_TEST(test_dtc_db_register__test_happy_path_can_bus_loss);
     RUN_TEST(test_dtc_db_register__test_duplicate_rejected);
-    RUN_TEST(test_dtc_db_register__test_status_byte_initialised_to_zero);
+    RUN_TEST(test_dtc_db_register__test_status_byte_initialised_to_0x50);
     RUN_TEST(test_dtc_db_find__test_find_both_generated_dtcs);
     RUN_TEST(test_dtc_db_find__test_unknown_dtc_returns_null);
     RUN_TEST(test_dtc_db_find__test_returned_pointer_mutable);
     RUN_TEST(test_dtc_db_set_status__test_set_status_known_dtc);
     RUN_TEST(test_dtc_db_set_status__test_set_status_unknown_dtc);
     RUN_TEST(test_dtc_db_set_status__test_set_all_bits);
+    RUN_TEST(test_dtc_db_set_status__test_dtc_setting_off_blocks_status_not_clear);
     RUN_TEST(test_dtc_db_clear_all__test_clear_resets_all_status_bytes);
     RUN_TEST(test_dtc_db_count_by_status__test_null_out_count);
     RUN_TEST(test_dtc_db_count_by_status__test_count_zero_when_none_active);

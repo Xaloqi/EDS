@@ -97,10 +97,10 @@
  *
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_DID_NOT_FOUND    → NRC 0x31
- * @return UDS_STATUS_ERR_SESSION_INVALID  → NRC 0x22
- * @return UDS_STATUS_ERR_SEC_NOT_UNLOCKED → NRC 0x33
+ * @return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE → NRC 0x31 (read-only DID, or
+ *         not writable in the active session) [EDS#449]
  * @return UDS_STATUS_ERR_INVALID_PARAM    → NRC 0x13 (wrong data length)
- * @return UDS_STATUS_ERR_CONDITIONS_NOT_MET → NRC 0x22
+ * @return UDS_STATUS_ERR_SEC_NOT_UNLOCKED → NRC 0x33
  */
 static uds_status_t s_did_safe_write(
     uds_server_ctx_t *ctx,
@@ -120,12 +120,29 @@ static uds_status_t s_did_safe_write(
     /* Step 2: Resolve DID in database (REQ-SAFE-001). */
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_find_did(did_id, &entry));
 
-    /* Step 3: Validate session and security access (REQ-SAFE-002/003). */
+    /* [EDS#449] ISO 14229-1:2026 §10.7.4 Figure 27 order: "DID supports
+     * service 2E in active session" (NRC 0x31, which Table 281 also gives for
+     * a read-only DID) comes before the total length check (0x13), which
+     * comes before security (0x33). EDS answered 0x22 for read-only and
+     * session-restricted DIDs, and checked security before length. */
+    if ((entry->access_flags & (uint8_t)DID_ACCESS_WRITE) == (uint8_t)0U) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;   /* NRC 0x31: read-only */
+    }
+#if UDS_SAFETY_ENABLE_SESSION_CHECKS
+    if (uds_safety_validate_session(session_ctx,
+            (uds_session_type_t)entry->min_session) != UDS_STATUS_OK) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;   /* NRC 0x31: not in this session */
+    }
+#endif
+
+    /* Step 3: Validate write data length == DID data_length (REQ-SAFE-006). */
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_data_length(entry, len));
+
+    /* Step 4: Full access validation, session and security (REQ-SAFE-002/003).
+     * Capability and session already passed above, so a failure here is the
+     * security check (NRC 0x33). */
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_validate_did_access(
         entry, session_ctx, security_ctx, UDS_SAFETY_ACCESS_WRITE));
-
-    /* Step 4: Validate write data length == DID data_length (REQ-SAFE-006). */
-    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_data_length(entry, len));
 
     /* Step 5: Invoke the DID write callback.
      *
@@ -156,11 +173,11 @@ static uds_status_t s_did_safe_write(
  * ISO 14229-1:2026 §10.7: WriteDataByIdentifier writes one DID per request.
  * The data record length must exactly match the DID's declared data_length.
  *
- * NRC mapping (EDS today; ISO 14229-1:2026 §10.7.4 Table 281 differs for read-only and
- * session-restricted DIDs, EDS#449):
+ * NRC mapping (ISO 14229-1:2026 §10.7.4 Table 281, Figure 27) [EDS#449]:
  *   0x13 — incorrectMessageLengthOrInvalidFormat  (data length mismatch)
- *   0x22 — conditionsNotCorrect                   (session not met)
- *   0x31 — requestOutOfRange                      (DID not found)
+ *   0x31 — requestOutOfRange                      (DID not found, read-only,
+ *                                                  or not writable in the
+ *                                                  active session)
  *   0x33 — securityAccessDenied                   (security level)
  *   0x72 — generalProgrammingFailure               (write callback error)
  */

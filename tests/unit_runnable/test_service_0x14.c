@@ -207,12 +207,12 @@ ZTEST(test_service_0x14, tc003_dtc_status_bytes_zeroed)
     uds_msg_buf_t resp = {0};
     uds_service_0x14_handler(&g_srv, &req, &resp);
 
-    zassert_equal(dtc_database_find(DTC_P0001)->status_byte, 0x00U,
-        "DTC_P0001 status must be 0x00 after clear");
-    zassert_equal(dtc_database_find(DTC_P0002)->status_byte, 0x00U,
-        "DTC_P0002 status must be 0x00 after clear");
-    zassert_equal(dtc_database_find(DTC_P0003)->status_byte, 0x00U,
-        "DTC_P0003 status must be 0x00 after clear");
+    zassert_equal(dtc_database_find(DTC_P0001)->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED,
+        "DTC_P0001 status must be 0x50 after clear (EDS#448)");
+    zassert_equal(dtc_database_find(DTC_P0002)->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED,
+        "DTC_P0002 status must be 0x50 after clear (EDS#448)");
+    zassert_equal(dtc_database_find(DTC_P0003)->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED,
+        "DTC_P0003 status must be 0x50 after clear (EDS#448)");
 }
 
 /**
@@ -371,7 +371,7 @@ ZTEST(test_service_0x14, tc016_single_dtc_clears_only_that_dtc)
 
     zassert_equal(uds_service_0x14_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "");
     zassert_equal(resp.data[0], 0x54U, "");
-    zassert_equal(dtc_database_find(DTC_P0002)->status_byte, 0x00U, "requested DTC must be cleared");
+    zassert_equal(dtc_database_find(DTC_P0002)->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED, "requested DTC must be cleared");
     zassert_equal(dtc_database_find(DTC_P0001)->status_byte, 0x09U,
         "clearing one DTC wiped another (EDS#450)");
     zassert_equal(dtc_database_find(DTC_P0003)->status_byte, 0x08U,
@@ -405,7 +405,7 @@ ZTEST(test_service_0x14, tc011_multiple_dtcs_all_cleared)
     register_three_faulted_dtcs();
 
     uint16_t count_before;
-    dtc_database_count_by_status(0xFFU, &count_before);
+    dtc_database_count_by_status(0xAFU, &count_before);   /* fault bits */
     zassert_equal(count_before, 3U, "precondition: 3 faulted DTCs");
 
     uds_msg_buf_t req  = make_clear_req(0xFFFFFFUL);
@@ -413,7 +413,9 @@ ZTEST(test_service_0x14, tc011_multiple_dtcs_all_cleared)
     uds_service_0x14_handler(&g_srv, &req, &resp);
 
     uint16_t count_after;
-    dtc_database_count_by_status(0xFFU, &count_after);
+    /* [EDS#448] After clear every DTC is 0x50 (testNotCompleted bits), so
+     * count the fault bits (0/1/2/3/5/7), not all eight. */
+    dtc_database_count_by_status(0xAFU, &count_after);
     zassert_equal(count_after, 0U, "all DTCs must be cleared");
 }
 
@@ -475,8 +477,8 @@ ZTEST(test_service_0x14, tc014_mirror_persists_cleared_state)
     dtc_database_set_status(DTC_P0001, 0xFFU);
     dtc_mirror_load();
 
-    zassert_equal(dtc_database_find(DTC_P0001)->status_byte, 0x00U,
-        "DTC mirror must persist cleared state (status must be 0x00 after reload)");
+    zassert_equal(dtc_database_find(DTC_P0001)->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED,
+        "DTC mirror must persist cleared state (status must be 0x50 after reload)");
 }
 
 /**
@@ -498,7 +500,7 @@ ZTEST(test_service_0x14, tc015_clear_twice_idempotent)
     memset(&resp, 0, sizeof(resp));
     uds_status_t rc2 = uds_service_0x14_handler(&g_srv, &req, &resp);
     zassert_equal(rc2, UDS_STATUS_OK, "second clear must also succeed");
-    zassert_equal(dtc_database_find(DTC_P0001)->status_byte, 0x00U,
+    zassert_equal(dtc_database_find(DTC_P0001)->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED,
         "status must remain zero after second clear");
 }
 

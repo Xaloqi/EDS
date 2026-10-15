@@ -89,7 +89,7 @@ void test_load_first_boot_no_change(void)
     /* All status bytes must remain 0 */
     dtc_entry_t *e = dtc_database_find(DTC_A);
     TEST_ASSERT_NOT_NULL(e);
-    TEST_ASSERT_EQUAL_UINT8(0x00U, e->status_byte);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)DTC_STATUS_INIT_AND_CLEARED, e->status_byte);
 }
 
 /* 2. dtc_database_get_by_index returns entries in registration order */
@@ -205,8 +205,8 @@ void test_clear_all_writes_zeros(void)
     register_three_dtcs();
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, dtc_mirror_load());
 
-    TEST_ASSERT_EQUAL_UINT8(0x00U, dtc_database_find(DTC_A)->status_byte);
-    TEST_ASSERT_EQUAL_UINT8(0x00U, dtc_database_find(DTC_B)->status_byte);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_A)->status_byte);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_B)->status_byte);
 }
 
 /* 8. DTC in NVM but not registered in database is silently skipped */
@@ -271,7 +271,10 @@ void test_init_idempotent(void)
 void test_zero_status_round_trips(void)
 {
     register_three_dtcs();
-    /* Leave all at 0x00 */
+    /* [EDS#448] Registration now starts at 0x50, so set 0x00 explicitly. */
+    dtc_database_set_status(DTC_A, 0x00U);
+    dtc_database_set_status(DTC_B, 0x00U);
+    dtc_database_set_status(DTC_C, 0x00U);
     dtc_mirror_flush_all();
 
     nvm_mock_deinit();
@@ -445,7 +448,7 @@ void test_flush_at_full_dtc_database_capacity_still_succeeds(void)
         dtc_entry_t *e        = dtc_database_find(dtc_code);
 
         TEST_ASSERT_NOT_NULL(e);
-        TEST_ASSERT_EQUAL_UINT8(0x00U, e->status_byte);
+        TEST_ASSERT_EQUAL_UINT8((uint8_t)DTC_STATUS_INIT_AND_CLEARED, e->status_byte);   /* registration default [EDS#448] */
     }
 }
 

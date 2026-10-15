@@ -10,9 +10,11 @@
  * ISO 14229-1:2026 §9.8 — ControlDTCSetting
  *
  * This service allows the tester to stop (or restart) the ECU's DTC
- * detection logic. When DTC setting is disabled, the application layer
- * must suppress any updates to DTC status bytes (i.e. not call
- * dtc_database_set_status()). This is used during reprogramming sequences
+ * detection logic. While DTC setting is disabled, dtc_database_set_status()
+ * refuses every status transition (UDS_STATUS_ERR_CONDITIONS_NOT_MET), as
+ * ISO 14229-1:2026 Annex D.2.1 requires; ClearDiagnosticInformation still
+ * resets [EDS#448: core enforces this now; it used to rely on every
+ * application checking]. This is used during reprogramming sequences
  * to prevent spurious DTCs from being set while actuators are forced into
  * non-nominal states by the programmer.
  *
@@ -25,12 +27,11 @@
  * IMPLEMENTED SUB-FUNCTIONS (ISO 14229-1:2026 §9.8.2.2, DTCSettingType):
  *
  *   0x01 — DTCSettingOn
- *     Re-enables DTC fault detection. Application layer resumes calling
- *     dtc_database_set_status() when fault conditions are detected.
+ *     Re-enables DTC status updates.
  *
  *   0x02 — DTCSettingOff
- *     Disables DTC fault detection. Application must check
- *     uds_comm_control_dtc_setting_is_on() before setting any DTC.
+ *     Disables DTC status updates: dtc_database_set_status() refuses them
+ *     until DTCSettingOn or a return to the default session [EDS#448].
  *
  * DTCSetting CONTROL RECORD (optional extension bytes):
  *   Bytes after the sub-function byte are the dtcSettingControlOptionRecord.

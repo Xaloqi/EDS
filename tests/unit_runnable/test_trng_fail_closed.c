@@ -271,7 +271,7 @@ ZTEST(test_trng_fail_closed, tc004_end_to_end_uds_security_refuses)
 
     rc = uds_security_request_seed(&ctx, UDS_SEC_LEVEL_1_SEED, seed,
                                     (uint8_t)UDS_SECURITY_SEED_LEN, &out_len);
-    zassert_equal(rc, UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
+    zassert_equal(rc, UDS_STATUS_ERR_CONDITIONS_NOT_MET,
         "end-to-end: production TRNG failure must surface as SEED_UNAVAILABLE");
     zassert_equal(out_len, SENTINEL_BYTE, "*out_seed_len must be left untouched");
     zassert_true(buf_is_sentinel(seed, sizeof(seed)),

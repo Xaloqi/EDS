@@ -244,8 +244,8 @@ ZTEST(dtc_mirror, test_load_first_boot_no_nvm_record)
     dtc_entry_t *e2 = dtc_database_find(DTC_2);
     zassert_not_null(e1, "DTC_1 must exist");
     zassert_not_null(e2, "DTC_2 must exist");
-    zassert_equal(0x00U, e1->status_byte, "DTC_1 status unchanged on first boot");
-    zassert_equal(0x00U, e2->status_byte, "DTC_2 status unchanged on first boot");
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, e1->status_byte, "DTC_1 status unchanged on first boot");
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, e2->status_byte, "DTC_2 status unchanged on first boot");
 }
 
 /* TC-MIRROR-008  load() restores persisted status bytes correctly */
@@ -490,10 +490,10 @@ ZTEST(dtc_mirror, test_clear_all_writes_zeros_to_nvm)
 
     zassert_equal(UDS_STATUS_OK, dtc_mirror_load(), "load after clear_all must return OK");
 
-    zassert_equal(0x00U, dtc_database_find(DTC_1)->status_byte,
-                  "DTC_1 status must be 0x00 after clear_all");
-    zassert_equal(0x00U, dtc_database_find(DTC_2)->status_byte,
-                  "DTC_2 status must be 0x00 after clear_all");
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_1)->status_byte,
+                  "DTC_1 status must be 0x50 after clear_all (EDS#448)");
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_2)->status_byte,
+                  "DTC_2 status must be 0x50 after clear_all (EDS#448)");
 }
 
 /* TC-MIRROR-020  clear_all() + load() in the same session: reloaded status is 0 */
@@ -512,7 +512,7 @@ ZTEST(dtc_mirror, test_clear_all_then_load_in_same_session)
     (void)dtc_database_set_status(DTC_1, 0xFFU);  /* dirty */
 
     zassert_equal(UDS_STATUS_OK, dtc_mirror_load(), "");
-    zassert_equal(0x00U, dtc_database_find(DTC_1)->status_byte,
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_1)->status_byte,
                   "clear_all must win over earlier flush");
 }
 
@@ -696,7 +696,7 @@ ZTEST(dtc_mirror, test_load_reports_corrupt_on_bad_crc)
 
     zassert_equal(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc,
                   "CRC-mismatched record must be reported as a distinct corrupt condition");
-    zassert_equal(0x00U, dtc_database_find(DTC_1)->status_byte,
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_1)->status_byte,
                   "corrupt record must not be applied at all, not even partially");
 }
 
@@ -736,9 +736,9 @@ ZTEST(dtc_mirror, test_load_reports_corrupt_on_truncated_record)
 
     zassert_equal(UDS_STATUS_ERR_NVM_DATA_CORRUPT, rc,
                   "truncated record must be reported as corrupt, not silently accepted");
-    zassert_equal(0x00U, dtc_database_find(DTC_1)->status_byte,
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_1)->status_byte,
                   "truncated record must not partially apply DTC_1 (issue #114)");
-    zassert_equal(0x00U, dtc_database_find(DTC_2)->status_byte,
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_2)->status_byte,
                   "truncated record must not partially apply DTC_2 (issue #114)");
 }
 
@@ -770,7 +770,7 @@ ZTEST(dtc_mirror, test_load_treats_legacy_record_as_no_mirror)
 
     zassert_equal(UDS_STATUS_OK, rc,
                   "MIGRATION: a legacy (pre-#114) record must load as OK, not corrupt");
-    zassert_equal(0x00U, dtc_database_find(DTC_1)->status_byte,
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_1)->status_byte,
                   "MIGRATION: legacy record content must be discarded, not reinterpreted");
 }
 

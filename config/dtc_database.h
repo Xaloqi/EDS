@@ -44,6 +44,15 @@ extern "C" {
 #define DTC_STATUS_TEST_NOT_COMPLETED_THIS_OP_CYCLE     (0x40U)
 #define DTC_STATUS_WARNING_INDICATOR_REQUESTED          (0x80U)
 
+/**
+ * [EDS#448] Status of a DTC that was never tested or was just cleared: the two
+ * testNotCompleted bits set, everything else clear (ISO 14229-1:2026 Annex
+ * D.2: Tables D.6 and D.8 reset bits 4 and 6 to 1 on ClearDiagnosticInformation
+ * and Figures D.5/D.7 start them at 1 on Init; bits 0-3, 5, 7 reset to 0).
+ * EDS used 0x00, which claims the test has completed and passed.
+ */
+#define DTC_STATUS_INIT_AND_CLEARED                     (0x50U)
+
 /* --------------------------------------------------------------------------
  * DTC descriptor record
  * -------------------------------------------------------------------------- */
@@ -113,13 +122,18 @@ uds_status_t dtc_database_register(
  *         or if the database is not initialized.
  *
  * @note Returned pointer is mutable — status_byte may be updated via
- *       dtc_database_set_status(). All other fields are read-only after
+ *       dtc_database_set_status() and the clear/restore functions. All other fields are read-only after
  *       registration.
  */
 dtc_entry_t *dtc_database_find(uint32_t dtc_code);
 
 /**
- * @brief Set the status byte for a registered DTC.
+ * @brief Set the status byte for a registered DTC (monitor result).
+ *
+ * [EDS#448] Refused while ControlDTCSetting is off: ISO 14229-1:2026 Annex
+ * D.2.1 ("DTC Status Update Condition") allows no status transition then,
+ * except a ClearDiagnosticInformation reset. Core used to leave that check
+ * to the application.
  *
  * @param[in] dtc_code    24-bit DTC code to update.
  * @param[in] status_byte New status byte value (ISO 14229-1:2026 Annex D.2).
@@ -127,11 +141,31 @@ dtc_entry_t *dtc_database_find(uint32_t dtc_code);
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if database not initialized.
  * @return UDS_STATUS_ERR_DID_NOT_FOUND if dtc_code is not registered.
+ * @return UDS_STATUS_ERR_CONDITIONS_NOT_MET if DTC setting is off (unchanged).
  */
 uds_status_t dtc_database_set_status(uint32_t dtc_code, uint8_t status_byte);
 
 /**
- * @brief Clear all DTC status bytes (set to 0x00).
+ * @brief [EDS#448] Restore a persisted status byte at boot (NVM mirror load).
+ *
+ * Not gated on ControlDTCSetting: it restores state, it is not a monitor
+ * transition. For dtc_mirror_load() only.
+ */
+uds_status_t dtc_database_restore_status(uint32_t dtc_code, uint8_t status_byte);
+
+/**
+ * @brief [EDS#448, EDS#450] Clear one DTC: status to DTC_STATUS_INIT_AND_CLEARED
+ *        and fault-detection counter to 0. Not gated on ControlDTCSetting (a
+ *        ClearDiagnosticInformation reset is exempt, Annex D.2.1).
+ *
+ * @return UDS_STATUS_OK, UDS_STATUS_ERR_NOT_INITIALIZED or
+ *         UDS_STATUS_ERR_DID_NOT_FOUND.
+ */
+uds_status_t dtc_database_clear_one(uint32_t dtc_code);
+
+/**
+ * @brief Clear all DTCs: status to DTC_STATUS_INIT_AND_CLEARED (0x50), fault-
+ *        detection counter to 0 [EDS#448, EDS#451].
  *
  * Implements the ClearDiagnosticInformation (SID 0x14) data path.
  *

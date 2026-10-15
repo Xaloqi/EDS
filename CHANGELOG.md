@@ -33,6 +33,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DTC status follows ISO 14229-1:2026 Annex D** (`#448`). Registration and
+  every clear set status 0x50 (testNotCompletedSinceLastClear and
+  testNotCompletedThisOperationCycle), not 0x00, and zero the
+  fault-detection counter. `dtc_database_set_status()` returns
+  `UDS_STATUS_ERR_CONDITIONS_NOT_MET` while ControlDTCSetting is off, so
+  application status updates are refused, as D.2.1 requires; clears and the
+  boot-time mirror load (new `dtc_database_restore_status()`) are not gated.
+- **ReadDTCInformation conformance** (`#451`, §11.3).
+  - Status-mask matching ANDs with the availability mask, so mask 0x00 matches
+    nothing (it used to return every DTC). The availability mask is
+    configurable: `CONFIG_UDS_DTC_STATUS_AVAILABILITY_MASK` (default 0xFF).
+  - 0x04/0x06: EDS stores no snapshot or extended data, so a specific record
+    number (including 0xFE) is NRC 0x31, and 0xFF returns the
+    DTCAndStatusRecord alone (6 bytes, no fabricated record).
+  - 0x14 reports only DTCs whose signed counter is 1..126, whether
+    testFailed is set or not.
+  - Each sub-function checks its exact request length (NRC 0x13).
+- **SecurityAccess NRCs per Table 45** (`#446`). requestSeed during the delay
+  is NRC 0x37 (was 0x36); sendKey during the delay is 0x24 (was 0x36; no
+  seed can have been issued); a seed-generation failure is 0x22 (was 0x24).
+- **WriteDataByIdentifier check order per Figure 27** (`#449`). A read-only
+  DID, or one not writable in the active session, is NRC 0x31 (was 0x22); the
+  length check (0x13) now comes before security (0x33).
 - **ClearDiagnosticInformation clears only what was asked** (`#450`). Every
   non-zero groupOfDTC used to clear all DTCs, so clearing one repaired DTC
   erased every other fault record. Now (ISO 14229-1:2026 §11.2, Annex D.1):

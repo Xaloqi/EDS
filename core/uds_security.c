@@ -158,7 +158,10 @@ uds_status_t uds_security_request_seed(
     }
 
     if (ctx->locked_out) {
-        return UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED;
+        /* [EDS#446] ISO 14229-1:2026 Table 45: requestSeed while the delay
+         * timer is active is NRC 0x37 requiredTimeDelayNotExpired (was 0x36,
+         * which Table 45 reserves for the false key that activates it). */
+        return UDS_STATUS_ERR_SEC_DELAY_ACTIVE;
     }
 
     if (seed_buf_len < (uint8_t)UDS_SECURITY_SEED_LEN) {
@@ -193,7 +196,10 @@ uds_status_t uds_security_request_seed(
     if (status != UDS_STATUS_OK) {
         ctx->seed_pending  = false;
         ctx->pending_level = (uint8_t)0U;
-        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
+        /* [EDS#446] The server can't produce a seed: NRC 0x22
+         * conditionsNotCorrect. Was 0x24, which ISO 14229-1:2026 Table 45
+         * defines only for sendKey without requestSeed. */
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
 
     /*
@@ -228,7 +234,7 @@ uds_status_t uds_security_request_seed(
         if (all_zero) {
             ctx->seed_pending  = false;
             ctx->pending_level = (uint8_t)0U;
-            return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
+            return UDS_STATUS_ERR_CONDITIONS_NOT_MET;   /* [EDS#446] NRC 0x22 */
         }
     }
 
@@ -258,7 +264,10 @@ uds_status_t uds_security_send_key(
     }
 
     if (ctx->locked_out) {
-        return UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED;
+        /* [EDS#446] No seed can have been issued during the delay, so this is
+         * sendKey without requestSeed: NRC 0x24 (ISO 14229-1:2026 Table 45).
+         * Was 0x36. */
+        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
     }
 
     if (!ctx->seed_pending) {

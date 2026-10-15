@@ -29,15 +29,15 @@
  *
  *   0x04 — reportDTCSnapshotRecordByDTCNumber
  *     Request : [0x19, 0x04, dtcHB, dtcMB, dtcLB, snapshotRecordNumber]
- *     Response: [0x59, 0x04, dtcHB, dtcMB, dtcLB, statusByte,
- *                snapshotRecordNumber, numberOfIdentifiers=0x00]
+ *     Response: [0x59, 0x04, dtcHB, dtcMB, dtcLB, statusByte] for record 0xFF;
+ *               any other record number → NRC 0x31 (no snapshots stored) [EDS#451]
  *     Minimal snapshot: no freeze-frame data stored in this implementation.
- *     Returns the DTC + status + empty snapshot record (ISO-compliant).
+ *     Returns the DTC + status only (no snapshot records exist).
  *
  *   0x06 — reportDTCExtDataRecordByDTCNumber
  *     Request : [0x19, 0x06, dtcHB, dtcMB, dtcLB, extDataRecordNumber]
- *     Response: [0x59, 0x06, dtcHB, dtcMB, dtcLB, statusByte,
- *                extDataRecordNumber, recordLength=0x00]
+ *     Response: [0x59, 0x06, dtcHB, dtcMB, dtcLB, statusByte] for record 0xFF;
+ *               any other record number → NRC 0x31 (no extended data) [EDS#451]
  *     Minimal extended data: no extended data stored in this implementation.
  *
  *   0x0A — reportSupportedDTCs
@@ -101,13 +101,20 @@
 #define SVC_0x19_SUBFN_MASK                           (0x7FU)
 
 /**
- * @brief Status availability mask reported to the tester.
+ * @brief DTCStatusAvailabilityMask: the status bits this ECU maintains.
  *
- * 0xFF indicates that this ECU supports all 8 status bits defined in
- * ISO 14229-1 Table D.1. Restricting this mask to the bits actually
- * supported by the application prevents confusing tester interpretations.
+ * [EDS#451] Configurable (CONFIG_UDS_DTC_STATUS_AVAILABILITY_MASK, or
+ * -DUDS_DTC_STATUS_AVAILABILITY_MASK=...) because only the integration knows
+ * which bits its monitors maintain; default 0xFF (all eight). Request masks
+ * are processed using only these bits (ISO 14229-1:2026 Table 318).
  */
-#define SVC_0x19_STATUS_AVAILABILITY_MASK             (0xFFU)
+#if !defined(UDS_DTC_STATUS_AVAILABILITY_MASK) && defined(CONFIG_UDS_DTC_STATUS_AVAILABILITY_MASK)
+#define UDS_DTC_STATUS_AVAILABILITY_MASK  (CONFIG_UDS_DTC_STATUS_AVAILABILITY_MASK)
+#endif
+#ifndef UDS_DTC_STATUS_AVAILABILITY_MASK
+#define UDS_DTC_STATUS_AVAILABILITY_MASK  (0xFFU)
+#endif
+#define SVC_0x19_STATUS_AVAILABILITY_MASK ((uint8_t)UDS_DTC_STATUS_AVAILABILITY_MASK)
 
 /**
  * @brief DTC format identifier (ISO 14229-1:2026 §11.3.3.1 Table 319).
@@ -118,13 +125,24 @@
 /** Bytes per DTC record in response: [dtcHB, dtcMB, dtcLB, statusByte]. */
 #define SVC_0x19_BYTES_PER_DTC                        (4U)
 
-/**
- * @brief Fault detection counter value that indicates a confirmed DTC.
- *
- * EDS-specific, not standard: ISO 14229-1:2026 Table 317 (0x14) reports only DTCs whose
- * signed counter is 0x01..0x7E; 0x7F means "failed" (EDS#451).
- */
-#define SVC_0x19_FDC_CONFIRMED                        (0xFFU)
+/** [EDS#451] reportDTCFaultDetectionCounter reports DTCs whose signed counter
+ *  is 1..126 (0x01..0x7E): ISO 14229-1:2026 Table 317 (0x14); +127 means
+ *  "failed" and is not reported. */
+#define SVC_0x19_FDC_MAX_PREFAILED                    (126)
+
+/** [EDS#451] "All records" DTCSnapshot / DTCExtendedData record numbers. */
+#define SVC_0x19_RECORD_ALL                           (0xFFU)
+
+/* [EDS#451] Every implemented sub-function has a fixed request length
+ * (ISO 14229-1:2026 Tables 302-308); a longer or shorter one is NRC 0x13.
+ * uds_service_validate_length() is a minimum check only. */
+static uds_status_t s_exact_len(const uds_msg_buf_t *req, uint16_t len)
+{
+    if (req == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    return (req->length == len) ? UDS_STATUS_OK : UDS_STATUS_ERR_INVALID_PARAM;
+}
 
 /* --------------------------------------------------------------------------
  * Internal helpers
@@ -177,14 +195,16 @@ static uds_status_t handle_report_num_by_status_mask(
     uint16_t     count;
 
     /* [SID, subFn, statusMask] = 3 bytes minimum */
-    status = uds_service_validate_length(req, (uint16_t)3U);
+    status = s_exact_len(req, (uint16_t)3U);
     if (status != UDS_STATUS_OK) {
         return status;
     }
 
     status_mask = req->data[2];
 
-    status = dtc_database_count_by_status(status_mask, &count);
+    /* Only the bits this ECU supports are processed (Table 318). */
+    status = dtc_database_count_by_status(
+        (uint8_t)(status_mask & SVC_0x19_STATUS_AVAILABILITY_MASK), &count);
     if (status != UDS_STATUS_OK) {
         return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
@@ -220,7 +240,7 @@ static uds_status_t handle_report_dtc_by_status_mask(
     uint32_t     dtc_code;
     uint8_t      dtc_status;
 
-    status = uds_service_validate_length(req, (uint16_t)3U);
+    status = s_exact_len(req, (uint16_t)3U);
     if (status != UDS_STATUS_OK) { return status; }
 
     status_mask = req->data[2];
@@ -241,9 +261,10 @@ static uds_status_t handle_report_dtc_by_status_mask(
             break;
         }
 
-        /* Include this DTC only if it matches the requested mask */
-        if ((status_mask == (uint8_t)0x00U)
-                || ((dtc_status & status_mask) != (uint8_t)0U)) {
+        /* [EDS#451] Match = (statusOfDTC & DTCStatusMask) != 0, using only the
+         * supported bits (§11.3.1.3, Table 318). A mask of 0x00 matches
+         * nothing; it used to return every DTC. */
+        if ((dtc_status & status_mask & SVC_0x19_STATUS_AVAILABILITY_MASK) != (uint8_t)0U) {
             status = append_dtc_record(resp, dtc_code, dtc_status);
             if (status != UDS_STATUS_OK) {
                 return status; /* Buffer overflow — response too large */
@@ -270,7 +291,7 @@ static uds_status_t handle_report_dtc_snapshot_id(
 {
     uds_status_t status;
 
-    status = uds_service_validate_length(req, (uint16_t)2U);
+    status = s_exact_len(req, (uint16_t)2U);
     if (status != UDS_STATUS_OK) { return status; }
 
     status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
@@ -287,12 +308,11 @@ static uds_status_t handle_report_dtc_snapshot_id(
  * 0x04 — reportDTCSnapshotRecordByDTCNumber
  *
  * Request : [0x19, 0x04, dtcHB, dtcMB, dtcLB, snapshotRecordNumber]
- * Response: [0x59, 0x04, dtcHB, dtcMB, dtcLB, statusByte,
- *            snapshotRecordNumber, numberOfIdentifiers=0x00]
+ * Response: [0x59, 0x04, dtcHB, dtcMB, dtcLB, statusByte]   (record 0xFF only)
  *
- * This implementation acknowledges the DTC and record number but returns
- * no freeze-frame data (numberOfIdentifiers = 0). This is ISO-compliant
- * for ECUs that do not implement DTC snapshot storage.
+ * No snapshot records are stored, so record 0xFF ("all") returns the
+ * DTCAndStatusRecord alone and any specific record number is unsupported
+ * (NRC 0x31), per ISO 14229-1:2026 §11.3.1.5 [EDS#451].
  */
 static uds_status_t handle_report_dtc_snapshot_by_dtc(
     const uds_msg_buf_t *req,
@@ -304,7 +324,7 @@ static uds_status_t handle_report_dtc_snapshot_by_dtc(
     dtc_entry_t  *entry;
 
     /* [SID, subFn, dtcHB, dtcMB, dtcLB, recordNumber] = 6 bytes */
-    status = uds_service_validate_length(req, (uint16_t)6U);
+    status = s_exact_len(req, (uint16_t)6U);
     if (status != UDS_STATUS_OK) { return status; }
 
     dtc_code            = ((uint32_t)req->data[2] << 16U)
@@ -318,6 +338,16 @@ static uds_status_t handle_report_dtc_snapshot_by_dtc(
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
 
+    /* [EDS#451] ISO 14229-1:2026 §11.3.1.5: an unsupported
+     * DTCSnapshotRecordNumber is a negative response. EDS stores no snapshot
+     * records, so only 0xFF ("all records") is valid, and with none stored the
+     * answer is the DTCAndStatusRecord alone (Table 322: record fields are
+     * present only if a record is available). It used to accept any number
+     * and append a fabricated empty record. */
+    if (snapshot_record_num != (uint8_t)SVC_0x19_RECORD_ALL) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+    }
+
     status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
     if (status != UDS_STATUS_OK) { return status; }
 
@@ -326,9 +356,7 @@ static uds_status_t handle_report_dtc_snapshot_by_dtc(
     resp->data[3] = (uint8_t)((dtc_code >>  8U) & 0xFFU);
     resp->data[4] = (uint8_t)( dtc_code         & 0xFFU);
     resp->data[5] = entry->status_byte;
-    resp->data[6] = snapshot_record_num;
-    resp->data[7] = (uint8_t)0x00U; /* numberOfIdentifiers = 0 (no freeze-frame) */
-    resp->length  = (uint16_t)8U;
+    resp->length  = (uint16_t)6U;
 
     return UDS_STATUS_OK;
 }
@@ -337,12 +365,11 @@ static uds_status_t handle_report_dtc_snapshot_by_dtc(
  * 0x06 — reportDTCExtDataRecordByDTCNumber
  *
  * Request : [0x19, 0x06, dtcHB, dtcMB, dtcLB, extDataRecordNumber]
- * Response: [0x59, 0x06, dtcHB, dtcMB, dtcLB, statusByte,
- *            extDataRecordNumber, recordLength=0x00]
+ * Response: [0x59, 0x06, dtcHB, dtcMB, dtcLB, statusByte]   (record 0xFF only)
  *
- * Returns the DTC status and an empty extended data record.
- * Extended data (e.g. OccurrenceCounter, AgingCounter) is not stored
- * in this implementation.
+ * Extended data (e.g. OccurrenceCounter, AgingCounter) is not stored, so
+ * record 0xFF ("all") returns the DTCAndStatusRecord alone and any other
+ * record number, 0xFE included, is NRC 0x31 (§11.3.1.7) [EDS#451].
  */
 static uds_status_t handle_report_dtc_ext_data_by_dtc(
     const uds_msg_buf_t *req,
@@ -354,7 +381,7 @@ static uds_status_t handle_report_dtc_ext_data_by_dtc(
     dtc_entry_t  *entry;
 
     /* [SID, subFn, dtcHB, dtcMB, dtcLB, recordNumber] = 6 bytes */
-    status = uds_service_validate_length(req, (uint16_t)6U);
+    status = s_exact_len(req, (uint16_t)6U);
     if (status != UDS_STATUS_OK) { return status; }
 
     dtc_code           = ((uint32_t)req->data[2] << 16U)
@@ -367,6 +394,15 @@ static uds_status_t handle_report_dtc_ext_data_by_dtc(
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
 
+    /* [EDS#451] ISO 14229-1:2026 §11.3.1.7: an unsupported
+     * UserDefDTCExtDataRecordNumber is a negative response, including 0xFE
+     * when no OBD extended data records are supported. EDS stores none, so
+     * only 0xFF ("all records") is valid, answered with the DTCAndStatusRecord
+     * alone (Table 324). It used to append a fabricated "recordLength = 0". */
+    if (ext_data_record_num != (uint8_t)SVC_0x19_RECORD_ALL) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+    }
+
     status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
     if (status != UDS_STATUS_OK) { return status; }
 
@@ -375,9 +411,7 @@ static uds_status_t handle_report_dtc_ext_data_by_dtc(
     resp->data[3] = (uint8_t)((dtc_code >>  8U) & 0xFFU);
     resp->data[4] = (uint8_t)( dtc_code         & 0xFFU);
     resp->data[5] = entry->status_byte;
-    resp->data[6] = ext_data_record_num;
-    resp->data[7] = (uint8_t)0x00U; /* recordLength = 0 (no ext data) */
-    resp->length  = (uint16_t)8U;
+    resp->length  = (uint16_t)6U;
 
     return UDS_STATUS_OK;
 }
@@ -401,7 +435,7 @@ static uds_status_t handle_report_supported_dtcs(
     uint32_t     dtc_code;
     uint8_t      dtc_status;
 
-    status = uds_service_validate_length(req, (uint16_t)2U);
+    status = s_exact_len(req, (uint16_t)2U);
     if (status != UDS_STATUS_OK) { return status; }
 
     status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
@@ -436,8 +470,8 @@ static uds_status_t handle_report_supported_dtcs(
  *
  * ISO 14229-1:2026 §11.3.1.14, Table 317.
  *
- * Returns a 4-byte record for each DTC where testFailed == 0 (not yet
- * confirmed) and whose fault_detection_counter < 0xFF.
+ * Returns a 4-byte record for each DTC whose signed fault-detection counter
+ * is 1..126 (Table 317) [EDS#451].
  *
  * NOTE: No DTCStatusAvailabilityMask byte in this response — ISO 14229-1
  *       §11.3.20 response format differs from 0x01/0x02/0x0A.
@@ -453,7 +487,7 @@ static uds_status_t handle_report_fault_detection_counter(
     uint8_t       dtc_status;
     dtc_entry_t  *entry;
 
-    status = uds_service_validate_length(req, (uint16_t)2U);
+    status = s_exact_len(req, (uint16_t)2U);
     if (status != UDS_STATUS_OK) { return status; }
 
     status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
@@ -470,19 +504,21 @@ static uds_status_t handle_report_fault_detection_counter(
             break;
         }
 
-        /* Include only DTCs not yet test-failed (pre-confirmed) */
-        if ((dtc_status & (uint8_t)DTC_STATUS_TEST_FAILED) != (uint8_t)0U) {
-            continue;
-        }
-
+        (void)dtc_status;
         entry = dtc_database_find(dtc_code);
         if (entry == NULL) {
             continue;
         }
 
-        /* EDS-specific exclusion; ISO 14229-1:2026 Table 317 reports 0x01..0x7E only (EDS#451) */
-        if (entry->fault_detection_counter == (uint8_t)SVC_0x19_FDC_CONFIRMED) {
-            continue;
+        /* [EDS#451] Table 317 (0x14): report a DTC iff its signed counter is
+         * 1..126, "whether or not it has been detected as pending or
+         * confirmed". It used to skip every testFailed DTC and exclude only
+         * 0xFF, so it reported 0x00, +127 (failed) and negative counters. */
+        {
+            int8_t fdc = (int8_t)entry->fault_detection_counter;
+            if ((fdc < (int8_t)1) || (fdc > (int8_t)SVC_0x19_FDC_MAX_PREFAILED)) {
+                continue;
+            }
         }
 
         /* Reuse append_dtc_record: 4th byte is faultDetectionCounter, not status */
@@ -518,7 +554,7 @@ static uds_status_t handle_report_dtc_permanent_status(
     uint8_t       dtc_status;
     dtc_entry_t  *entry;
 
-    status = uds_service_validate_length(req, (uint16_t)2U);
+    status = s_exact_len(req, (uint16_t)2U);
     if (status != UDS_STATUS_OK) { return status; }
 
     status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);

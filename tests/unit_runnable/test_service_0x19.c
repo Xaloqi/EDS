@@ -25,21 +25,21 @@
  *   TC-0x19-006  Mask 0x09 → 2 DTC records in response
  *   TC-0x19-007  Each DTC record is 4 bytes [dtcHB, dtcMB, dtcLB, status]
  *   TC-0x19-008  Response header bytes: 0x59, 0x02, 0xFF (availabilityMask)
- *   TC-0x19-009  Mask 0x00 → all DTCs returned (special case: mask 0 = match all)
+ *   TC-0x19-009  Mask 0x00 matches no DTC → header only
  *   TC-0x19-010  Mask 0x40 matches no DTCs → empty list (response = 3 bytes)
  *
  *   Sub-function 0x03 — reportDTCSnapshotIdentification
  *   TC-0x19-011  Returns 0x59, 0x03, length=2 (empty snapshot list)
  *
  *   Sub-function 0x04 — reportDTCSnapshotRecordByDTCNumber
- *   TC-0x19-012  Known DTC → 0x59 0x04 dtc[3] status recordNum numID=0x00
- *   TC-0x19-013  Response is 8 bytes (minimal snapshot)
+ *   TC-0x19-012  Specific record → NRC 0x31; 0xFF → 0x59 0x04 dtc[3] status
+ *   TC-0x19-013  Response with no stored records is 6 bytes
  *   TC-0x19-014  Unknown DTC → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
  *   TC-0x19-015  Request length 5 (missing recordNumber) → ERR_INVALID_PARAM
  *
  *   Sub-function 0x06 — reportDTCExtDataRecordByDTCNumber
- *   TC-0x19-016  Known DTC → 0x59 0x06 dtc[3] status recordNum recordLen=0x00
- *   TC-0x19-017  Response is 8 bytes
+ *   TC-0x19-016  Specific record or 0xFE → NRC 0x31; 0xFF → 0x59 0x06 dtc[3] status
+ *   TC-0x19-017  Response with no stored records is 6 bytes
  *   TC-0x19-018  Unknown DTC → ERR_REQUEST_OUT_OF_RANGE
  *
  *   Sub-function 0x0A — reportSupportedDTCs
@@ -318,19 +318,19 @@ ZTEST(test_service_0x19, tc008_subfn02_response_header)
 }
 
 /**
- * TC-0x19-009: Mask 0x00 is the special "return all" case → all 3 DTCs listed.
- * ISO 14229-1 §13.3.2.2: statusMask=0 means all active DTCs.
+ * TC-0x19-009: Mask 0x00 matches no DTC → 3-byte header only.
  */
-ZTEST(test_service_0x19, tc009_mask_zero_returns_all)
+ZTEST(test_service_0x19, tc009_mask_zero_matches_nothing)
 {
+    /* [EDS#451] A DTC matches when (statusOfDTC & DTCStatusMask) != 0
+     * (ISO 14229-1:2026 §11.3.1.3), so mask 0x00 matches nothing. It used
+     * to return every DTC. */
     setup();
-
     uds_msg_buf_t req  = make_req_2(0x02U, 0x00U);
     uds_msg_buf_t resp = {0};
     uds_service_0x19_handler(&g_srv, &req, &resp);
-
-    zassert_equal(resp.length, 15U,
-        "mask 0x00 must return all 3 DTCs (3 + 3×4 = 15 bytes)");
+    zassert_equal(resp.length, 3U,
+        "mask 0x00 must match no DTC: header only (EDS#451)");
 }
 
 /**
@@ -378,42 +378,44 @@ ZTEST(test_service_0x19, tc011_snapshot_id_empty_list)
 /* ---- Sub-function 0x04 ------------------------------------------------ */
 
 /**
- * TC-0x19-012: Known DTC snapshot record: [0x59 0x04 dtcHB dtcMB dtcLB
- *              status snapshotRecNum 0x00].
+ * TC-0x19-012: Specific snapshot record → NRC 0x31; record 0xFF →
+ *              [0x59 0x04 dtcHB dtcMB dtcLB status].
  */
 ZTEST(test_service_0x19, tc012_snapshot_by_dtc_known)
 {
+    /* [EDS#451] No snapshot records are stored, so a specific record number
+     * is unsupported (NRC 0x31), and 0xFF ("all") returns the
+     * DTCAndStatusRecord alone (§11.3.1.5, Table 322). */
     setup();
-
     uds_msg_buf_t req  = make_req_dtc(0x04U, DTC_A, 0x01U);
     uds_msg_buf_t resp = {0};
-    uds_status_t rc = uds_service_0x19_handler(&g_srv, &req, &resp);
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+        "unsupported DTCSnapshotRecordNumber must be NRC 0x31 (EDS#451)");
 
-    zassert_equal(rc, UDS_STATUS_OK, "must return OK for known DTC");
+    req = make_req_dtc(0x04U, DTC_A, 0xFFU);
+    memset(&resp, 0, sizeof(resp));
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "record 0xFF must be OK");
     zassert_equal(resp.data[0], 0x59U, "response SID must be 0x59");
     zassert_equal(resp.data[1], 0x04U, "echo sub-function must be 0x04");
-    /* DTC bytes */
     zassert_equal(resp.data[2], (uint8_t)((DTC_A >> 16U) & 0xFFU), "dtcHB");
     zassert_equal(resp.data[3], (uint8_t)((DTC_A >>  8U) & 0xFFU), "dtcMB");
     zassert_equal(resp.data[4], (uint8_t)( DTC_A         & 0xFFU), "dtcLB");
     zassert_equal(resp.data[5], 0x09U, "status byte must be 0x09");
-    zassert_equal(resp.data[6], 0x01U, "echo snapshot record number");
-    zassert_equal(resp.data[7], 0x00U, "numberOfIdentifiers must be 0 (no freeze-frame)");
 }
 
 /**
- * TC-0x19-013: Snapshot response is exactly 8 bytes.
+ * TC-0x19-013: Snapshot response with no stored records is 6 bytes.
  */
-ZTEST(test_service_0x19, tc013_snapshot_by_dtc_length_eight)
+ZTEST(test_service_0x19, tc013_snapshot_by_dtc_length_six)
 {
+    /* [EDS#451] With no records, the response is the DTCAndStatusRecord only:
+     * 6 bytes, no fabricated record (was 8). */
     setup();
-
-    uds_msg_buf_t req  = make_req_dtc(0x04U, DTC_B, 0x00U);
+    uds_msg_buf_t req  = make_req_dtc(0x04U, DTC_B, 0xFFU);
     uds_msg_buf_t resp = {0};
     uds_service_0x19_handler(&g_srv, &req, &resp);
-
-    zassert_equal(resp.length, 8U,
-        "DTC snapshot response must be exactly 8 bytes");
+    zassert_equal(resp.length, 6U,
+        "DTC snapshot response with no records must be 6 bytes (EDS#451)");
 }
 
 /**
@@ -457,36 +459,43 @@ ZTEST(test_service_0x19, tc015_snapshot_short_request)
 /* ---- Sub-function 0x06 ------------------------------------------------ */
 
 /**
- * TC-0x19-016: Extended data record by DTC for a known DTC.
+ * TC-0x19-016: Extended data by DTC: specific record or 0xFE → NRC 0x31;
+ *              record 0xFF → DTCAndStatusRecord.
  */
 ZTEST(test_service_0x19, tc016_ext_data_by_dtc_known)
 {
+    /* [EDS#451] No extended data stored: a specific record number (and 0xFE,
+     * OBD records) is NRC 0x31; 0xFF returns the DTCAndStatusRecord alone
+     * (§11.3.1.7, Table 324). */
     setup();
-
     uds_msg_buf_t req  = make_req_dtc(0x06U, DTC_C, 0x01U);
     uds_msg_buf_t resp = {0};
-    uds_status_t rc = uds_service_0x19_handler(&g_srv, &req, &resp);
-
-    zassert_equal(rc, UDS_STATUS_OK, "must return OK for known DTC");
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+        "unsupported ext data record number must be NRC 0x31 (EDS#451)");
+    req = make_req_dtc(0x06U, DTC_C, 0xFEU);
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+        "0xFE with no OBD extended data must be NRC 0x31 (EDS#451)");
+    req = make_req_dtc(0x06U, DTC_C, 0xFFU);
+    memset(&resp, 0, sizeof(resp));
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "record 0xFF must be OK");
     zassert_equal(resp.data[0], 0x59U, "response SID must be 0x59");
     zassert_equal(resp.data[1], 0x06U, "echo sub-function must be 0x06");
     zassert_equal(resp.data[5], 0x08U, "DTC_C status must be 0x08");
-    zassert_equal(resp.data[7], 0x00U, "recordLength must be 0 (no ext data)");
 }
 
 /**
- * TC-0x19-017: Extended data response is exactly 8 bytes.
+ * TC-0x19-017: Extended data response with no stored records is 6 bytes.
  */
-ZTEST(test_service_0x19, tc017_ext_data_response_length)
+ZTEST(test_service_0x19, tc017_ext_data_response_length_six)
 {
+    /* [EDS#451] DTCAndStatusRecord only: 6 bytes (was 8 with a fabricated
+     * recordLength). */
     setup();
-
     uds_msg_buf_t req  = make_req_dtc(0x06U, DTC_A, 0xFFU);
     uds_msg_buf_t resp = {0};
     uds_service_0x19_handler(&g_srv, &req, &resp);
-
-    zassert_equal(resp.length, 8U,
-        "extended data response must be exactly 8 bytes");
+    zassert_equal(resp.length, 6U,
+        "extended data response with no records must be 6 bytes (EDS#451)");
 }
 
 /**
@@ -736,27 +745,36 @@ ZTEST(test_service_0x19, tc028_fdc_no_availability_mask_in_header)
 }
 
 /**
- * TC-0x19-029: DTC with counter == 0xFF is excluded (reserved = confirmed).
+ * TC-0x19-029: Only counters 1..126 (prefailed) are reported.
  */
-ZTEST(test_service_0x19, tc029_fdc_counter_ff_excluded)
+ZTEST(test_service_0x19, tc029_fdc_only_prefailed_reported)
 {
+    /* [EDS#451] ISO 14229-1:2026 Table 317 (0x14): only DTCs whose signed
+     * counter is 1..126 are reported, testFailed or not. 0xFF (-1), 0x00,
+     * 0x7F (+127, failed) are not. */
     setup();
-    /* DTC_B: testFailed=0, set counter to 0xFF → must be excluded */
-    dtc_database_set_fault_counter(DTC_B, 0xFFU);
-    /* DTC_C: testFailed=0, counter=0x00 (default) → included */
-
+    dtc_database_set_fault_counter(DTC_A, 0x05U);   /* testFailed set, prefailed */
+    dtc_database_set_fault_counter(DTC_B, 0xFFU);   /* -1: passing */
+    dtc_database_set_fault_counter(DTC_C, 0x7FU);   /* +127: failed */
     uds_msg_buf_t req;
     memset(&req, 0, sizeof(req));
     req.data[0] = 0x19U;
     req.data[1] = 0x14U;
     req.length  = 2U;
-
     uds_msg_buf_t resp = {0};
     uds_service_0x19_handler(&g_srv, &req, &resp);
-
-    /* Only DTC_C qualifies → 2-byte header + 1 record × 4 = 6 */
     zassert_equal(resp.length, 6U,
-        "DTC with counter=0xFF must be excluded; only DTC_C → 6 bytes");
+        "only the DTC with counter 0x05 qualifies: 2-byte header + 4 (EDS#451)");
+    zassert_equal(resp.data[5], 0x05U, "reported counter value");
+
+    dtc_database_set_fault_counter(DTC_A, 0x7EU);   /* boundary: 126 reported */
+    memset(&resp, 0, sizeof(resp));
+    uds_service_0x19_handler(&g_srv, &req, &resp);
+    zassert_equal(resp.length, 6U, "counter 0x7E (126) must be reported");
+    dtc_database_set_fault_counter(DTC_A, 0x00U);
+    memset(&resp, 0, sizeof(resp));
+    uds_service_0x19_handler(&g_srv, &req, &resp);
+    zassert_equal(resp.length, 2U, "counter 0x00 must not be reported");
 }
 
 /**
@@ -908,7 +926,7 @@ ZTEST(test_service_0x19, tc035_svc014_preserves_permanent_dtc)
 
 /**
  * TC-0x19-036: SID 0x14 DOES clear non-permanent DTCs.
- * After clear, DTC_B (non-permanent, status 0x04) must be 0x00.
+ * After clear, DTC_B (non-permanent, status 0x04) must be 0x50 (EDS#448).
  */
 ZTEST(test_service_0x19, tc036_svc014_clears_non_permanent_dtc)
 {
@@ -932,10 +950,34 @@ ZTEST(test_service_0x19, tc036_svc014_clears_non_permanent_dtc)
     dtc_entry_t *entry_c = dtc_database_find(DTC_C);
     zassert_not_null(entry_b, "DTC_B must still be registered");
     zassert_not_null(entry_c, "DTC_C must still be registered");
-    zassert_equal(entry_b->status_byte, 0x00U,
-        "non-permanent DTC_B must be cleared by SID 0x14");
-    zassert_equal(entry_c->status_byte, 0x00U,
-        "non-permanent DTC_C must be cleared by SID 0x14");
+    zassert_equal(entry_b->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED,
+        "non-permanent DTC_B must be cleared (0x50) by SID 0x14 (EDS#448)");
+    zassert_equal(entry_c->status_byte, (uint8_t)DTC_STATUS_INIT_AND_CLEARED,
+        "non-permanent DTC_C must be cleared (0x50) by SID 0x14 (EDS#448)");
+}
+
+/**
+ * TC-0x19-037: Each sub-function has one exact request length; a trailing
+ * byte → ERR_INVALID_PARAM (NRC 0x13, ISO 14229-1:2026 §11.3) [EDS#451].
+ */
+ZTEST(test_service_0x19, tc037_exact_length_enforced)
+{
+    setup();
+    uds_msg_buf_t resp = {0};
+
+    uds_msg_buf_t req = make_req_2(0x02U, 0xFFU);
+    req.length = 4U;                          /* [19 02 mask] + 1 */
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "0x02 with a trailing byte must be 0x13");
+
+    req = make_req_2(0x0AU, 0x00U);           /* [19 0A] + 1 */
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "0x0A with a trailing byte must be 0x13");
+
+    req = make_req_dtc(0x06U, DTC_A, 0xFFU);
+    req.length = 7U;                          /* [19 06 DTC rec] + 1 */
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "0x06 with a trailing byte must be 0x13");
 }
 
 /* =========================================================================
@@ -950,15 +992,15 @@ extern void test_service_0x19__tc005_subfn01_response_six_bytes(void);
 extern void test_service_0x19__tc006_list_by_mask_04_one_dtc(void);
 extern void test_service_0x19__tc007_dtc_record_is_four_bytes(void);
 extern void test_service_0x19__tc008_subfn02_response_header(void);
-extern void test_service_0x19__tc009_mask_zero_returns_all(void);
+extern void test_service_0x19__tc009_mask_zero_matches_nothing(void);
 extern void test_service_0x19__tc010_mask_no_match_empty_list(void);
 extern void test_service_0x19__tc011_snapshot_id_empty_list(void);
 extern void test_service_0x19__tc012_snapshot_by_dtc_known(void);
-extern void test_service_0x19__tc013_snapshot_by_dtc_length_eight(void);
+extern void test_service_0x19__tc013_snapshot_by_dtc_length_six(void);
 extern void test_service_0x19__tc014_snapshot_unknown_dtc(void);
 extern void test_service_0x19__tc015_snapshot_short_request(void);
 extern void test_service_0x19__tc016_ext_data_by_dtc_known(void);
-extern void test_service_0x19__tc017_ext_data_response_length(void);
+extern void test_service_0x19__tc017_ext_data_response_length_six(void);
 extern void test_service_0x19__tc018_ext_data_unknown_dtc(void);
 extern void test_service_0x19__tc019_supported_dtcs_all_three(void);
 extern void test_service_0x19__tc020_supported_dtcs_header(void);
@@ -970,7 +1012,7 @@ extern void test_service_0x19__tc025_null_req(void);
 extern void test_service_0x19__tc026_fdc_all_test_failed_empty(void);
 extern void test_service_0x19__tc027_fdc_qualifying_dtc_returned(void);
 extern void test_service_0x19__tc028_fdc_no_availability_mask_in_header(void);
-extern void test_service_0x19__tc029_fdc_counter_ff_excluded(void);
+extern void test_service_0x19__tc029_fdc_only_prefailed_reported(void);
 extern void test_service_0x19__tc030_fdc_counter_value_in_record(void);
 extern void test_service_0x19__tc031_fdc_short_request_rejected(void);
 extern void test_service_0x19__tc032_permanent_empty_list(void);
@@ -978,6 +1020,7 @@ extern void test_service_0x19__tc033_permanent_dtc_returned(void);
 extern void test_service_0x19__tc034_permanent_response_header(void);
 extern void test_service_0x19__tc035_svc014_preserves_permanent_dtc(void);
 extern void test_service_0x19__tc036_svc014_clears_non_permanent_dtc(void);
+extern void test_service_0x19__tc037_exact_length_enforced(void);
 
 void run_all_tests(void)
 {
@@ -989,15 +1032,15 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x19__tc006_list_by_mask_04_one_dtc);
     RUN_TEST(test_service_0x19__tc007_dtc_record_is_four_bytes);
     RUN_TEST(test_service_0x19__tc008_subfn02_response_header);
-    RUN_TEST(test_service_0x19__tc009_mask_zero_returns_all);
+    RUN_TEST(test_service_0x19__tc009_mask_zero_matches_nothing);
     RUN_TEST(test_service_0x19__tc010_mask_no_match_empty_list);
     RUN_TEST(test_service_0x19__tc011_snapshot_id_empty_list);
     RUN_TEST(test_service_0x19__tc012_snapshot_by_dtc_known);
-    RUN_TEST(test_service_0x19__tc013_snapshot_by_dtc_length_eight);
+    RUN_TEST(test_service_0x19__tc013_snapshot_by_dtc_length_six);
     RUN_TEST(test_service_0x19__tc014_snapshot_unknown_dtc);
     RUN_TEST(test_service_0x19__tc015_snapshot_short_request);
     RUN_TEST(test_service_0x19__tc016_ext_data_by_dtc_known);
-    RUN_TEST(test_service_0x19__tc017_ext_data_response_length);
+    RUN_TEST(test_service_0x19__tc017_ext_data_response_length_six);
     RUN_TEST(test_service_0x19__tc018_ext_data_unknown_dtc);
     RUN_TEST(test_service_0x19__tc019_supported_dtcs_all_three);
     RUN_TEST(test_service_0x19__tc020_supported_dtcs_header);
@@ -1009,7 +1052,7 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x19__tc026_fdc_all_test_failed_empty);
     RUN_TEST(test_service_0x19__tc027_fdc_qualifying_dtc_returned);
     RUN_TEST(test_service_0x19__tc028_fdc_no_availability_mask_in_header);
-    RUN_TEST(test_service_0x19__tc029_fdc_counter_ff_excluded);
+    RUN_TEST(test_service_0x19__tc029_fdc_only_prefailed_reported);
     RUN_TEST(test_service_0x19__tc030_fdc_counter_value_in_record);
     RUN_TEST(test_service_0x19__tc031_fdc_short_request_rejected);
     RUN_TEST(test_service_0x19__tc032_permanent_empty_list);
@@ -1017,4 +1060,5 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x19__tc034_permanent_response_header);
     RUN_TEST(test_service_0x19__tc035_svc014_preserves_permanent_dtc);
     RUN_TEST(test_service_0x19__tc036_svc014_clears_non_permanent_dtc);
+    RUN_TEST(test_service_0x19__tc037_exact_length_enforced);
 }

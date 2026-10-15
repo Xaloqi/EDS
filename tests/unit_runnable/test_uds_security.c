@@ -323,7 +323,7 @@ ZTEST(test_uds_security_init, test_nvm_load_error_fail_closed_locks_out)
     uint8_t seed[UDS_SECURITY_SEED_LEN];
     uint8_t seed_len = 0U;
     zassert_equal(do_seed_request(&ctx, seed, &seed_len),
-                  UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED,
+                  UDS_STATUS_ERR_SEC_DELAY_ACTIVE,
                   "seed request must be rejected while fail-closed lockout is active");
 }
 
@@ -428,7 +428,7 @@ ZTEST(test_uds_security_seed, test_already_unlocked_returns_zero_seed)
 }
 
 /**
- * TC-SEC-SEED-005: Request seed while locked out → UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED.
+ * TC-SEC-SEED-005: Request seed while locked out → UDS_STATUS_ERR_SEC_DELAY_ACTIVE (NRC 0x37).
  */
 ZTEST(test_uds_security_seed, test_lockout_blocks_seed_request)
 {
@@ -449,7 +449,7 @@ ZTEST(test_uds_security_seed, test_lockout_blocks_seed_request)
 
     /* Now seed request must fail */
     uds_status_t rc = do_seed_request(&ctx, seed, &seed_len);
-    zassert_equal(rc, UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED,
+    zassert_equal(rc, UDS_STATUS_ERR_SEC_DELAY_ACTIVE,
                   "Seed request during lockout must fail");
 }
 
@@ -570,8 +570,35 @@ ZTEST(test_uds_security_send_key, test_lockout_after_max_attempts)
 
     /* 4th attempt must fail immediately */
     uds_status_t rc = do_seed_request(&ctx, seed, &seed_len);
-    zassert_equal(rc, UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED,
-                  "Request during lockout must return ATTEMPT_EXCEEDED");
+    zassert_equal(rc, UDS_STATUS_ERR_SEC_DELAY_ACTIVE,
+                  "Request during lockout must return DELAY_ACTIVE (NRC 0x37, EDS#446)");
+}
+
+/**
+ * TC-SEC-KEY-006b: sendKey while the delay timer runs → SEED_UNAVAILABLE
+ * (NRC 0x24). No requestSeed can have been accepted during the delay, so
+ * ISO 14229-1:2026 Table 45 gives requestSequenceError, not 0x37 [EDS#446].
+ */
+ZTEST(test_uds_security_send_key, test_send_key_during_lockout_is_sequence_error)
+{
+    uds_security_ctx_t ctx;
+    zassert_equal(default_sec_init(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t seed[UDS_SECURITY_SEED_LEN];
+    uint8_t seed_len = 0U;
+    uint8_t wrong_key[UDS_SECURITY_KEY_LEN] = { 0xFFU, 0xFFU, 0xFFU, 0xFFU };
+
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        (void)do_seed_request(&ctx, seed, &seed_len);
+        (void)uds_security_send_key(&ctx, UDS_SEC_LEVEL_1_KEY, wrong_key,
+                                    (uint8_t)UDS_SECURITY_KEY_LEN);
+    }
+    zassert_true(ctx.locked_out, "Must be locked out after 3 wrong keys");
+
+    uds_status_t rc = uds_security_send_key(&ctx, UDS_SEC_LEVEL_1_KEY, wrong_key,
+                                            (uint8_t)UDS_SECURITY_KEY_LEN);
+    zassert_equal(rc, UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
+                  "sendKey during the delay must be NRC 0x24 (EDS#446)");
 }
 
 /**
@@ -632,8 +659,8 @@ ZTEST(test_uds_security_send_key, test_wrong_level_triggers_lockout)
                  "[P4-SEC-01] Must be locked out after 3 wrong-level submissions");
 
     uds_status_t rc = do_seed_request(&ctx, seed, &seed_len);
-    zassert_equal(rc, UDS_STATUS_ERR_SEC_ATTEMPT_EXCEEDED,
-                  "Seed request after wrong-level lockout must return ATTEMPT_EXCEEDED");
+    zassert_equal(rc, UDS_STATUS_ERR_SEC_DELAY_ACTIVE,
+                  "Seed request after wrong-level lockout must return DELAY_ACTIVE (NRC 0x37, EDS#446)");
 }
 
 /* =========================================================================
@@ -799,6 +826,7 @@ extern void test_uds_security_send_key__test_key_without_seed(void);
 extern void test_uds_security_send_key__test_correct_key_unlocks(void);
 extern void test_uds_security_send_key__test_wrong_key_increments_counter(void);
 extern void test_uds_security_send_key__test_lockout_after_max_attempts(void);
+extern void test_uds_security_send_key__test_send_key_during_lockout_is_sequence_error(void);
 extern void test_uds_security_send_key__test_wrong_level_key_consumed_as_failed_attempt(void);
 extern void test_uds_security_send_key__test_wrong_level_triggers_lockout(void);
 extern void test_uds_security_is_unlocked__test_initially_locked(void);
@@ -831,6 +859,7 @@ void run_all_tests(void)
     RUN_TEST(test_uds_security_send_key__test_correct_key_unlocks);
     RUN_TEST(test_uds_security_send_key__test_wrong_key_increments_counter);
     RUN_TEST(test_uds_security_send_key__test_lockout_after_max_attempts);
+    RUN_TEST(test_uds_security_send_key__test_send_key_during_lockout_is_sequence_error);
     RUN_TEST(test_uds_security_send_key__test_wrong_level_key_consumed_as_failed_attempt);
     RUN_TEST(test_uds_security_send_key__test_wrong_level_triggers_lockout);
     RUN_TEST(test_uds_security_is_unlocked__test_initially_locked);

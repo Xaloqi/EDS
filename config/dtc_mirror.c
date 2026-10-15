@@ -154,7 +154,7 @@ static uds_status_t mirror_serialize_internal(bool force_status_zero, size_t *ou
             s_mirror_buf[pos++] = (uint8_t)((dtc_code >> 16U) & 0xFFU);
             s_mirror_buf[pos++] = (uint8_t)((dtc_code >>  8U) & 0xFFU);
             s_mirror_buf[pos++] = (uint8_t)((dtc_code       ) & 0xFFU);
-            s_mirror_buf[pos++] = force_status_zero ? (uint8_t)0x00U : status_byte;
+            s_mirror_buf[pos++] = force_status_zero ? (uint8_t)DTC_STATUS_INIT_AND_CLEARED : status_byte;   /* [EDS#448] cleared = 0x50 */
             count++;
         }
     }
@@ -282,7 +282,7 @@ uds_status_t dtc_mirror_load(void)
      * Validate the CRC-32 over the whole record (version+count+entries)
      * BEFORE applying anything. This is what makes a corrupt record
      * all-or-nothing instead of the original partial-apply bug: no
-     * dtc_database_set_status() call happens until every check above and
+     * dtc_database_restore_status() call happens until every check above and
      * this CRC check have passed.
      */
     crc_computed = mirror_crc32(&buf[2], (size_t)3U + entries_bytes);
@@ -312,7 +312,7 @@ uds_status_t dtc_mirror_load(void)
          * Restore status byte — ignores DTCs not registered in the current
          * database (handles firmware updates that add/remove DTC codes).
          */
-        (void)dtc_database_set_status(dtc_code, status_byte);
+        (void)dtc_database_restore_status(dtc_code, status_byte);   /* [EDS#448] ungated restore */
     }
 
     return UDS_STATUS_OK;
@@ -368,7 +368,7 @@ uds_status_t dtc_mirror_clear_all(void)
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
-    /* Serialize with all status bytes forced to 0x00 (same v1 header/CRC
+    /* Serialize with all status bytes forced to the cleared value 0x50 [EDS#448] (same v1 header/CRC
      * writer as dtc_mirror_flush_all() — one code path for the on-disk
      * format keeps the two writers from ever diverging). */
     rc = mirror_serialize_internal(true, &serial_len);
