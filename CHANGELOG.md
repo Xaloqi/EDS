@@ -10,6 +10,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The transfer CRC's documented algorithm was wrong.** The headers called
+  the 0x37 CRC-32 "ISO 3309 / MPEG-2", and the safety traceability matrix
+  "MPEG-2 polynomial 0x04C11DB7". The code implements **CRC-32/ISO-HDLC**
+  (zlib's `crc32`: reflected, init and final XOR `0xFFFFFFFF`, check value
+  `0xCBF43926`). CRC-32/MPEG-2 is unreflected with no final XOR and gives
+  different values, so a tester built from the documentation would fail every
+  0x37 CRC. Code unchanged; the comments now name the algorithm, and
+  TC-0x37-017 pins its check value. It's the only test that catches a wrong
+  algorithm: the others compute their expected CRC with the function under test.
 - **TransferData block counter rollover** (`#433`): the expected
   blockSequenceCounter wrapped 0xFF → 0x01 and 0x00 was always refused.
   ISO 14229-1 rolls it over to 0x00. So every conformant tester, Xaloqi's

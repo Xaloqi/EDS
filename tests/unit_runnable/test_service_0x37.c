@@ -25,6 +25,7 @@
  *   TC-0x37-014  Flash ops NULL after active transfer → ERR_CONDITIONS_NOT_MET, reset
  *   TC-0x37-015  CRC record exactly 5 bytes total (SID + 4) accepted
  *   TC-0x37-016  CRC record wrong length (3 bytes, not 5) → ERR_INVALID_PARAM
+ *   TC-0x37-017  The transfer CRC is CRC-32/ISO-HDLC: check value 0xCBF43926
  *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h for host compilation)
  * =============================================================================
@@ -416,6 +417,19 @@ ZTEST(svc_0x37, test_crc_record_4_bytes_total_rejected)
                   uds_service_0x37_handler(&s_srv, &s_req, &s_resp), "");
 }
 
+/* TC-0x37-017  The 0x37 CRC record is CRC-32/ISO-HDLC (zlib's crc32), the
+ * algorithm a tester must use. Its catalogue check value pins it: the
+ * CRC-32/MPEG-2 the docs once named gives 0x0376E6E7 instead. */
+ZTEST(svc_0x37, test_crc_is_crc32_iso_hdlc)
+{
+    static const uint8_t k_check[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
+    uint32_t crc = uds_transfer_crc32_update((uint32_t)0xFFFFFFFFUL, k_check,
+                                             (uint32_t)sizeof(k_check));
+
+    zassert_equal((uint32_t)0xCBF43926UL, uds_transfer_crc32_finalise(crc),
+                  "transfer CRC is not CRC-32/ISO-HDLC (check 0xCBF43926)");
+}
+
 /* ==========================================================================
  * run_all_tests
  * ========================================================================== */
@@ -438,4 +452,5 @@ void run_all_tests(void)
     RUN_TEST(svc_0x37__test_flash_ops_null_resets_transfer);
     RUN_TEST(svc_0x37__test_crc_record_exactly_5_bytes_accepted);
     RUN_TEST(svc_0x37__test_crc_record_4_bytes_total_rejected);
+    RUN_TEST(svc_0x37__test_crc_is_crc32_iso_hdlc);
 }
