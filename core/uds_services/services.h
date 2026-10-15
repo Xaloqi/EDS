@@ -301,6 +301,19 @@ uds_status_t uds_service_0x34_handler(
 bool uds_service_0x34_pending_tick(uds_msg_buf_t *out_frame);
 
 /**
+ * @brief [EDS#442] Abort any transfer (download, upload, or pending chunked
+ *        erase) and return the transfer state machine to IDLE.
+ *
+ * Called on every session transition (DiagnosticSessionControl, S3 timeout,
+ * DoIP disconnect): ISO 14229-1:2026 §9.2.1 re-initialises the session, and
+ * a download belongs to it. Without this, refusing a 0x34 during a download
+ * (Table 444, NRC 0x22) would let a transfer abandoned by a lost tester block
+ * every later download until ECUReset. Notifies the image policy if a
+ * transfer was in progress. Safe to call when idle.
+ */
+void uds_service_0x34_abort_transfer(void);
+
+/**
  * @brief Handler for SID 0x35 — RequestUpload.
  *
  * Opens an upload transfer session for ECU-to-tester data readback.

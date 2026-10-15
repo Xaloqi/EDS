@@ -21,7 +21,8 @@
  *
  *   transferRequestParameterRecord (variable):
  *     Raw firmware image bytes for this block.
- *     Maximum length = maxNumberOfBlockLength - 1 (minus block counter byte).
+ *     Maximum length = maxNumberOfBlockLength - 2 (SID and counter); a longer
+ *     request is NRC 0x13 (ISO 14229-1:2026 Table 454) [EDS#442].
  *
  * POSITIVE RESPONSE (ISO 14229-1:2026 §14.4.3):
  *   [0x76, blockSequenceCounter]  (echo of the received counter)
@@ -211,6 +212,15 @@ uds_status_t uds_service_0x36_handler(
     if (tctx->state != UDS_TRANSFER_ACTIVE) {
         /* NRC 0x24 requestSequenceError — no active transfer session. */
         return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
+    }
+
+    /* [EDS#442] A download request longer than the advertised
+     * maxNumberOfBlockLength (write_buf_capacity + SID + counter) is NRC 0x13
+     * (ISO 14229-1:2026 Table 454). Previously any length was accepted and
+     * split across the write buffer. */
+    if ((tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD) &&
+        ((uint32_t)req->length > ((uint32_t)tctx->write_buf_capacity + 2U))) {
+        return UDS_STATUS_ERR_INVALID_PARAM;   /* mapped → NRC 0x13 */
     }
 
     ops = uds_flash_ops_get();

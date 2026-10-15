@@ -115,6 +115,9 @@ uds_status_t uds_service_0x10_handler(
      * preserved by uds_security_reset(). */
     (void)uds_security_reset(ctx->cfg.security_ctx);
 
+    /* [EDS#442] The session is re-initialised: abort any transfer. */
+    uds_service_0x34_abort_transfer();
+
     /* [SEC-SESS-COMMRESTORE-01] §9.2.1 d): returning to the default session
      * resets CommunicationControl and ControlDTCSetting. They are kept
      * across non-default transitions (c). Not initialised = nothing to do. */

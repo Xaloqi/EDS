@@ -12,8 +12,8 @@
  *   TC-0x37-001  NULL ctx                              → ERR_NULL_PTR
  *   TC-0x37-002  Request too short (0 bytes)           → ERR_INVALID_PARAM
  *   TC-0x37-003  No active transfer (IDLE state)       → ERR_SEC_SEED_UNAVAILABLE (NRC 0x24)
- *   TC-0x37-004  bytes_remaining != 0 (incomplete)     → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
- *   TC-0x37-005  Transfer context reset to IDLE after NRC 0x31 (REQ-DL-003)
+ *   TC-0x37-004  bytes_remaining != 0 (incomplete)     → ERR_SEC_SEED_UNAVAILABLE (NRC 0x24, EDS#442)
+ *   TC-0x37-005  Transfer context reset to IDLE after the incomplete-transfer NRC (REQ-DL-003)
  *   TC-0x37-006  Malformed CRC record length (2 bytes) → ERR_INVALID_PARAM (NRC 0x13)
  *   TC-0x37-007  Valid exit with no CRC record         → UDS_STATUS_OK
  *   TC-0x37-008  Positive response format: [0x77]
@@ -241,7 +241,7 @@ ZTEST(svc_0x37, test_no_active_transfer)
                   uds_service_0x37_handler(&s_srv, &s_req, &s_resp), "");
 }
 
-/* TC-0x37-004  bytes_remaining != 0 → NRC 0x31 requestOutOfRange */
+/* TC-0x37-004  bytes_remaining != 0 → NRC 0x24 requestSequenceError (ISO 14229-1:2026 Table 459, EDS#442) */
 ZTEST(svc_0x37, test_bytes_remaining_nonzero_rejected)
 {
     /* Incomplete transfer: still 0x10 bytes to go. */
@@ -250,11 +250,11 @@ ZTEST(svc_0x37, test_bytes_remaining_nonzero_rejected)
     tctx->bytes_remaining = (uint32_t)0x10U;
 
     build_req_no_crc();
-    zassert_equal(UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+    zassert_equal(UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
                   uds_service_0x37_handler(&s_srv, &s_req, &s_resp), "");
 }
 
-/* TC-0x37-005  Transfer context reset to IDLE after NRC 0x31 (REQ-DL-003) */
+/* TC-0x37-005  Transfer context reset to IDLE after the incomplete-transfer NRC (REQ-DL-003) */
 ZTEST(svc_0x37, test_transfer_reset_on_incomplete_rejection)
 {
     uds_transfer_ctx_t *tctx = uds_transfer_ctx_get();

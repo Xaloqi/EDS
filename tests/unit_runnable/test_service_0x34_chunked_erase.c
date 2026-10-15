@@ -22,10 +22,10 @@
  *   TC-CE-005  erase_step_cb reporting more bytes erased than were
  *              remaining is treated as a failure (defensive bound check),
  *              not accepted at face value.
- *   TC-CE-006  A new 0x34 arriving while an earlier erase is still pending
- *              aborts it and starts a fresh one for the NEW request's
- *              address/size — proven by observing the fresh request's own
- *              chunk boundaries, not the pre-empted one's.
+ *   TC-CE-006  [EDS#442] A new 0x34 while an erase is still pending is
+ *              refused with NRC 0x22 (ISO 14229-1:2026 Table 444); the
+ *              pending erase continues at its own address. A session end
+ *              (uds_service_0x34_abort_transfer()) drops it.
  *   TC-CE-007  [EDS#435] 4 s between erase steps (the STM32H7 worst case)
  *              keeps a 5 s S3 session alive through a 3-step erase, and S3
  *              still expires 5 s after the final [0x74].
@@ -193,6 +193,9 @@ void setUp(void)
     s_srv.cfg.security_ctx = &s_sec;
 
     uds_transfer_ctx_reset(uds_transfer_ctx_get());
+    /* [EDS#442] Drop any erase a previous test left pending: a pending erase
+     * now makes the next 0x34 answer 0x22 instead of pre-empting it. */
+    uds_service_0x34_abort_transfer();
 
     (void)uds_flash_ops_register(NULL);
     /* Drain any pending erase left over from a previous test — a fresh
@@ -318,8 +321,8 @@ ZTEST(svc_0x34_chunked_erase, test_multi_chunk_completes_and_arms_transfer)
     zassert_equal((uint8_t)(2U << 4U), s_tick_frame.data[1], "lengthFormatIdentifier: 2 bytes, reserved=0");
     {
         uint16_t max_block = ((uint16_t)s_tick_frame.data[2] << 8U) | (uint16_t)s_tick_frame.data[3];
-        zassert_equal((uint16_t)(MOCK_BLOCK_LEN + 1U), max_block,
-                      "maxNumberOfBlockLength includes the block-counter byte");
+        zassert_equal((uint16_t)(MOCK_BLOCK_LEN + 2U), max_block,
+                      "maxNumberOfBlockLength includes SID and counter (EDS#442)");
     }
 
     tctx = uds_transfer_ctx_get();
@@ -403,29 +406,29 @@ ZTEST(svc_0x34_chunked_erase, test_preempted_by_new_request)
 
     (void)uds_flash_ops_register(&k_mock_ops_chunked);
 
-    /* First 0x34 — starts an erase, never let it finish. */
+    /* First 0x34 starts an erase. */
     build_valid_req(MOCK_FLASH_BASE, (uint32_t)3000U);
     status = uds_service_0x34_handler(&s_srv, &s_req, &s_resp);
     zassert_equal(UDS_STATUS_OK, status, "");
-
     has_frame = uds_service_0x34_pending_tick(&s_tick_frame); /* one chunk in */
     zassert_true(has_frame, "");
     zassert_equal(0x78U, s_tick_frame.data[2], "");
-    zassert_equal(1U, s_step_calls, "");
 
-    /* Second 0x34 pre-empts the first — must abort it and start fresh at
-     * the NEW address, not silently continue the old one. */
+    /* [EDS#442] A second 0x34 during the erase is refused (Table 444). */
     build_valid_req(second_address, (uint32_t)512U);
     status = uds_service_0x34_handler(&s_srv, &s_req, &s_resp);
-    zassert_equal(UDS_STATUS_OK, status, "");
-    zassert_equal(0x78U, s_resp.data[2], "");
+    zassert_equal(UDS_STATUS_ERR_CONDITIONS_NOT_MET, status,
+                  "0x34 during a pending erase must be NRC 0x22 (EDS#442)");
 
+    /* The original erase carries on at its own address. */
     has_frame = uds_service_0x34_pending_tick(&s_tick_frame);
     zassert_true(has_frame, "");
-    zassert_equal(second_address, s_last_step_address,
-                  "the pre-empting request's own address must be what gets erased");
-    zassert_equal(0x74U, s_tick_frame.data[0],
-                  "512 bytes fits in one chunk — this tick must already be final");
+    zassert_equal(MOCK_FLASH_BASE + (uint32_t)1024U, s_last_step_address,
+                  "the refused request must not redirect the pending erase");
+
+    /* A session end drops it; nothing more is pending. */
+    uds_service_0x34_abort_transfer();
+    zassert_false(uds_service_0x34_pending_tick(&s_tick_frame), "erase still pending after session end");
 }
 
 /* [EDS#435] Run the session's S3 countdown for `ms` milliseconds. */

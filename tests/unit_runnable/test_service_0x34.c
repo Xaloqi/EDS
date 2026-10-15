@@ -30,7 +30,7 @@
  *   TC-0x34-019  bytes_remaining set to memorySize (REQ-DL-002)
  *   TC-0x34-020  Valid 2-byte address, 2-byte size     → UDS_STATUS_OK
  *   TC-0x34-021  Valid 1-byte address, 1-byte size     → UDS_STATUS_OK
- *   TC-0x34-022  New 0x34 while transfer active resets context before starting fresh
+ *   TC-0x34-022  New 0x34 while a download is active → NRC 0x22, active download untouched (EDS#442)
  *   TC-0x34-023  Wrong session (Default) rejected by session check in handler
  *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h for host compilation)
@@ -391,11 +391,12 @@ ZTEST(svc_0x34, test_max_block_length_includes_counter)
     zassert_equal(UDS_STATUS_OK,
                   uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
 
-    /* maxNumberOfBlockLength = max_block_length (payload) + 1 (block counter). */
+    /* [EDS#442] maxNumberOfBlockLength = payload + counter + SID
+     * (ISO 14229-1:2026 Table 443). */
     uint16_t mxbl = (uint16_t)(((uint16_t)s_resp.data[2] << 8U) |
                                  (uint16_t)s_resp.data[3]);
-    zassert_equal((uint16_t)(MOCK_BLOCK_LEN + 1U), mxbl,
-                  "maxBlockLength must equal payload_cap + 1");
+    zassert_equal((uint16_t)(MOCK_BLOCK_LEN + 2U), mxbl,
+                  "maxNumberOfBlockLength must include SID and counter (EDS#442)");
 }
 
 /* TC-0x34-017  Transfer state set to ACTIVE on success */
@@ -501,27 +502,32 @@ ZTEST(svc_0x34, test_valid_request_1byte_fields)
     zassert_equal(0x74U, s_resp.data[0], "RSID");
 }
 
-/* TC-0x34-022  New 0x34 while transfer ACTIVE resets context then starts fresh */
+/* TC-0x34-022  [EDS#442] New 0x34 while a download is ACTIVE → NRC 0x22
+ * (ISO 14229-1:2026 §14.2.4 Table 444); the active download is untouched.
+ * After the session ends (uds_service_0x34_abort_transfer()) a new one starts. */
 ZTEST(svc_0x34, test_new_download_aborts_active_transfer)
 {
     (void)uds_flash_ops_register(&k_mock_ops);
 
-    /* First 0x34 — start a transfer. */
     build_valid_req(MOCK_FLASH_BASE, 0x100U);
     zassert_equal(UDS_STATUS_OK,
                   uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
     zassert_equal(UDS_TRANSFER_ACTIVE, uds_transfer_ctx_get()->state, "");
 
-    /* Second 0x34 — must abort first transfer and start new one. */
     memset(&s_resp, 0, sizeof(s_resp));
     build_valid_req(MOCK_FLASH_BASE, 0x200U);
+    zassert_equal(UDS_STATUS_ERR_CONDITIONS_NOT_MET,
+                  uds_service_0x34_handler(&s_srv, &s_req, &s_resp),
+                  "0x34 during a download must be NRC 0x22 (Table 444, EDS#442)");
+    zassert_equal((uint32_t)0x100U, uds_transfer_ctx_get()->bytes_remaining,
+                  "the refused 0x34 must not disturb the active download");
+
+    uds_service_0x34_abort_transfer();   /* session ended */
+    zassert_equal(UDS_TRANSFER_IDLE, uds_transfer_ctx_get()->state, "session end aborts the download");
+    build_valid_req(MOCK_FLASH_BASE, 0x200U);
     zassert_equal(UDS_STATUS_OK,
-                  uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
-    zassert_equal(UDS_TRANSFER_ACTIVE, uds_transfer_ctx_get()->state, "");
-    /* bytes_remaining reflects the NEW request's size. */
-    zassert_equal((uint32_t)0x200U,
-                  uds_transfer_ctx_get()->bytes_remaining,
-                  "bytes_remaining must reflect new download size");
+                  uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "new download after the session ended");
+    zassert_equal((uint32_t)0x200U, uds_transfer_ctx_get()->bytes_remaining, "");
 }
 
 /* TC-0x34-023  Wrong session (Default) — session check in handler */

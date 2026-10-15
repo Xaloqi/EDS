@@ -38,7 +38,8 @@
  *   lengthFormatIdentifier:
  *     Bits [7:4] = number of bytes encoding maxNumberOfBlockLength (always 2)
  *     Bits [3:0] = reserved (0x0)
- *   maxNumberOfBlockLength: 16-bit value including the 1-byte block counter.
+ *   maxNumberOfBlockLength: complete TransferData message length, SID +
+ *   counter + data (ISO 14229-1:2026 Table 443) [EDS#442].
  *
  * NRC BEHAVIOUR:
  *   NRC 0x13 (incorrectMessageLengthOrInvalidFormat) — request too short
@@ -124,13 +125,26 @@ static svc_0x34_erase_pending_t s_erase_pending;
 /**
  * @brief Drop any in-progress chunked erase without completing it.
  *
- * Called wherever an active erase job must not be allowed to finish (a new
- * 0x34 pre-empting it, session loss). Mirrors uds_image_policy_notify_abort()
- * — safe to call when nothing is pending.
+ * Called wherever an active erase job must not be allowed to finish: an
+ * erase failure, or a session ending (uds_service_0x34_abort_transfer(),
+ * EDS#442). Mirrors uds_image_policy_notify_abort(); safe to call when
+ * nothing is pending.
  */
 static void s_erase_pending_abort(void)
 {
     (void)memset(&s_erase_pending, 0, sizeof(s_erase_pending));
+}
+
+/* [EDS#442] See services.h. */
+void uds_service_0x34_abort_transfer(void)
+{
+    uds_transfer_ctx_t *tctx = uds_transfer_ctx_get();
+
+    if ((tctx->state == UDS_TRANSFER_ACTIVE) || s_erase_pending.active) {
+        uds_image_policy_notify_abort();
+    }
+    s_erase_pending_abort();
+    uds_transfer_ctx_reset(tctx);
 }
 
 /* --------------------------------------------------------------------------
@@ -253,25 +267,23 @@ uds_status_t uds_service_0x34_handler(
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
 
-    /* A 0x34 arriving while a download is already in progress pre-empts it
-     * (EDS behaviour, not standard: ISO 14229-1:2026 §14.2.4 Table 444 requires NRC 0x22,
-     * EDS#442; the context reset below carries it out).  Tell the policy to drop that transfer's partial state BEFORE
-     * begin_cb opens a new one, so a policy never sees a begin nested
-     * inside an unterminated transfer.  No-op when no policy is registered
-     * or the policy supplies no abort_cb. */
+    /* [EDS#442] A 0x34 while a download is in progress is refused with NRC
+     * 0x22 (ISO 14229-1:2026 §14.2.4 Table 444: "…while in the process of
+     * receiving a download of a software or calibration module"). It used to
+     * pre-empt the active download. The tester ends a download with 0x37; a
+     * session change, S3 timeout, DoIP disconnect or ECUReset aborts it
+     * (uds_service_0x34_abort_transfer()), so a stale transfer cannot block
+     * the next one.
+     *
+     * [#312] A chunked erase started by an earlier 0x34 leaves tctx untouched
+     * until it completes, so s_erase_pending counts as "in progress" too. */
     {
         const uds_transfer_ctx_t *prev_tctx = uds_transfer_ctx_get();
 
-        /* [#312] A chunked erase started by an EARLIER 0x34 leaves tctx
-         * untouched until it completes (see uds_service_0x34_pending_tick()),
-         * so prev_tctx->state alone would miss it here — s_erase_pending is
-         * the only record of that in-flight policy state until this check
-         * was added. */
         if (((prev_tctx->state == UDS_TRANSFER_ACTIVE) &&
              (prev_tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD)) ||
             s_erase_pending.active) {
-            uds_image_policy_notify_abort();
-            s_erase_pending_abort();
+            return UDS_STATUS_ERR_CONDITIONS_NOT_MET;   /* NRC 0x22 */
         }
     }
 
@@ -473,9 +485,11 @@ uds_status_t uds_service_0x34_handler(
      * bits [3:0] = 0 (reserved). */
     resp->data[1U] = (uint8_t)((uint8_t)SVC_0x34_MXBL_BYTE_COUNT << (uint8_t)4U);
 
-    /* maxNumberOfBlockLength includes the 1-byte block counter field. */
+    /* [EDS#442] maxNumberOfBlockLength is the complete TransferData request
+     * length, SID + blockSequenceCounter + data (ISO 14229-1:2026 Table 443,
+     * Table 461 example 0x0081 = 1 + 1 + 127). It was capacity + 1. */
     {
-        uint16_t max_block = (uint16_t)(tctx->write_buf_capacity + (uint16_t)1U);
+        uint16_t max_block = (uint16_t)(tctx->write_buf_capacity + (uint16_t)2U);
         resp->data[2U] = (uint8_t)((max_block >> (uint16_t)8U) & (uint16_t)0xFFU);
         resp->data[3U] = (uint8_t)( max_block                  & (uint16_t)0xFFU);
     }
@@ -611,7 +625,7 @@ static bool s_pending_step(uds_msg_buf_t *out_frame)
     (void)uds_service_write_pos_sid((uint8_t)UDS_SID_REQUEST_DOWNLOAD, out_frame);
     out_frame->data[1U] = (uint8_t)((uint8_t)SVC_0x34_MXBL_BYTE_COUNT << (uint8_t)4U);
     {
-        uint16_t max_block = (uint16_t)(tctx->write_buf_capacity + (uint16_t)1U);
+        uint16_t max_block = (uint16_t)(tctx->write_buf_capacity + (uint16_t)2U);
         out_frame->data[2U] = (uint8_t)((max_block >> (uint16_t)8U) & (uint16_t)0xFFU);
         out_frame->data[3U] = (uint8_t)( max_block                  & (uint16_t)0xFFU);
     }

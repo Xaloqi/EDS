@@ -685,7 +685,9 @@ ZTEST(image_policy, test_0x34_crc_check_requested_binding)
     zassert_false(tctx->crc_check_requested,
                   "no policy must not make the tester CRC mandatory");
 
-    /* (b) Plain policy -> the tester CRC becomes mandatory. */
+    /* (b) Plain policy -> the tester CRC becomes mandatory. A new 0x34 needs
+     *     the previous download ended first (EDS#442). */
+    uds_service_0x34_abort_transfer();
     zassert_equal(UDS_STATUS_OK, uds_image_policy_register(&k_policy_full), "");
     build_0x34_req(MOCK_FLASH_BASE, 0x100U);
     zassert_equal(UDS_STATUS_OK, uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
@@ -694,6 +696,7 @@ ZTEST(image_policy, test_0x34_crc_check_requested_binding)
 
     /* (c) REQUIRE_PARAM_RECORD policy -> the record belongs to the policy,
      *     so the generic CRC check stands down. */
+    uds_service_0x34_abort_transfer();
     zassert_equal(UDS_STATUS_OK, uds_image_policy_register(&k_policy_param_record), "");
     build_0x34_req(MOCK_FLASH_BASE, 0x100U);
     zassert_equal(UDS_STATUS_OK, uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
@@ -1066,12 +1069,13 @@ ZTEST(image_policy, test_abort_cb_fires_on_abort_paths)
     zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
 
     build_0x37_with_crc(current_crc());
-    zassert_equal(UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+    zassert_equal(UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
                   uds_service_0x37_handler(&s_srv, &s_req, &s_resp),
-                  "incomplete transfer must still be NRC 0x31");
+                  "incomplete transfer is NRC 0x24 (ISO 14229-1:2026 Table 459, EDS#442)");
     zassert_equal(1U, s_abort_calls, "abort_cb must fire when the transfer is torn down");
 
-    /* (b) a 0x34 that pre-empts an in-progress download. */
+    /* (b) [EDS#442] A 0x34 during a download is refused (NRC 0x22) and must
+     * NOT disturb it; the session ending is what aborts it. */
     setUp();
     zassert_equal(UDS_STATUS_OK, uds_image_policy_register(&k_policy_full), "");
     build_0x34_req(MOCK_FLASH_BASE, (uint32_t)MULTI_IMAGE_SIZE);
@@ -1080,10 +1084,15 @@ ZTEST(image_policy, test_abort_cb_fires_on_abort_paths)
     zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp), "");
 
     build_0x34_req(MOCK_FLASH_BASE, 0x100U);
-    zassert_equal(UDS_STATUS_OK, uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_equal(UDS_STATUS_ERR_CONDITIONS_NOT_MET,
+                  uds_service_0x34_handler(&s_srv, &s_req, &s_resp),
+                  "0x34 during a download is NRC 0x22 (ISO 14229-1:2026 Table 444, EDS#442)");
+    zassert_equal(0U, s_abort_calls, "a refused 0x34 must not abort the active download");
+    zassert_equal(1U, s_begin_calls, "a refused 0x34 must not begin a new transfer");
+
+    uds_service_0x34_abort_transfer();   /* session ended */
     zassert_equal(1U, s_abort_calls,
-                  "the pre-empted transfer's partial state must be dropped");
-    zassert_equal(2U, s_begin_calls, "");
+                  "a session end must drop the download's partial policy state");
 }
 
 /* --------------------------------------------------------------------------

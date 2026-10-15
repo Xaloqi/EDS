@@ -707,6 +707,19 @@ ZTEST(svc_0x36, test_upload_repeated_block_resent)
     zassert_equal(0x02U, uds_transfer_ctx_get()->next_expected_block_seq, "sequence unchanged");
 }
 
+/* [EDS#442] A TransferData request longer than the advertised
+ * maxNumberOfBlockLength (capacity + SID + counter) is NRC 0x13 (Table 454). */
+ZTEST(svc_0x36, test_request_longer_than_max_block_length_rejected)
+{
+    prime_active_transfer((uint32_t)MOCK_BLOCK_LEN * 4U);
+    build_req(0x01U, 0x11U, (uint16_t)(MOCK_BLOCK_LEN + 1U));
+    zassert_equal(UDS_STATUS_ERR_INVALID_PARAM, uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "request longer than maxNumberOfBlockLength must be NRC 0x13 (EDS#442)");
+    build_req(0x01U, 0x11U, MOCK_BLOCK_LEN);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x36_handler(&s_srv, &s_req, &s_resp),
+                  "a request of exactly maxNumberOfBlockLength must be accepted");
+}
+
 /* ==========================================================================
  * run_all_tests
  * ========================================================================== */
@@ -740,4 +753,5 @@ void run_all_tests(void)
     RUN_TEST(svc_0x36__test_block_after_all_data_is_sequence_error);
     RUN_TEST(svc_0x36__test_oversize_checked_before_counter);
     RUN_TEST(svc_0x36__test_upload_repeated_block_resent);
+    RUN_TEST(svc_0x36__test_request_longer_than_max_block_length_rejected);
 }

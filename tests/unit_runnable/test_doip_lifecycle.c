@@ -66,6 +66,7 @@
 #include "uds_session.h"
 #include "services.h"   /* uds_service_0x11_handler() [EDS#434] */
 #include "uds_comm_control.h"   /* [SEC-SESS-COMMRESTORE-01] */
+#include "uds_transfer_ctx.h"   /* [EDS#442] */
 #include "uds_types.h"
 
 #define TEST_ECU_ADDR     (0x0E00U)
@@ -933,6 +934,7 @@ ZTEST(doip_lifecycle_suite, test_doip_disconnect_restores_comm_and_dtc_setting)
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_comm_control_init(NULL));
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_comm_control_apply(0x03U, 0x03U));
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_comm_control_set_dtc_setting(0x02U));
+    uds_transfer_ctx_get()->state = UDS_TRANSFER_ACTIVE;   /* [EDS#442] */
     add_data(k_routing_activation, sizeof(k_routing_activation));
     add_data(k_tester_present, sizeof(k_tester_present));
     add_error();
@@ -944,6 +946,8 @@ ZTEST(doip_lifecycle_suite, test_doip_disconnect_restores_comm_and_dtc_setting)
         "communication left disabled after DoIP disconnect (SEC-SESS-COMMRESTORE-01)");
     EXPECT_EQ_MSG(UDS_DTC_SETTING_ON, d,
         "DTC setting left off after DoIP disconnect (SEC-SESS-COMMRESTORE-01)");
+    EXPECT_EQ_MSG(UDS_TRANSFER_IDLE, uds_transfer_ctx_get()->state,
+        "a DoIP disconnect must abort the active transfer (EDS#442)");
 }
 
 ZTEST_SUITE(doip_lifecycle_suite, NULL, NULL, NULL, NULL, NULL);

@@ -15,13 +15,15 @@
  *   TC-0x14-001  Group 0xFFFFFF with registered DTCs → positive response 0x54
  *   TC-0x14-002  Positive response is exactly 1 byte
  *   TC-0x14-003  All DTC status bytes are zero after successful clear
- *   TC-0x14-004  Group 0xFFFFFE (powertrain) also accepted → clear all
- *   TC-0x14-005  Group 0x000001 (non-zero, non-standard) accepted → clear all
+ *   TC-0x14-004  Group 0xFFFFFE (functional group, unsupported) → NRC 0x31, nothing cleared [EDS#450]
+ *   TC-0x14-005  Group 0x000001 (reserved range) → NRC 0x31, nothing cleared [EDS#450]
  *   TC-0x14-006  Group 0x000000 → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
  *   TC-0x14-007  Request length 3 (missing groupLB) → ERR_INVALID_PARAM (NRC 0x13)
  *   TC-0x14-008  Request length 5 (too long) → ERR_INVALID_PARAM (NRC 0x13)
  *   TC-0x14-009  Request length 1 (SID only) → ERR_INVALID_PARAM (NRC 0x13)
- *   TC-0x14-010  Empty DTC database → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
+ *   TC-0x14-010  Empty DTC database, group 0xFFFFFF → positive (§11.2.1) [EDS#450]
+ *   TC-0x14-016  Single DTC number → only that DTC cleared [EDS#450]
+ *   TC-0x14-017  Unregistered DTC number → NRC 0x31, nothing cleared [EDS#450]
  *   TC-0x14-011  Multiple DTCs all cleared
  *   TC-0x14-012  NULL req  → ERR_NULL_PTR
  *   TC-0x14-013  NULL resp → ERR_NULL_PTR
@@ -214,7 +216,7 @@ ZTEST(test_service_0x14, tc003_dtc_status_bytes_zeroed)
 }
 
 /**
- * TC-0x14-004: Group 0xFFFFFE (SAE powertrain group) is accepted → clear all.
+ * TC-0x14-004: Group 0xFFFFFE is an unsupported functional group → NRC 0x31.
  */
 ZTEST(test_service_0x14, tc004_group_fffe_accepted)
 {
@@ -226,12 +228,16 @@ ZTEST(test_service_0x14, tc004_group_fffe_accepted)
 
     uds_status_t rc = uds_service_0x14_handler(&g_srv, &req, &resp);
 
-    zassert_equal(rc, UDS_STATUS_OK, "group 0xFFFFFE must be accepted");
-    zassert_equal(resp.data[0], 0x54U, "positive response SID must be 0x54");
+    /* [EDS#450] 0xFFFFFE is a functional group (Annex D.1 Table D.1) whose
+     * membership EDS doesn't hold: unsupported, NRC 0x31, nothing cleared. */
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+        "unsupported functional group must be NRC 0x31 (Table 299, EDS#450)");
+    zassert_equal(dtc_database_find(DTC_P0001)->status_byte, 0x09U,
+        "an unsupported group must clear nothing");
 }
 
 /**
- * TC-0x14-005: Any non-zero group is accepted — test with 0x000001.
+ * TC-0x14-005: Reserved groupOfDTC 0x000001 → NRC 0x31.
  */
 ZTEST(test_service_0x14, tc005_nonzero_group_accepted)
 {
@@ -243,7 +249,11 @@ ZTEST(test_service_0x14, tc005_nonzero_group_accepted)
 
     uds_status_t rc = uds_service_0x14_handler(&g_srv, &req, &resp);
 
-    zassert_equal(rc, UDS_STATUS_OK, "any non-zero group must be accepted");
+    /* [EDS#450] 0x000001 is in the reserved legislative range (Table D.1). */
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+        "reserved groupOfDTC must be NRC 0x31 (EDS#450)");
+    zassert_equal(dtc_database_find(DTC_P0003)->status_byte, 0x08U,
+        "a refused clear must clear nothing");
 }
 
 /**
@@ -329,7 +339,7 @@ ZTEST(test_service_0x14, tc009_length_one_rejected)
 }
 
 /**
- * TC-0x14-010: Empty DTC database → ERR_REQUEST_OUT_OF_RANGE.
+ * TC-0x14-010: Empty DTC database, clear-all → positive.
  * No DTCs registered → nothing to clear → NRC 0x31.
  */
 ZTEST(test_service_0x14, tc010_empty_database_rejected)
@@ -342,8 +352,47 @@ ZTEST(test_service_0x14, tc010_empty_database_rejected)
 
     uds_status_t rc = uds_service_0x14_handler(&g_srv, &req, &resp);
 
-    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
-        "empty database must return NRC 0x31");
+    /* [EDS#450] §11.2.1: positive response even if no DTCs are stored. */
+    zassert_equal(rc, UDS_STATUS_OK,
+        "clear-all with nothing stored must be positive (ISO 14229-1:2026 §11.2.1)");
+}
+
+/**
+ * TC-0x14-016: [EDS#450] A single DTC number clears only that DTC
+ * (ISO 14229-1:2026 §11.2.1). Every non-zero group used to clear everything.
+ */
+ZTEST(test_service_0x14, tc016_single_dtc_clears_only_that_dtc)
+{
+    setup();
+    register_three_faulted_dtcs();
+
+    uds_msg_buf_t req  = make_clear_req(DTC_P0002);
+    uds_msg_buf_t resp = {0};
+
+    zassert_equal(uds_service_0x14_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "");
+    zassert_equal(resp.data[0], 0x54U, "");
+    zassert_equal(dtc_database_find(DTC_P0002)->status_byte, 0x00U, "requested DTC must be cleared");
+    zassert_equal(dtc_database_find(DTC_P0001)->status_byte, 0x09U,
+        "clearing one DTC wiped another (EDS#450)");
+    zassert_equal(dtc_database_find(DTC_P0003)->status_byte, 0x08U,
+        "clearing one DTC wiped another (EDS#450)");
+}
+
+/**
+ * TC-0x14-017: [EDS#450] An unregistered DTC number is NRC 0x31 and clears
+ * nothing.
+ */
+ZTEST(test_service_0x14, tc017_unknown_dtc_rejected)
+{
+    setup();
+    register_three_faulted_dtcs();
+
+    uds_msg_buf_t req  = make_clear_req(0x123456UL);
+    uds_msg_buf_t resp = {0};
+
+    zassert_equal(uds_service_0x14_handler(&g_srv, &req, &resp), UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+        "unregistered DTC must be NRC 0x31 (EDS#450)");
+    zassert_equal(dtc_database_find(DTC_P0001)->status_byte, 0x09U, "nothing may be cleared");
 }
 
 /**
@@ -472,6 +521,8 @@ extern void test_service_0x14__tc012_null_req(void);
 extern void test_service_0x14__tc013_null_resp(void);
 extern void test_service_0x14__tc014_mirror_persists_cleared_state(void);
 extern void test_service_0x14__tc015_clear_twice_idempotent(void);
+extern void test_service_0x14__tc016_single_dtc_clears_only_that_dtc(void);
+extern void test_service_0x14__tc017_unknown_dtc_rejected(void);
 
 void run_all_tests(void)
 {
@@ -490,4 +541,6 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x14__tc013_null_resp);
     RUN_TEST(test_service_0x14__tc014_mirror_persists_cleared_state);
     RUN_TEST(test_service_0x14__tc015_clear_twice_idempotent);
+    RUN_TEST(test_service_0x14__tc016_single_dtc_clears_only_that_dtc);
+    RUN_TEST(test_service_0x14__tc017_unknown_dtc_rejected);
 }

@@ -911,6 +911,13 @@ else
     BUILD_MODE_PROBE_FAIL=1
 fi
 
+# [EDS#455] Every Kconfig symbol must be read by the code.
+if bash "${ROOT}/scripts/verify_kconfig_consumers.sh"; then
+    KCONFIG_CONSUMER_FAIL=0
+else
+    KCONFIG_CONSUMER_FAIL=1
+fi
+
 # ---------------------------------------------------------------------------
 # [SEC-KEY-GATE-01 / CRIT-4 / issue #84] Negative compile test.
 #
@@ -1128,8 +1135,8 @@ FREERTOS_NVM_FAIL=0
 run_freertos_nvm_probe "sentinel fallback (#280/#285)" ""
 run_freertos_nvm_probe "native remove (#287)" "-DPROBE_TEST_NATIVE_REMOVE=1"
 
-if [[ ${BUILD_MODE_PROBE_FAIL} -ne 0 || ${CRIT4_FAIL} -ne 0 || ${EDS215_FAIL} -ne 0 || ${FREERTOS_NVM_FAIL} -ne 0 ]]; then
-    echo "FAIL: build-mode gate verification (SEC-BUILD-MODE-01 / SEC-KEY-GATE-01 / EDS#215 / #280 / #285 / #287) failed."
+if [[ ${BUILD_MODE_PROBE_FAIL} -ne 0 || ${CRIT4_FAIL} -ne 0 || ${EDS215_FAIL} -ne 0 || ${FREERTOS_NVM_FAIL} -ne 0 || ${KCONFIG_CONSUMER_FAIL} -ne 0 ]]; then
+    echo "FAIL: build-mode gate verification (SEC-BUILD-MODE-01 / SEC-KEY-GATE-01 / EDS#215 / #280 / #285 / #287 / #455) failed."
     exit 1
 fi
 
