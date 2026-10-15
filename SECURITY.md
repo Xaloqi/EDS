@@ -4,7 +4,7 @@
 
 | Version | Security fixes |
 |---|---|
-| 1.18.x (current) | ✅ Yes |
+| 1.19.x (current) | ✅ Yes |
 | 1.11.x | ✅ Yes (critical only) |
 | < 1.18 | ❌ No — please upgrade |
 

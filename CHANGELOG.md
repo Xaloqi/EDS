@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.19.0] — 2026-10-15
+
 ### Added
 
 - **`eds_doip_set_pending_callback()`** (`#423`): lets the DoIP server
