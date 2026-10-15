@@ -13,9 +13,9 @@
  *   [P2-0x11-03] Power-down (0x03 = softReset) sub-type fully supported.
  *   [P2-0x11-04] suppressPosRspMsgIndicationBit handled on reset types that
  *                carry a sub-function (0x11, 0x12, 0x13 all carry one per
- *                ISO 14229-1 Table 186).
+ *                ISO 14229-1:2026 §9.3.2.2, resetType).
  *
- * RESET SEQUENCING (ISO 14229-1 §11.3.3):
+ * RESET SEQUENCING (ISO 14229-1:2026 §9.3.1):
  *   1. Validate request and reset_type.
  *   2. Build positive response frame.
  *   3. Return UDS_STATUS_OK so caller transmits the response.
@@ -44,7 +44,7 @@
  * and eds_platform_ecu_reset() after TX confirmation. See platform/platform_api.h. */
 
 /* --------------------------------------------------------------------------
- * ECU Reset sub-function values (ISO 14229-1 Table 186)
+ * ECU Reset sub-function values (ISO 14229-1:2026 §9.3.2.2, resetType)
  * -------------------------------------------------------------------------- */
 #define ECU_RESET_HARD_RESET        (0x01U)
 #define ECU_RESET_KEY_OFF_ON_RESET  (0x02U)

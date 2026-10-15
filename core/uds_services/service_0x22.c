@@ -129,7 +129,7 @@ static uds_status_t s_did_safe_read(
  * Request : [0x22, DID1_hi, DID1_lo {, DID2_hi, DID2_lo, ...}]
  * Response: [0x62, DID1_hi, DID1_lo, <data1> {, DID2_hi, DID2_lo, <data2>}]
  *
- * ISO 14229-1 §11.4: Multiple DIDs may be requested in a single PDU.
+ * ISO 14229-1:2026 §10.2.2: Multiple DIDs may be requested in a single PDU.
  * Each DID is processed in order; the first failure causes a NRC response.
  */
 uds_status_t uds_service_0x22_handler(
@@ -185,7 +185,7 @@ uds_status_t uds_service_0x22_handler(
                                  &did_data_len);
         if (status != UDS_STATUS_OK) {
             /*
-             * ISO 14229-1 §14.4 specifies NRC 0x31 (requestOutOfRange)
+             * ISO 14229-1:2026 §10.2.4 (not text-verified) gives NRC 0x31 (requestOutOfRange)
              * when a DID is not accessible in the current session or is
              * simply not supported. Remap session-gate failures here so
              * that the generic srv_status_to_nrc() path in uds_server.c

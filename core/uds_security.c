@@ -210,7 +210,7 @@ uds_status_t uds_security_request_seed(
      * claim of security access being meaningful in the field.
      *
      * The "already unlocked" path above legitimately returns a zero seed
-     * (ISO 14229-1 §10.4.3: seed of all zeros signals the level is active).
+     * (ISO 14229-1:2026 §9.4.1: a seed of all zeros signals the level is already unlocked).
      * That path returns before reaching this point, so the check here only
      * fires on freshly generated seeds.
      *
@@ -411,7 +411,8 @@ uds_status_t uds_security_reset(uds_security_ctx_t *ctx)
     ctx->seed_len        = (uint8_t)0U;
     /*
      * NOTE: failed_attempts and lockout_timer intentionally NOT reset here.
-     * ISO 14229-1 §10.4.5.3: lockout must persist across session transitions.
+     * EDS design (stops a session change from clearing a lockout); ISO 14229-1:2026 §9.4.1
+     * covers the delay timer itself, not session changes.
      */
 
     return UDS_STATUS_OK;

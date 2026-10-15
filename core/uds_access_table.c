@@ -48,7 +48,7 @@
  *        Restricting it would prevent entry to other sessions.
  *
  *   0x11 ECUReset
- *        Available in all sessions per ISO 14229-1 §11.2.
+ *        Available in all sessions (ISO 14229-1:2026 §9.2.1 Table 22; service §11.2).
  *        OEMs may restrict to non-default if required by their threat model.
  *
  *   0x14 ClearDiagnosticInformation

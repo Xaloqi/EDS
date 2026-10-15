@@ -5,7 +5,7 @@
  *
  * PURPOSE: SID 0x34 — RequestDownload service handler.
  *
- * ISO 14229-1 §14.2: RequestDownload initiates a data transfer from the
+ * ISO 14229-1:2026 §14.2: RequestDownload initiates a data transfer from the
  * external test tool (tester) to the ECU.  It is the mandatory first step
  * in a firmware update (DFU) sequence:
  *
@@ -15,7 +15,7 @@
  *   4. Commit       — SID 0x37 RequestTransferExit
  *   5. Verify       — SID 0x31 routine 0xFF11 (VerifyApplicationImage)
  *
- * REQUEST FORMAT (ISO 14229-1 §14.2.2):
+ * REQUEST FORMAT (ISO 14229-1:2026 §14.2.2):
  *   [0x34, dataFormatIdentifier, addressAndLengthFormatIdentifier,
  *    memoryAddress[0..M], memorySize[0..N]]
  *
@@ -32,7 +32,7 @@
  *   memoryAddress[0..M]:  big-endian, M = memoryAddressLength bytes.
  *   memorySize[0..N]:     big-endian, N = memorySizeLength bytes.
  *
- * POSITIVE RESPONSE (ISO 14229-1 §14.2.3):
+ * POSITIVE RESPONSE (ISO 14229-1:2026 §14.2.3):
  *   [0x74, lengthFormatIdentifier, maxNumberOfBlockLength[0..K]]
  *
  *   lengthFormatIdentifier:
@@ -254,8 +254,8 @@ uds_status_t uds_service_0x34_handler(
     }
 
     /* A 0x34 arriving while a download is already in progress pre-empts it
-     * (ISO 14229-1 §14.3.2 permits this; the context reset below carries it
-     * out).  Tell the policy to drop that transfer's partial state BEFORE
+     * (EDS behaviour, not standard: ISO 14229-1:2026 §14.2.4 Table 444 requires NRC 0x22,
+     * EDS#442; the context reset below carries it out).  Tell the policy to drop that transfer's partial state BEFORE
      * begin_cb opens a new one, so a policy never sees a begin nested
      * inside an unterminated transfer.  No-op when no policy is registered
      * or the policy supplies no abort_cb. */

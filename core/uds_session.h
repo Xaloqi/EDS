@@ -97,7 +97,7 @@ uds_status_t uds_session_init(
 /**
  * @brief Request a session transition.
  *
- * Enforces ISO 14229-1 §7.4.2.3 transition matrix. Returns
+ * Enforces the session transition matrix (ISO 14229-1:2026 §9.2.1). Returns
  * UDS_STATUS_ERR_SESSION_TRANSITION if the transition is not permitted.
  *
  * @param[in] ctx           Initialized session context.
@@ -161,7 +161,7 @@ bool uds_session_is_default(const uds_session_ctx_t *ctx);
  * EXTENDED session, then request PROGRAMMING. This matches the session
  * transition policy used by BMW, VAG, and other OEM diagnostic toolchains.
  *
- * Default: false (ISO 14229-1 §7.4.2.3 permissive mode — direct transition
+ * Default: false (ISO 14229-1:2026 §9.2.1 permissive mode — direct transition
  * is not normatively prohibited).
  *
  * @param[in] ctx     Initialized session context.

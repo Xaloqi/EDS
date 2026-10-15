@@ -15,7 +15,8 @@
  *
  *   Only one active transfer is supported at a time.  A new RequestDownload
  *   while a transfer is in progress aborts the current transfer and starts
- *   fresh (ISO 14229-1 §14.3.2 permits this).
+ *   fresh. EDS behaviour, not standard: ISO 14229-1:2026 §14.2.4 Table 444 requires
+ *   NRC 0x22 instead (EDS#442).
  *
  * STATE MACHINE:
  *

@@ -196,7 +196,7 @@ typedef enum uds_status {
 } uds_status_t;
 
 /* --------------------------------------------------------------------------
- * UDS session type enumeration (ISO 14229-1 Table 40)
+ * UDS session type enumeration (ISO 14229-1:2026 §9.2.2.2 Table 24, diagnosticSessionType)
  * -------------------------------------------------------------------------- */
 
 /**

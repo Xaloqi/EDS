@@ -101,7 +101,7 @@ uds_status_t uds_service_0x10_handler(
 
     /* [P2-0x10-04] Transition enforces the session matrix (uds_session.c).
      * A rejected transition leaves the active session, and its security
-     * state, unchanged (ISO 14229-1:2026 §9.2.4 Table 24). */
+     * state, unchanged (ISO 14229-1:2026 §9.2.2.2 Table 24). */
     status = uds_session_transition(ctx->cfg.session_ctx, new_session);
     if (status != UDS_STATUS_OK) {
         return status;
@@ -128,7 +128,7 @@ uds_status_t uds_service_0x10_handler(
         return status;
     }
 
-    /* Echo the RAW sub-function byte (including suppress bit) per ISO 14229-1 §7.5.3. */
+    /* Echo the RAW sub-function byte (including suppress bit) (ISO 14229-1:2026 §9.2.3). */
     resp->data[1] = raw_byte;
 
     /* [P2-0x10-02] Encode P2/P2* from server config; use ISO defaults if zero. */
@@ -147,7 +147,7 @@ uds_status_t uds_service_0x10_handler(
     resp->data[3] = (uint8_t)(p2_ms & (uint8_t)0xFFU);
 
     /* P2*server_max: 2 bytes big-endian (unit = 10 ms, range 0..65535*10 ms).
-     * ISO 14229-1 §7.2: P2*server_max encoded as p2star_ms / 10 to fit 16 bits.
+     * ISO 14229-1:2026 §9.2.3.2 Table 28: P2*server_max encoded as p2star_ms / 10 to fit 16 bits.
      * Clamp to 0xFFFF to prevent truncation on very large values. */
     {
         uint32_t p2star_encoded = p2star_ms / 10U;

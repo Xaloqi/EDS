@@ -7,7 +7,7 @@
  *
  * PURPOSE: SID 0x28 — CommunicationControl service handler.
  *
- * ISO 14229-1 §14 — CommunicationControl
+ * ISO 14229-1:2026 §9.5 — CommunicationControl
  *
  * This service allows a tester to enable or disable transmission and/or
  * reception of certain communication messages. It is widely used during
@@ -21,7 +21,7 @@
  *   4. Enable all communication (SID 0x28, subFn 0x00)
  *   5. Reset ECU (SID 0x11)
  *
- * IMPLEMENTED SUB-FUNCTIONS (ISO 14229-1 Table 207):
+ * IMPLEMENTED SUB-FUNCTIONS (ISO 14229-1:2026 §9.5.2.2, controlType):
  *
  *   0x00 — enableRxAndTx
  *     Enables transmission and reception of all application messages.
@@ -39,7 +39,7 @@
  *     Disables both transmission and reception of application messages.
  *     Most commonly used during reprogramming to isolate the ECU.
  *
- * COMMUNICATION TYPE BYTE (ISO 14229-1 Table 208):
+ * COMMUNICATION TYPE BYTE (ISO 14229-1:2026 §9.5.2.3; Annex B.1):
  *   Bits 3:0 = communication sub-network type
  *     0x01 — normalCommunicationMessages (application bus)
  *     0x02 — nmCommunicationMessages (network management)
@@ -58,7 +58,7 @@
  *
  *   For host-side tests, the callback is a stub that tracks state.
  *
- * SESSION REQUIREMENT (ISO 14229-1 §14.2.2):
+ * SESSION REQUIREMENT (ISO 14229-1:2026 §9.2.1 Table 22):
  *   CommunicationControl is only available in Extended or Programming session.
  *   The server dispatcher enforces this — the handler also double-checks.
  *
@@ -105,7 +105,7 @@
 #define SVC_0x28_SUBFN_MASK           (0x7FU)
 
 /* --------------------------------------------------------------------------
- * Sub-function values (ISO 14229-1 Table 207)
+ * Sub-function values (ISO 14229-1:2026 §9.5.2.2)
  * -------------------------------------------------------------------------- */
 #define SVC_0x28_ENABLE_RX_TX         (0x00U)
 #define SVC_0x28_ENABLE_RX_DISABLE_TX (0x01U)
@@ -148,7 +148,7 @@ uds_status_t uds_service_0x28_handler(
     /* ── Session gate (defence-in-depth) ────────────────────────────────── */
 
     /*
-     * ISO 14229-1 §14.2.2: CommunicationControl is NOT available in
+     * ISO 14229-1:2026 §9.2.1 Table 22: CommunicationControl is NOT available in
      * DEFAULT session. The server dispatcher enforces this via
      * srv_check_access_rights(), but we double-check here as ASIL-B
      * defence-in-depth.

@@ -5,13 +5,13 @@
  *
  * PURPOSE: SID 0x37 — RequestTransferExit service handler.
  *
- * ISO 14229-1 §14.4: RequestTransferExit terminates an active firmware
+ * ISO 14229-1:2026 §14.5: RequestTransferExit terminates an active firmware
  * download initiated by RequestDownload (0x34).  It flushes any remaining
  * bytes from the write accumulation buffer, optionally validates a CRC-32
  * supplied in the transferRequestParameterRecord, and invokes flash_verify_cb
  * to confirm image integrity.
  *
- * REQUEST FORMAT (ISO 14229-1 §14.4.2):
+ * REQUEST FORMAT (ISO 14229-1:2026 §14.5.2):
  *   [0x37 {, transferRequestParameterRecord...}]
  *
  *   The request may carry an optional 4-byte CRC-32 record:
@@ -23,7 +23,7 @@
  *   registered image policy — see the parse and CRC blocks below.  With NO
  *   policy registered they hold exactly as written, bit for bit.
  *
- * POSITIVE RESPONSE (ISO 14229-1 §14.4.3):
+ * POSITIVE RESPONSE (ISO 14229-1:2026 §14.5.3):
  *   [0x77]
  *   (No additional data fields required for this implementation.)
  *

@@ -7,7 +7,7 @@
  *
  * PURPOSE: Public API for the Diagnostic Trouble Code (DTC) database.
  *          Stores DTC descriptor records per ISO 14229-1 and SAE J2012-DA,
- *          with support for status byte management per ISO 14229-1 Annex D.
+ *          with support for status byte management per ISO 14229-1:2026 Annex D.2.
  *
  *          The database is a fixed-capacity static array. Entries are
  *          populated at runtime via dtc_database_register(), called from
@@ -122,7 +122,7 @@ dtc_entry_t *dtc_database_find(uint32_t dtc_code);
  * @brief Set the status byte for a registered DTC.
  *
  * @param[in] dtc_code    24-bit DTC code to update.
- * @param[in] status_byte New status byte value (ISO 14229-1 Annex D).
+ * @param[in] status_byte New status byte value (ISO 14229-1:2026 Annex D.2).
  *
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if database not initialized.
@@ -190,7 +190,7 @@ uds_status_t dtc_database_count_by_status(
 /**
  * @brief Set the fault detection counter for a registered DTC.
  *
- * Used by the application to track debouncing state (ISO 14229-1 §11.3.11).
+ * Used by the application to track debouncing state (ISO 14229-1:2026 §11.3.1.14, Table 317).
  * 0x00–0xFE: counter value. 0xFF is reserved (confirmed) — excluded from
  * the 0x19/0x14 reportDTCFaultDetectionCounter response.
  *

@@ -70,7 +70,7 @@ extern "C" {
 #endif
 
 /* --------------------------------------------------------------------------
- * TransmissionMode values (ISO 14229-1 §11.5.2)
+ * TransmissionMode values (ISO 14229-1:2026 §10.5, ReadDataByPeriodicIdentifier; not text-verified)
  * -------------------------------------------------------------------------- */
 
 #define UDS_PERIODIC_MODE_SLOW    (0x01U)

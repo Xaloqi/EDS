@@ -7,7 +7,7 @@
  *
  * PURPOSE: SID 0x85 — ControlDTCSetting service handler.
  *
- * ISO 14229-1 §15 — ControlDTCSetting
+ * ISO 14229-1:2026 §9.8 — ControlDTCSetting
  *
  * This service allows the tester to stop (or restart) the ECU's DTC
  * detection logic. When DTC setting is disabled, the application layer
@@ -22,7 +22,7 @@
  *   3. Perform actuator tests or reprogramming
  *   4. Re-enable DTC setting: [0x85, 0x01]
  *
- * IMPLEMENTED SUB-FUNCTIONS (ISO 14229-1 Table 225):
+ * IMPLEMENTED SUB-FUNCTIONS (ISO 14229-1:2026 §9.8.2.2, DTCSettingType):
  *
  *   0x01 — DTCSettingOn
  *     Re-enables DTC fault detection. Application layer resumes calling
@@ -37,7 +37,7 @@
  *   This implementation ignores these bytes (accepted but not processed).
  *   OEM-specific extensions can be added by parsing req->data[2..n].
  *
- * SESSION REQUIREMENT (ISO 14229-1 §15.2.2):
+ * SESSION REQUIREMENT (ISO 14229-1:2026 §9.2.1 Table 22):
  *   ControlDTCSetting is only available in Extended or Programming session.
  *   The server dispatcher enforces this. Handler double-checks.
  *
@@ -83,7 +83,7 @@
 #define SVC_0x85_SUBFN_MASK           (0x7FU)
 
 /* --------------------------------------------------------------------------
- * Sub-function values (ISO 14229-1 Table 225)
+ * Sub-function values (ISO 14229-1:2026 §9.8.2.2)
  * -------------------------------------------------------------------------- */
 #define SVC_0x85_DTC_SETTING_ON       (0x01U) /* Re-enable DTC fault detection  */
 #define SVC_0x85_DTC_SETTING_OFF      (0x02U) /* Disable DTC fault detection     */
@@ -118,7 +118,7 @@ uds_status_t uds_service_0x85_handler(
     /* ── Session gate (defence-in-depth) ────────────────────────────────── */
 
     /*
-     * ISO 14229-1 §15.2.2: ControlDTCSetting requires non-default session.
+     * ISO 14229-1:2026 §9.2.1 Table 22: ControlDTCSetting requires a non-default session.
      * Double-checking here as defence-in-depth (ASIL-B requirement).
      */
     status = uds_session_get_active(ctx->cfg.session_ctx, &active_session);

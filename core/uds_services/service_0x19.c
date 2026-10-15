@@ -7,7 +7,7 @@
  *
  * PURPOSE: SID 0x19 — ReadDTCInformation service handler.
  *
- * ISO 14229-1 §13 — ReadDTCInformation
+ * ISO 14229-1:2026 §11.3 — ReadDTCInformation
  *
  * This is the most complex UDS service — it provides the complete fault-reading
  * interface used by every OEM diagnostic tool and EOL tester.
@@ -25,7 +25,7 @@
  *     Returns a list of all matching DTCs with their current status bytes.
  *
  *   0x03 — reportDTCSnapshotIdentification (not required per core profile —
- *           returns empty list; tester must accept this per ISO 14229-1 §13.3.3)
+ *           returns no records; ISO 14229-1:2026 §11.3.3.1 Table 321: records present only if stored)
  *
  *   0x04 — reportDTCSnapshotRecordByDTCNumber
  *     Request : [0x19, 0x04, dtcHB, dtcMB, dtcLB, snapshotRecordNumber]
@@ -45,13 +45,13 @@
  *     Response: [0x59, 0x0A, availabilityMask, {dtc3B, statusByte}...]
  *     Returns all registered DTCs regardless of status.
  *
- *   0x14 — reportDTCFaultDetectionCounter (ISO 14229-1 §11.3.20)
+ *   0x14 — reportDTCFaultDetectionCounter (ISO 14229-1:2026 §11.3.1.14, Table 317)
  *     Request : [0x19, 0x14]
  *     Response: [0x59, 0x14, {dtc3B, faultDetectionCounter}...]
  *     Returns pre-confirmed (testFailed==0) DTCs with counter < 0xFF.
  *     No DTCStatusAvailabilityMask byte in this response.
  *
- *   0x15 — reportDTCWithPermanentStatus (ISO 14229-1 §11.3.25)
+ *   0x15 — reportDTCWithPermanentStatus (ISO 14229-1:2026 §11.3.1.15)
  *     Request : [0x19, 0x15]
  *     Response: [0x59, 0x15, availabilityMask, {dtc3B, statusByte}...]
  *     Returns DTCs marked permanent (is_permanent == true).
@@ -67,7 +67,7 @@
  * DTC FORMAT IDENTIFIER:
  *   0x01 = ISO 14229-1 DTC format (used in reportNumberOfDTC response).
  *
- * SESSION REQUIREMENT (ISO 14229-1 §13.2.2):
+ * SESSION REQUIREMENT (ISO 14229-1:2026 §9.2.1 Table 22):
  *   Available in all diagnostic sessions.
  *
  * SAFETY  : ASIL-B candidate. Returns safety-relevant fault data.
@@ -83,7 +83,7 @@
 #include <string.h>
 
 /* --------------------------------------------------------------------------
- * Sub-function identifiers (ISO 14229-1 Table 239)
+ * Sub-function identifiers (ISO 14229-1:2026 §11.3.2.2 Table 317)
  * -------------------------------------------------------------------------- */
 #define SVC_0x19_SUBFN_REPORT_NUM_BY_STATUS_MASK     (0x01U)
 #define SVC_0x19_SUBFN_REPORT_DTC_BY_STATUS_MASK     (0x02U)
@@ -110,7 +110,7 @@
 #define SVC_0x19_STATUS_AVAILABILITY_MASK             (0xFFU)
 
 /**
- * @brief DTC format identifier (ISO 14229-1 Table 250).
+ * @brief DTC format identifier (ISO 14229-1:2026 §11.3.3.1 Table 319).
  * 0x01 = ISO 14229-1 DTC format.
  */
 #define SVC_0x19_DTC_FORMAT_ISO14229                  (0x01U)
@@ -121,8 +121,8 @@
 /**
  * @brief Fault detection counter value that indicates a confirmed DTC.
  *
- * ISO 14229-1 §11.3.20: counter value 0xFF is reserved for DTCs that are
- * already confirmed. Such DTCs are excluded from the 0x14 response.
+ * EDS-specific, not standard: ISO 14229-1:2026 Table 317 (0x14) reports only DTCs whose
+ * signed counter is 0x01..0x7E; 0x7F means "failed" (EDS#451).
  */
 #define SVC_0x19_FDC_CONFIRMED                        (0xFFU)
 
@@ -260,8 +260,9 @@ static uds_status_t handle_report_dtc_by_status_mask(
  * Request : [0x19, 0x03]
  * Response: [0x59, 0x03]  (empty list — no freeze-frame data stored)
  *
- * ISO 14229-1 §13.3.3: an ECU that stores no DTC snapshot records shall
- * respond with an empty list. Tester tools must accept this.
+ * ISO 14229-1:2026 §11.3.1.4 / Table 321: DTCRecord and DTCSnapshotRecordNumber are
+ * present only if a snapshot record is stored, so an ECU with none returns
+ * the positive response without records.
  */
 static uds_status_t handle_report_dtc_snapshot_id(
     const uds_msg_buf_t *req,
@@ -433,7 +434,7 @@ static uds_status_t handle_report_supported_dtcs(
  * Request : [0x19, 0x14]
  * Response: [0x59, 0x14, {dtcHB, dtcMB, dtcLB, faultDetectionCounter}...]
  *
- * ISO 14229-1 §11.3.20.
+ * ISO 14229-1:2026 §11.3.1.14, Table 317.
  *
  * Returns a 4-byte record for each DTC where testFailed == 0 (not yet
  * confirmed) and whose fault_detection_counter < 0xFF.
@@ -479,7 +480,7 @@ static uds_status_t handle_report_fault_detection_counter(
             continue;
         }
 
-        /* 0xFF is reserved (confirmed) — exclude per ISO 14229-1 §11.3.20 */
+        /* EDS-specific exclusion; ISO 14229-1:2026 Table 317 reports 0x01..0x7E only (EDS#451) */
         if (entry->fault_detection_counter == (uint8_t)SVC_0x19_FDC_CONFIRMED) {
             continue;
         }
@@ -500,7 +501,7 @@ static uds_status_t handle_report_fault_detection_counter(
  * Request : [0x19, 0x15]
  * Response: [0x59, 0x15, availabilityMask, {dtcHB, dtcMB, dtcLB, statusByte}...]
  *
- * ISO 14229-1 §11.3.25.
+ * ISO 14229-1:2026 §11.3.1.15.
  *
  * Returns all DTCs marked permanent (is_permanent == true). These DTCs
  * are not clearable by SID 0x14 — only by application-driven drive-cycle
@@ -565,8 +566,8 @@ static uds_status_t handle_report_dtc_permanent_status(
  * handler.
  *
  * NOTE: 0x19 is listed in services.h with suppress_pos_response_supported=true
- *       because ISO 14229-1 §13.2.4 specifies that all sub-functions of
- *       ReadDTCInformation support the suppress bit.
+ *       because ReadDTCInformation uses a SubFunction parameter and so the
+ *       suppress bit (ISO 14229-1:2026 §7.7.3, §11.3.2.2).
  */
 uds_status_t uds_service_0x19_handler(
     uds_server_ctx_t    *ctx,

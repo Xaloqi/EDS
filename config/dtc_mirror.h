@@ -9,7 +9,7 @@
  *
  *          DTC status bytes reside in the RAM-based dtc_database (s_dtc_table).
  *          Without persistence, all fault history is lost on ECU reset or
- *          power-cycle — a violation of ISO 14229-1 Annex D requirements for
+ *          power-cycle — contrary to ISO 14229-1:2026 Annex D.2 (Table D.5: confirmed DTCs are kept in long-term memory) for
  *          ConfirmedDTC and TestFailedSinceLastClear status bits.
  *
  *          This module:

@@ -7,12 +7,12 @@
  *
  * PURPOSE: SID 0x3D — WriteMemoryByAddress service handler.
  *
- * ISO 14229-1:2020 §14.10: WriteMemoryByAddress allows a tester to write
+ * ISO 14229-1:2026 §10.8: WriteMemoryByAddress allows a tester to write
  * directly to an ECU memory address without initiating a full 0x34/0x36/0x37
  * DFU transfer sequence.  Typical use cases: calibration constant patching,
  * post-production ECU configuration without a full firmware reflash.
  *
- * REQUEST FORMAT (ISO 14229-1 §14.10.2):
+ * REQUEST FORMAT (ISO 14229-1:2026 §10.8.2):
  *   [0x3D, addressAndLengthFormatIdentifier,
  *    memoryAddress[0..M], memorySize[0..N],
  *    dataRecord[0..memorySize-1]]
@@ -26,7 +26,7 @@
  *
  *   NOTE: No dataFormatIdentifier field (unlike SID 0x34/0x35).
  *
- * POSITIVE RESPONSE (ISO 14229-1 §14.10.3):
+ * POSITIVE RESPONSE (ISO 14229-1:2026 §10.8.3):
  *   [0x7D, addressAndLengthFormatIdentifier,
  *    memoryAddress[0..M], memorySize[0..N]]
  *
@@ -85,7 +85,7 @@
  * @brief SID 0x3D — WriteMemoryByAddress handler.
  *
  * Validates the request, checks the writable memory map, invokes write_cb,
- * and echoes address/size in the positive response per ISO 14229-1 §14.10.3.
+ * and echoes address/size in the positive response per ISO 14229-1:2026 §10.8.3.
  */
 uds_status_t uds_service_0x3D_handler(
     uds_server_ctx_t    *ctx,

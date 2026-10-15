@@ -7,7 +7,7 @@
  *
  * PURPOSE: SID 0x14 — ClearDiagnosticInformation service handler.
  *
- * ISO 14229-1 §12.1 — ClearDiagnosticInformation
+ * ISO 14229-1:2026 §11.2 — ClearDiagnosticInformation
  *
  * The tester transmits a 3-byte group-of-DTC identifier (groupOfDTC).
  * The ECU clears all DTC status bytes for any DTC whose code falls within
@@ -21,15 +21,14 @@
  * IMPLEMENTATION NOTE:
  *   This implementation treats 0xFFFFFF as "clear all registered DTCs"
  *   (the most common tester request). All other group codes are also
- *   handled as "clear all" per the conservative approach recommended for
- *   ECUs that do not implement DTC group filtering — this is compliant
- *   with ISO 14229-1 §12.1.3 which permits clearing all DTCs when a
- *   group-of-DTC value is received that encompasses all stored DTCs.
+ *   handled as "clear all". NOT conformant: ISO 14229-1:2026 §11.2.1 clears the
+ *   requested group or single DTC, and Table 299 answers 0x31 for an
+ *   unsupported group (EDS#450).
  *
  *   If group-specific filtering is required, add a per-entry group
  *   field to dtc_entry_t and filter the clear loop accordingly.
  *
- * SESSION REQUIREMENT (ISO 14229-1 §12.1.2.2):
+ * SESSION REQUIREMENT (ISO 14229-1:2026 §9.2.1 Table 22):
  *   ClearDiagnosticInformation is available in all sessions.
  *
  * NVM INTEGRATION (Phase 3):
@@ -69,7 +68,7 @@
 #define SVC_0x14_REQ_LEN              (4U)
 
 /**
- * @brief "Clear all" group-of-DTC identifier (ISO 14229-1 §12.2, Table 203).
+ * @brief "Clear all" group-of-DTC identifier (ISO 14229-1:2026 Annex D.1, Table D.1).
  *
  * 0xFFFFFF is the universal group encompassing all DTCs.
  * Tester tools always use this value for a full DTC clear.
@@ -125,8 +124,9 @@ uds_status_t uds_service_0x14_handler(
 
     if (dtc_count == (uint16_t)0U) {
         /*
-         * ISO 14229-1 §12.1.3: if no DTCs match the requested group,
-         * the ECU shall send NRC 0x31.
+         * No DTC registered at all: no group is supported, so NRC 0x31
+         * (ISO 14229-1:2026 §11.2.4 Table 299). A supported group with no stored
+         * DTCs still gets a positive response (§11.2.1).
          */
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
@@ -134,7 +134,7 @@ uds_status_t uds_service_0x14_handler(
     /*
      * ── Group filtering ──────────────────────────────────────────────────
      *
-     * ISO 14229-1 §12.2 defines several group values:
+     * ISO 14229-1:2026 Annex D.1 Table D.1 defines the group values:
      *   0xFFFFFF — all emission-related DTCs (or "all DTCs" for non-OBD)
      *   0xFFFFFE — all powertrain DTCs (by SAE J2012-DA)
      *   0xFFFF00-0xFFFFFD — OBD system groups

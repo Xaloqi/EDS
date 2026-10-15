@@ -7,12 +7,12 @@
  *
  * PURPOSE: SID 0x23 — ReadMemoryByAddress service handler.
  *
- * ISO 14229-1:2020 §14.9: ReadMemoryByAddress allows a tester to read from an
+ * ISO 14229-1:2026 §10.3: ReadMemoryByAddress allows a tester to read from an
  * arbitrary ECU memory address without going through the DID database.  Primary
  * use cases: calibration constant inspection, configuration register readback,
  * embedded RAM variable monitoring during bench testing.
  *
- * REQUEST FORMAT (ISO 14229-1 §14.9.2):
+ * REQUEST FORMAT (ISO 14229-1:2026 §10.3.2):
  *   [0x23, addressAndLengthFormatIdentifier,
  *    memoryAddress[0..M], memorySize[0..N]]
  *
@@ -24,7 +24,7 @@
  *
  *   NOTE: No dataFormatIdentifier field (unlike SID 0x34/0x35).
  *
- * POSITIVE RESPONSE (ISO 14229-1 §14.9.3):
+ * POSITIVE RESPONSE (ISO 14229-1:2026 §10.3.3):
  *   [0x63, dataRecord[0..memorySize-1]]
  *
  * NRC BEHAVIOUR:
