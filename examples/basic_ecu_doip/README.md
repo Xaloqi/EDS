@@ -59,6 +59,12 @@ west build -b native_sim examples/basic_ecu_doip \
 
 ### Hardware (any Zephyr Ethernet board)
 
+> **Known issue:** on FRDM-K64F this command does not link yet: no storage
+> partition for the NVM backend (add `-DDIAG_USE_MOCK_NVM=ON`, as for the
+> NUCLEO below), and a watchdog defect tracked in
+> [#420](https://github.com/Xaloqi/EDS/issues/420). The NUCLEO-H753ZI setup
+> below is the hardware-verified one.
+
 ```bash
 # Example: FRDM-K64F
 west build -b frdm_k64f examples/basic_ecu_doip \
