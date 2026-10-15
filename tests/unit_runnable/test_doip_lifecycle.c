@@ -41,6 +41,8 @@
  *     - test_doip_ecu_reset_performed_after_response
  *     - test_doip_ecu_reset_suppressed_response_still_resets
  *     - test_doip_no_reset_without_ecu_reset_request
+ *   Return to DEFAULT on disconnect (SEC-SESS-COMMRESTORE-01):
+ *     - test_doip_disconnect_restores_comm_and_dtc_setting
  *   Supervision check-in (EDS#399):
  *     - test_doip_checkin_while_idle_without_client
  *     - test_doip_checkin_while_connected_idle
@@ -63,6 +65,7 @@
 #include "uds_server.h"
 #include "uds_session.h"
 #include "services.h"   /* uds_service_0x11_handler() [EDS#434] */
+#include "uds_comm_control.h"   /* [SEC-SESS-COMMRESTORE-01] */
 #include "uds_types.h"
 
 #define TEST_ECU_ADDR     (0x0E00U)
@@ -916,6 +919,33 @@ ZTEST(doip_lifecycle_suite, test_doip_no_reset_without_ecu_reset_request)
     EXPECT_EQ_MSG(0U, g_reset_calls, "ecu_reset called without an ECUReset request");
 }
 
+/* [SEC-SESS-COMMRESTORE-01] A dropped connection returns the session to
+ * DEFAULT, so CommunicationControl and ControlDTCSetting must be reset too
+ * (ISO 14229-1:2026 §9.2.1 d)), or the ECU stays silent with DTC recording
+ * off after the tester disappears. */
+ZTEST(doip_lifecycle_suite, test_doip_disconnect_restores_comm_and_dtc_setting)
+{
+    uds_comm_mode_t        m = UDS_COMM_MODE_DISABLE_RX_TX;
+    uds_dtc_setting_mode_t d = UDS_DTC_SETTING_OFF;
+
+    reset_observations();
+    uds_comm_control_test_reset();
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_comm_control_init(NULL));
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_comm_control_apply(0x03U, 0x03U));
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_comm_control_set_dtc_setting(0x02U));
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    add_error();
+    run_server();
+
+    (void)uds_comm_control_get_mode(&m);
+    (void)uds_comm_control_get_dtc_setting(&d);
+    EXPECT_EQ_MSG(UDS_COMM_MODE_ENABLE_RX_TX, m,
+        "communication left disabled after DoIP disconnect (SEC-SESS-COMMRESTORE-01)");
+    EXPECT_EQ_MSG(UDS_DTC_SETTING_ON, d,
+        "DTC setting left off after DoIP disconnect (SEC-SESS-COMMRESTORE-01)");
+}
+
 ZTEST_SUITE(doip_lifecycle_suite, NULL, NULL, NULL, NULL, NULL);
 
 /* =========================================================================
@@ -942,6 +972,7 @@ void run_all_tests(void)
     RUN_TEST(doip_lifecycle_suite__test_doip_ecu_reset_performed_after_response);
     RUN_TEST(doip_lifecycle_suite__test_doip_ecu_reset_suppressed_response_still_resets);
     RUN_TEST(doip_lifecycle_suite__test_doip_no_reset_without_ecu_reset_request);
+    RUN_TEST(doip_lifecycle_suite__test_doip_disconnect_restores_comm_and_dtc_setting);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_idle_without_client);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_connected_idle);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_cleared_is_never_called);

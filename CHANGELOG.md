@@ -10,6 +10,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Session transitions now follow ISO 14229-1:2026 §9.2.1** (`SEC-DSC-RELOCK-01`,
+  `SEC-SESS-COMMRESTORE-01`). Every accepted DiagnosticSessionControl
+  transition re-locks SecurityAccess: to the default session, and between
+  non-default sessions, including a refresh of the active one. Previously
+  only a return to default did. A refused transition keeps the active session
+  and its security state (Table 24), and lockout counters are preserved.
+  Every return to the default session (`10 01`, S3 timeout, DoIP disconnect)
+  now also resets CommunicationControl and ControlDTCSetting, which three
+  comments said happened but nothing did. Both are kept across non-default
+  transitions.
 - **The transfer CRC's documented algorithm was wrong.** The headers called
   the 0x37 CRC-32 "ISO 3309 / MPEG-2", and the safety traceability matrix
   "MPEG-2 polynomial 0x04C11DB7". The code implements **CRC-32/ISO-HDLC**

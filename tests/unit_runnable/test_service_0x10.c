@@ -44,6 +44,7 @@
 #include "uds_session.h"
 #include "uds_security.h"
 #include "uds_types.h"
+#include "uds_comm_control.h"
 
 /* =========================================================================
  * Minimal security stubs
@@ -362,6 +363,112 @@ extern void test_service_0x10__tc012_default_to_default_ok(void);
 extern void test_service_0x10__tc013_null_req(void);
 extern void test_service_0x10__tc014_null_resp(void);
 
+/* =========================================================================
+ * [SEC-DSC-RELOCK-01] / [SEC-SESS-COMMRESTORE-01]
+ * ISO 14229-1:2026 §9.2.1 c) and d), §9.2.4 Table 24.
+ * ========================================================================= */
+
+static bool is_unlocked_l1(void)
+{
+    bool u = false;
+    (void)uds_security_is_unlocked(&g_sec, 1U, &u);
+    return u;
+}
+
+static void enter(uint8_t sub)
+{
+    uds_msg_buf_t req = make_req(sub);
+    uds_msg_buf_t resp;
+    memset(&resp, 0, sizeof(resp));
+    zassert_equal(uds_service_0x10_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "DSC 0x%02X", sub);
+}
+
+static void comm_reset_init(void)
+{
+    uds_comm_control_test_reset();
+    zassert_equal(uds_comm_control_init(NULL), UDS_STATUS_OK, "comm init");
+}
+
+/* Unlocked in extended, then 10 02: programming must start locked. */
+ZTEST(test_service_0x10, tc015_relock_extended_to_programming)
+{
+    setup();
+    enter(0x03U);
+    g_sec.active_level = 1U;
+    enter(0x02U);
+    zassert_false(is_unlocked_l1(),
+        "unlock carried from extended into programming (SEC-DSC-RELOCK-01)");
+}
+
+/* Refreshing the active non-default session re-locks too (case c). */
+ZTEST(test_service_0x10, tc016_relock_on_session_refresh)
+{
+    setup();
+    enter(0x03U);
+    g_sec.active_level = 1U;
+    enter(0x03U);
+    zassert_false(is_unlocked_l1(),
+        "unlock survived a 10 03 refresh of the extended session (SEC-DSC-RELOCK-01)");
+}
+
+/* A rejected transition keeps the active session and its unlock (Table 24). */
+ZTEST(test_service_0x10, tc017_rejected_transition_keeps_unlock)
+{
+    uds_msg_buf_t req, resp;
+    setup();
+    enter(0x02U);
+    g_sec.active_level = 1U;
+    req = make_req(0x03U);            /* programming -> extended is refused */
+    memset(&resp, 0, sizeof(resp));
+    zassert_not_equal(uds_service_0x10_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "");
+    zassert_true(is_unlocked_l1(), "a refused DSC must not re-lock the active session");
+}
+
+/* 10 01 restores CommunicationControl and ControlDTCSetting (case d). */
+ZTEST(test_service_0x10, tc018_default_restores_comm_and_dtc_setting)
+{
+    uds_comm_mode_t m; uds_dtc_setting_mode_t d;
+    setup(); comm_reset_init();
+    enter(0x03U);
+    zassert_equal(uds_comm_control_apply(0x03U, 0x03U), UDS_STATUS_OK, "");
+    zassert_equal(uds_comm_control_set_dtc_setting(0x02U), UDS_STATUS_OK, "");
+    enter(0x01U);
+    (void)uds_comm_control_get_mode(&m); (void)uds_comm_control_get_dtc_setting(&d);
+    zassert_equal(UDS_COMM_MODE_ENABLE_RX_TX, m,
+        "communication left disabled after 10 01 (SEC-SESS-COMMRESTORE-01)");
+    zassert_equal(UDS_DTC_SETTING_ON, d,
+        "DTC setting left off after 10 01 (SEC-SESS-COMMRESTORE-01)");
+}
+
+/* An S3 timeout is a return to default too. */
+ZTEST(test_service_0x10, tc019_s3_timeout_restores_comm_and_dtc_setting)
+{
+    uds_comm_mode_t m; uds_dtc_setting_mode_t d;
+    setup(); comm_reset_init();
+    enter(0x03U);
+    (void)uds_comm_control_apply(0x03U, 0x03U);
+    (void)uds_comm_control_set_dtc_setting(0x02U);
+    for (uint32_t i = 0U; i < 5001U; i++) { (void)uds_server_tick_1ms(&g_srv); }
+    (void)uds_comm_control_get_mode(&m); (void)uds_comm_control_get_dtc_setting(&d);
+    zassert_equal(UDS_COMM_MODE_ENABLE_RX_TX, m,
+        "communication left disabled after S3 timeout (SEC-SESS-COMMRESTORE-01)");
+    zassert_equal(UDS_DTC_SETTING_ON, d,
+        "DTC setting left off after S3 timeout (SEC-SESS-COMMRESTORE-01)");
+}
+
+/* Non-default -> non-default keeps both states (case c). */
+ZTEST(test_service_0x10, tc020_nondefault_transition_keeps_comm_state)
+{
+    uds_comm_mode_t m;
+    setup(); comm_reset_init();
+    enter(0x03U);
+    (void)uds_comm_control_apply(0x03U, 0x03U);
+    enter(0x02U);
+    (void)uds_comm_control_get_mode(&m);
+    zassert_equal(UDS_COMM_MODE_DISABLE_RX_TX, m,
+        "CommunicationControl state must be kept across extended -> programming");
+}
+
 void run_all_tests(void)
 {
     RUN_TEST(test_service_0x10__tc001_default_session);
@@ -378,4 +485,10 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x10__tc012_default_to_default_ok);
     RUN_TEST(test_service_0x10__tc013_null_req);
     RUN_TEST(test_service_0x10__tc014_null_resp);
+    RUN_TEST(test_service_0x10__tc015_relock_extended_to_programming);
+    RUN_TEST(test_service_0x10__tc016_relock_on_session_refresh);
+    RUN_TEST(test_service_0x10__tc017_rejected_transition_keeps_unlock);
+    RUN_TEST(test_service_0x10__tc018_default_restores_comm_and_dtc_setting);
+    RUN_TEST(test_service_0x10__tc019_s3_timeout_restores_comm_and_dtc_setting);
+    RUN_TEST(test_service_0x10__tc020_nondefault_transition_keeps_comm_state);
 }

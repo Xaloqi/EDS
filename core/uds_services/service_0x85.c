@@ -42,10 +42,11 @@
  *   The server dispatcher enforces this. Handler double-checks.
  *
  * ON SESSION RETURN TO DEFAULT:
- *   DTC setting must be automatically re-enabled when the session returns
- *   to Default (ISO 14229-1 §15.1). This is handled by:
- *     uds_comm_control_restore_defaults() called from service_0x10.c
- *   when a transition to DEFAULT session is processed.
+ *   DTC setting is re-enabled on every return to the Default session
+ *   (ISO 14229-1:2026 §9.2.1 d)) by uds_comm_control_restore_defaults(),
+ *   called on every return to Default: an explicit 10 01 (service_0x10.c), S3 timeout
+ *   (uds_server_tick_1ms) and a DoIP disconnect (doip_server.c)
+ *   [SEC-SESS-COMMRESTORE-01].
  *
  * REQUEST FORMAT:
  *   [0x85, dtcSettingType, {optionalControlRecord...}]   (≥ 2 bytes)

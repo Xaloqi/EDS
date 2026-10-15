@@ -27,6 +27,7 @@
 #include "uds_server.h"
 #include "uds_session.h"
 #include "uds_security.h"
+#include "uds_comm_control.h"
 
 /* --------------------------------------------------------------------------
  * ISO 14229-1 default timing values (§7.2)
@@ -98,15 +99,27 @@ uds_status_t uds_service_0x10_handler(
             return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
     }
 
-    /* [P2-0x10-03] Reset security context on return to DEFAULT session. */
-    if (new_session == UDS_SESSION_DEFAULT) {
-        (void)uds_security_reset(ctx->cfg.security_ctx);
-    }
-
-    /* [P2-0x10-04] Transition enforces ISO 14229-1 matrix (uds_session.c). */
+    /* [P2-0x10-04] Transition enforces the session matrix (uds_session.c).
+     * A rejected transition leaves the active session, and its security
+     * state, unchanged (ISO 14229-1:2026 §9.2.4 Table 24). */
     status = uds_session_transition(ctx->cfg.session_ctx, new_session);
     if (status != UDS_STATUS_OK) {
         return status;
+    }
+
+    /* [P2-0x10-03] [SEC-DSC-RELOCK-01] ISO 14229-1:2026 §9.2.1 c) and d):
+     * every accepted transition re-locks security, to the default session
+     * and between non-default sessions, including a refresh of the active
+     * one. Previously only DEFAULT re-locked, so an unlock in one
+     * non-default session carried into the next. Lockout counters are
+     * preserved by uds_security_reset(). */
+    (void)uds_security_reset(ctx->cfg.security_ctx);
+
+    /* [SEC-SESS-COMMRESTORE-01] §9.2.1 d): returning to the default session
+     * resets CommunicationControl and ControlDTCSetting. They are kept
+     * across non-default transitions (c). Not initialised = nothing to do. */
+    if (new_session == UDS_SESSION_DEFAULT) {
+        (void)uds_comm_control_restore_defaults();
     }
 
     /* Build positive response: [0x50, sessionType, P2_hi, P2_lo, P2s_hi, P2s_lo] */

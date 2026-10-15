@@ -20,6 +20,7 @@
  */
 
 #include "uds_server.h"
+#include "uds_comm_control.h"
 #include "uds_types.h"
 #include "uds_session.h"
 #include "uds_security.h"
@@ -213,6 +214,9 @@ uds_status_t uds_server_tick_1ms(uds_server_ctx_t *ctx)
          */
         if (status == UDS_STATUS_ERR_SESSION_TIMEOUT) {
             (void)uds_security_reset(ctx->cfg.security_ctx);
+            /* [SEC-SESS-COMMRESTORE-01] Same return to DEFAULT as an
+             * explicit 10 01, so the same ISO 14229-1:2026 §9.2.1 d) reset. */
+            (void)uds_comm_control_restore_defaults();
         }
         (void)uds_security_tick_1ms(ctx->cfg.security_ctx);
         return status;
