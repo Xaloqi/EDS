@@ -109,7 +109,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **`CONFIG_UDS_SESSION_S3_TIMEOUT_MS`, `CONFIG_UDS_SECURITY_MAX_ATTEMPTS`,
   `CONFIG_UDS_SECURITY_LOCKOUT_MS`** (`#455`). They were never read; S3 and
   the lockout come from `diagnostics_config.yaml`. A `prj.conf` that still
-  sets them now fails the build instead of being silently ignored. The
+  sets them now gets a Kconfig warning naming the symbol ("attempt to assign
+  … to the undefined symbol") instead of being silently accepted. Zephyr warns
+  but doesn't fail the build: check your build log for that line. The
   Kconfig header's claim that "the Kconfig value wins" is corrected, and
   `build_tests.sh` now fails if any Kconfig symbol has no consumer.
 

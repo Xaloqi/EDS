@@ -100,7 +100,9 @@ config ISOTP_TIMEOUT_AR_MS
 # GEN_SAFETY_MAX_SA_ATTEMPTS, GEN_SAFETY_SA_LOCKOUT_MS). [EDS#455] The
 # CONFIG_UDS_SESSION_S3_TIMEOUT_MS / _SECURITY_MAX_ATTEMPTS / _SECURITY_LOCKOUT_MS
 # symbols that used to be here were never read; they are removed so a prj.conf
-# that still sets them fails the build instead of being silently ignored.
+# that still sets them now gets a Kconfig warning naming the symbol ("attempt
+# to assign ... to the undefined symbol") instead of being silently accepted.
+# Zephyr warns, it does not fail the build.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
