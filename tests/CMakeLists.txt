@@ -671,6 +671,12 @@ add_diag_test(test_doip_lifecycle
         "${TEST_UNIT_DIR}/test_doip_lifecycle.c"
 )
 
+# [EDS#418] FreeRTOS tick-to-ms conversion behind eds_platform_uptime_ms().
+add_diag_test(test_freertos_ticks
+    SOURCES
+        "${TEST_UNIT_DIR}/test_freertos_ticks.c"
+)
+
 # ---------------------------------------------------------------------------
 # test_trng_fail_closed  [SEC-TRNG-FAILCLOSED-01]
 #      Module under test: core/uds_security_algo.c in its PRODUCTION

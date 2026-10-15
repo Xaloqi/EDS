@@ -405,6 +405,8 @@ TESTS=(
     # itself (inactivity bounds, the EDS#193/#218 guards at loop level,
     # supervision check-in) -- the two modules above never enter the loop.
     test_doip_lifecycle
+    # [EDS#418] FreeRTOS tick-to-ms conversion behind eds_platform_uptime_ms().
+    test_freertos_ticks
     # [SEC-TRNG-FAILCLOSED-01] Production-configuration entropy fail-closed
     # behaviour. Compiled separately (see extra_flags_for_test above) with
     # CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0 because that behaviour cannot be

@@ -61,6 +61,7 @@
 
 #include "platform_api.h"
 #include "freertos_can.h"
+#include "freertos_ticks.h"   /* [EDS#418] */
 #include "nvm_store.h"
 #include "dtc_mirror.h"
 #include "uds_security_algo.h" /* EDS_BUILD_IS_PRODUCTION, SEC-BUILD-MODE-01 */
@@ -512,17 +513,16 @@ uds_status_t eds_platform_nvm_flush(void)
 uint32_t eds_platform_uptime_ms(void)
 {
     /*
-     * xTaskGetTickCount() returns ticks since scheduler start.
-     * portTICK_PERIOD_MS = 1000 / configTICK_RATE_HZ.
+     * [EDS#418] Not xTaskGetTickCount() * portTICK_PERIOD_MS: that period
+     * is the integer 1000 / configTICK_RATE_HZ, which is wrong whenever
+     * 1000 is not a multiple of the rate (300 Hz: ~10% slow) and 0 above
+     * 1 kHz (a clock that never advances). See freertos_ticks.h, including
+     * its note on the tick-counter wrap.
      *
-     * For configTICK_RATE_HZ = 1000 (1 ms ticks), this returns ms directly.
-     * For other tick rates the multiplication gives the correct ms value.
-     *
-     * Cast to uint32_t — TickType_t is uint32_t on 32-bit targets, but
-     * may be uint16_t on 16-bit targets. The cast is intentional.
+     * Cast to uint32_t: TickType_t may be uint16_t on 16-bit targets.
      */
-    return (uint32_t)((uint32_t)xTaskGetTickCount() *
-                      (uint32_t)portTICK_PERIOD_MS);
+    return eds_freertos_ticks_to_ms((uint32_t)xTaskGetTickCount(),
+                                    (uint32_t)configTICK_RATE_HZ);
 }
 
 /* ============================================================================

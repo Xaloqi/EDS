@@ -57,6 +57,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **FreeRTOS `eds_platform_uptime_ms()` is exact at any
+  `configTICK_RATE_HZ`** (`#418`). It multiplied ticks by
+  `portTICK_PERIOD_MS`, the integer `1000 / configTICK_RATE_HZ`. At 300 Hz
+  the clock ran ~10% slow, so S3 and every other timer ran long. Above
+  1 kHz the period is 0 and the clock never advanced, so no UDS timer ever
+  expired. It now computes `ticks * 1000 / rate` in 64-bit, like the lwIP
+  port's `sys_now()`. Unchanged at the shipped 1 kHz.
 - **DoIP firmware downloads above ~0.5 MB no longer fail** (`#412`). The
   server closed every connection after 500 frames, and each TransferData
   block is a frame. The close also reset session and SecurityAccess, so a
