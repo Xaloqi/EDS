@@ -25,6 +25,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **ClearDiagnosticInformation clears only what was asked** (`#450`). Every
+  non-zero groupOfDTC used to clear all DTCs, so clearing one repaired DTC
+  erased every other fault record. Now (ISO 14229-1:2026 §11.2, Annex D.1):
+  0xFFFFFF clears all non-permanent DTCs, positive even when none is stored;
+  a registered DTC number clears that DTC; anything else (the reserved
+  0x000000–0x0000FF range, functional groups EDS keeps no membership for,
+  unknown codes) gets NRC 0x31 and clears nothing.
+- **Download conformance** (`#442`, ISO 14229-1:2026 §14.2–§14.5).
+  - RequestTransferExit on an incomplete transfer is NRC 0x24 (was 0x31,
+    Table 459).
+  - `maxNumberOfBlockLength` is the complete TransferData message length,
+    SID + counter + data (Table 443). It was capacity + 1, so EDS advertised
+    one byte less than its definition. A longer TransferData request is now
+    NRC 0x13. Upload responses fit the advertised length exactly.
+  - A RequestDownload while a download or its erase is active is NRC 0x22
+    (Table 444); it used to pre-empt it.
+  - Every session transition (DiagnosticSessionControl, S3 timeout, DoIP
+    disconnect) now aborts any transfer, so an abandoned download can't block
+    the next one. New `uds_service_0x34_abort_transfer()`.
 - **TransferData accepts a repeated block** (`#441`). ISO 14229-1:2026
   §14.4.4 Table 454: a request repeating the previous blockSequenceCounter
   "shall be accepted by the server". That's the client's retry after a lost
@@ -87,6 +106,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Zephyr DoIP builds now default `CONFIG_REBOOT=y`** (`#434`), the same
   way `NET_CONTEXT_SNDTIMEO` is defaulted: the binding's reset ends in
   `sys_reboot()`. `zephyr_lwip.c` refuses to build with it explicitly off.
+
+### Removed
+
+- **`CONFIG_UDS_SESSION_S3_TIMEOUT_MS`, `CONFIG_UDS_SECURITY_MAX_ATTEMPTS`,
+  `CONFIG_UDS_SECURITY_LOCKOUT_MS`** (`#455`). They were never read; S3 and
+  the lockout come from `diagnostics_config.yaml`. A `prj.conf` that still
+  sets them now fails the build instead of being silently ignored. The
+  Kconfig header's claim that "the Kconfig value wins" is corrected, and
+  `build_tests.sh` now fails if any Kconfig symbol has no consumer.
 
 ## [1.19.0] — 2026-10-15
 
