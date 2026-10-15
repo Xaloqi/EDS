@@ -191,6 +191,10 @@ typedef enum uds_status {
                                                          that is not a signature,
                                                          digest, format or rollback
                                                          failure (NRC 0x22). */
+    UDS_STATUS_ERR_TRANSFER_SUSPENDED    = 0x65U, /**< [EDS#441] TransferData carried
+                                                         more data than memorySize left
+                                                         (NRC 0x71 transferDataSuspended,
+                                                         ISO 14229-1:2026 Table 454). */
 
     UDS_STATUS_MAX                                /**< Sentinel — do not use as return value. */
 } uds_status_t;

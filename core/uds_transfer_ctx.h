@@ -102,6 +102,13 @@ typedef struct uds_transfer_ctx {
 
     uint8_t   next_expected_block_seq;     /**< 0x01 first, then 0xFF → 0x00 rollover. */
 
+    /* [EDS#441] The last accepted TransferData block, so a repeat of it (the
+     * client's retry after a lost response) is accepted without re-writing
+     * (download) or resent (upload), ISO 14229-1:2026 §14.4.4 Table 454. */
+    bool      last_block_valid;            /**< A block has been accepted.       */
+    uint8_t   last_block_seq;              /**< Its blockSequenceCounter.        */
+    uint16_t  last_block_len;              /**< Upload: bytes it returned.       */
+
     uint32_t  crc_accumulator;            /**< Running CRC-32 over payload data.*/
 
     /**
