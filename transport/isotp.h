@@ -47,14 +47,22 @@ extern "C" {
  * HAL (can_transport_ops_t.transmit) must satisfy that contract for this
  * timer to mean what its name says.
  */
+/* [EDS#453] ISO 15765-2:2024 Table 22: N_As, N_Ar, N_Bs and N_Cr time out
+ * at 1000 ms, a lower limit (§9.8.1: "the real timeout shall occur no later
+ * than specified timeout value +50 %"). EDS used 25/25/75/150 ms, which
+ * aborted transfers with slower but conformant peers. The CONFIG_ symbols
+ * (Kconfig) were never read before EDS#453/#455; they are now. */
+#if !defined(ISOTP_TIMEOUT_AS_MS) && defined(CONFIG_ISOTP_TIMEOUT_AS_MS)
+#define ISOTP_TIMEOUT_AS_MS   ((uint32_t)CONFIG_ISOTP_TIMEOUT_AS_MS)
+#endif
 #ifndef ISOTP_TIMEOUT_AS_MS
-#define ISOTP_TIMEOUT_AS_MS   (25U)
+#define ISOTP_TIMEOUT_AS_MS   (1000U)
 #endif
 
 /**
  * Ar: Receiver side timeout for the transmission confirmation of a SINGLE
- * CAN frame (ISO 15765-2:2016 Table 5) — the exact receiver-side mirror of
- * N_As, and budgeted identically at 25 ms.
+ * CAN frame (ISO 15765-2:2024 Table 22) — the exact receiver-side mirror of
+ * N_As, with the same 1000 ms timeout.
  *
  * The only frame the receiver transmits during a reassembly is the Flow
  * Control frame, so N_Ar is the confirmation window of that FC. It starts
@@ -66,18 +74,29 @@ extern "C" {
  * can_transport_transmit() returning UDS_STATUS_OK under the CONFIRMED
  * contract in transport/can_transport.h.
  */
+#if !defined(ISOTP_TIMEOUT_AR_MS) && defined(CONFIG_ISOTP_TIMEOUT_AR_MS)
+#define ISOTP_TIMEOUT_AR_MS   ((uint32_t)CONFIG_ISOTP_TIMEOUT_AR_MS)
+#endif
 #ifndef ISOTP_TIMEOUT_AR_MS
-#define ISOTP_TIMEOUT_AR_MS   (25U)
+#define ISOTP_TIMEOUT_AR_MS   (1000U)
 #endif
 
-/** Bs: Sender side timeout to receive a Flow Control frame. */
+/** Bs: Sender side timeout to receive a Flow Control frame
+ *  (ISO 15765-2:2024 Table 22: 1000 ms). */
+#if !defined(ISOTP_TIMEOUT_BS_MS) && defined(CONFIG_ISOTP_TIMEOUT_BS_MS)
+#define ISOTP_TIMEOUT_BS_MS   ((uint32_t)CONFIG_ISOTP_TIMEOUT_BS_MS)
+#endif
 #ifndef ISOTP_TIMEOUT_BS_MS
-#define ISOTP_TIMEOUT_BS_MS   (75U)
+#define ISOTP_TIMEOUT_BS_MS   (1000U)
 #endif
 
-/** Cr: Receiver side timeout between consecutive CAN frames. */
+/** Cr: Receiver side timeout between consecutive CAN frames
+ *  (ISO 15765-2:2024 Table 22: 1000 ms). */
+#if !defined(ISOTP_TIMEOUT_CR_MS) && defined(CONFIG_ISOTP_TIMEOUT_CR_MS)
+#define ISOTP_TIMEOUT_CR_MS   ((uint32_t)CONFIG_ISOTP_TIMEOUT_CR_MS)
+#endif
 #ifndef ISOTP_TIMEOUT_CR_MS
-#define ISOTP_TIMEOUT_CR_MS   (150U)
+#define ISOTP_TIMEOUT_CR_MS   (1000U)
 #endif
 
 /** Default STmin value in milliseconds (0x00 = send as fast as possible). */
@@ -131,6 +150,11 @@ extern "C" {
  * FreeRTOS / bare-metal:  #define ISOTP_TX_PADDING 1 before including isotp.h,
  *                          or pass -DISOTP_TX_PADDING=1 to the compiler.
  */
+/* [EDS#455] Honour the Kconfig symbol the comment above documents; before,
+ * CONFIG_ISOTP_TX_PADDING=y was silently ignored. */
+#if !defined(ISOTP_TX_PADDING) && defined(CONFIG_ISOTP_TX_PADDING)
+#define ISOTP_TX_PADDING 1
+#endif
 #ifndef ISOTP_TX_PADDING
 #define ISOTP_TX_PADDING 0
 #endif
@@ -141,6 +165,9 @@ extern "C" {
  * Override with -DISOTP_TX_PADDING_BYTE=0xAA if your OEM tester requires
  * a different byte.
  */
+#if !defined(ISOTP_TX_PADDING_BYTE) && defined(CONFIG_ISOTP_TX_PADDING_BYTE)
+#define ISOTP_TX_PADDING_BYTE ((uint8_t)CONFIG_ISOTP_TX_PADDING_BYTE)
+#endif
 #ifndef ISOTP_TX_PADDING_BYTE
 #define ISOTP_TX_PADDING_BYTE 0xCCU
 #endif

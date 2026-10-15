@@ -152,9 +152,9 @@ unsynchronized cross-thread read — nothing UDS-specific makes it safer.
 | Timer | Source | Period | Purpose |
 |---|---|---|---|
 | `s_tick_timer` | `k_timer` | 1 ms | Drives ISO-TP + UDS state machines |
-| ISO-TP N_Cr | `isotp_tick_1ms()` | per tick | Consecutive Frame reception timeout (150 ms) |
+| ISO-TP N_Cr | `isotp_tick_1ms()` | per tick | Consecutive Frame reception timeout (1000 ms, ISO 15765-2:2024 Table 22) |
 | ISO-TP N_As | `isotp_tick_1ms()` | per tick | TX acknowledgment timeout (25 ms) |
-| ISO-TP N_Bs | `isotp_tick_1ms()` | per tick | Flow Control reception timeout (75 ms) |
+| ISO-TP N_Bs | `isotp_tick_1ms()` | per tick | Flow Control reception timeout (1000 ms, ISO 15765-2:2024 Table 22) |
 | UDS S3server | `uds_server_tick_1ms()` | per tick | Session timeout (5000 ms) |
 | Periodic SLOW | `uds_periodic_tick_1ms()` | per tick | SID 0x2A push at 1000 ms |
 | Periodic MEDIUM | `uds_periodic_tick_1ms()` | per tick | SID 0x2A push at 100 ms |

@@ -431,8 +431,9 @@ ZTEST(test_isotp_concurrent, tc006_ncr_timeout_then_sf_recovers)
     rc = isotp_process_rx_frame(&g_ctx, &ff, rx_complete_cb, NULL);
     zassert_equal(rc, UDS_STATUS_OK, "FF accepted");
 
-    /* Tick past the N_Cr timeout (150 ms per ISOTP_TIMEOUT_CR_MS). */
-    for (t = 0U; t < 160U; t++) {
+    /* Tick past the N_Cr timeout (ISOTP_TIMEOUT_CR_MS; was a literal 160
+     * for the old 150 ms default, EDS#453). */
+    for (t = 0U; t < (uint32_t)(ISOTP_TIMEOUT_CR_MS + 10U); t++) {
         (void)isotp_tick_1ms(&g_ctx);
     }
 

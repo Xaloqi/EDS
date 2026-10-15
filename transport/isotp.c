@@ -691,7 +691,7 @@ uds_status_t isotp_transmit(
          * immediately before the call and stopped on its return.
          *
          * It must NOT stay armed after this point. The wait for the FC that
-         * follows is N_Bs (75 ms), and the CF cadence that follows that is
+         * follows is N_Bs (1000 ms), and the CF cadence that follows that is
          * STmin/N_Cs. Previously N_As was armed here and never rearmed or
          * stopped, so it counted down across the whole transfer and forced
          * ISOTP_STATE_ERROR 25 ms after the FF on a valid exchange.

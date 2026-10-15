@@ -8,6 +8,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **ISO-TP timeouts default to ISO 15765-2:2024's 1000 ms** (`#453`). N_As,
+  N_Ar, N_Bs and N_Cr were 25/25/75/150 ms. Table 22 sets 1000 ms as a lower
+  limit (a timeout fires between 1000 and 1500 ms), so EDS aborted transfers
+  with slower but conformant peers. Kconfig ranges now reach 1500 ms; values
+  below 1000 remain possible for networks that mandate shorter timing.
+- **`CONFIG_ISOTP_TIMEOUT_*` and `CONFIG_ISOTP_TX_PADDING[_BYTE]` now take
+  effect** (`#455`). They were never read: `isotp.h` used unprefixed names.
+  The examples' pinned `CONFIG_ISOTP_TIMEOUT_*=150/75/25` were therefore
+  no-ops, and they're removed so the examples use the ISO defaults.
+  **Integrators who set these symbols get those values from now on.** Added
+  `CONFIG_ISOTP_TIMEOUT_AR_MS`. The UDS Kconfig symbols that are also never
+  read stay tracked in #455.
+
 ### Fixed
 
 - **Session transitions now follow ISO 14229-1:2026 §9.2.1** (`SEC-DSC-RELOCK-01`,
