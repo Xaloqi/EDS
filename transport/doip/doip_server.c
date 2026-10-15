@@ -438,7 +438,7 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
             }
         }
         /* Suppress-positive-response: if dispatch returned suppress status,
-         * no response frame is sent (ISO 14229-1 §7.5.2.4). This is
+         * no response frame is sent (ISO 14229-1:2026 §7.7.3). This is
          * handled inside uds_server_process_request — resp_buf->length == 0. */
         s->frames_received++;
 

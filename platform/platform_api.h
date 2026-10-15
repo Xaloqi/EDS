@@ -145,7 +145,7 @@ typedef struct {
  * @brief Trigger a controlled ECU reset.
  *
  * @param reset_type  0x01 hardReset, 0x02 keyOffOnReset, 0x03 softReset
- *                    (ISO 14229-1 Table 186 sub-function values).
+ *                    (ISO 14229-1:2026 §9.3.2.2 resetType values).
  *
  * @return Does not return on success.
  * @return UDS_STATUS_ERR_PLATFORM if reset_type is unsupported or reset fails.

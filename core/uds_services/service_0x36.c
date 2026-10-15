@@ -5,12 +5,12 @@
  *
  * PURPOSE: SID 0x36 — TransferData service handler.
  *
- * ISO 14229-1 §14.3: TransferData carries firmware image blocks from the
+ * ISO 14229-1:2026 §14.4: TransferData carries firmware image blocks from the
  * tester to the ECU.  It is called repeatedly after a successful
  * RequestDownload (0x34) until all bytes described by memorySize have
  * been transferred.
  *
- * REQUEST FORMAT (ISO 14229-1 §14.3.2):
+ * REQUEST FORMAT (ISO 14229-1:2026 §14.4.2):
  *   [0x36, blockSequenceCounter, transferRequestParameterRecord...]
  *
  *   blockSequenceCounter (1 byte):
@@ -23,7 +23,7 @@
  *     Raw firmware image bytes for this block.
  *     Maximum length = maxNumberOfBlockLength - 1 (minus block counter byte).
  *
- * POSITIVE RESPONSE (ISO 14229-1 §14.3.3):
+ * POSITIVE RESPONSE (ISO 14229-1:2026 §14.4.3):
  *   [0x76, blockSequenceCounter]  (echo of the received counter)
  *
  * NRC BEHAVIOUR:

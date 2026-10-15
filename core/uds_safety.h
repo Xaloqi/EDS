@@ -261,7 +261,7 @@ uds_safety_result_t uds_safety_check_null_ptr(
 /**
  * @brief Validate that the active session satisfies the minimum requirement.
  *
- * Session ordinal mapping (ISO 14229-1 §9):
+ * Session ordinal mapping (ISO 14229-1:2026 §9.2):
  *   Default      (0x01) ordinal 1
  *   Programming  (0x02) ordinal 2
  *   Extended     (0x03) ordinal 3
@@ -410,7 +410,7 @@ uds_safety_result_t uds_safety_check_request_length(
 /**
  * @brief Validate that a write data length matches the DID's expected length.
  *
- * ISO 14229-1 §12.4.2: The write data record length must equal the DID's
+ * ISO 14229-1:2026 §10.7.4 Figure 27: The write data record length must equal the DID's
  * configured data_length. A mismatch must result in NRC 0x13.
  *
  * @param[in] entry       DID descriptor.
@@ -432,7 +432,7 @@ uds_safety_result_t uds_safety_check_write_data_length(
 /**
  * @brief Validate a DTC status byte against the supported mask.
  *
- * ISO 14229-1 §11.3.2: The ECU shall only process status byte bits that
+ * ISO 14229-1:2026 §11.3.2.3 Table 318: The ECU shall only process status byte bits that
  * are supported in the ECU's DTC status availability mask. Unsupported bits
  * being set in a request constitutes an out-of-range condition.
  *

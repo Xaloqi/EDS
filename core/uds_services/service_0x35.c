@@ -5,12 +5,12 @@
  *
  * PURPOSE: SID 0x35 — RequestUpload service handler.
  *
- * ISO 14229-1 §14.5: RequestUpload initiates a data transfer from the ECU
+ * ISO 14229-1:2026 §14.3: RequestUpload initiates a data transfer from the ECU
  * to the external test tool (tester).  It is the symmetric counterpart to
  * RequestDownload (0x34).  Primary use cases: calibration data readback,
  * NVM log extraction, flash image verification readout.
  *
- * REQUEST FORMAT (ISO 14229-1 §14.5.2 — identical field layout to 0x34):
+ * REQUEST FORMAT (ISO 14229-1:2026 §14.3.2 — identical field layout to 0x34):
  *   [0x35, dataFormatIdentifier, addressAndLengthFormatIdentifier,
  *    memoryAddress[0..M], memorySize[0..N]]
  *
@@ -24,7 +24,7 @@
  *   memoryAddress[0..M]:  big-endian, M = memoryAddressLength bytes.
  *   memorySize[0..N]:     big-endian, N = memorySizeLength bytes.
  *
- * POSITIVE RESPONSE (ISO 14229-1 §14.5.3 — same structure as 0x74):
+ * POSITIVE RESPONSE (ISO 14229-1:2026 §14.3.3 — same structure as 0x74):
  *   [0x75, lengthFormatIdentifier, maxNumberOfBlockLength_Hi, maxNumberOfBlockLength_Lo]
  *
  *   lengthFormatIdentifier:

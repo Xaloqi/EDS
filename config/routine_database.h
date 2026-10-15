@@ -14,7 +14,7 @@
  *          content (generated/routine_handlers.c), enabling YAML-driven code
  *          generation without modifying this file.
  *
- * ISO 14229-1 §13: RoutineControl (SID 0x31)
+ * ISO 14229-1:2026 §13.2: RoutineControl (SID 0x31)
  *   Sub-functions:
  *     0x01 startRoutine        — Start execution of a routine.
  *     0x02 stopRoutine         — Stop an in-progress routine.

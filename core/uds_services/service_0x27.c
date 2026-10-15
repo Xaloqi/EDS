@@ -8,7 +8,7 @@
  * PURPOSE: SID 0x27 — SecurityAccess service handler.
  *
  * PHASE-2 FIXES APPLIED:
- *   [P2-0x27-01] Full security module error → NRC mapping (ISO 14229-1 Annex A).
+ *   [P2-0x27-01] Full security module error → NRC mapping (ISO 14229-1:2026 Annex A.1, §9.4.4 Table 45).
  *   [P2-0x27-02] Session constraint enforced: SecurityAccess requires
  *                Extended or Programming session (server dispatcher also
  *                enforces this via srv_check_access_rights; double-checked

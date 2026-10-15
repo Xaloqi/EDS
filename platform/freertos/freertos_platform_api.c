@@ -97,7 +97,7 @@ static eds_nvm_ops_t s_nvm_ops;
 static void (*s_reset_cb)(uint8_t reset_type) = NULL;
 
 /* --------------------------------------------------------------------------
- * Reset sub-function values (ISO 14229-1 Table 186)
+ * Reset sub-function values (ISO 14229-1:2026 §9.3.2.2)
  * -------------------------------------------------------------------------- */
 #define ECU_RESET_HARD_RESET   (0x01U)
 #define ECU_RESET_KEY_OFF_ON   (0x02U)
@@ -378,7 +378,7 @@ void eds_platform_set_reset_cb(void (*cb)(uint8_t reset_type))
 uds_status_t eds_platform_ecu_reset(uint8_t reset_type)
 {
     /*
-     * SAFETY (ISO 14229-1 §11.3.3):
+     * SAFETY (ISO 14229-1:2026 §9.3.1):
      * Caller MUST have already:
      *   1. Transmitted the positive 0x51 response via ISO-TP.
      *   2. Waited for TX confirmation (N_As timeout).

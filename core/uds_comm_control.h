@@ -11,7 +11,7 @@
  *          Both services change ECU-wide operating modes that must be:
  *            1. Applied immediately when the request arrives.
  *            2. Automatically restored when the diagnostic session returns
- *               to Default (ISO 14229-1 §14.1 and §15.1).
+ *               to Default (ISO 14229-1:2026 §9.2.1 d)).
  *
  *          This module tracks the current comm-control mode and DTC-setting
  *          mode, and provides the restore hooks called by service_0x10.c
@@ -45,7 +45,7 @@ extern "C" {
 #endif
 
 /* --------------------------------------------------------------------------
- * CommunicationControl mode (ISO 14229-1 Table 207)
+ * CommunicationControl mode (ISO 14229-1:2026 §9.5.2.2, controlType)
  * -------------------------------------------------------------------------- */
 
 /**
@@ -59,7 +59,7 @@ typedef enum uds_comm_mode {
 } uds_comm_mode_t;
 
 /* --------------------------------------------------------------------------
- * DTC setting mode (ISO 14229-1 §15.2)
+ * DTC setting mode (ISO 14229-1:2026 §9.8)
  * -------------------------------------------------------------------------- */
 
 /**
@@ -162,7 +162,7 @@ uds_status_t uds_comm_control_set_dtc_setting(uint8_t dtc_setting);
  * @brief Restore default communication and DTC-setting modes.
  *
  * Must be called when the diagnostic session returns to Default session
- * (ISO 14229-1 §14.1, §15.1). Resets both modes to their power-on
+ * (ISO 14229-1:2026 §9.2.1 d)). Resets both modes to their power-on
  * defaults without error if already in the default state.
  *
  * @return UDS_STATUS_OK on success (always succeeds even if callbacks fail).

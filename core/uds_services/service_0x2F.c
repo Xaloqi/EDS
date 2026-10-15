@@ -6,7 +6,7 @@
  * FILE: core/uds_services/service_0x2F.c
  *
  * PURPOSE: SID 0x2F — InputOutputControlByIdentifier service handler.
- *          ISO 14229-1 §12.2: Controls ECU actuators and I/O for EOL
+ *          ISO 14229-1:2026 §12.2: Controls ECU actuators and I/O for EOL
  *          production test, bench verification, and field diagnostics.
  *
  *          Architecture:
@@ -183,7 +183,7 @@ static uds_status_t s_did_safe_io_control(
  * Request : [0x2F, DID_hi, DID_lo, controlParam {, controlOptionRecord...}]
  * Response: [0x6F, DID_hi, DID_lo, controlParam, controlStatusRecord...]
  *
- * ISO 14229-1 §12.2: One DID per request. controlParam 0x00–0x02 carry no
+ * ISO 14229-1:2026 §12.2 (not text-verified): One DID per request. controlParam 0x00–0x02 carry no
  * data record; controlParam 0x03 (shortTermAdjustment) requires exactly
  * entry->data_length additional bytes.
  *

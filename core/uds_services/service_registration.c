@@ -231,7 +231,7 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
          *
          * Available in all sessions.
          *
-         * suppressPosRspMsgIndicationBit is supported per ISO 14229-1 §13.2.4
+         * suppressPosRspMsgIndicationBit is supported (ISO 14229-1:2026 §13.2, RoutineControl; not text-verified)
          * for all ReadDTCInformation sub-functions.
          */
         .service_id                    = UDS_SID_READ_DTC_INFO,
@@ -271,7 +271,7 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
          *         suppressPosRspMsgIndicationBit is NOT applicable —
          *         0x31 carries a routineControlType byte that is not a true
          *         sub-function byte; suppress-bit semantics do not apply per
-         *         ISO 14229-1 §13.2.
+         *         ISO 14229-1:2026 §13.2.
          */
         .service_id                      = UDS_SID_ROUTINE_CONTROL,
         .handler                         = uds_service_0x31_handler,
@@ -445,7 +445,7 @@ uds_status_t uds_service_validate_length(
 /**
  * @brief Write the positive response SID byte to the response buffer.
  *
- * @details Per ISO 14229-1 §7.5.2.2, every positive response frame begins
+ * @details Per ISO 14229-1:2026 §7.4 (SID), every positive response frame begins
  *          with the service identifier OR-ed with 0x40 (UDS_SID_POSITIVE_RESPONSE_OFFSET).
  *
  *          The response buffer's length field is set to 1 after writing.

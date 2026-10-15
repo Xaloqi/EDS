@@ -5,7 +5,7 @@
  *
  * PURPOSE: SID 0x31 — RoutineControl service handler.
  *
- * ISO 14229-1 §13: RoutineControl provides a generic mechanism to execute
+ * ISO 14229-1:2026 §13.2: RoutineControl provides a generic mechanism to execute
  * ECU-defined routines via diagnostic tools. Typical use cases include:
  *   - Flash erase before firmware download (prerequisite for 0x34)
  *   - Self-test / end-of-line (EOL) test execution
@@ -18,11 +18,11 @@
  *     Request : [0x31, 0x01, RID_hi, RID_lo {, routineOptionRecord...}]
  *     Response: [0x71, 0x01, RID_hi, RID_lo {, routineStatusRecord...}]
  *
- *   0x02 — stopRoutine  (optional per ISO 14229-1 §13.3)
+ *   0x02 — stopRoutine  (optional; ISO 14229-1:2026 §13.2, not text-verified)
  *     Request : [0x31, 0x02, RID_hi, RID_lo {, routineOptionRecord...}]
  *     Response: [0x71, 0x02, RID_hi, RID_lo {, routineStatusRecord...}]
  *
- *   0x03 — requestRoutineResults  (optional per ISO 14229-1 §13.4)
+ *   0x03 — requestRoutineResults  (optional; ISO 14229-1:2026 §13.2, not text-verified)
  *     Request : [0x31, 0x03, RID_hi, RID_lo]
  *     Response: [0x71, 0x03, RID_hi, RID_lo {, routineStatusRecord...}]
  *
@@ -81,7 +81,7 @@
 /** Option record starts at byte 4 (may be absent). */
 #define SVC_0x31_OPT_OFFSET         (4U)
 
-/** Sub-function values (ISO 14229-1 §13) */
+/** Sub-function values (ISO 14229-1:2026 §13.2) */
 #define SVC_0x31_SUBFN_START        (0x01U)
 #define SVC_0x31_SUBFN_STOP         (0x02U)
 #define SVC_0x31_SUBFN_RESULTS      (0x03U)

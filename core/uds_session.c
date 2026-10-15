@@ -34,7 +34,7 @@
 static bool session_type_is_valid(uds_session_type_t session);
 
 /**
- * @brief ISO 14229-1 Table 6 — session transition matrix.
+ * @brief Session transition matrix (ISO 14229-1:2026 §9.2.1; §9.2.2.2 Table 24).
  *
  * Returns UDS_STATUS_OK if the transition from current_session to
  * new_session is permitted.
@@ -270,7 +270,7 @@ static bool session_type_is_valid(uds_session_type_t session)
     }
 }
 
-/* [P2-SESS-01] ISO 14229-1 §7.4.2.3 session transition validation. */
+/* [P2-SESS-01] ISO 14229-1:2026 §9.2.1 session transition validation. */
 static uds_status_t session_validate_transition(
     uds_session_type_t current_session,
     uds_session_type_t new_session)
@@ -292,7 +292,7 @@ static uds_status_t session_validate_transition(
 
         case UDS_SESSION_PROGRAMMING:
             /* PROGRAMMING may refresh itself. All other non-DEFAULT transitions
-             * require prior return to DEFAULT per ISO 14229-1 §7.4.2.3. */
+             * require prior return to DEFAULT (ISO 14229-1:2026 §9.2.2.2 Table 24: programming is left only via ECUReset, 10 01 or timeout). */
             if (new_session == UDS_SESSION_PROGRAMMING) {
                 return UDS_STATUS_OK;
             }

@@ -57,7 +57,7 @@ static uds_status_t srv_check_access_rights(
     const uds_msg_buf_t       *req);
 
 /* --------------------------------------------------------------------------
- * Sub-function suppress-bit mask (ISO 14229-1 §7.5.2.4)
+ * Sub-function suppress-bit mask (ISO 14229-1:2026 §7.7.3, Tables 3–4)
  * -------------------------------------------------------------------------- */
 
 /** Bit 7 of the sub-function byte: set → suppress positive response. */
@@ -319,7 +319,7 @@ static uds_status_t srv_validate_request(const uds_msg_buf_t *req)
     return UDS_STATUS_OK;
 }
 
-/* [P2-SRV-04] Complete status → NRC mapping per ISO 14229-1 Annex A. */
+/* [P2-SRV-04] Complete status → NRC mapping per ISO 14229-1:2026 Annex A.1. */
 static uds_nrc_t srv_status_to_nrc(uds_status_t status)
 {
     switch (status) {
@@ -353,7 +353,7 @@ static uds_nrc_t srv_status_to_nrc(uds_status_t status)
             return UDS_NRC_EXCEEDED_NUM_OF_ATTEMPTS;
 
         case UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE:
-            return UDS_NRC_REQUEST_SEQUENCE_ERROR;     /* 0x24 per ISO 14229-1 §10.1.2 */
+            return UDS_NRC_REQUEST_SEQUENCE_ERROR;     /* 0x24; for seed-generation failure ISO 14229-1:2026 Table 45 gives 0x22 (EDS#446) */
 
         case UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE:
             return UDS_NRC_REQUEST_OUT_OF_RANGE;

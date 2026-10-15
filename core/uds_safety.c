@@ -54,7 +54,7 @@
 /**
  * @brief DTC status availability mask — bits supported by this ECU.
  *
- * ISO 14229-1 §11.3.2: ECU must report which status bits it supports.
+ * ISO 14229-1:2026 §11.3.3.1 (DTCStatusAvailabilityMask): ECU must report which status bits it supports.
  * Default: all eight ISO 14229-1 Table D.1 status bits active.
  *
  * TODO [APPLICATION]: Adjust to match ECU-specific DTC capability assessment.
@@ -596,7 +596,7 @@ uds_safety_result_t uds_safety_check_write_data_length(
     }
 
     /*
-     * ISO 14229-1 §12.4.2: The number of bytes in the dataRecord parameter
+     * ISO 14229-1:2026 §10.7.4 Figure 27 (total length check): The number of bytes in the dataRecord parameter
      * of the WriteDataByIdentifier request shall be equal to the number of
      * bytes defined in the vehicle manufacturer's data dictionary for the
      * requested dataIdentifier.
@@ -622,7 +622,7 @@ uds_safety_result_t uds_safety_validate_dtc_status_mask(
     count_check();
 
     /*
-     * ISO 14229-1 §11.3.2: bits set in status_byte that are NOT in the ECU's
+     * ISO 14229-1:2026 §11.3.2.3 Table 318 (DTCStatusMask): bits set in status_byte that are NOT in the ECU's
      * support_mask represent unsupported status bits.  This is an out-of-range
      * request condition.
      *

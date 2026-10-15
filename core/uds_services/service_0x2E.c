@@ -57,7 +57,7 @@
 
 /**
  * Minimum request: [SID, DID_hi, DID_lo, data_byte_0] = 4 bytes.
- * ISO 14229-1 §12.4.1: at least one data byte must be present.
+ * ISO 14229-1:2026 §10.7.4 Figure 27: minimum length 4 (SID + DID + one data byte).
  */
 #define SVC_0x2E_MIN_REQ_LEN     (4U)
 
@@ -153,10 +153,11 @@ static uds_status_t s_did_safe_write(
  * Request : [0x2E, DID_hi, DID_lo, data_byte_0 {, data_byte_1, ...}]
  * Response: [0x6E, DID_hi, DID_lo]
  *
- * ISO 14229-1 §12.4: WriteDataByIdentifier writes one DID per request.
+ * ISO 14229-1:2026 §10.7: WriteDataByIdentifier writes one DID per request.
  * The data record length must exactly match the DID's declared data_length.
  *
- * NRC mapping (per ISO 14229-1 §12.6):
+ * NRC mapping (EDS today; ISO 14229-1:2026 §10.7.4 Table 281 differs for read-only and
+ * session-restricted DIDs, EDS#449):
  *   0x13 — incorrectMessageLengthOrInvalidFormat  (data length mismatch)
  *   0x22 — conditionsNotCorrect                   (session not met)
  *   0x31 — requestOutOfRange                      (DID not found)

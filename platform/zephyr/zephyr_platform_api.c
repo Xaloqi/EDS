@@ -52,7 +52,7 @@ LOG_MODULE_REGISTER(zephyr_platform_api, LOG_LEVEL_INF);
 void zephyr_nvm_store_register_ops(const eds_nvm_ops_t *ops);
 
 /* --------------------------------------------------------------------------
- * Reset sub-function values (ISO 14229-1 Table 186)
+ * Reset sub-function values (ISO 14229-1:2026 §9.3.2.2)
  * -------------------------------------------------------------------------- */
 #define ECU_RESET_HARD_RESET   (0x01U)
 #define ECU_RESET_KEY_OFF_ON   (0x02U)
@@ -89,7 +89,7 @@ uds_status_t eds_platform_init(const eds_platform_cfg_t *cfg)
 uds_status_t eds_platform_ecu_reset(uint8_t reset_type)
 {
     /*
-     * SAFETY (ISO 14229-1 §11.3.3):
+     * SAFETY (ISO 14229-1:2026 §9.3.1):
      *   The caller MUST have already:
      *     1. Transmitted the positive response frame via ISO-TP.
      *     2. Waited for N_As TX confirmation.
