@@ -26,6 +26,11 @@
  *              aborts it and starts a fresh one for the NEW request's
  *              address/size — proven by observing the fresh request's own
  *              chunk boundaries, not the pre-empted one's.
+ *   TC-CE-007  [EDS#435] 4 s between erase steps (the STM32H7 worst case)
+ *              keeps a 5 s S3 session alive through a 3-step erase, and S3
+ *              still expires 5 s after the final [0x74].
+ *   TC-CE-008  [EDS#435] With nothing driving pending_tick(), S3 still runs
+ *              out: the restart is per frame, never a hold.
  *
  * WHY THIS FILE EXISTS: issue #312 (RequestDownload's whole-region
  * erase_cb() call starves a 100 ms watchdog window on hardware with a
@@ -423,6 +428,67 @@ ZTEST(svc_0x34_chunked_erase, test_preempted_by_new_request)
                   "512 bytes fits in one chunk — this tick must already be final");
 }
 
+/* [EDS#435] Run the session's S3 countdown for `ms` milliseconds. */
+static void tick_session_ms(uint32_t ms)
+{
+    uint32_t i;
+    for (i = 0U; i < ms; i++) {
+        (void)uds_session_tick_1ms(&s_sess);
+    }
+}
+
+static void arm_s3_5000(void)
+{
+    s_sess.s3_timeout_cfg_ms = 5000U;
+    s_sess.s3_timer_ms       = 5000U;
+}
+
+/* TC-CE-007 */
+ZTEST(svc_0x34_chunked_erase, test_s3_survives_long_erase)
+{
+    uint32_t step;
+
+    arm_s3_5000();
+    (void)uds_flash_ops_register(&k_mock_ops_chunked);
+    build_valid_req(MOCK_FLASH_BASE, (uint32_t)3000U); /* 3 chunks of 1024 */
+    zassert_equal(UDS_STATUS_OK, uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_equal(0x78U, s_resp.data[2], "expected the initial 0x78");
+
+    for (step = 0U; step < 3U; step++) {
+        tick_session_ms(4000U);   /* one worst-case STM32H7 sector erase */
+        zassert_equal((int)UDS_SESSION_PROGRAMMING, (int)s_sess.active_session,
+                      "S3 ran down during the response-pending phase: session lost "
+                      "mid-erase (EDS#435)");
+        zassert_true(uds_service_0x34_pending_tick(&s_tick_frame), "");
+    }
+    zassert_equal(0x74U, s_tick_frame.data[0], "erase did not complete with [0x74]");
+
+    tick_session_ms(4999U);
+    zassert_equal((int)UDS_SESSION_PROGRAMMING, (int)s_sess.active_session,
+                  "S3 not restarted at the final response (EDS#435)");
+    tick_session_ms(2U);
+    zassert_equal((int)UDS_SESSION_DEFAULT, (int)s_sess.active_session,
+                  "S3 no longer expires after the final response");
+}
+
+/* TC-CE-008 */
+ZTEST(svc_0x34_chunked_erase, test_s3_runs_out_when_not_driven)
+{
+    arm_s3_5000();
+    (void)uds_flash_ops_register(&k_mock_ops_chunked);
+    build_valid_req(MOCK_FLASH_BASE, (uint32_t)3000U);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
+
+    tick_session_ms(5001U);
+    zassert_equal((int)UDS_SESSION_DEFAULT, (int)s_sess.active_session,
+                  "S3 held while nothing drives the erase: the session would never expire");
+
+    /* Drain the job so it doesn't leak into the next test. */
+    while (uds_service_0x34_pending_tick(&s_tick_frame)) {
+        /* consume */
+    }
+}
+
 /* ==========================================================================
  * run_all_tests
  * ========================================================================== */
@@ -435,4 +501,6 @@ void run_all_tests(void)
     RUN_TEST(svc_0x34_chunked_erase__test_step_failure_mid_erase);
     RUN_TEST(svc_0x34_chunked_erase__test_overreport_treated_as_failure);
     RUN_TEST(svc_0x34_chunked_erase__test_preempted_by_new_request);
+    RUN_TEST(svc_0x34_chunked_erase__test_s3_survives_long_erase);
+    RUN_TEST(svc_0x34_chunked_erase__test_s3_runs_out_when_not_driven);
 }
