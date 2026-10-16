@@ -399,6 +399,27 @@ docs sweep if the documented figure disagrees — added after the row read
 "All 14 UDS services", was corrected to 19 on the assumption it was a stale
 total, and turned out to be 10.
 
+#### What the protocol phases verify — the simulator, and how it is tied to the stack
+
+Phases B, C, E, G, H and I call the generated `conftest.py`'s inline ECU
+simulator directly (`_InlineEcuState` / `_inline_handle`). They verify that
+**Python model** of EDS's protocol behaviour, not the compiled C stack, so a
+claim drawn from them is only as good as the model's fidelity to the stack.
+
+That fidelity was not checked by anything until 2026-10-16. v1.20.0 changed
+the stack's NRCs for 0x22/0x2E/0x31 (EDS#465–#468) and DTC status after a
+clear (EDS#448); the model kept the old answers, so these phases went on
+asserting behaviour the shipped stack no longer had — 16 tests, green in CI —
+along with two long-standing divergences (P2* sent in 10 ms units; 0x35 for a
+wrong-length key). The model was corrected and the tests with it.
+
+The tie now: the generated suite runs in `--can-interface=firmware` mode, where
+every test is judged by the compiled harness instead of the model, and
+EDS-toolchain's release gate requires it to pass for `bms_ecu` (gate 6b). A
+divergence between model and stack therefore fails a release, rather than
+passing a qualification count. Porting the protocol phases themselves onto the
+harness is tracked separately.
+
 ### The 68 assertions target `basic_ecu` (#252)
 
 `build_harness.sh --example <name>` builds the harness against another

@@ -5,7 +5,7 @@
  *
  * ECU       : VehicleStateECU
  * Version   : 0.1.0
- * Generated : 2026-10-04T10:24:58Z
+ * Generated : 2026-10-16T12:00:00Z
  * ASIL Level: B
  *
  * PURPOSE: Declarations for per-DID safe accessor wrapper functions.
@@ -141,7 +141,7 @@ uds_status_t did_safe_read_ecusoftwareversionnumber(
  * Enforces:
  *   - NULL checks on all pointer arguments       (REQ-SAFE-004)
  *   - DID 0x0C00 exists in the database    (REQ-SAFE-001)
- *   - Session >= UDS_SESSION_DEFAULT            (REQ-SAFE-002)
+ *   - Session >= UDS_SESSION_EXTENDED            (REQ-SAFE-002)
  *   - Security level >= 0  (REQ-SAFE-003)
  *   - buf_len >= 2 bytes      (REQ-SAFE-006)
  *
@@ -167,7 +167,7 @@ uds_status_t did_safe_read_vehiclestate_enginespeed_rpm(
  * Enforces:
  *   - NULL checks on all pointer arguments       (REQ-SAFE-004)
  *   - DID 0x0D00 exists in the database    (REQ-SAFE-001)
- *   - Session >= UDS_SESSION_DEFAULT            (REQ-SAFE-002)
+ *   - Session >= UDS_SESSION_EXTENDED            (REQ-SAFE-002)
  *   - Security level >= 0  (REQ-SAFE-003)
  *   - buf_len >= 2 bytes      (REQ-SAFE-006)
  *
@@ -193,7 +193,7 @@ uds_status_t did_safe_read_vehiclestate_vehiclespeed_kph(
  * Enforces:
  *   - NULL checks on all pointer arguments       (REQ-SAFE-004)
  *   - DID 0x0C00 exists in the database    (REQ-SAFE-001)
- *   - Session >= UDS_SESSION_DEFAULT            (REQ-SAFE-002)
+ *   - Session >= UDS_SESSION_EXTENDED            (REQ-SAFE-002)
  *   - Security level >= 1  (REQ-SAFE-003)
  *   - len == 2 bytes exactly  (REQ-SAFE-006)
  *
@@ -217,7 +217,7 @@ uds_status_t did_safe_write_vehiclestate_enginespeed_rpm(
  * Enforces:
  *   - NULL checks on all pointer arguments       (REQ-SAFE-004)
  *   - DID 0x0D00 exists in the database    (REQ-SAFE-001)
- *   - Session >= UDS_SESSION_DEFAULT            (REQ-SAFE-002)
+ *   - Session >= UDS_SESSION_EXTENDED            (REQ-SAFE-002)
  *   - Security level >= 1  (REQ-SAFE-003)
  *   - len == 2 bytes exactly  (REQ-SAFE-006)
  *

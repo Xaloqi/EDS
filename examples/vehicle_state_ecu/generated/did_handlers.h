@@ -5,7 +5,7 @@
  *
  * ECU       : VehicleStateECU
  * Version   : 0.1.0
- * Generated : 2026-10-04T10:24:58Z
+ * Generated : 2026-10-16T12:00:00Z
  *
  * PURPOSE: Declarations for all generated DID read/write handler functions
  *          and the generated DID registration entry point.
@@ -112,7 +112,7 @@ uds_status_t did_read_ecusoftwareversionnumber(
 /**
  * @brief Read handler for DID 0x0C00 — VehicleState_EngineSpeed_rpm.
  *
- * Min session  : UDS_SESSION_DEFAULT
+ * Min session  : UDS_SESSION_EXTENDED
  * Security level: 0
  * Data length  : 2 byte(s)
  *
@@ -131,7 +131,7 @@ uds_status_t did_read_vehiclestate_enginespeed_rpm(
 /**
  * @brief Read handler for DID 0x0D00 — VehicleState_VehicleSpeed_kph.
  *
- * Min session  : UDS_SESSION_DEFAULT
+ * Min session  : UDS_SESSION_EXTENDED
  * Security level: 0
  * Data length  : 2 byte(s)
  *
@@ -154,7 +154,7 @@ uds_status_t did_read_vehiclestate_vehiclespeed_kph(
 /**
  * @brief Write handler for DID 0x0C00 — VehicleState_EngineSpeed_rpm.
  *
- * Min session  : UDS_SESSION_DEFAULT
+ * Min session  : UDS_SESSION_EXTENDED
  * Security level: 1
  * Data length  : 2 byte(s)
  *
@@ -171,7 +171,7 @@ uds_status_t did_write_vehiclestate_enginespeed_rpm(
 /**
  * @brief Write handler for DID 0x0D00 — VehicleState_VehicleSpeed_kph.
  *
- * Min session  : UDS_SESSION_DEFAULT
+ * Min session  : UDS_SESSION_EXTENDED
  * Security level: 1
  * Data length  : 2 byte(s)
  *

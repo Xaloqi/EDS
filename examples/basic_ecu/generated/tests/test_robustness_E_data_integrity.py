@@ -189,8 +189,16 @@ class TestDIDDataIntegrity:
         assert resp[1 + 2 + 4] == 0xF1 and resp[1 + 2 + 4 + 1] == 0x90
 
     def test_wdbi_readonly_did_returns_nrc_31(self):
-        """WDBI to a read-only DID (F190) must return NRC 0x31."""
-        resp = _req(_sim(), bytes([SID_WRITE_DATA_BY_ID, 0xF1, 0x90]) + bytes([0xAA] * 17))
+        """WDBI to a read-only DID (F190) must return NRC 0x31.
+
+        The 0x2E service gate (non-default session + level 1,
+        core/uds_access_table.c) is satisfied first, so the 0x31 is the DID's
+        answer; from the default session the stack answers 0x7F.
+        """
+        state = _sim()
+        state.session = SESSION_EXTENDED
+        state.sec_unlocked[1] = True
+        resp = _req(state, bytes([SID_WRITE_DATA_BY_ID, 0xF1, 0x90]) + bytes([0xAA] * 17))
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
         assert resp[2] == NRC_REQUEST_OUT_OF_RANGE
 
@@ -232,10 +240,11 @@ class TestDTCLifecycle:
         assert resp is not None and resp[0] == 0x59 and resp[1] == 0x02
         return resp
 
-    def test_dtc_status_initially_zero(self):
+    def test_dtc_status_initially_0x50(self):
+        """0x50 after registration since v1.20.0 (EDS#448; was 0x00)."""
         state = _sim()
         for d in state.dtcs:
-            assert d['status'] == 0x00
+            assert d['status'] == 0x50
 
     def test_dtc_visible_in_sub02_after_status_set(self):
         """Setting DTC status → it must appear in 0x19/0x02 with correct code."""
@@ -286,14 +295,15 @@ class TestDTCLifecycle:
         assert len(resp2) == 3, "No DTC records expected after clear"
 
     def test_both_dtcs_cleared_by_single_0x14(self):
-        """A single 0x14 must zero out all DTCs, not just one."""
+        """A single 0x14 must reset all DTCs, not just one — to 0x50
+        (ISO 14229-1:2026 / EDS#448: test-not-completed bits set, failure bits clear)."""
         state = _sim()
         state.session = SESSION_EXTENDED
         self._set_dtc(state, 0, 0x08)
         self._set_dtc(state, 1, 0x04)
         _req(state, bytes([SID_CLEAR_DTC, 0xFF, 0xFF, 0xFF]))
         for d in state.dtcs:
-            assert d['status'] == 0x00
+            assert d['status'] == 0x50
 
     def test_clear_dtc_in_default_session_returns_nrc_7f(self):
         state = _sim()
@@ -383,11 +393,12 @@ class TestSessionSecurityIsolation:
         assert not any(state.sec_unlocked.values())
 
     def test_did_with_extended_min_session_blocked_in_default(self):
-        """DID F187 (min_session=extended) must return NRC 0x7F in default session."""
+        """DID F187 (min_session=extended) read alone in default session → NRC 0x31
+        (ISO 14229-1:2026 Figure 21, EDS#465; was 0x7F before v1.20.0)."""
         state = _sim()
         resp = _rdbi(state, DID_SPARE_PART)
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
-        assert resp[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION
+        assert resp[2] == NRC_REQUEST_OUT_OF_RANGE
 
     def test_did_with_extended_min_session_accessible_in_extended(self):
         state = _sim()

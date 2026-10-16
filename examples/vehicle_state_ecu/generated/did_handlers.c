@@ -211,7 +211,7 @@ uds_status_t did_read_ecusoftwareversionnumber(
  *
  * Stub: copies 2 zero byte(s) into buf.
  *
- * MIN SESSION  : UDS_SESSION_DEFAULT
+ * MIN SESSION  : UDS_SESSION_EXTENDED
  * SEC LEVEL    : 0
  * DATA LENGTH  : 2 byte(s)
  *
@@ -252,7 +252,7 @@ uds_status_t did_read_vehiclestate_enginespeed_rpm(
  *
  * Stub: copies 2 zero byte(s) into buf.
  *
- * MIN SESSION  : UDS_SESSION_DEFAULT
+ * MIN SESSION  : UDS_SESSION_EXTENDED
  * SEC LEVEL    : 0
  * DATA LENGTH  : 2 byte(s)
  *
@@ -305,7 +305,7 @@ uds_status_t did_read_vehiclestate_vehiclespeed_kph(
  *
  * Stub: copies buf into the mock backing store.
  *
- * MIN SESSION  : UDS_SESSION_DEFAULT
+ * MIN SESSION  : UDS_SESSION_EXTENDED
  * SEC LEVEL    : 1
  * DATA LENGTH  : 2 byte(s) (exact length required)
  *
@@ -344,7 +344,7 @@ uds_status_t did_write_vehiclestate_enginespeed_rpm(
  *
  * Stub: copies buf into the mock backing store.
  *
- * MIN SESSION  : UDS_SESSION_DEFAULT
+ * MIN SESSION  : UDS_SESSION_EXTENDED
  * SEC LEVEL    : 1
  * DATA LENGTH  : 2 byte(s) (exact length required)
  *
@@ -437,7 +437,7 @@ static const did_entry_t s_generated_did_table[GEN_DID_HANDLER_COUNT] = {
         .access_flags       = (uint8_t)(
                                   DID_ACCESS_READ | DID_ACCESS_WRITE
                               ),
-        .min_session        = (uint8_t)UDS_SESSION_DEFAULT,
+        .min_session        = (uint8_t)UDS_SESSION_EXTENDED,
         .read_access_level  = (uint8_t)0U,
         .write_access_level = (uint8_t)1U,
         .data_length        = (uint16_t)2U,
@@ -451,7 +451,7 @@ static const did_entry_t s_generated_did_table[GEN_DID_HANDLER_COUNT] = {
         .access_flags       = (uint8_t)(
                                   DID_ACCESS_READ | DID_ACCESS_WRITE
                               ),
-        .min_session        = (uint8_t)UDS_SESSION_DEFAULT,
+        .min_session        = (uint8_t)UDS_SESSION_EXTENDED,
         .read_access_level  = (uint8_t)0U,
         .write_access_level = (uint8_t)1U,
         .data_length        = (uint16_t)2U,

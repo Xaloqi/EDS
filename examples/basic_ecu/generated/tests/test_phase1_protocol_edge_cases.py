@@ -81,15 +81,20 @@ class TestDTCStatusMaskFiltering:
     ISO 14229-1 §11.3.2 / §11.3.5 — DTC status mask must be applied.
     """
 
-    def test_sub02_mask_0xff_empty_when_all_status_zero(
+    def test_sub02_mask_testfailed_empty_when_no_dtc_has_failed(
         self, uds_bus: IsoTpTransport
     ) -> None:
         """
-        sub=0x02, mask=0xFF: with all DTC statuses at 0x00,
-        (0x00 & 0xFF) = 0x00 → no match → response must contain 0 DTC entries.
-        Response format: [0x59, 0x02, availMask] — exactly 3 bytes.
+        sub=0x02, mask=0x01 (testFailed): no DTC has failed, so no match →
+        response must contain 0 DTC entries. Format: [0x59, 0x02, availMask].
+
+        Since v1.20.0 (EDS#448) every DTC reports 0x50 after registration
+        (testNotCompletedSinceLastClear | testNotCompletedThisOperationCycle),
+        not 0x00, so mask 0xFF is no longer an "empty" mask — this test used
+        it with that premise until 2026-10-16 and passed only against a
+        simulator still modelling 0x00.
         """
-        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x02, 0xFF]))
+        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x02, 0x01]))
         assert pdu is not None
         assert pdu[0] == (SID_READ_DTC_INFO + POSITIVE_RESPONSE_OFFSET), (
             f"Expected positive response, got NRC: {pdu.hex(' ')}"
@@ -97,8 +102,20 @@ class TestDTCStatusMaskFiltering:
         assert pdu[1] == 0x02
         dtc_section = pdu[3:]
         assert len(dtc_section) == 0, (
-            f"DTC mask=0xFF with all-zero status: expected 0 DTC entries, "
+            f"DTC mask=0x01 with no failed DTC: expected 0 DTC entries, "
             f"got {len(dtc_section) // 4} entries: {pdu.hex(' ')}"
+        )
+        # Conversely mask 0xFF matches every registered DTC's 0x50 status, and
+        # each must be reported with exactly that status byte (EDS#448).
+        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x02, 0xFF]))
+        assert pdu is not None
+        assert pdu[0] == (SID_READ_DTC_INFO + POSITIVE_RESPONSE_OFFSET)
+        dtc_section = pdu[3:]
+        assert len(dtc_section) > 0 and len(dtc_section) % 4 == 0, pdu.hex(' ')
+        statuses = {dtc_section[i + 3] for i in range(0, len(dtc_section), 4)}
+        assert statuses == {0x50}, (
+            f"Every DTC must report status 0x50 before any test ran, "
+            f"got {sorted(hex(x) for x in statuses)}: {pdu.hex(' ')}"
         )
 
     def test_sub02_mask_0x00_always_empty(
@@ -117,20 +134,22 @@ class TestDTCStatusMaskFiltering:
             f"got {len(dtc_section) // 4} entries: {pdu.hex(' ')}"
         )
 
-    def test_sub01_count_zero_when_all_status_zero(
+    def test_sub01_count_zero_when_no_dtc_has_failed(
         self, uds_bus: IsoTpTransport
     ) -> None:
         """
-        sub=0x01, mask=0xFF: count of matching DTCs must be 0 when all statuses
-        are 0x00. Response: [0x59, 0x01, availMask, formatID, count_hi, count_lo].
+        sub=0x01, mask=0x01 (testFailed): count of matching DTCs must be 0 —
+        nothing has failed. Response: [0x59, 0x01, availMask, formatID,
+        count_hi, count_lo]. (Was mask 0xFF on an all-0x00 premise that
+        EDS#448 retired; see test_sub02_mask_testfailed_empty_when_no_dtc_has_failed.)
         """
-        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x01, 0xFF]))
+        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x01, 0x01]))
         assert pdu is not None
         assert pdu[0] == (SID_READ_DTC_INFO + POSITIVE_RESPONSE_OFFSET)
         assert len(pdu) >= 6
         count = struct.unpack(">H", pdu[4:6])[0]
         assert count == 0, (
-            f"sub=0x01 mask=0xFF with all-zero DTC statuses: "
+            f"sub=0x01 mask=0x01 with no failed DTC: "
             f"expected count=0, got count={count}"
         )
 
@@ -399,15 +418,21 @@ class TestReadDataByIdentifierEdgeCases:
             f"Incomplete DID bytes must return NRC 0x13, got 0x{pdu[2]:02X}"
         )
 
-    def test_mixed_valid_invalid_did_rejected(self, uds_bus: IsoTpTransport) -> None:
+    def test_mixed_valid_invalid_did_skips_the_unknown_one(self, uds_bus: IsoTpTransport) -> None:
         """
         Multi-DID with one valid (0xF190) and one unknown (0x0001).
-        ECU must reject the whole request with NRC 0x31 (first unknown DID).
+        ISO 14229-1:2026 Figure 21 / EDS#465 (v1.20.0): a DID not supported in
+        the active session is skipped, so the response is positive and carries
+        0xF190 only. (Before v1.20.0 EDS rejected the whole request with 0x31,
+        and this test asserted that.)
         """
         pdu = uds_bus.request(bytes([SID_READ_DATA_BY_ID, 0xF1, 0x90, 0x00, 0x01]))
         assert pdu is not None
-        assert pdu[0] == SID_NEGATIVE_RESPONSE
-        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE
+        assert pdu[0] == (SID_READ_DATA_BY_ID + POSITIVE_RESPONSE_OFFSET), pdu.hex(' ')
+        assert pdu[1:3] == bytes([0xF1, 0x90]), pdu.hex(' ')
+        assert len(pdu) == 3 + 17, (
+            f"expected 0x62 F1 90 + 17-byte VIN and nothing for 0x0001, got {pdu.hex(' ')}"
+        )
 
 
 # ===========================================================================
@@ -421,9 +446,14 @@ class TestWriteDataByIdentifierEdgeCases:
     """
 
     def test_write_to_read_only_did_f190_rejected(
-        self, uds_bus: IsoTpTransport
+        self, uds_bus: IsoTpTransport, aes_keys: dict
     ) -> None:
         """0xF190 (VIN) is read-only — WDBI must return NRC 0x31."""
+        # 0x2E is gated at service level before any DID check
+        # (core/uds_access_table.c): non-default session + SecurityAccess
+        # level 1. Satisfy it so the NRC below is the one this test is about.
+        _session(uds_bus, SESSION_EXTENDED)
+        _unlock(uds_bus, 1, aes_keys)
         pdu = uds_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 0xF1, 0x90]) + bytes([0x41] * 17)
         )
@@ -511,16 +541,29 @@ class TestWriteDataByIdentifierEdgeCases:
         assert pdu[0] == SID_NEGATIVE_RESPONSE
         assert pdu[2] == NRC_INCORRECT_MSG_LEN
 
-    def test_wdbi_no_did_bytes_rejected(self, uds_bus: IsoTpTransport) -> None:
+    def test_wdbi_no_did_bytes_rejected(
+        self, uds_bus: IsoTpTransport, aes_keys: dict
+    ) -> None:
         """[0x2E] only — no DID → NRC 0x13."""
+        # 0x2E is gated at service level before any DID check
+        # (core/uds_access_table.c): non-default session + SecurityAccess
+        # level 1. Satisfy it so the NRC below is the one this test is about.
+        _session(uds_bus, SESSION_EXTENDED)
+        _unlock(uds_bus, 1, aes_keys)
         pdu = uds_bus.request(bytes([SID_WRITE_DATA_BY_ID]))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
         assert pdu[2] == NRC_INCORRECT_MSG_LEN
 
-    def test_wdbi_unknown_did_rejected(self, uds_bus: IsoTpTransport) -> None:
+    def test_wdbi_unknown_did_rejected(
+        self, uds_bus: IsoTpTransport, aes_keys: dict
+    ) -> None:
         """Unknown DID 0xBEEF → NRC 0x31 (requestOutOfRange)."""
+        # 0x2E is gated at service level before any DID check
+        # (core/uds_access_table.c): non-default session + SecurityAccess
+        # level 1. Satisfy it so the NRC below is the one this test is about.
         _session(uds_bus, SESSION_EXTENDED)
+        _unlock(uds_bus, 1, aes_keys)
         pdu = uds_bus.request(bytes([SID_WRITE_DATA_BY_ID, 0xBE, 0xEF, 0x00]))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
@@ -639,14 +682,14 @@ class TestClearDiagnosticInformation:
             "ClearDTC must not change session — TesterPresent must still respond"
         )
 
-    def test_sub02_after_clear_returns_empty_list(
+    def test_sub02_after_clear_reports_no_failed_dtc(
         self, uds_bus: IsoTpTransport
     ) -> None:
         """
-        After ClearDTC, all DTC statuses are 0x00.
-        sub=0x02, mask=0xFF: (0x00 & 0xFF) = 0 → empty DTC list.
-        This test mirrors TestDTCStatusMaskFiltering.test_sub02_mask_0xff but
-        explicitly runs ClearDTC first to make the state explicit.
+        After ClearDTC every DTC status is 0x50 (EDS#448, ISO 14229-1:2026),
+        so sub=0x02 with mask=0x01 (testFailed) must return an empty list.
+        This test mirrors TestDTCStatusMaskFiltering but explicitly runs
+        ClearDTC first to make the state explicit.
         """
         _session(uds_bus, SESSION_EXTENDED)
         clear_pdu = uds_bus.request(bytes([0x14, 0xFF, 0xFF, 0xFF]))
@@ -654,11 +697,11 @@ class TestClearDiagnosticInformation:
             f"ClearDTC must succeed for this test to prove anything about "
             f"post-clear state, got {clear_pdu.hex(' ') if clear_pdu else None}"
         )
-        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x02, 0xFF]))
+        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x02, 0x01]))
         assert pdu is not None
         assert pdu[0] == (SID_READ_DTC_INFO + POSITIVE_RESPONSE_OFFSET)
         dtc_section = pdu[3:]
         assert len(dtc_section) == 0, (
-            f"After ClearDTC, sub=0x02 mask=0xFF must return 0 DTC entries, "
+            f"After ClearDTC, sub=0x02 mask=0x01 must return 0 DTC entries, "
             f"got {len(dtc_section) // 4}: {pdu.hex(' ')}"
         )

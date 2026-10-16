@@ -36,7 +36,7 @@ It installs by extracting into the public EDS repo you already cloned.
   - Safety Manual EDS-SM-001 Rev 1.3 (PDF)
   - Hazard Analysis and Risk Assessment (EDS-HARA-001)
   - Tool Qualification Argument (EDS-TQA-001)
-  - Requirements Traceability Matrix — 30 requirements (16 ASIL-B, 14 QM), all COVERED
+  - Requirements Traceability Matrix — every requirement with its ASIL, implementation, tests and coverage status
   - MISRA C:2012 Deviation Log — 39 deviations, 0 open violations
   - Security Integration Guide
   - Customer Notice (integration responsibilities, ASIL-B candidate status)
@@ -192,13 +192,22 @@ python3 tools/codegen.py \
   --config examples/bms_ecu/diagnostics_config.yaml \
   --out    examples/bms_ecu/generated/ \
   --safety-wrappers --asil-level B --test-gen
+```
 
-# Optional: also generate the SOVD CDA for Eclipse SDV / OEM SOVD clients
+Optional: add `--sovd` to the **same** command to also generate the SOVD CDA
+(`sovd_cda.json`) for Eclipse SDV / OEM SOVD clients:
+
+```bash
 python3 tools/codegen.py \
   --config examples/bms_ecu/diagnostics_config.yaml \
   --out    examples/bms_ecu/generated/ \
-  --safety-wrappers --asil-level B --sovd
+  --safety-wrappers --asil-level B --test-gen --sovd
 ```
+
+> **Each run describes `--out` completely.** codegen removes files a
+> previous run wrote into the same directory that this run does not
+> produce (EDS#292), so a second run without `--test-gen` deletes the test
+> suite Step 6 runs. Pass every output flag you want in one command.
 
 Expected output:
 
@@ -455,7 +464,7 @@ python3 tools/eds_ai.py status
 Expected output:
 
 ```
-Xaloqi EDS AI Assistant v1.0.0
+Xaloqi EDS AI Assistant v1.20.0
 
   License:      ✓ Valid (Developer tier, expires 2027-04-21)
   API key:      ✓ Set (ANTHROPIC_API_KEY)
@@ -565,7 +574,7 @@ The `safety_docs/` directory contains the complete ISO 26262-aligned documentati
 | Safety Manual Rev 1.3 | `EDS_Safety_Manual_EDS-SM-001_Rev1.3.pdf` | Component safety manual — integration responsibilities, safety boundaries |
 | HARA | `EDS-HARA-001.md` | 6 hazard events, ASIL decomposition argument |
 | TQA | `EDS-TQA-001.md` | Tool qualification argument (TCL1 per ISO 26262-8 §11) |
-| RTM | `EDS_Requirements_Traceability_Matrix.csv` | 30 requirements (16 ASIL-B, 14 QM), all COVERED |
+| RTM | `EDS_Requirements_Traceability_Matrix.csv` | Every requirement with its ASIL, implementation files, tests and coverage status (COVERED / PARTIAL) — the CSV is the source of truth for its counts |
 | MISRA log | `MISRA_DEVIATION_LOG.md` | 39 documented deviations, 0 open violations |
 | Security guide | `SECURITY_INTEGRATION.md` | OEM key provisioning for AES-128-CMAC |
 | Customer notice | `CUSTOMER_NOTICE.md` | ASIL-B candidate status, integrator responsibilities |

@@ -62,10 +62,17 @@ def _nrc(sid, code):
 
 
 class TestRDBISessionAndSecurityGates:
-    """RDBI must return NRC 0x7F for session violations (not 0x31)."""
+    """RDBI session violations: NRC 0x31 since v1.20.0 (EDS#465).
 
-    def test_rdbi_session_gate_returns_nrc_7f_not_31(self):
-        """DID 0xF187 requires extended session; reading in default should return 0x7F."""
+    ISO 14229-1:2026 Figure 21 asks "DID supported in active session?" and a
+    request with no supported DID is requestOutOfRange (0x31). Before v1.20.0
+    EDS answered 0x7F and this class asserted it — and kept passing after the
+    stack changed, because it runs against the inline simulator, which still
+    modelled 0x7F (2026-10-16 validation campaign, F1/F15).
+    """
+
+    def test_rdbi_session_gate_returns_nrc_31(self):
+        """DID 0xF187 requires extended session; reading it alone in default → 0x31."""
         state = _sim()
         # In default session
         resp = _req(state, bytes([SID_READ_DATA_BY_ID,
@@ -74,10 +81,9 @@ class TestRDBISessionAndSecurityGates:
         assert resp is not None
         assert resp[0] == SID_NEGATIVE_RESPONSE, f"Expected NRC, got {resp.hex()}"
         assert resp[1] == SID_READ_DATA_BY_ID
-        assert resp[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION, (
-            f"ASIL-B step 2 must return NRC 0x7F for session gate, "
-            f"got NRC 0x{resp[2]:02X} — this is the same bug pattern as WDBI "
-            f"(was returning 0x31 requestOutOfRange instead of 0x7F)")
+        assert resp[2] == NRC_REQUEST_OUT_OF_RANGE, (
+            f"A DID not supported in the active session must be NRC 0x31 "
+            f"(ISO 14229-1:2026 Figure 21, EDS#465), got NRC 0x{resp[2]:02X}")
 
     def test_rdbi_session_gate_after_upgrade_allows_access(self):
         """Same DID 0xF187 must be readable after upgrading to extended session."""
@@ -213,14 +219,15 @@ class TestRoutineControlStateTracking:
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
         assert resp[2] == NRC_SUB_FUNCTION_NOT_SUPPORTED
 
-    def test_rc_session_gate_returns_nrc_7f(self):
-        """Routine in extended session, requested in default → NRC 0x7F."""
+    def test_rc_session_gate_returns_nrc_31(self):
+        """Routine in extended session, requested in default → NRC 0x31
+        (ISO 14229-1:2026 Figure 31, EDS#468; was 0x7F before v1.20.0)."""
         state = _sim()
         resp = _req(state, bytes([SID_ROUTINE_CONTROL, 0x01,
                                    (RID_SELF_TEST >> 8) & 0xFF,
                                     RID_SELF_TEST & 0xFF]))
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
-        assert resp[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION
+        assert resp[2] == NRC_REQUEST_OUT_OF_RANGE
 
     def test_rc_too_short_pdu_returns_nrc_13(self):
         state = _sim()
@@ -413,11 +420,16 @@ class TestReadDTCInfoEdgeCases:
         count = (resp[4] << 8) | resp[5]
         assert count == 1, f"One DTC with status 0x08 should match mask 0xFF, got {count}"
 
-    def test_rdtc_sub_02_empty_when_all_clear(self):
+    def test_rdtc_sub_02_empty_when_no_dtc_has_failed(self):
         state = _sim()
-        resp = _req(state, bytes([SID_READ_DTC, 0x02, 0xFF]))
+        # Every DTC reports 0x50 after registration and after a clear
+        # (testNotCompletedSinceLastClear | testNotCompletedThisOperationCycle,
+        # EDS#448, v1.20.0). Mask 0x2F (the failure bits) is disjoint from that
+        # baseline, so it selects exactly the DTCs a monitor has failed. These
+        # used mask 0xFF on an all-0x00 premise the stack retired (2026-10-16, F15).
+        resp = _req(state, bytes([SID_READ_DTC, 0x02, 0x2F]))
         assert resp is not None
-        # Response is [0x59, 0x02, mask] + DTC records; with all status=0x00 and mask=0xFF → no match
+        # [0x59, 0x02, availabilityMask] and no DTC records.
         assert resp == bytes([SID_READ_DTC + POSITIVE_RESPONSE_OFFSET, 0x02, 0xFF])
 
     def test_rdtc_unsupported_sub_0x0f_returns_nrc_12(self):

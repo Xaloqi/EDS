@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU_DoIP
 # Version   : 1.6.0
-# Generated : 2026-08-31T12:02:05Z
+# Generated : 2026-10-16T12:00:00Z
 #
 # Routine   : 0xFF01  (ResetToFactoryDefaults)
 # Session   : extended (ordinal 3)
@@ -15,7 +15,7 @@
 #   - Happy-path startRoutine (all required preconditions satisfied)
 #   - requestRoutineResults (if ROUTINE_SUPPORT_RESULTS)
 #   - stopRoutine not supported (if stop absent from support flags)
-#   - Session gate enforcement (wrong session → NRC 0x7F)
+#   - Session gate enforcement (wrong session → NRC 0x31, EDS#468)
 #   - Security gate enforcement (locked → NRC 0x33)
 #   - subFunction not supported (stop or results absent → NRC 0x12)
 #   - Protocol boundary cases (unknown RID, bad subFn, too-short request)
@@ -198,18 +198,18 @@ class TestStopNotSupportedResettofactorydefaults:
 class TestSessionGateResettofactorydefaults:
     """
     0xFF01 (ResetToFactoryDefaults) requires extended session (ordinal 3).
-    Default session ordinal (1) < required — must return NRC 0x7F.
+    Default session ordinal (1) < required — must return NRC 0x31
+    (ISO 14229-1:2026 Figure 31; EDS v1.20.0, EDS#468 — was 0x7F before).
     """
 
     def test_rejected_in_default_session(self, uds_bus: IsoTpTransport) -> None:
         """
-        startRoutine 0xFF01 in Default Session → NRC 0x7F.
-        s_validate_routine_access() → uds_safety_validate_session() → NRC 0x7F.
+        startRoutine 0xFF01 in Default Session → NRC 0x31 (requestOutOfRange).
         """
         uds_bus.request(bytes([SID_DIAGNOSTIC_SESSION_CONTROL, SESSION_DEFAULT]),
                         timeout=0.1)
         pdu = _rc(uds_bus, _SUBFN_START)
-        _assert_nrc(pdu, NRC_SERVICE_NOT_SUPPORTED_IN_SESSION)
+        _assert_nrc(pdu, NRC_REQUEST_OUT_OF_RANGE)
 
 # =============================================================================
 # §5  Security gate

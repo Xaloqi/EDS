@@ -4,7 +4,7 @@
 #
 # ECU       : BMS_MainController
 # Version   : 1.0.0
-# Generated : 2026-08-30T13:15:22Z
+# Generated : 2026-10-16T12:00:00Z
 #
 # PURPOSE: UDS service-level and ISO-TP transport tests derived from
 #          diagnostics_config.yaml.
@@ -113,7 +113,7 @@ class TestDiagnosticSessionControl:
         assert pdu[1] == SESSION_EXTENDED
         assert len(pdu) == 6, f"Session response must be 6 bytes, got {len(pdu)}"
         p2_ms  = struct.unpack(">H", pdu[2:4])[0]
-        p2s_ms = struct.unpack(">H", pdu[4:6])[0]
+        p2s_ms = struct.unpack(">H", pdu[4:6])[0] * 10   # sent in 10 ms units (ISO 14229-1)
         assert p2_ms  == 50,     f"P2server_max mismatch: {p2_ms} ms (YAML: 50)"
         assert p2s_ms == 5000, f"P2*server_max mismatch: {p2s_ms} ms (YAML: 5000)"
 
@@ -269,14 +269,19 @@ class TestSecurityAccess:
         )
 
     def test_key_wrong_length_rejected(self, uds_bus: IsoTpTransport) -> None:
-        """sendKey PDU with wrong length (2 bytes instead of 4) must return NRC 0x13."""
+        """sendKey PDU with wrong length (2 bytes instead of 4) must return NRC 0x35.
+
+        EDS answers invalidKey, not incorrectMessageLength, on purpose: a
+        distinct NRC (or timing) would reveal the key length to an attacker
+        (core/uds_security.c, constant-time compare on length mismatch).
+        """
         _session(uds_bus, SESSION_EXTENDED)
         uds_bus.request(bytes([SID_SECURITY_ACCESS, 0x01]))   # get seed
         pdu = uds_bus.request(bytes([SID_SECURITY_ACCESS, 0x02, 0x00, 0x00]))   # 2-byte key
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
-        assert pdu[2] == NRC_INCORRECT_MSG_LEN, (
-            f"Expected NRC 0x13 for wrong-length key, got 0x{pdu[2]:02X}"
+        assert pdu[2] == NRC_INVALID_KEY, (
+            f"Expected NRC 0x35 for wrong-length key, got 0x{pdu[2]:02X}"
         )
 
     def test_replay_attack_fails(
@@ -897,7 +902,7 @@ class TestRoutineControl:
 
     def test_bms_selftest_session_gate(self, uds_bus: IsoTpTransport) -> None:
         """
-        0xBB00 (BMS_SelfTest) in Default session → NRC 0x7F.
+        0xBB00 (BMS_SelfTest) in Default session → NRC 0x31.
 
         Default ordinal (1) < required extended ordinal (3).
         """
@@ -906,13 +911,15 @@ class TestRoutineControl:
                                      187, 0]))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
-        assert pdu[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION, (
-            f"Expected NRC 0x7F, got 0x{pdu[2]:02X}"
+        # ISO 14229-1:2026 Figure 31: RID not supported in the active session
+        # -> requestOutOfRange. EDS answers 0x31 since v1.20.0 (EDS#468).
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE, (
+            f"Expected NRC 0x31, got 0x{pdu[2]:02X}"
         )
 
     def test_bms_forcepassivebalance_session_gate(self, uds_bus: IsoTpTransport) -> None:
         """
-        0xBB01 (BMS_ForcePassiveBalance) in Default session → NRC 0x7F.
+        0xBB01 (BMS_ForcePassiveBalance) in Default session → NRC 0x31.
 
         Default ordinal (1) < required extended ordinal (3).
         """
@@ -921,13 +928,15 @@ class TestRoutineControl:
                                      187, 1]))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
-        assert pdu[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION, (
-            f"Expected NRC 0x7F, got 0x{pdu[2]:02X}"
+        # ISO 14229-1:2026 Figure 31: RID not supported in the active session
+        # -> requestOutOfRange. EDS answers 0x31 since v1.20.0 (EDS#468).
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE, (
+            f"Expected NRC 0x31, got 0x{pdu[2]:02X}"
         )
 
     def test_bms_contactorfunctionaltest_session_gate(self, uds_bus: IsoTpTransport) -> None:
         """
-        0xBB02 (BMS_ContactorFunctionalTest) in Default session → NRC 0x7F.
+        0xBB02 (BMS_ContactorFunctionalTest) in Default session → NRC 0x31.
 
         Default ordinal (1) < required extended ordinal (3).
         """
@@ -936,13 +945,15 @@ class TestRoutineControl:
                                      187, 2]))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
-        assert pdu[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION, (
-            f"Expected NRC 0x7F, got 0x{pdu[2]:02X}"
+        # ISO 14229-1:2026 Figure 31: RID not supported in the active session
+        # -> requestOutOfRange. EDS answers 0x31 since v1.20.0 (EDS#468).
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE, (
+            f"Expected NRC 0x31, got 0x{pdu[2]:02X}"
         )
 
     def test_bms_resetsoctofullcharge_session_gate(self, uds_bus: IsoTpTransport) -> None:
         """
-        0xBB10 (BMS_ResetSoCToFullCharge) in Default session → NRC 0x7F.
+        0xBB10 (BMS_ResetSoCToFullCharge) in Default session → NRC 0x31.
 
         Default ordinal (1) < required programming ordinal (2).
         """
@@ -951,13 +962,15 @@ class TestRoutineControl:
                                      187, 16]))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
-        assert pdu[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION, (
-            f"Expected NRC 0x7F, got 0x{pdu[2]:02X}"
+        # ISO 14229-1:2026 Figure 31: RID not supported in the active session
+        # -> requestOutOfRange. EDS answers 0x31 since v1.20.0 (EDS#468).
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE, (
+            f"Expected NRC 0x31, got 0x{pdu[2]:02X}"
         )
 
     def test_bms_clearfaulthistory_session_gate(self, uds_bus: IsoTpTransport) -> None:
         """
-        0xBB11 (BMS_ClearFaultHistory) in Default session → NRC 0x7F.
+        0xBB11 (BMS_ClearFaultHistory) in Default session → NRC 0x31.
 
         Default ordinal (1) < required programming ordinal (2).
         """
@@ -966,8 +979,10 @@ class TestRoutineControl:
                                      187, 17]))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
-        assert pdu[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION, (
-            f"Expected NRC 0x7F, got 0x{pdu[2]:02X}"
+        # ISO 14229-1:2026 Figure 31: RID not supported in the active session
+        # -> requestOutOfRange. EDS answers 0x31 since v1.20.0 (EDS#468).
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE, (
+            f"Expected NRC 0x31, got 0x{pdu[2]:02X}"
         )
 
     # ── Security gate ───────────────────────────────────────────────────────
