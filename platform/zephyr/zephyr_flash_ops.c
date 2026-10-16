@@ -78,8 +78,6 @@ LOG_MODULE_REGISTER(zephyr_flash_ops, LOG_LEVEL_INF);
 
 static uds_flash_region_t s_flash_region;   /* populated at init */
 
-static const uds_flash_ops_t *sp_registered_ops = NULL;
-
 /* --------------------------------------------------------------------------
  * [#312] Chunked erase + bounded watchdog bridge
  *
