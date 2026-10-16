@@ -81,7 +81,11 @@ typedef enum uds_dtc_setting_mode {
  * @param[in] comm_type  Communication type byte from the request.
  *
  * @return UDS_STATUS_OK if mode was applied successfully.
- * @return UDS_STATUS_ERR_CONDITIONS_NOT_MET if the platform cannot comply.
+ * @return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE if comm_type names a subnet
+ *         (bits 7-4, ISO 14229-1:2026 Table B.1) this node doesn't have;
+ *         the tester gets NRC 0x31 (Table 57) [EDS#447].
+ * @return UDS_STATUS_ERR_CONDITIONS_NOT_MET (or any other error) if the
+ *         platform cannot comply; the tester gets NRC 0x22.
  */
 typedef uds_status_t (*uds_comm_control_platform_cb_t)(
     uds_comm_mode_t mode,
@@ -142,6 +146,8 @@ uds_status_t uds_comm_control_init(const uds_comm_control_cfg_t *cfg);
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if init not called.
  * @return UDS_STATUS_ERR_INVALID_PARAM if control_type is out of range.
+ * @return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE if the platform callback
+ *         rejected comm_type as out of range [EDS#447].
  * @return UDS_STATUS_ERR_CONDITIONS_NOT_MET if platform callback failed.
  */
 uds_status_t uds_comm_control_apply(uint8_t control_type, uint8_t comm_type);
