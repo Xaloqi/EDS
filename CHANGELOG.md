@@ -49,6 +49,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`zephyr_flash_ops.c` no longer warns on every secure-boot build** (`#432`):
+  the unused `sp_registered_ops` declaration is removed.
 - **DID-based services check "supported in the active session" first, per
   the ISO 14229-1:2026 NRC figures** (`#465`, `#466`, `#467`, `#468`,
   `SEC-PDID-ACCESS-01`).
