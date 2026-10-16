@@ -5,7 +5,7 @@
  *
  * ECU       : BMS_MainController
  * Version   : 1.0.0
- * Generated : 2026-09-01T16:48:22Z
+ * Generated : 2026-10-16T06:24:38Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -208,7 +208,7 @@ uds_status_t uds_generated_init(
      * Soft-degrade: if NVM is not ready (e.g. first boot or NVM subsystem
      * failure), dtc_mirror_load() returns UDS_STATUS_ERR_NOT_INITIALIZED and
      * this is treated as non-fatal — the stack boots with all DTC status
-     * bytes cleared to 0x00.
+     * bytes at their registration value, 0x50 (EDS#462).
      *
      * TRACEABILITY: REQ-DTC-NVM-01
      */
@@ -342,7 +342,8 @@ uds_status_t uds_generated_init(
     /* ── Step 5.5: Restore DTC status bytes from NVM ──────────────────────────
      *
      * Reads the NVM-backed DTC mirror and restores each persisted status byte
-     * into the live dtc_database via dtc_database_set_status().
+     * into the live dtc_database via dtc_database_restore_status(), which
+     * ControlDTCSetting does not gate (EDS#462).
      *
      * MUST be called after all DTCs have been registered (Step 5) so that
      * the mirror loader can match persisted codes against the live table.
@@ -353,7 +354,7 @@ uds_status_t uds_generated_init(
      * Soft-degrade behaviour:
      *   UDS_STATUS_ERR_NOT_INITIALIZED  → NVM not ready (first boot or NVM
      *     subsystem failure). Treated as non-fatal: stack continues with all
-     *     DTC status bytes at 0x00.
+     *     DTC status bytes at 0x50 (testNotCompleted, as registered).
      *   UDS_STATUS_ERR_PLATFORM         → NVM read error. Non-fatal: same
      *     degraded behaviour as first boot.
      *   UDS_STATUS_ERR_NVM_DATA_CORRUPT → the persisted mirror record failed
@@ -361,7 +362,7 @@ uds_status_t uds_generated_init(
      *     Deliberately treated the same as "mirror absent" rather than as a
      *     fatal boot error: the blast radius of trusting nothing from a
      *     corrupt record is identical to the NOT_INITIALIZED case (DTC
-     *     history is lost, all status bytes stay at 0x00), which is the same
+     *     history is lost, all status bytes stay at 0x50), which is the same
      *     blast radius the original DTC-history-loss defect had. Aborting
      *     uds_stack_init() over it would let a corrupted NVM record take down
      *     the entire diagnostic stack, a materially larger failure than the
@@ -381,7 +382,7 @@ uds_status_t uds_generated_init(
         }
         /* Soft-degrade: NOT_INITIALIZED, PLATFORM, and NVM_DATA_CORRUPT
          * errors are all non-fatal — the corrupted/unavailable mirror is
-         * discarded and boot continues with default (0x00) DTC status. */
+         * discarded and boot continues with default (0x50) DTC status. */
     }
 
     /* ── Step 5.6: Register generated routine handlers ──────────────────────
