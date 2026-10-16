@@ -34,7 +34,8 @@
  * -------------------------------------------------------------------------- */
 
 typedef struct {
-    uint8_t  periodic_id;   /* 0x00 = slot free */
+    bool     active;        /* [EDS#466] slot in use (pDID 0x00 is valid) */
+    uint8_t  periodic_id;
     uint8_t  mode;          /* UDS_PERIODIC_MODE_* */
     uint16_t counter_ms;    /* countdown; fires when 0 */
     uint16_t interval_ms;   /* reload value after firing */
@@ -54,6 +55,14 @@ static uint8_t            s_count;
  * call). Single-slot by design: uds_periodic_pop_due() returns at most
  * one frame per call, so there is never more than one "in flight". */
 static uint8_t s_last_popped_id;
+static bool    s_last_popped_valid;
+
+/* [SEC-PDID-ACCESS-01] Contexts the subscribing 0x2A request ran under. Every
+ * push re-checks the DID's session and security against them, so a
+ * subscription stops when the tester can no longer read the DID (security
+ * re-locked on a session change). NULL = never bound: no re-check. */
+static const uds_session_ctx_t  *s_access_sess;
+static const uds_security_ctx_t *s_access_sec;
 
 /* --------------------------------------------------------------------------
  * Internal helpers
@@ -73,7 +82,7 @@ static uds_periodic_sub_t *s_find_slot(uint8_t periodic_id)
 {
     uint8_t i;
     for (i = (uint8_t)0U; i < (uint8_t)UDS_PERIODIC_MAX_SUBSCRIPTIONS; i++) {
-        if (s_subs[i].periodic_id == periodic_id) {
+        if (s_subs[i].active && (s_subs[i].periodic_id == periodic_id)) {
             return &s_subs[i];
         }
     }
@@ -84,7 +93,7 @@ static uds_periodic_sub_t *s_find_free(void)
 {
     uint8_t i;
     for (i = (uint8_t)0U; i < (uint8_t)UDS_PERIODIC_MAX_SUBSCRIPTIONS; i++) {
-        if (s_subs[i].periodic_id == (uint8_t)0U) {
+        if (!s_subs[i].active) {
             return &s_subs[i];
         }
     }
@@ -99,6 +108,7 @@ uds_status_t uds_periodic_init(void)
 {
     (void)memset(s_subs, 0, sizeof(s_subs));
     s_count = (uint8_t)0U;
+    s_last_popped_valid = false;
     return UDS_STATUS_OK;
 }
 
@@ -129,6 +139,7 @@ uds_status_t uds_periodic_subscribe(uint8_t periodic_id, uint8_t mode)
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
 
+    slot->active      = true;
     slot->periodic_id = periodic_id;
     slot->mode        = mode;
     slot->interval_ms = interval;
@@ -159,6 +170,7 @@ uds_status_t uds_periodic_cancel_all(void)
 {
     (void)memset(s_subs, 0, sizeof(s_subs));
     s_count = (uint8_t)0U;
+    s_last_popped_valid = false;
     return UDS_STATUS_OK;
 }
 
@@ -167,7 +179,7 @@ uds_status_t uds_periodic_tick_1ms(void)
     uint8_t i;
 
     for (i = (uint8_t)0U; i < (uint8_t)UDS_PERIODIC_MAX_SUBSCRIPTIONS; i++) {
-        if (s_subs[i].periodic_id == (uint8_t)0U) {
+        if (!s_subs[i].active) {
             continue;
         }
 
@@ -198,7 +210,7 @@ uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame)
     }
 
     for (i = (uint8_t)0U; i < (uint8_t)UDS_PERIODIC_MAX_SUBSCRIPTIONS; i++) {
-        if ((s_subs[i].periodic_id == (uint8_t)0U) || !s_subs[i].due) {
+        if (!s_subs[i].active || !s_subs[i].due) {
             continue;
         }
 
@@ -211,6 +223,15 @@ uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame)
         entry  = NULL;
         status = uds_safety_find_did(full_did, &entry);
         if ((status != UDS_STATUS_OK) || (entry == NULL)) {
+            continue;
+        }
+
+        /* [SEC-PDID-ACCESS-01] Re-check session and security; drop the
+         * subscription if the DID is no longer readable. */
+        if ((s_access_sess != NULL) && (s_access_sec != NULL) &&
+            (uds_safety_validate_did_access(entry, s_access_sess, s_access_sec,
+                                            UDS_SAFETY_ACCESS_READ) != UDS_STATUS_OK)) {
+            (void)uds_periodic_unsubscribe(s_subs[i].periodic_id);
             continue;
         }
 
@@ -240,12 +261,30 @@ uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame)
 
         /* [EDS#194] Record what was just popped so a failed transmit can
          * ask for it back via uds_periodic_requeue_last(). */
-        s_last_popped_id = s_subs[i].periodic_id;
+        s_last_popped_id    = s_subs[i].periodic_id;
+        s_last_popped_valid = true;
 
         return UDS_STATUS_OK;
     }
 
     return UDS_STATUS_ERR_NOT_FOUND;
+}
+
+uint8_t uds_periodic_free_slots(void)
+{
+    return (uint8_t)((uint8_t)UDS_PERIODIC_MAX_SUBSCRIPTIONS - s_count);
+}
+
+bool uds_periodic_is_subscribed(uint8_t periodic_id)
+{
+    return (s_find_slot(periodic_id) != NULL);
+}
+
+void uds_periodic_set_access_ctx(const uds_session_ctx_t  *session_ctx,
+                                 const uds_security_ctx_t *security_ctx)
+{
+    s_access_sess = session_ctx;
+    s_access_sec  = security_ctx;
 }
 
 uds_status_t uds_periodic_requeue_last(void)
@@ -254,11 +293,10 @@ uds_status_t uds_periodic_requeue_last(void)
     uint8_t              id;
 
     id = s_last_popped_id;
-    s_last_popped_id = (uint8_t)0U;  /* consumed — one requeue per pop */
-
-    if (id == (uint8_t)0U) {
+    if (!s_last_popped_valid) {
         return UDS_STATUS_ERR_NOT_FOUND;
     }
+    s_last_popped_valid = false;     /* consumed — one requeue per pop */
 
     slot = s_find_slot(id);
     if (slot == NULL) {

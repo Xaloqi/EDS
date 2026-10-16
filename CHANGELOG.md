@@ -49,6 +49,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DID-based services check "supported in the active session" first, per
+  the ISO 14229-1:2026 NRC figures** (`#465`, `#466`, `#467`, `#468`,
+  `SEC-PDID-ACCESS-01`).
+  - ReadDataByIdentifier (Figure 21): a DID that isn't supported in the active
+    session is skipped instead of failing the whole request. NRC 0x31 only if
+    none is supported. A DID condition failure is 0x22 (was 0x31), and a
+    response over the transport limit is 0x14 (was 0x13).
+  - ReadDataByPeriodicIdentifier (Figure 24):
+    - an unsupported transmissionMode is 0x31 (was 0x12);
+    - `2A 04` with no pDID stops all;
+    - an unsupported pDID is skipped;
+    - if the scheduler can't take every supported pDID, the answer is 0x31
+      and none is scheduled (§10.5.1);
+    - each pDID gets the same session and security check as
+      ReadDataByIdentifier, and a subscription stops once its DID is no longer
+      readable (e.g. security re-locked by a session change);
+    - pDID 0x00 (DID 0xF200) now works.
+    - New `uds_periodic_free_slots()`, `uds_periodic_is_subscribed()` and
+      `uds_periodic_set_access_ctx()`.
+  - InputOutputControlByIdentifier (Figure 30): an unsupported
+    inputOutputControlParameter is 0x31 (was 0x12; the service has no
+    SubFunction). A DID that isn't IO-controllable or isn't available in the
+    session is 0x31 (was 0x22). These checks come before the length and
+    security checks.
+  - RoutineControl (Figure 31): a routine not available in the active session
+    is 0x31 (was 0x7F).
 - **CommunicationControl conformance** (`#447`, ISO 14229-1:2026 §9.5).
   communicationType is validated against Annex B Table B.1: bits 1-0 = 0 or
   any bit 3-2 set is NRC 0x31 (EDS passed every value to the platform). A

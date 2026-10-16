@@ -419,6 +419,9 @@ static uds_nrc_t srv_status_to_nrc(uds_status_t status)
         case UDS_STATUS_ERR_SEC_DELAY_ACTIVE:
             return UDS_NRC_REQUIRED_TIME_DELAY_NOT_EXPIRED; /* 0x37 [EDS#446] */
 
+        case UDS_STATUS_ERR_RESPONSE_TOO_LONG:
+            return UDS_NRC_RESPONSE_TOO_LONG;               /* 0x14 [EDS#465] */
+
         case UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE:
             return UDS_NRC_REQUEST_SEQUENCE_ERROR;     /* 0x24: sendKey without requestSeed (ISO 14229-1:2026 Table 45) */
 
