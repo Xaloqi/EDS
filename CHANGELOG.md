@@ -8,6 +8,68 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.20.0] — 2026-10-16
+
+### Migration from 1.19.x
+
+This release brings EDS's behaviour in line with the licensed ISO 14229-1:2026
+and ISO 15765-2:2024 texts. Most changes are NRC values a tester sees. Check
+these before upgrading:
+
+**Build and API (act on these)**
+- Custom DoIP bindings must implement `eds_doip_platform_ops_t.ecu_reset`, or
+  `eds_doip_register_platform()` fails (`#434`). Zephyr DoIP builds default
+  `CONFIG_REBOOT=y`.
+- `CONFIG_ISOTP_TIMEOUT_*` and `CONFIG_ISOTP_TX_PADDING[_BYTE]` are now read
+  (`#455`): a value set in `prj.conf` takes effect. ISO-TP timeouts default to
+  1000 ms (were 25/25/75/150 ms, `#453`).
+- `CONFIG_UDS_SESSION_S3_TIMEOUT_MS`, `CONFIG_UDS_SECURITY_MAX_ATTEMPTS`,
+  `CONFIG_UDS_SECURITY_LOCKOUT_MS` are removed. They never had an effect; set
+  these in `diagnostics_config.yaml`. Zephyr only warns for a leftover
+  assignment, so check your build log.
+- `dtc_database_set_status()` returns `UDS_STATUS_ERR_CONDITIONS_NOT_MET`
+  while ControlDTCSetting is off (`#448`). Application code calling it should
+  expect that.
+
+**Behaviour a tester sees**
+- DTC status is 0x50 after registration and after every clear, not 0x00
+  (`#448`).
+- Every DiagnosticSessionControl re-locks SecurityAccess, also between
+  non-default sessions, and aborts any transfer. A tester that re-sends
+  `10 02` as a keep-alive mid-download now ends the download; use
+  TesterPresent. A return to the default session also resets
+  CommunicationControl and ControlDTCSetting.
+- Download: `maxNumberOfBlockLength` is SID + counter + data (one byte more
+  than before). A second RequestDownload during a download is 0x22. A
+  repeated TransferData block is accepted.
+- NRC changes, per the standard's NRC tables and figures:
+
+  | Service | Case | Was | Now |
+  |---|---|---|---|
+  | 0x19 | mask 0x00 | all DTCs | none |
+  | 0x19 | 0x04/0x06 with a record number other than 0xFF | fabricated record | 0x31 |
+  | 0x19 | trailing byte | accepted | 0x13 |
+  | 0x22 | one unsupported DID among supported ones | 0x31 | DID skipped |
+  | 0x22 | DID condition failure / response too long | 0x31 / 0x13 | 0x22 / 0x14 |
+  | 0x27 | requestSeed / sendKey during the delay | 0x36 | 0x37 / 0x24 |
+  | 0x27 | seed generation failure | 0x24 | 0x22 |
+  | 0x28 | reserved communicationType bits | accepted | 0x31 |
+  | 0x2A | unsupported transmissionMode | 0x12 | 0x31 |
+  | 0x2A | unsupported pDID / scheduler full | 0x31, partly scheduled | skipped / 0x31, none scheduled |
+  | 0x2E | read-only or session-restricted DID | 0x22 | 0x31 |
+  | 0x2F | unsupported controlParameter / DID not in session | 0x12 / 0x22 | 0x31 |
+  | 0x31 | routine not available in the session | 0x7F | 0x31 |
+  | 0x37 | incomplete transfer | 0x31 | 0x24 |
+- ISO-TP now ignores frames the standard says to ignore: a First Frame
+  shorter than 8 bytes or announcing fewer than 8 bytes, a short Consecutive
+  Frame mid-message, and a Single Frame that is neither padded nor optimised
+  (`#452`). A tester that sends such frames will see no answer.
+
+**New, opt-in**
+- Functional addressing (`#444`, `#445`): set
+  `isotp_cfg_t.functional_rx_can_id` and dispatch with
+  `uds_server_process_request_ex()`. Off by default; nothing changes until set.
+
 ### Added
 
 - **Functional addressing, opt-in** (`#444`, `#445`; ISO 14229-1:2026 §7.7).
@@ -36,8 +98,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   The examples' pinned `CONFIG_ISOTP_TIMEOUT_*=150/75/25` were therefore
   no-ops, and they're removed so the examples use the ISO defaults.
   **Integrators who set these symbols get those values from now on.** Added
-  `CONFIG_ISOTP_TIMEOUT_AR_MS`. The UDS Kconfig symbols that are also never
-  read stay tracked in #455.
+  `CONFIG_ISOTP_TIMEOUT_AR_MS`. The three UDS Kconfig symbols that were also
+  never read are removed (see Removed).
 - **`eds_doip_platform_ops_t` has a required `ecu_reset` member** (`#434`).
   A custom DoIP binding without it now fails
   `eds_doip_register_platform()`, the same rule `uptime_ms` follows since
