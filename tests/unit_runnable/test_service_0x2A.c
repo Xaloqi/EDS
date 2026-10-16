@@ -19,9 +19,9 @@
  * TEST CASES:
  *   TC-0x2A-001  NULL ctx  → ERR_NULL_PTR
  *   TC-0x2A-002  NULL req  → ERR_NULL_PTR (from uds_service_validate_length)
- *   TC-0x2A-003  Request too short (len 2)  → ERR_INVALID_PARAM
- *   TC-0x2A-004  transmissionMode 0x00 (below SLOW) → ERR_SUBFUNCTION_NOT_SUP
- *   TC-0x2A-005  transmissionMode 0x05 (above STOP)  → ERR_SUBFUNCTION_NOT_SUP
+ *   TC-0x2A-003  Request too short (len 2, mode != stopSending) → ERR_INVALID_PARAM
+ *   TC-0x2A-004  transmissionMode 0x00 (below SLOW) → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31, EDS#466)
+ *   TC-0x2A-005  transmissionMode 0x05 (above STOP)  → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31, EDS#466)
  *   TC-0x2A-006  Subscribe 0xAB with SLOW (0x01)   → OK; response SID = 0x6A
  *   TC-0x2A-007  Subscribe 0xAB with MEDIUM (0x02) → OK
  *   TC-0x2A-008  Subscribe 0xAB with FAST (0x03)   → OK
@@ -115,7 +115,7 @@ static void setup(void)
         static const did_entry_t s_did_readable = {
             .did_id             = (uint16_t)0xF2ABU,
             .access_flags       = (uint8_t)DID_ACCESS_READ,
-            .min_session        = (uint8_t)2U,   /* EXTENDED */
+            .min_session        = (uint8_t)UDS_SESSION_EXTENDED,
             .read_access_level  = (uint8_t)0U,
             .write_access_level = (uint8_t)0U,
             .data_length        = (uint16_t)1U,
@@ -128,7 +128,7 @@ static void setup(void)
         static const did_entry_t s_did_writeonly = {
             .did_id             = (uint16_t)0xF2CDU,
             .access_flags       = (uint8_t)DID_ACCESS_WRITE,
-            .min_session        = (uint8_t)2U,
+            .min_session        = (uint8_t)UDS_SESSION_EXTENDED,
             .read_access_level  = (uint8_t)0U,
             .write_access_level = (uint8_t)0U,
             .data_length        = (uint16_t)1U,
@@ -137,6 +137,31 @@ static void setup(void)
             .description        = "Test write-only DID",
         };
         (void)did_database_register(&s_did_writeonly);
+
+        /* [EDS#466] [SEC-PDID-ACCESS-01] More pDIDs:
+         *   0xF200 readable (pDID 0x00), 0xF201 secured (level 1),
+         *   0xF202 SAFETY_SYSTEM only (not in EXTENDED), 0xF210-0xF218 readable (capacity). */
+        {
+            static const struct { uint16_t id; uint8_t sess; uint8_t lvl; } k[] = {
+                { 0xF200U, (uint8_t)UDS_SESSION_EXTENDED, 0U }, { 0xF201U, (uint8_t)UDS_SESSION_EXTENDED, 1U },
+                { 0xF202U, (uint8_t)UDS_SESSION_SAFETY_SYSTEM, 0U },
+                { 0xF210U, (uint8_t)UDS_SESSION_EXTENDED, 0U }, { 0xF211U, (uint8_t)UDS_SESSION_EXTENDED, 0U }, { 0xF212U, (uint8_t)UDS_SESSION_EXTENDED, 0U },
+                { 0xF213U, (uint8_t)UDS_SESSION_EXTENDED, 0U }, { 0xF214U, (uint8_t)UDS_SESSION_EXTENDED, 0U }, { 0xF215U, (uint8_t)UDS_SESSION_EXTENDED, 0U },
+                { 0xF216U, (uint8_t)UDS_SESSION_EXTENDED, 0U }, { 0xF217U, (uint8_t)UDS_SESSION_EXTENDED, 0U }, { 0xF218U, (uint8_t)UDS_SESSION_EXTENDED, 0U },
+            };
+            for (uint8_t i = 0U; i < (uint8_t)(sizeof(k) / sizeof(k[0])); i++) {
+                did_entry_t e;
+                memset(&e, 0, sizeof(e));
+                e.did_id            = k[i].id;
+                e.access_flags      = (uint8_t)DID_ACCESS_READ;
+                e.min_session       = k[i].sess;
+                e.read_access_level = k[i].lvl;
+                e.data_length       = 1U;
+                e.read_cb           = t_read_f2ab;
+                e.description       = "test pDID";
+                (void)did_database_register(&e);
+            }
+        }
 
         static const uds_server_cfg_t svc = {
             .p2_server_max_ms      = 25U,
@@ -152,7 +177,9 @@ static void setup(void)
 
     /* Reset session to EXTENDED before each test (0x2A is non-default) */
     uds_session_transition(&g_sess, UDS_SESSION_EXTENDED);
+    g_sec.active_level = 0U;
     (void)uds_periodic_init();
+    uds_periodic_set_access_ctx(NULL, NULL);
 }
 
 /** Build a 0x2A request: [0x2A, mode, id1 {, id2 ...}] */
@@ -222,7 +249,7 @@ ZTEST(test_service_0x2A, tc003_too_short)
 }
 
 /**
- * TC-0x2A-004: transmissionMode 0x00 (below SLOW) → ERR_SUBFUNCTION_NOT_SUP.
+ * TC-0x2A-004: transmissionMode 0x00 (below SLOW) → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31, EDS#466).
  */
 ZTEST(test_service_0x2A, tc004_invalid_mode_zero)
 {
@@ -232,12 +259,12 @@ ZTEST(test_service_0x2A, tc004_invalid_mode_zero)
 
     uds_status_t rc = uds_service_0x2A_handler(&g_srv, &req, &resp);
 
-    zassert_equal(rc, UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP,
-                  "mode 0x00 must return ERR_SUBFUNCTION_NOT_SUP");
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  "mode 0x00 must return ERR_REQUEST_OUT_OF_RANGE (NRC 0x31, EDS#466)");
 }
 
 /**
- * TC-0x2A-005: transmissionMode 0x05 (above STOP=0x04) → ERR_SUBFUNCTION_NOT_SUP.
+ * TC-0x2A-005: transmissionMode 0x05 (above STOP=0x04) → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31, EDS#466).
  */
 ZTEST(test_service_0x2A, tc005_invalid_mode_high)
 {
@@ -247,8 +274,8 @@ ZTEST(test_service_0x2A, tc005_invalid_mode_high)
 
     uds_status_t rc = uds_service_0x2A_handler(&g_srv, &req, &resp);
 
-    zassert_equal(rc, UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP,
-                  "mode 0x05 must return ERR_SUBFUNCTION_NOT_SUP");
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  "mode 0x05 must return ERR_REQUEST_OUT_OF_RANGE (NRC 0x31, EDS#466)");
 }
 
 /**
@@ -360,6 +387,117 @@ ZTEST(test_service_0x2A, tc012_positive_response_format)
                   "positive response for 0x2A must be exactly 1 byte");
 }
 
+/* ---- [EDS#466] [SEC-PDID-ACCESS-01] ISO 14229-1:2026 §10.5, Figure 24 -- */
+
+static uds_msg_buf_t make_req_n(uint8_t mode, const uint8_t *ids, uint16_t n)
+{
+    uds_msg_buf_t r;
+    memset(&r, 0, sizeof(r));
+    r.data[0] = (uint8_t)0x2AU;
+    r.data[1] = mode;
+    for (uint16_t i = 0U; i < n; i++) { r.data[2U + i] = ids[i]; }
+    r.length = (uint16_t)(2U + n);
+    return r;
+}
+
+static uds_status_t send(uint8_t mode, const uint8_t *ids, uint16_t n)
+{
+    uds_msg_buf_t req  = make_req_n(mode, ids, n);
+    uds_msg_buf_t resp = {0};
+    return uds_service_0x2A_handler(&g_srv, &req, &resp);
+}
+
+/** TC-0x2A-013: stopSending with no pDID stops all (Table 218 note). */
+ZTEST(test_service_0x2A, tc013_stop_all_without_pdid)
+{
+    setup();
+    static const uint8_t ids[] = { 0xABU, 0x10U };
+    zassert_equal(send(UDS_PERIODIC_MODE_FAST, ids, 2U), UDS_STATUS_OK, "subscribe");
+    zassert_equal(send(UDS_PERIODIC_MODE_STOP, NULL, 0U), UDS_STATUS_OK,
+                  "2A 04 with no pDID must be accepted (EDS#466)");
+    zassert_false(uds_periodic_is_subscribed(0xABU), "0xAB stopped");
+    zassert_false(uds_periodic_is_subscribed(0x10U), "0x10 stopped");
+}
+
+/** TC-0x2A-014: an unsupported pDID is skipped; the supported one is
+ *  scheduled (Figure 24). */
+ZTEST(test_service_0x2A, tc014_unsupported_pdid_skipped)
+{
+    setup();
+    static const uint8_t ids[] = { 0xFFU, 0xCDU, 0x02U, 0xABU };  /* unknown, write-only, not in EXTENDED, ok */
+    zassert_equal(send(UDS_PERIODIC_MODE_SLOW, ids, 4U), UDS_STATUS_OK,
+                  "supported pDID must be scheduled (EDS#466)");
+    zassert_true(uds_periodic_is_subscribed(0xABU), "0xAB scheduled");
+    zassert_false(uds_periodic_is_subscribed(0x02U), "pDID not available in EXTENDED skipped");
+}
+
+/** TC-0x2A-015: scheduler can't take all → NRC 0x31 and nothing scheduled
+ *  (§10.5.1). */
+ZTEST(test_service_0x2A, tc015_scheduler_full_schedules_none)
+{
+    setup();
+    static const uint8_t ids[] = { 0x10U, 0x11U, 0x12U, 0x13U, 0x14U,
+                                   0x15U, 0x16U, 0x17U, 0x18U };      /* 9 > 8 */
+    zassert_equal(send(UDS_PERIODIC_MODE_SLOW, ids, 9U),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "over capacity → 0x31");
+    zassert_equal(uds_periodic_free_slots(), (uint8_t)UDS_PERIODIC_MAX_SUBSCRIPTIONS,
+                  "none of the request may be scheduled (EDS#466)");
+}
+
+/** TC-0x2A-016: a repeated pDID is scheduled once (§10.5.1). */
+ZTEST(test_service_0x2A, tc016_repeated_pdid_once)
+{
+    setup();
+    static const uint8_t ids[] = { 0xABU, 0xABU, 0xABU };
+    zassert_equal(send(UDS_PERIODIC_MODE_FAST, ids, 3U), UDS_STATUS_OK, "accepted");
+    zassert_equal(uds_periodic_free_slots(),
+                  (uint8_t)(UDS_PERIODIC_MAX_SUBSCRIPTIONS - 1U), "one slot used");
+}
+
+/** TC-0x2A-017: [SEC-PDID-ACCESS-01] a secured pDID while locked → NRC 0x33
+ *  and nothing scheduled. */
+ZTEST(test_service_0x2A, tc017_secured_pdid_denied)
+{
+    setup();
+    static const uint8_t ids[] = { 0xABU, 0x01U };
+    zassert_equal(send(UDS_PERIODIC_MODE_FAST, ids, 2U),
+                  UDS_STATUS_ERR_SEC_NOT_UNLOCKED, "secured pDID must be 0x33");
+    zassert_false(uds_periodic_is_subscribed(0xABU), "nothing scheduled");
+    zassert_false(uds_periodic_is_subscribed(0x01U), "secured pDID not scheduled");
+}
+
+/** TC-0x2A-018: [SEC-PDID-ACCESS-01] a secured pDID subscribed while unlocked
+ *  stops streaming once security re-locks. */
+ZTEST(test_service_0x2A, tc018_relock_stops_secured_stream)
+{
+    setup();
+    static uds_msg_buf_t frame;
+    static const uint8_t ids[] = { 0x01U };
+    g_sec.active_level = 1U;
+    zassert_equal(send(UDS_PERIODIC_MODE_FAST, ids, 1U), UDS_STATUS_OK, "unlocked: accepted");
+
+    for (uint16_t t = 0U; t < (uint16_t)UDS_PERIODIC_FAST_MS; t++) { (void)uds_periodic_tick_1ms(); }
+    zassert_equal(uds_periodic_pop_due(&frame), UDS_STATUS_OK, "streams while unlocked");
+
+    (void)uds_security_reset(&g_sec);                  /* re-lock, as on DSC */
+    for (uint16_t t = 0U; t < (uint16_t)UDS_PERIODIC_FAST_MS; t++) { (void)uds_periodic_tick_1ms(); }
+    zassert_equal(uds_periodic_pop_due(&frame), UDS_STATUS_ERR_NOT_FOUND,
+                  "must not stream after re-lock (SEC-PDID-ACCESS-01)");
+    zassert_false(uds_periodic_is_subscribed(0x01U), "subscription dropped");
+}
+
+/** TC-0x2A-019: pDID 0x00 (DID 0xF200) is scheduled and streams. */
+ZTEST(test_service_0x2A, tc019_pdid_zero_streams)
+{
+    setup();
+    static uds_msg_buf_t frame;
+    static const uint8_t ids[] = { 0x00U };
+    zassert_equal(send(UDS_PERIODIC_MODE_FAST, ids, 1U), UDS_STATUS_OK, "accepted");
+    for (uint16_t t = 0U; t < (uint16_t)UDS_PERIODIC_FAST_MS; t++) { (void)uds_periodic_tick_1ms(); }
+    zassert_equal(uds_periodic_pop_due(&frame), UDS_STATUS_OK, "pDID 0x00 must stream");
+    zassert_equal(frame.data[1], 0x00U, "pDID echoed");
+}
+
 /* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
@@ -376,6 +514,13 @@ extern void test_service_0x2A__tc009_stop_sending(void);
 extern void test_service_0x2A__tc010_unknown_did(void);
 extern void test_service_0x2A__tc011_write_only_did(void);
 extern void test_service_0x2A__tc012_positive_response_format(void);
+extern void test_service_0x2A__tc013_stop_all_without_pdid(void);
+extern void test_service_0x2A__tc014_unsupported_pdid_skipped(void);
+extern void test_service_0x2A__tc015_scheduler_full_schedules_none(void);
+extern void test_service_0x2A__tc016_repeated_pdid_once(void);
+extern void test_service_0x2A__tc017_secured_pdid_denied(void);
+extern void test_service_0x2A__tc018_relock_stops_secured_stream(void);
+extern void test_service_0x2A__tc019_pdid_zero_streams(void);
 
 void run_all_tests(void)
 {
@@ -391,4 +536,11 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x2A__tc010_unknown_did);
     RUN_TEST(test_service_0x2A__tc011_write_only_did);
     RUN_TEST(test_service_0x2A__tc012_positive_response_format);
+    RUN_TEST(test_service_0x2A__tc013_stop_all_without_pdid);
+    RUN_TEST(test_service_0x2A__tc014_unsupported_pdid_skipped);
+    RUN_TEST(test_service_0x2A__tc015_scheduler_full_schedules_none);
+    RUN_TEST(test_service_0x2A__tc016_repeated_pdid_once);
+    RUN_TEST(test_service_0x2A__tc017_secured_pdid_denied);
+    RUN_TEST(test_service_0x2A__tc018_relock_stops_secured_stream);
+    RUN_TEST(test_service_0x2A__tc019_pdid_zero_streams);
 }

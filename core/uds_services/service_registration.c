@@ -231,7 +231,7 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
          *
          * Available in all sessions.
          *
-         * suppressPosRspMsgIndicationBit is supported (ISO 14229-1:2026 §13.2, RoutineControl; not text-verified)
+         * suppressPosRspMsgIndicationBit is supported (ISO 14229-1:2026 §13.2.2.2, Table 426)
          * for all ReadDTCInformation sub-functions.
          */
         .service_id                    = UDS_SID_READ_DTC_INFO,

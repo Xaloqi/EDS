@@ -11,7 +11,7 @@
  *   Request too short              → ERR_INVALID_PARAM
  *   Sub-fn 0x00 / 0x04 invalid    → ERR_SUBFUNCTION_NOT_SUP
  *   RID not in database            → ERR_ROUTINE_NOT_FOUND
- *   Session too low                → ERR_ROUTINE_NOT_SUPPORTED_IN_SESSION
+ *   Session too low                → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31, EDS#468)
  *   startRoutine — empty result    → positive response [0x71,0x01,RID_hi,RID_lo]
  *   startRoutine — 4-byte result   → response extended by 4 bytes
  *   Callback failure               → ERR_ROUTINE_FAILED
@@ -219,7 +219,7 @@ ZTEST(svc_0x31, test_session_too_low)
 {
     s_sess.active_session = UDS_SESSION_DEFAULT;
     build_req(0x01U, RID_FULL);
-    zassert_equal(UDS_STATUS_ERR_ROUTINE_NOT_SUPPORTED_IN_SESSION,
+    zassert_equal(UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
                   uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
 }
 

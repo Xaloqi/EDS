@@ -40,12 +40,15 @@
  *   controlStatusRecord = current actuator state after command (data_length bytes).
  *
  * NRC BEHAVIOUR:
- *   NRC 0x13 incorrectMessageLengthOrInvalidFormat — wrong request length
- *   NRC 0x12 subFunctionNotSupported               — controlParam not in {0x00–0x03}
- *   NRC 0x31 requestOutOfRange                     — DID not found or not IO-controllable
+ *   Order per ISO 14229-1:2026 Figure 30 [EDS#467]:
+ *   NRC 0x13 incorrectMessageLengthOrInvalidFormat — request < 4 bytes
+ *   NRC 0x31 requestOutOfRange                     — DID not found, not IO-controllable,
+ *                                                    not in this session, or IOCP
+ *                                                    not in {0x00–0x03}
+ *   NRC 0x13 incorrectMessageLengthOrInvalidFormat — total length wrong for the IOCP
+ *   NRC 0x33 securityAccessDenied                  — DID security level
  *   NRC 0x22 conditionsNotCorrect                  — io_control_cb returned error
- *   NRC 0x7E/0x7F                                  — session check (ACL-enforced)
- *   NRC 0x33                                       — security level (ACL-enforced)
+ *   NRC 0x7F                                       — service not in session (ACL)
  *
  * SAFETY  : IO control modifies physical actuator state. All DID accesses enforce:
  *             REQ-SAFE-004 — NULL pointer checks on all contexts
@@ -114,18 +117,17 @@
  * @param[in]  ctx            UDS server context (provides session/security).
  * @param[in]  did_id         16-bit DID identifier.
  * @param[in]  control_param  inputOutputControlParameter (0x00–0x03).
- * @param[in]  control_record Tester-supplied value; NULL for 0x00/0x01/0x02.
- * @param[in]  control_len    Bytes in control_record; 0 if NULL.
+ * @param[in]  control_record Bytes after the IOCP; NULL if none.
+ * @param[in]  control_len    Bytes in control_record.
  * @param[out] status_record  Buffer to receive current actuator state.
  * @param[out] status_len     Bytes written to status_record.
  *
  * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_DID_NOT_FOUND       → NRC 0x31
- * @return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE → NRC 0x31 (cb absent)
+ * @return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE → NRC 0x31 (DID unknown, not IO
+ *         controllable, not in this session, or IOCP unsupported)
  * @return UDS_STATUS_ERR_INVALID_PARAM        → NRC 0x13 (wrong length)
- * @return UDS_STATUS_ERR_SESSION_INVALID      → NRC 0x22
  * @return UDS_STATUS_ERR_SEC_NOT_UNLOCKED     → NRC 0x33
- * @return UDS_STATUS_ERR_CONDITIONS_NOT_MET   → NRC 0x22
+ * @return io_control_cb errors, e.g. UDS_STATUS_ERR_CONDITIONS_NOT_MET → NRC 0x22
  */
 static uds_status_t s_did_safe_io_control(
     uds_server_ctx_t  *ctx,
@@ -146,26 +148,43 @@ static uds_status_t s_did_safe_io_control(
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_null_ptr(status_record,  "status_record"));
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_null_ptr(status_len,     "status_len"));
 
-    /* Step 2: Resolve DID in database (REQ-SAFE-001). */
-    UDS_SAFETY_RETURN_IF_ERR(uds_safety_find_did(did_id, &entry));
+    /* Step 2: [EDS#467] ISO 14229-1:2026 Figure 30, "DID supports service
+     * 2F in active session AND inputOutputControlParameter is supported":
+     * unknown DID, no IO control (flag or callback), session not met, or an
+     * unsupported IOCP all answer NRC 0x31, before the length and security
+     * checks. */
+    if (uds_safety_find_did(did_id, &entry) != UDS_STATUS_OK) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+    }
+    if (((entry->access_flags & (uint8_t)DID_ACCESS_IO_CONTROL) == (uint8_t)0U) ||
+        (entry->io_control_cb == NULL) ||
+        (control_param > (uint8_t)SVC_0x2F_CTRL_PARAM_MAX)) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+    }
+#if UDS_SAFETY_ENABLE_SESSION_CHECKS
+    if (uds_safety_validate_session(session_ctx,
+            (uds_session_type_t)entry->min_session) != UDS_STATUS_OK) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+    }
+#endif
 
-    /* Validate shortTermAdjustment data length now that entry is known. */
-    if (control_param == SVC_0x2F_CTRL_PARAM_STA) {
+    /* Step 3: total length (Figure 30 key 2): shortTermAdjustment carries
+     * exactly data_length controlState bytes, every other IOCP none.
+     * (controlEnableMask is not supported.) */
+    if (control_param == (uint8_t)SVC_0x2F_CTRL_PARAM_STA) {
         if (control_len != entry->data_length) {
             return UDS_STATUS_ERR_INVALID_PARAM;
         }
+    } else if (control_len != (uint16_t)0U) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    } else {
+        /* no controlState: length correct */
     }
 
-    /* Step 3: Validate session and security access (REQ-SAFE-002/003). */
+    /* Step 4: security (REQ-SAFE-003). IO capability and session passed
+     * above, so a failure here is NRC 0x33. */
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_validate_did_access(
         entry, session_ctx, security_ctx, UDS_SAFETY_ACCESS_IO_CONTROL));
-
-    /* Step 4: Confirm the DID has an io_control_cb registered.
-     *         A NULL callback means the DID exists but does not support IO
-     *         control for this operation — NRC 0x31 requestOutOfRange.       */
-    if (entry->io_control_cb == NULL) {
-        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
-    }
 
     /* Step 5: Invoke the DID I/O control callback. */
     return entry->io_control_cb(control_param,
@@ -183,16 +202,17 @@ static uds_status_t s_did_safe_io_control(
  * Request : [0x2F, DID_hi, DID_lo, controlParam {, controlOptionRecord...}]
  * Response: [0x6F, DID_hi, DID_lo, controlParam, controlStatusRecord...]
  *
- * ISO 14229-1:2026 §12.2 (not text-verified): One DID per request. controlParam 0x00–0x02 carry no
+ * ISO 14229-1:2026 §12.2.1, Figure 30 key 2: One DID per request. controlParam 0x00–0x02 carry no
  * data record; controlParam 0x03 (shortTermAdjustment) requires exactly
  * entry->data_length additional bytes.
  *
- * NRC mapping (per ISO 14229-1):
- *   0x12 — subFunctionNotSupported  (controlParam > 0x03)
- *   0x13 — incorrectMessageLengthOrInvalidFormat (wrong length)
- *   0x22 — conditionsNotCorrect     (callback error or session not met)
- *   0x31 — requestOutOfRange        (DID not found or no io_control_cb)
+ * NRC order (ISO 14229-1:2026 Table 403, Figure 30) [EDS#467]:
+ *   0x13 — length < 4
+ *   0x31 — DID unknown / not IO-controllable / not in this session, or
+ *          IOCP unsupported (no SubFunction, §12.2.2.2)
+ *   0x13 — total length wrong for the IOCP
  *   0x33 — securityAccessDenied     (security level not unlocked)
+ *   0x22 — conditionsNotCorrect     (callback error)
  */
 uds_status_t uds_service_0x2F_handler(
     uds_server_ctx_t    *ctx,
@@ -227,26 +247,12 @@ uds_status_t uds_service_0x2F_handler(
     /* Extract inputOutputControlParameter. */
     control_param = req->data[SVC_0x2F_CTRL_PARAM_OFFSET];
 
-    /* Validate controlParam range — NRC 0x12 subFunctionNotSupported. */
-    if (control_param > (uint8_t)SVC_0x2F_CTRL_PARAM_MAX) {
-        return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
-    }
-
-    /* Set up control_record pointer and length.
-     *
-     * For 0x00/0x01/0x02: request must be exactly 4 bytes (no trailing data).
-     * For 0x03:            request must be exactly 4 + data_length bytes;
-     *                      the exact check against entry->data_length happens
-     *                      inside s_did_safe_io_control() after DID resolution.
-     */
-    if (control_param == (uint8_t)SVC_0x2F_CTRL_PARAM_STA) {
+    /* Everything after the IOCP; Figure 30 checks its length after the
+     * "DID supported" step, inside s_did_safe_io_control() [EDS#467]. */
+    if (req->length > (uint16_t)SVC_0x2F_CTRL_DATA_OFFSET) {
         control_record = &req->data[SVC_0x2F_CTRL_DATA_OFFSET];
         control_len    = (uint16_t)(req->length - (uint16_t)SVC_0x2F_CTRL_DATA_OFFSET);
     } else {
-        /* Exact length check: no trailing bytes permitted for 0x00/0x01/0x02. */
-        if (req->length != (uint16_t)SVC_0x2F_MIN_REQ_LEN) {
-            return UDS_STATUS_ERR_INVALID_PARAM;
-        }
         control_record = NULL;
         control_len    = (uint16_t)0U;
     }

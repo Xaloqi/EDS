@@ -15,7 +15,7 @@
  * TEST CASES:
  *   TC-0x2F-001  NULL ctx                                → ERR_NULL_PTR
  *   TC-0x2F-002  Request < 4 bytes                       → ERR_INVALID_PARAM (NRC 0x13)
- *   TC-0x2F-003  controlParam == 0x04 (unknown)          → ERR_SUBFUNCTION_NOT_SUP (NRC 0x12)
+ *   TC-0x2F-003  controlParam == 0x04 (unknown)          → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
  *   TC-0x2F-004  DID not found in database               → ERR_DID_NOT_FOUND (NRC 0x31)
  *   TC-0x2F-005  DID found but io_control_cb == NULL     → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
  *   TC-0x2F-006  returnControlToECU (0x00) success       → [0x6F, DID_Hi, DID_Lo, 0x00, status...]
@@ -55,6 +55,9 @@
 #define TEST_DID_CTRL   (0xA001U)  /**< Fully IO-controllable DID. */
 #define TEST_DID_NO_CB  (0xA002U)  /**< IO flag set but no callback. */
 #define TEST_DATA_LEN   (2U)       /**< data_length for TEST_DID_CTRL. */
+#define TEST_DID_EXT_ONLY  (0xA003U) /**< [EDS#467] IO-controllable in EXTENDED only. */
+#define TEST_DID_NO_IO     (0xA004U) /**< [EDS#467] Readable, no IO control flag. */
+#define TEST_DID_SEC_NO_CB (0xA005U) /**< [EDS#467] Secured, IO flag, no callback. */
 
 /* =========================================================================
  * Mock io_control_cb
@@ -201,6 +204,26 @@ static void setup(void)
         entry.description        = "Test DID no cb";
         (void)did_database_register(&entry);
 
+        /* [EDS#467] Figure 30 cases. */
+        {
+            static const struct { uint16_t id; uint8_t flags; uint8_t sess; uint8_t lvl; bool cb; } k[] = {
+                { TEST_DID_EXT_ONLY,  (uint8_t)DID_ACCESS_IO_CONTROL, (uint8_t)UDS_SESSION_EXTENDED, 0U, true  },
+                { TEST_DID_NO_IO,     (uint8_t)DID_ACCESS_READ,       (uint8_t)UDS_SESSION_DEFAULT,  0U, true  },
+                { TEST_DID_SEC_NO_CB, (uint8_t)DID_ACCESS_IO_CONTROL, (uint8_t)UDS_SESSION_DEFAULT,  1U, false },
+            };
+            for (uint8_t i = 0U; i < 3U; i++) {
+                memset(&entry, 0, sizeof(entry));
+                entry.did_id             = k[i].id;
+                entry.access_flags       = k[i].flags;
+                entry.min_session        = k[i].sess;
+                entry.write_access_level = k[i].lvl;
+                entry.data_length        = (uint16_t)TEST_DATA_LEN;
+                entry.io_control_cb      = k[i].cb ? mock_io_control_cb : NULL;
+                entry.description        = "Test DID (Figure 30)";
+                (void)did_database_register(&entry);
+            }
+        }
+
         static const uds_server_cfg_t svc = {
             .p2_server_max_ms      = 25U,
             .p2_star_server_max_ms = 5000U,
@@ -295,7 +318,7 @@ ZTEST(test_service_0x2F, tc002_request_too_short)
 }
 
 /**
- * TC-0x2F-003: controlParam == 0x04 (unknown) → ERR_SUBFUNCTION_NOT_SUP (NRC 0x12).
+ * TC-0x2F-003: controlParam == 0x04 (unknown) → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31).
  */
 ZTEST(test_service_0x2F, tc003_unknown_control_param)
 {
@@ -305,12 +328,12 @@ ZTEST(test_service_0x2F, tc003_unknown_control_param)
 
     uds_status_t rc = uds_service_0x2F_handler(&g_srv, &req, &resp);
 
-    zassert_equal(rc, UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP,
-                  "Unknown controlParam must return ERR_SUBFUNCTION_NOT_SUP (NRC 0x12)");
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  "Unsupported IOCP must be NRC 0x31 (no SubFunction, EDS#467)");
 }
 
 /**
- * TC-0x2F-004: DID not found in database → ERR_DID_NOT_FOUND (NRC 0x31).
+ * TC-0x2F-004: DID not found in database → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31).
  */
 ZTEST(test_service_0x2F, tc004_did_not_found)
 {
@@ -320,8 +343,8 @@ ZTEST(test_service_0x2F, tc004_did_not_found)
 
     uds_status_t rc = uds_service_0x2F_handler(&g_srv, &req, &resp);
 
-    zassert_equal(rc, UDS_STATUS_ERR_DID_NOT_FOUND,
-                  "Unknown DID must return ERR_DID_NOT_FOUND (→ NRC 0x31)");
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  "Unknown DID must return NRC 0x31");
 }
 
 /**
@@ -523,6 +546,56 @@ ZTEST(test_service_0x2F, tc014_status_record_in_response)
                   "controlStatusRecord byte 1 must be 0xEF");
 }
 
+/* ---- [EDS#467] ISO 14229-1:2026 §12.2, Figure 30 ---------------------- */
+
+/** TC-0x2F-015: DID not IO-controllable in the active session → NRC 0x31
+ *  (was 0x22); controllable once in EXTENDED. */
+ZTEST(test_service_0x2F, tc015_not_in_session_is_0x31)
+{
+    setup();
+    uds_msg_buf_t req  = make_req(TEST_DID_EXT_ONLY, 0x00U);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x2F_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "not in session → 0x31 (EDS#467)");
+    uds_session_transition(&g_sess, UDS_SESSION_EXTENDED);
+    zassert_equal(uds_service_0x2F_handler(&g_srv, &req, &resp), UDS_STATUS_OK,
+                  "controllable in EXTENDED");
+}
+
+/** TC-0x2F-016: DID without the IO control flag → NRC 0x31 (was 0x22). */
+ZTEST(test_service_0x2F, tc016_no_io_flag_is_0x31)
+{
+    setup();
+    uds_msg_buf_t req  = make_req(TEST_DID_NO_IO, 0x00U);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x2F_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "no IO flag → 0x31 (EDS#467)");
+}
+
+/** TC-0x2F-017: a secured DID with no IO callback, security locked → 0x31,
+ *  not 0x33: "DID supported" precedes security. */
+ZTEST(test_service_0x2F, tc017_unsupported_before_security)
+{
+    setup();
+    uds_msg_buf_t req  = make_req(TEST_DID_SEC_NO_CB, 0x00U);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x2F_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "0x31 before 0x33 (EDS#467)");
+}
+
+/** TC-0x2F-018: unknown DID with a wrong total length → 0x31, not 0x13:
+ *  "DID supported" precedes the total length check. */
+ZTEST(test_service_0x2F, tc018_unsupported_before_length)
+{
+    setup();
+    uds_msg_buf_t req  = make_req(0xDEADU, 0x00U);
+    req.data[4] = 0x55U;
+    req.length  = 5U;
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x2F_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "0x31 before 0x13 (EDS#467)");
+}
+
 /* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
@@ -541,6 +614,10 @@ extern void test_service_0x2F__tc011_sta_wrong_data_length(void);
 extern void test_service_0x2F__tc012_cb_conditions_not_met(void);
 extern void test_service_0x2F__tc013_trailing_bytes_rejected(void);
 extern void test_service_0x2F__tc014_status_record_in_response(void);
+extern void test_service_0x2F__tc015_not_in_session_is_0x31(void);
+extern void test_service_0x2F__tc016_no_io_flag_is_0x31(void);
+extern void test_service_0x2F__tc017_unsupported_before_security(void);
+extern void test_service_0x2F__tc018_unsupported_before_length(void);
 
 void run_all_tests(void)
 {
@@ -558,4 +635,8 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x2F__tc012_cb_conditions_not_met);
     RUN_TEST(test_service_0x2F__tc013_trailing_bytes_rejected);
     RUN_TEST(test_service_0x2F__tc014_status_record_in_response);
+    RUN_TEST(test_service_0x2F__tc015_not_in_session_is_0x31);
+    RUN_TEST(test_service_0x2F__tc016_no_io_flag_is_0x31);
+    RUN_TEST(test_service_0x2F__tc017_unsupported_before_security);
+    RUN_TEST(test_service_0x2F__tc018_unsupported_before_length);
 }

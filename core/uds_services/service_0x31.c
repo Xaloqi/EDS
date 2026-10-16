@@ -18,18 +18,18 @@
  *     Request : [0x31, 0x01, RID_hi, RID_lo {, routineOptionRecord...}]
  *     Response: [0x71, 0x01, RID_hi, RID_lo {, routineStatusRecord...}]
  *
- *   0x02 — stopRoutine  (optional; ISO 14229-1:2026 §13.2, not text-verified)
+ *   0x02 — stopRoutine  (optional; ISO 14229-1:2026 Table 426, Cvt U)
  *     Request : [0x31, 0x02, RID_hi, RID_lo {, routineOptionRecord...}]
  *     Response: [0x71, 0x02, RID_hi, RID_lo {, routineStatusRecord...}]
  *
- *   0x03 — requestRoutineResults  (optional; ISO 14229-1:2026 §13.2, not text-verified)
+ *   0x03 — requestRoutineResults  (optional; ISO 14229-1:2026 Table 426, Cvt U)
  *     Request : [0x31, 0x03, RID_hi, RID_lo]
  *     Response: [0x71, 0x03, RID_hi, RID_lo {, routineStatusRecord...}]
  *
  * NRC behaviour:
  *   NRC 0x12 (subFunctionNotSupported)  — routineControlType not in {0x01..0x03}
  *   NRC 0x31 (requestOutOfRange)        — RID not in routine database
- *   NRC 0x7F (serviceNotSupportedInActiveSession) — session below min_session
+ *   NRC 0x31 (requestOutOfRange)        — session below min_session (Figure 31) [EDS#468]
  *   NRC 0x33 (securityAccessDenied)    — security level not unlocked
  *   NRC 0x12 (subFunctionNotSupported) — stop/results requested but not supported
  *   NRC 0x22 (conditionsNotCorrect)    — routine execution failed
@@ -102,7 +102,7 @@
  * @param[in] security_ctx  Active security context.
  *
  * @return UDS_STATUS_OK if all checks pass.
- * @return UDS_STATUS_ERR_ROUTINE_NOT_SUPPORTED_IN_SESSION → NRC 0x7F
+ * @return UDS_STATUS_ERR_SESSION_INVALID → mapped to NRC 0x31 by the caller [EDS#468]
  * @return UDS_STATUS_ERR_SEC_NOT_UNLOCKED                → NRC 0x33
  */
 static uds_status_t s_validate_routine_access(
@@ -206,7 +206,10 @@ uds_status_t uds_service_0x31_handler(
     status = s_validate_routine_access(entry, session_ctx, security_ctx);
     if (status != UDS_STATUS_OK) {
         if (status == UDS_STATUS_ERR_SESSION_INVALID) {
-            return UDS_STATUS_ERR_ROUTINE_NOT_SUPPORTED_IN_SESSION;
+            /* [EDS#468] ISO 14229-1:2026 Figure 31: "RID supported in active
+             * session?" → NRC 0x31 (0x7F is not in Table 430; it applies
+             * only when the service itself is barred, via the ACL). */
+            return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
         }
         return status;
     }

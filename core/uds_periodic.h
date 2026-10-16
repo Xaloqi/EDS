@@ -37,6 +37,8 @@
 #define UDS_PERIODIC_H
 
 #include "uds_types.h"
+#include "uds_session.h"
+#include "uds_security.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -70,7 +72,8 @@ extern "C" {
 #endif
 
 /* --------------------------------------------------------------------------
- * TransmissionMode values (ISO 14229-1:2026 §10.5, ReadDataByPeriodicIdentifier; not text-verified)
+ * TransmissionMode values (ISO 14229-1:2026 Annex C.4, Table C.10;
+ * 0x00 and 0x05-0xFF reserved)
  * -------------------------------------------------------------------------- */
 
 #define UDS_PERIODIC_MODE_SLOW    (0x01U)
@@ -99,7 +102,7 @@ uds_status_t uds_periodic_init(void);
  * If periodic_id is already subscribed, updates its mode and resets the
  * countdown. If the table is full, returns ERR_REQUEST_OUT_OF_RANGE.
  *
- * @param[in] periodic_id  Low byte of 0xF2xx DID (0x01–0xFF).
+ * @param[in] periodic_id  Low byte of 0xF2xx DID (0x00–0xFF).
  * @param[in] mode         UDS_PERIODIC_MODE_SLOW / MEDIUM / FAST.
  *
  * @return UDS_STATUS_OK on success.
@@ -155,6 +158,29 @@ uds_status_t uds_periodic_tick_1ms(void);
  * @return UDS_STATUS_ERR_NULL_PTR if out_frame is NULL.
  */
 uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame);
+
+/**
+ * @brief [EDS#466] Number of free subscription slots.
+ * @return UDS_PERIODIC_MAX_SUBSCRIPTIONS minus the active subscriptions.
+ */
+uint8_t uds_periodic_free_slots(void);
+
+/**
+ * @brief [EDS#466] Whether periodic_id is currently subscribed (a
+ *        re-subscribe updates it in place and needs no free slot).
+ */
+bool uds_periodic_is_subscribed(uint8_t periodic_id);
+
+/**
+ * @brief [SEC-PDID-ACCESS-01] Bind the session/security contexts that every
+ *        push re-checks the DID against.
+ *
+ * Called by the 0x2A handler. uds_periodic_pop_due() drops a subscription
+ * whose DID fails uds_safety_validate_did_access() (e.g. security re-locked
+ * by a session change). Not bound (NULL): no re-check.
+ */
+void uds_periodic_set_access_ctx(const uds_session_ctx_t  *session_ctx,
+                                 const uds_security_ctx_t *security_ctx);
 
 /**
  * @brief [EDS#194] Re-queue the subscription most recently popped by

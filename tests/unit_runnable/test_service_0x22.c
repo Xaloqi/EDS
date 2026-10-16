@@ -69,6 +69,48 @@ static bool t_key(uint8_t l, const uint8_t *s, uint8_t sl,
     return true;
 }
 
+/* [EDS#465] Test DIDs for the Figure 21 cases. */
+#define TEST_DID_EXT_ONLY  (0xA100U)  /**< Readable in EXTENDED only. */
+#define TEST_DID_SECURED   (0xA101U)  /**< Read needs security level 1. */
+#define TEST_DID_COND_FAIL (0xA102U)  /**< read_cb reports a condition failure. */
+#define TEST_DID_WRITE_ONLY (0xA103U) /**< No DID_ACCESS_READ. */
+
+static uds_status_t t_read_ok(uint8_t *buf, uint16_t len, uint16_t *out)
+{
+    (void)len;
+    buf[0] = 0x5AU;
+    *out   = 1U;
+    return UDS_STATUS_OK;
+}
+static uds_status_t t_read_cond_fail(uint8_t *buf, uint16_t len, uint16_t *out)
+{
+    (void)buf; (void)len; (void)out;
+    return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+}
+
+static void register_test_dids(void)
+{
+    static const struct { uint16_t id; uint8_t flags; uint8_t sess; uint8_t lvl;
+                          did_read_cb_fn cb; } k[] = {
+        { TEST_DID_EXT_ONLY,   (uint8_t)DID_ACCESS_READ,  (uint8_t)UDS_SESSION_EXTENDED, 0U, t_read_ok },
+        { TEST_DID_SECURED,    (uint8_t)DID_ACCESS_READ,  (uint8_t)UDS_SESSION_DEFAULT,  1U, t_read_ok },
+        { TEST_DID_COND_FAIL,  (uint8_t)DID_ACCESS_READ,  (uint8_t)UDS_SESSION_DEFAULT,  0U, t_read_cond_fail },
+        { TEST_DID_WRITE_ONLY, (uint8_t)DID_ACCESS_WRITE, (uint8_t)UDS_SESSION_DEFAULT,  0U, t_read_ok },
+    };
+    for (uint8_t i = 0U; i < 4U; i++) {
+        did_entry_t e;
+        memset(&e, 0, sizeof(e));
+        e.did_id            = k[i].id;
+        e.access_flags      = k[i].flags;
+        e.min_session       = k[i].sess;
+        e.read_access_level = k[i].lvl;
+        e.data_length       = 1U;
+        e.read_cb           = k[i].cb;
+        e.description       = "test";
+        (void)did_database_register(&e);
+    }
+}
+
 /* =========================================================================
  * Context setup
  * ========================================================================= */
@@ -99,6 +141,7 @@ static void setup(void)
         /* Register the 5 generated DIDs */
         (void)did_database_init();
         (void)did_handlers_register_all();
+        register_test_dids();
 
         static const uds_server_cfg_t svc = {
             .p2_server_max_ms      = 25U,
@@ -225,7 +268,7 @@ ZTEST(test_service_0x22, tc005_spare_part_ok)
 }
 
 /**
- * TC-0x22-006: Unknown DID 0xDEAD → ERR_DID_NOT_FOUND (NRC 0x31).
+ * TC-0x22-006: Unknown DID 0xDEAD → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31).
  */
 ZTEST(test_service_0x22, tc006_unknown_did)
 {
@@ -235,8 +278,8 @@ ZTEST(test_service_0x22, tc006_unknown_did)
 
     uds_status_t rc = uds_service_0x22_handler(&g_srv, &req, &resp);
 
-    zassert_equal(rc, UDS_STATUS_ERR_DID_NOT_FOUND,
-                  "Unknown DID must return ERR_DID_NOT_FOUND (→ NRC 0x31)");
+    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+                  "Unknown DID must return NRC 0x31 (EDS#465)");
 }
 
 /**
@@ -358,6 +401,89 @@ ZTEST(test_service_0x22, tc013_null_resp)
     zassert_equal(rc, UDS_STATUS_ERR_NULL_PTR, "NULL resp must fail");
 }
 
+/* ---- [EDS#465] ISO 14229-1:2026 §10.2.4, Figure 21 -------------------- */
+
+static uds_msg_buf_t make_req_n(const uint16_t *dids, uint16_t n)
+{
+    uds_msg_buf_t r;
+    memset(&r, 0, sizeof(r));
+    r.data[0] = 0x22U;
+    for (uint16_t i = 0U; i < n; i++) {
+        r.data[1U + (2U * i)] = (uint8_t)(dids[i] >> 8U);
+        r.data[2U + (2U * i)] = (uint8_t)(dids[i] & 0xFFU);
+    }
+    r.length = (uint16_t)(1U + (2U * n));
+    return r;
+}
+
+/** TC-0x22-014: an unsupported DID among supported ones is skipped; the
+ *  response carries the supported DIDs only. */
+ZTEST(test_service_0x22, tc014_unsupported_did_skipped)
+{
+    setup();
+    static const uint16_t dids[] = { 0xDEADU, TEST_DID_EXT_ONLY, TEST_DID_WRITE_ONLY, 0xF190U };
+    uds_msg_buf_t req  = make_req_n(dids, 4U);
+    static uds_msg_buf_t resp;
+    memset(&resp, 0, sizeof(resp));
+
+    zassert_equal(uds_service_0x22_handler(&g_srv, &req, &resp), UDS_STATUS_OK,
+                  "supported DIDs must still be answered (EDS#465)");
+    zassert_equal(resp.data[1], 0xF1U, "only the VIN is supported in DEFAULT");
+    zassert_equal(resp.data[2], 0x90U, "VIN echoed");
+}
+
+/** TC-0x22-015: none supported in the active session → NRC 0x31; the same
+ *  DID becomes readable in its session. */
+ZTEST(test_service_0x22, tc015_none_supported_in_session)
+{
+    setup();
+    static const uint16_t dids[] = { TEST_DID_EXT_ONLY, 0xDEADU };
+    uds_msg_buf_t req  = make_req_n(dids, 2U);
+    static uds_msg_buf_t resp;
+    zassert_equal(uds_service_0x22_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "none supported → 0x31");
+
+    uds_session_transition(&g_sess, UDS_SESSION_EXTENDED);
+    zassert_equal(uds_service_0x22_handler(&g_srv, &req, &resp), UDS_STATUS_OK,
+                  "EXTENDED-only DID readable in EXTENDED");
+    zassert_equal(resp.length, 4U, "one DID: 62 A1 00 5A");
+}
+
+/** TC-0x22-016: a secured DID while locked → NRC 0x33, even after a
+ *  skipped unsupported DID. */
+ZTEST(test_service_0x22, tc016_secured_did_denied)
+{
+    setup();
+    static const uint16_t dids[] = { 0xDEADU, TEST_DID_SECURED };
+    uds_msg_buf_t req  = make_req_n(dids, 2U);
+    static uds_msg_buf_t resp;
+    zassert_equal(uds_service_0x22_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_SEC_NOT_UNLOCKED, "secured DID → 0x33");
+}
+
+/** TC-0x22-017: a DID condition failure → NRC 0x22, not 0x31. */
+ZTEST(test_service_0x22, tc017_condition_failure_is_0x22)
+{
+    setup();
+    uds_msg_buf_t req  = make_req(TEST_DID_COND_FAIL);
+    static uds_msg_buf_t resp;
+    zassert_equal(uds_service_0x22_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_CONDITIONS_NOT_MET, "condition failure → 0x22 (EDS#465)");
+}
+
+/** TC-0x22-018: total response over the transport limit → NRC 0x14. */
+ZTEST(test_service_0x22, tc018_response_too_long)
+{
+    setup();
+    static uint16_t dids[300];
+    for (uint16_t i = 0U; i < 300U; i++) { dids[i] = 0xF190U; }  /* 300 x (2 + 17) */
+    static uds_msg_buf_t req;
+    static uds_msg_buf_t resp;
+    req = make_req_n(dids, 300U);
+    zassert_equal(uds_service_0x22_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_RESPONSE_TOO_LONG, "response > 4095 → 0x14 (EDS#465)");
+}
+
 /* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
@@ -375,6 +501,11 @@ extern void test_service_0x22__tc010_response_sid_0x62(void);
 extern void test_service_0x22__tc011_did_echoed_in_response(void);
 extern void test_service_0x22__tc012_null_req(void);
 extern void test_service_0x22__tc013_null_resp(void);
+extern void test_service_0x22__tc014_unsupported_did_skipped(void);
+extern void test_service_0x22__tc015_none_supported_in_session(void);
+extern void test_service_0x22__tc016_secured_did_denied(void);
+extern void test_service_0x22__tc017_condition_failure_is_0x22(void);
+extern void test_service_0x22__tc018_response_too_long(void);
 
 void run_all_tests(void)
 {
@@ -391,4 +522,9 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x22__tc011_did_echoed_in_response);
     RUN_TEST(test_service_0x22__tc012_null_req);
     RUN_TEST(test_service_0x22__tc013_null_resp);
+    RUN_TEST(test_service_0x22__tc014_unsupported_did_skipped);
+    RUN_TEST(test_service_0x22__tc015_none_supported_in_session);
+    RUN_TEST(test_service_0x22__tc016_secured_did_denied);
+    RUN_TEST(test_service_0x22__tc017_condition_failure_is_0x22);
+    RUN_TEST(test_service_0x22__tc018_response_too_long);
 }
