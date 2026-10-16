@@ -49,6 +49,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **CommunicationControl conformance** (`#447`, ISO 14229-1:2026 §9.5).
+  communicationType is validated against Annex B Table B.1: bits 1-0 = 0 or
+  any bit 3-2 set is NRC 0x31 (EDS passed every value to the platform). A
+  platform callback can now answer `UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE` for a
+  subnet the node doesn't have, also 0x31 (any other callback error stays
+  0x22). The minimum length is checked before the SubFunction and the total
+  length after it (Figure 6), so a 5-byte controlType 0x04/0x05 request gets
+  0x12, not 0x13.
 - **ISO-TP receive validation per ISO 15765-2:2024 §9.6** (`#452`). Ignored,
   without sending an FC: an FF with CAN_DL < 8, an FF with FF_DL below
   FF_DLmin, an escape FF with FF_DL <= 4095. A CF shorter than RX_DL is

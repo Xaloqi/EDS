@@ -286,6 +286,110 @@ ZTEST(test_service_0x28, tc010_unsupported_control_type_7f)
 }
 
 /**
+ * TC-0x28-018: controlType 0x04 with nodeIdentificationNumber (5 bytes) →
+ * NRC 0x12, not 0x13: SubFunction is checked before the total length
+ * (ISO 14229-1:2026 Figure 6) [EDS#447].
+ */
+ZTEST(test_service_0x28, tc018_unsupported_control_type_with_node_id)
+{
+    setup();
+
+    uds_msg_buf_t req = make_req(0x04U, 0x01U);
+    req.data[3] = 0x00U;   /* nodeIdentificationNumber */
+    req.data[4] = 0x01U;
+    req.length  = 5U;
+    uds_msg_buf_t resp = {0};
+
+    zassert_equal(uds_service_0x28_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP,
+        "5-byte controlType 0x04 must be NRC 0x12 (EDS#447)");
+}
+
+/**
+ * TC-0x28-019: Request of 1 byte (no controlType) → NRC 0x13 (minimum length).
+ */
+ZTEST(test_service_0x28, tc019_below_min_length)
+{
+    setup();
+
+    uds_msg_buf_t req = make_req(0x00U, 0x01U);
+    req.length = 1U;
+    uds_msg_buf_t resp = {0};
+
+    zassert_equal(uds_service_0x28_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "1-byte request must be NRC 0x13");
+}
+
+/**
+ * TC-0x28-020: reserved communicationType coding → NRC 0x31 (Table 57,
+ * Annex B Table B.1): bits 1-0 = 0, or bits 3-2 non-zero [EDS#447].
+ */
+ZTEST(test_service_0x28, tc020_reserved_comm_type_rejected)
+{
+    static const uint8_t bad[] = { 0x00U, 0x04U, 0x08U, 0x0DU, 0xF0U };
+    for (uint8_t i = 0U; i < (uint8_t)sizeof(bad); i++) {
+        setup();
+        uds_msg_buf_t req  = make_req(0x03U, bad[i]);
+        uds_msg_buf_t resp = {0};
+        zassert_equal(uds_service_0x28_handler(&g_srv, &req, &resp),
+            UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
+            "communicationType 0x%02X must be NRC 0x31 (EDS#447)", bad[i]);
+    }
+}
+
+/**
+ * TC-0x28-021: every Table B.1 subnet value with a valid type is accepted
+ * by core (0x0 all, 0x1-0xE subnet, 0xF this network).
+ */
+ZTEST(test_service_0x28, tc021_subnet_values_accepted)
+{
+    static const uint8_t ok[] = { 0x01U, 0x02U, 0x03U, 0x11U, 0xE2U, 0xF3U };
+    for (uint8_t i = 0U; i < (uint8_t)sizeof(ok); i++) {
+        setup();
+        uds_msg_buf_t req  = make_req(0x03U, ok[i]);
+        uds_msg_buf_t resp = {0};
+        zassert_equal(uds_service_0x28_handler(&g_srv, &req, &resp), UDS_STATUS_OK,
+            "communicationType 0x%02X must be accepted", ok[i]);
+    }
+}
+
+/* Platform callback for TC-0x28-022: has no subnet 5; fails otherwise if asked. */
+static uds_status_t s_cb_status;
+static uds_status_t t_comm_cb(uds_comm_mode_t mode, uint8_t comm_type)
+{
+    (void)mode;
+    if ((comm_type >> 4U) == 0x05U) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+    }
+    return s_cb_status;
+}
+
+/**
+ * TC-0x28-022: platform rejects the subnet → NRC 0x31; any other platform
+ * failure stays NRC 0x22 [EDS#447].
+ */
+ZTEST(test_service_0x28, tc022_platform_subnet_rejection)
+{
+    static const uds_comm_control_cfg_t cfg = { .comm_cb = t_comm_cb, .dtc_cb = NULL };
+
+    setup();
+    uds_comm_control_test_reset();
+    (void)uds_comm_control_init(&cfg);
+    s_cb_status = UDS_STATUS_OK;
+    uds_msg_buf_t req  = make_req(0x03U, 0x51U);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x28_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "absent subnet must be NRC 0x31");
+
+    s_cb_status = UDS_STATUS_ERR_PLATFORM;
+    req = make_req(0x03U, 0x01U);
+    zassert_equal(uds_service_0x28_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_CONDITIONS_NOT_MET, "other platform failure stays NRC 0x22");
+
+    uds_comm_control_test_reset();
+}
+
+/**
  * TC-0x28-011: Request length 2 (no commType byte) → ERR_INVALID_PARAM (NRC 0x13).
  */
 ZTEST(test_service_0x28, tc011_short_request_rejected)
@@ -431,6 +535,11 @@ extern void test_service_0x28__tc014_state_updated_after_request(void);
 extern void test_service_0x28__tc015_restore_defaults_on_session_transition(void);
 extern void test_service_0x28__tc016_null_req(void);
 extern void test_service_0x28__tc017_null_resp(void);
+extern void test_service_0x28__tc018_unsupported_control_type_with_node_id(void);
+extern void test_service_0x28__tc019_below_min_length(void);
+extern void test_service_0x28__tc020_reserved_comm_type_rejected(void);
+extern void test_service_0x28__tc021_subnet_values_accepted(void);
+extern void test_service_0x28__tc022_platform_subnet_rejection(void);
 
 void run_all_tests(void)
 {
@@ -451,4 +560,9 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x28__tc015_restore_defaults_on_session_transition);
     RUN_TEST(test_service_0x28__tc016_null_req);
     RUN_TEST(test_service_0x28__tc017_null_resp);
+    RUN_TEST(test_service_0x28__tc018_unsupported_control_type_with_node_id);
+    RUN_TEST(test_service_0x28__tc019_below_min_length);
+    RUN_TEST(test_service_0x28__tc020_reserved_comm_type_rejected);
+    RUN_TEST(test_service_0x28__tc021_subnet_values_accepted);
+    RUN_TEST(test_service_0x28__tc022_platform_subnet_rejection);
 }

@@ -82,6 +82,9 @@ uds_status_t uds_comm_control_apply(uint8_t control_type, uint8_t comm_type)
 
     if (s_comm_cb != NULL) {
         status = s_comm_cb(new_mode, comm_type);
+        if (status == UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE) {
+            return status;   /* [EDS#447] unsupported subnet: NRC 0x31 */
+        }
         if (status != UDS_STATUS_OK) {
             return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
         }
