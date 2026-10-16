@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **Functional addressing, opt-in** (`#444`, `#445`; ISO 14229-1:2026 §7.7).
+  New `isotp_cfg_t.functional_rx_can_id` (0 = none, the default: behaviour
+  unchanged), `isotp_get_rx_addressing()` and
+  `uds_server_process_request_ex()`. With a functional ID configured:
+  functional requests get no NRC 0x11/0x12/0x31/0x7E/0x7F (§7.7.1,
+  Table 4); a functional Single Frame (the `3E 80` keep-alive) is delivered
+  from its own buffer, so a physical multi-frame reception in progress
+  survives it (§7.7.6); a functional FF/CF/FC is ignored. The FreeRTOS poll
+  task passes the addressing through. Generated `uds_init.c` does not set
+  the functional ID yet.
+- **`CONFIG_ISOTP_RX_PADDING_MODE`** (`#452`): which Classic CAN Single
+  Frames are accepted: padded or optimised (0, default), padded only (1),
+  optimised only (2).
+
 ### Changed
 
 - **ISO-TP timeouts default to ISO 15765-2:2024's 1000 ms** (`#453`). N_As,
@@ -33,6 +49,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **ISO-TP receive validation per ISO 15765-2:2024 §9.6** (`#452`). Ignored,
+  without sending an FC: an FF with CAN_DL < 8, an FF with FF_DL below
+  FF_DLmin, an escape FF with FF_DL <= 4095. A CF shorter than RX_DL is
+  ignored unless it is the last one and carries every remaining byte (EDS
+  used to take a short middle CF as fewer bytes). A Classic CAN SF that is
+  neither padded nor optimised is ignored. The escape FF is now accepted on
+  Classic CAN (§9.6.3.1), so a message over the buffer gets FC.Overflow
+  instead of silence.
 - **DTC status follows ISO 14229-1:2026 Annex D** (`#448`). Registration and
   every clear set status 0x50 (testNotCompletedSinceLastClear and
   testNotCompletedThisOperationCycle), not 0x00, and zero the

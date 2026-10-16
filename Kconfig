@@ -57,6 +57,16 @@ config ISOTP_TX_PADDING_BYTE
 	  ISO 15765-2 Annex B recommends 0xCC. Override only if your OEM tester
 	  requires a different padding byte.
 
+config ISOTP_RX_PADDING_MODE
+	int "ISO-TP receive Single Frame padding check"
+	default 0
+	range 0 2
+	help
+	  Which Classic CAN Single Frames are accepted (ISO 15765-2:2024
+	  §9.6.2.2, §11.3.2). 0 (default): padded (CAN_DL 8) or optimised
+	  (CAN_DL = SF_DL + 1). 1: padded only. 2: optimised only. Any other
+	  Single Frame is ignored.
+
 config ISOTP_TIMEOUT_CR_MS
 	int "ISO-TP N_Cr timeout (ms)"
 	default 1000

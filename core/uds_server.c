@@ -45,6 +45,17 @@ static uds_status_t srv_validate_request(const uds_msg_buf_t *req);
  */
 static uds_nrc_t srv_status_to_nrc(uds_status_t status);
 
+/* Dispatch one request; the addressing-independent part of
+ * uds_server_process_request_ex(). */
+static uds_status_t srv_process(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp);
+
+/* [EDS#444] True for a negative response that ISO 14229-1:2026 §7.7.1 says
+ * shall not be sent to a functionally addressed request. */
+static bool srv_is_functional_suppressed_nrc(const uds_msg_buf_t *resp);
+
 /**
  * [P2-SRV-01/02] Validate session and security constraints for the service.
  *
@@ -107,6 +118,34 @@ uds_status_t uds_server_init(
 }
 
 uds_status_t uds_server_process_request(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp)
+{
+    return uds_server_process_request_ex(ctx, req, resp, UDS_ADDRESSING_PHYSICAL);
+}
+
+uds_status_t uds_server_process_request_ex(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp,
+    uds_addressing_t     addressing)
+{
+    uds_status_t status = srv_process(ctx, req, resp);
+
+    /* [EDS#444] ISO 14229-1:2026 §7.7.1, Table 4: with functional
+     * addressing, NRC 0x11, 0x12, 0x31, 0x7E and 0x7F are never sent,
+     * whatever the suppress bit. Other NRCs (0x13, 0x22, 0x78, ...) are. */
+    if ((status == UDS_STATUS_OK) &&
+        (addressing == UDS_ADDRESSING_FUNCTIONAL) &&
+        srv_is_functional_suppressed_nrc(resp)) {
+        resp->length = (uint16_t)0U;
+    }
+
+    return status;
+}
+
+static uds_status_t srv_process(
     uds_server_ctx_t    *ctx,
     const uds_msg_buf_t *req,
     uds_msg_buf_t       *resp)
@@ -323,6 +362,28 @@ static uds_status_t srv_validate_request(const uds_msg_buf_t *req)
 }
 
 /* [P2-SRV-04] Complete status → NRC mapping per ISO 14229-1:2026 Annex A.1. */
+static bool srv_is_functional_suppressed_nrc(const uds_msg_buf_t *resp)
+{
+    bool suppressed = false;
+
+    if ((resp->length == (uint16_t)3U) &&
+        (resp->data[0] == (uint8_t)UDS_SID_NEGATIVE_RESPONSE)) {
+        switch (resp->data[2]) {
+            case (uint8_t)UDS_NRC_SERVICE_NOT_SUPPORTED:
+            case (uint8_t)UDS_NRC_SUBFUNCTION_NOT_SUPPORTED:
+            case (uint8_t)UDS_NRC_REQUEST_OUT_OF_RANGE:
+            case (uint8_t)UDS_NRC_SUBFUNCTION_NOT_SUPPORTED_IN_ACTIVE_SESSION:
+            case (uint8_t)UDS_NRC_SERVICE_NOT_SUPPORTED_IN_ACTIVE_SESSION:
+                suppressed = true;
+                break;
+            default:
+                suppressed = false;
+                break;
+        }
+    }
+    return suppressed;
+}
+
 static uds_nrc_t srv_status_to_nrc(uds_status_t status)
 {
     switch (status) {

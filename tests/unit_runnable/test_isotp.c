@@ -1029,12 +1029,9 @@ ZTEST(test_isotp_canfd, test_fd_sf_tx_10_bytes)
 }
 
 /**
- * TC-ISTP-FD-005: CAN FD FF escape sequence receive — FF_DL = 5000 bytes
- *                  within ISOTP_RX_BUF_LEN → not possible without expanding
- *                  the buffer; test that FF_DL = 100 (fits) works.
- *
- * Sends an FD FF with escape sequence: bytes 0-1 = 0x10 0x00,
- * bytes 2-5 = 0x00000064 (100 decimal), then 10 first data bytes.
+ * TC-ISTP-FD-005: CAN FD FF escape sequence with FF_DL = 100 (<= 4095) is
+ *                  ignored, no FC (ISO 15765-2:2024 §9.6.3.2) [EDS#452].
+ *                  The escape is only valid for FF_DL > 4095.
  */
 ZTEST(test_isotp_canfd, test_fd_ff_escape_rx_fits)
 {
@@ -1051,19 +1048,14 @@ ZTEST(test_isotp_canfd, test_fd_ff_escape_rx_fits)
     };
     uds_can_frame_t ff = make_fd_frame(0x7DFU, ff_payload, 16U);
     uds_status_t rc = isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL);
-    zassert_equal(rc, UDS_STATUS_OK, "FD FF escape RX must be accepted");
-    zassert_false(g_rx_cb_called, "Callback must NOT fire after FF alone");
+    zassert_equal(rc, UDS_STATUS_ERR_TP_FRAME_INVALID,
+                  "escape FF with FF_DL <= 4095 must be ignored (EDS#452)");
+    zassert_false(g_rx_cb_called, "Callback must NOT fire");
 
     isotp_state_t state;
     isotp_get_state(&ctx, &state);
-    zassert_equal(state, ISOTP_STATE_RX_WAIT_CF, "Must be in RX_WAIT_CF");
-    /* FC CTS must have been sent */
-    zassert_true(g_mock_tx_count >= 1U, "FC CTS must be transmitted");
-    zassert_equal((g_mock_tx_frames[0].data[0] >> 4U), (uint8_t)ISOTP_FRAME_TYPE_FC,
-                  "Transmitted frame must be FC type");
-    zassert_equal((g_mock_tx_frames[0].data[0] & 0x0FU),
-                  (uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND,
-                  "FC status must be CTS");
+    zassert_equal(state, ISOTP_STATE_IDLE, "no reception started");
+    zassert_equal(g_mock_tx_count, 0U, "no FC may be sent");
 }
 
 /**
@@ -1089,8 +1081,9 @@ ZTEST(test_isotp_canfd, test_fd_ff_escape_rx_overflow)
 }
 
 /**
- * TC-ISTP-FD-007: CAN FD FF escape on Classic CAN frame → FRAME_INVALID.
- * FF_DL == 0 on a non-FD frame must be rejected.
+ * TC-ISTP-FD-007: escape FF on a Classic CAN frame with FF_DL 100 → ignored.
+ * [EDS#452] Classic CAN escape itself is valid (see TC-ISTP-RX-003); this
+ * one is ignored because FF_DL <= 4095.
  */
 ZTEST(test_isotp_canfd, test_fd_ff_escape_classic_can_rejected)
 {
@@ -1105,7 +1098,7 @@ ZTEST(test_isotp_canfd, test_fd_ff_escape_classic_can_rejected)
     uds_can_frame_t f = make_can_frame(0x7DFU, payload, 8U);
     uds_status_t rc = isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL);
     zassert_equal(rc, UDS_STATUS_ERR_TP_FRAME_INVALID,
-                  "FF_DL=0 on Classic CAN must be FRAME_INVALID");
+                  "escape with FF_DL <= 4095 must be ignored (EDS#452)");
 }
 
 /**
@@ -2142,6 +2135,292 @@ ZTEST(test_isotp_padding, test_fd_sf_padded_one_tail_byte)
 #endif /* ISOTP_TX_PADDING */
 
 /* =========================================================================
+ * [EDS#444/#445] Functional addressing
+ * ========================================================================= */
+
+ZTEST_SUITE(test_isotp_functional, NULL, NULL, NULL, NULL, NULL);
+
+#define TEST_PHYS_RX_ID  (0x7E0U)
+#define TEST_FUNC_RX_ID  (0x7DFU)
+
+/** Physical request ID 0x7E0, functional ID 0x7DF configured. */
+static uds_status_t init_isotp_func(isotp_ctx_t *ctx)
+{
+    isotp_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.rx_can_id            = TEST_PHYS_RX_ID;
+    cfg.tx_can_id            = 0x7E8U;
+    cfg.functional_rx_can_id = TEST_FUNC_RX_ID;
+    cfg.can                  = &g_mock_can;
+    return isotp_init(ctx, &cfg);
+}
+
+static uds_addressing_t rx_addressing(const isotp_ctx_t *ctx)
+{
+    /* Sentinel outside the enum: a failed getter can match neither value. */
+    uds_addressing_t a = (uds_addressing_t)0xFFU;
+    (void)isotp_get_rx_addressing(ctx, &a);
+    return a;
+}
+
+/**
+ * TC-ISTP-FUNC-001: an SF on the functional ID is delivered as functional,
+ * an SF on the physical ID as physical.
+ */
+ZTEST(test_isotp_functional, test_sf_addressing_reported)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_func(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t sf[] = { 0x02U, 0x3EU, 0x00U };
+    uds_can_frame_t f = make_can_frame(TEST_FUNC_RX_ID, sf, 3U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK, "func SF");
+    zassert_true(g_rx_cb_called, "functional SF must be delivered");
+    zassert_equal(rx_addressing(&ctx), UDS_ADDRESSING_FUNCTIONAL, "must report functional");
+
+    rx_cb_reset();
+    f = make_can_frame(TEST_PHYS_RX_ID, sf, 3U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK, "phys SF");
+    zassert_true(g_rx_cb_called, "physical SF must be delivered");
+    zassert_equal(rx_addressing(&ctx), UDS_ADDRESSING_PHYSICAL, "must report physical");
+}
+
+/**
+ * TC-ISTP-FUNC-002: no functional ID configured (the default) → every frame,
+ * 0x7DF included, is physical, as before EDS#444.
+ */
+ZTEST(test_isotp_functional, test_unconfigured_is_physical)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t sf[] = { 0x02U, 0x3EU, 0x00U };
+    uds_can_frame_t f = make_can_frame(0x7DFU, sf, 3U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK, "SF");
+    zassert_equal(rx_addressing(&ctx), UDS_ADDRESSING_PHYSICAL, "unconfigured must be physical");
+}
+
+/**
+ * TC-ISTP-FUNC-003: [EDS#445] FF on the physical ID, a functional 3E 80
+ * keep-alive, then the CFs: the physical request reassembles intact
+ * (ISO 14229-1:2026 §7.7.6).
+ */
+ZTEST(test_isotp_functional, test_keepalive_does_not_break_physical_reception)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_func(&ctx), UDS_STATUS_OK, "init failed");
+
+    /* 20-byte physical request: FF (6 data bytes) + CF1 (7) + CF2 (7). */
+    uint8_t ff[]  = { 0x10U, 0x14U, 0x36U, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U };
+    uint8_t cf1[] = { 0x21U, 0x06U, 0x07U, 0x08U, 0x09U, 0x0AU, 0x0BU, 0x0CU };
+    uint8_t cf2[] = { 0x22U, 0x0DU, 0x0EU, 0x0FU, 0x10U, 0x11U, 0x12U, 0x13U };
+    uint8_t ka[]  = { 0x02U, 0x3EU, 0x80U };
+
+    uds_can_frame_t f = make_can_frame(TEST_PHYS_RX_ID, ff, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK, "FF");
+    f = make_can_frame(TEST_PHYS_RX_ID, cf1, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK, "CF1");
+
+    f = make_can_frame(TEST_FUNC_RX_ID, ka, 3U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK, "keep-alive");
+    zassert_true(g_rx_cb_called, "keep-alive must still be delivered");
+    zassert_equal(g_rx_cb_len, 2U, "keep-alive length");
+    zassert_equal(g_rx_cb_data[1], 0x80U, "keep-alive content");
+    zassert_equal(rx_addressing(&ctx), UDS_ADDRESSING_FUNCTIONAL, "keep-alive is functional");
+
+    rx_cb_reset();
+    f = make_can_frame(TEST_PHYS_RX_ID, cf2, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "CF2 after the keep-alive must be accepted (EDS#445)");
+    zassert_true(g_rx_cb_called, "physical request must complete");
+    zassert_equal(g_rx_cb_len, 20U, "physical request length");
+    for (uint8_t i = 1U; i < 20U; i++) {
+        zassert_equal(g_rx_cb_data[i], i, "physical request byte %u corrupted", i);
+    }
+    zassert_equal(g_rx_cb_data[0], 0x36U, "physical request SID");
+    zassert_equal(rx_addressing(&ctx), UDS_ADDRESSING_PHYSICAL, "reassembled request is physical");
+}
+
+/**
+ * TC-ISTP-FUNC-004: [EDS#445] an FF on the functional ID is ignored: no FC,
+ * no reception started.
+ */
+ZTEST(test_isotp_functional, test_functional_ff_ignored)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_func(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t ff[] = { 0x10U, 0x14U, 0x2EU, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U };
+    uds_can_frame_t f = make_can_frame(TEST_FUNC_RX_ID, ff, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_FRAME_INVALID, "functional FF must be ignored");
+    zassert_equal(g_mock_tx_count, 0U, "no FC for a functional FF");
+    isotp_state_t st;
+    (void)isotp_get_rx_state(&ctx, &st);
+    zassert_equal(st, ISOTP_STATE_IDLE, "no reception started");
+}
+
+/**
+ * TC-ISTP-FUNC-005: a 29-bit frame with numeric ID 0x7DF is not the 11-bit
+ * functional ID.
+ */
+ZTEST(test_isotp_functional, test_extended_id_not_functional)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_func(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t sf[] = { 0x02U, 0x3EU, 0x00U };
+    uds_can_frame_t f = make_can_frame(TEST_FUNC_RX_ID, sf, 3U);
+    f.is_extended_id = true;
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK, "SF");
+    zassert_equal(rx_addressing(&ctx), UDS_ADDRESSING_PHYSICAL, "29-bit 0x7DF is not functional");
+}
+
+/* =========================================================================
+ * [EDS#452] ISO 15765-2:2024 receive validation
+ * ========================================================================= */
+
+ZTEST_SUITE(test_isotp_rx_rules, NULL, NULL, NULL, NULL, NULL);
+
+static void rx_rules_setup(isotp_ctx_t *ctx)
+{
+    mock_can_reset();
+    rx_cb_reset();
+    memset(ctx, 0, sizeof(*ctx));
+    zassert_equal(init_isotp(ctx), UDS_STATUS_OK, "init failed");
+}
+
+static void assert_ignored_no_fc(const isotp_ctx_t *ctx, uds_status_t rc, const char *what)
+{
+    isotp_state_t st;
+    zassert_equal(rc, UDS_STATUS_ERR_TP_FRAME_INVALID, "%s: must be ignored", what);
+    zassert_equal(g_mock_tx_count, 0U, "%s: no FC may be sent", what);
+    (void)isotp_get_rx_state(ctx, &st);
+    zassert_equal(st, ISOTP_STATE_IDLE, "%s: no reception started", what);
+}
+
+/** TC-ISTP-RX-001: FF with CAN_DL < 8 → ignored, no FC (§9.6.3.2). */
+ZTEST(test_isotp_rx_rules, test_short_ff_ignored)
+{
+    isotp_ctx_t ctx;
+    rx_rules_setup(&ctx);
+    uint8_t ff[] = { 0x10U, 0x14U, 0x2EU };
+    uds_can_frame_t f = make_can_frame(0x7DFU, ff, 3U);
+    assert_ignored_no_fc(&ctx, isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL),
+                         "3-byte FF");
+}
+
+/** TC-ISTP-RX-002: FF_DL < FF_DLmin (8 at CAN_DL 8) → ignored, no FC. */
+ZTEST(test_isotp_rx_rules, test_ff_dl_below_min_ignored)
+{
+    isotp_ctx_t ctx;
+    rx_rules_setup(&ctx);
+    uint8_t ff[] = { 0x10U, 0x07U, 0x2EU, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U };
+    uds_can_frame_t f = make_can_frame(0x7DFU, ff, 8U);
+    assert_ignored_no_fc(&ctx, isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL),
+                         "FF_DL 7");
+
+    /* FF_DL 8 is the minimum and is accepted. */
+    ff[1] = 0x08U;
+    f = make_can_frame(0x7DFU, ff, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "FF_DL 8 must be accepted");
+}
+
+/** TC-ISTP-RX-003: Classic CAN escape FF with FF_DL > buffer → FC.Overflow
+ *  (§9.6.3.1 Table 16: the escape is not FD-only). */
+ZTEST(test_isotp_rx_rules, test_classic_escape_ff_overflow)
+{
+    isotp_ctx_t ctx;
+    rx_rules_setup(&ctx);
+    uint8_t ff[] = { 0x10U, 0x00U, 0x00U, 0x00U, 0x13U, 0x88U, 0x01U, 0x02U }; /* 5000 */
+    uds_can_frame_t f = make_can_frame(0x7DFU, ff, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_OVERFLOW, "escape FF_DL 5000 must overflow");
+    zassert_equal(g_mock_tx_count, 1U, "one FC");
+    zassert_equal(g_mock_tx_frames[0].data[0], (uint8_t)0x32U, "FC.Overflow");
+}
+
+/** TC-ISTP-RX-004: escape FF with FF_DL <= 4095 → ignored, no FC. */
+ZTEST(test_isotp_rx_rules, test_escape_ff_small_dl_ignored)
+{
+    isotp_ctx_t ctx;
+    rx_rules_setup(&ctx);
+    uint8_t ff[] = { 0x10U, 0x00U, 0x00U, 0x00U, 0x0FU, 0xFFU, 0x01U, 0x02U }; /* 4095 */
+    uds_can_frame_t f = make_can_frame(0x7DFU, ff, 8U);
+    assert_ignored_no_fc(&ctx, isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL),
+                         "escape FF_DL 4095");
+}
+
+/** TC-ISTP-RX-005: a short CF mid-message is ignored; a short last CF that
+ *  carries every remaining byte is accepted (§9.6.4.1). */
+ZTEST(test_isotp_rx_rules, test_short_middle_cf_ignored)
+{
+    isotp_ctx_t ctx;
+    rx_rules_setup(&ctx);
+    /* 16 bytes: FF 6 + CF1 7 + CF2 3 (last, short). */
+    uint8_t ff[]  = { 0x10U, 0x10U, 0x2EU, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U };
+    uint8_t cf1[] = { 0x21U, 0x06U, 0x07U, 0x08U, 0x09U, 0x0AU, 0x0BU, 0x0CU };
+    uint8_t cf2[] = { 0x22U, 0x0DU, 0x0EU, 0x0FU };
+    uds_can_frame_t f = make_can_frame(0x7DFU, ff, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK, "FF");
+
+    /* CF1 truncated to 5 bytes: 4 data bytes < 10 remaining → ignored. */
+    f = make_can_frame(0x7DFU, cf1, 5U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_FRAME_INVALID, "short middle CF must be ignored");
+    isotp_state_t st;
+    (void)isotp_get_rx_state(&ctx, &st);
+    zassert_equal(st, ISOTP_STATE_RX_WAIT_CF, "reception continues after an ignored CF");
+
+    f = make_can_frame(0x7DFU, cf1, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK, "CF1");
+    f = make_can_frame(0x7DFU, cf2, 4U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "short last CF carrying the remaining 3 bytes must be accepted");
+    zassert_true(g_rx_cb_called, "message must complete");
+    zassert_equal(g_rx_cb_len, 16U, "length");
+}
+
+/** TC-ISTP-RX-006: an SF neither padded (CAN_DL 8) nor optimised
+ *  (CAN_DL = SF_DL + 1) is ignored; both valid forms are accepted. */
+ZTEST(test_isotp_rx_rules, test_sf_padding_forms)
+{
+    isotp_ctx_t ctx;
+    rx_rules_setup(&ctx);
+    uint8_t sf[] = { 0x02U, 0x3EU, 0x00U, 0xCCU, 0xCCU, 0xCCU, 0xCCU, 0xCCU };
+
+    uds_can_frame_t f = make_can_frame(0x7DFU, sf, 5U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_FRAME_INVALID, "SF_DL 2 in CAN_DL 5 must be ignored");
+    zassert_false(g_rx_cb_called, "not delivered");
+
+    f = make_can_frame(0x7DFU, sf, 3U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "optimised SF accepted");
+    rx_cb_reset();
+    f = make_can_frame(0x7DFU, sf, 8U);
+    zassert_equal(isotp_process_rx_frame(&ctx, &f, rx_complete_cb, NULL), UDS_STATUS_OK,
+                  "padded SF accepted");
+    zassert_equal(g_rx_cb_len, 2U, "padding not delivered");
+}
+
+/* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
 
@@ -2200,6 +2479,17 @@ extern void test_isotp_directional__test_reset_tx_preserves_inflight_rx(void);
 extern void test_isotp_directional__test_reset_rx_leaves_context_valid_for_new_rx(void);
 extern void test_isotp_directional__test_full_reset_equals_both_directional_resets(void);
 extern void test_isotp_directional__test_new_api_null_and_init_guards(void);
+extern void test_isotp_functional__test_sf_addressing_reported(void);
+extern void test_isotp_functional__test_unconfigured_is_physical(void);
+extern void test_isotp_functional__test_keepalive_does_not_break_physical_reception(void);
+extern void test_isotp_functional__test_functional_ff_ignored(void);
+extern void test_isotp_functional__test_extended_id_not_functional(void);
+extern void test_isotp_rx_rules__test_short_ff_ignored(void);
+extern void test_isotp_rx_rules__test_ff_dl_below_min_ignored(void);
+extern void test_isotp_rx_rules__test_classic_escape_ff_overflow(void);
+extern void test_isotp_rx_rules__test_escape_ff_small_dl_ignored(void);
+extern void test_isotp_rx_rules__test_short_middle_cf_ignored(void);
+extern void test_isotp_rx_rules__test_sf_padding_forms(void);
 #if ISOTP_TX_PADDING
 extern void test_isotp_padding__test_classic_sf_padded(void);
 extern void test_isotp_padding__test_classic_sf_max_payload_no_tail(void);
@@ -2279,6 +2569,17 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_directional__test_reset_rx_leaves_context_valid_for_new_rx);
     RUN_TEST(test_isotp_directional__test_full_reset_equals_both_directional_resets);
     RUN_TEST(test_isotp_directional__test_new_api_null_and_init_guards);
+    RUN_TEST(test_isotp_functional__test_sf_addressing_reported);
+    RUN_TEST(test_isotp_functional__test_unconfigured_is_physical);
+    RUN_TEST(test_isotp_functional__test_keepalive_does_not_break_physical_reception);
+    RUN_TEST(test_isotp_functional__test_functional_ff_ignored);
+    RUN_TEST(test_isotp_functional__test_extended_id_not_functional);
+    RUN_TEST(test_isotp_rx_rules__test_short_ff_ignored);
+    RUN_TEST(test_isotp_rx_rules__test_ff_dl_below_min_ignored);
+    RUN_TEST(test_isotp_rx_rules__test_classic_escape_ff_overflow);
+    RUN_TEST(test_isotp_rx_rules__test_escape_ff_small_dl_ignored);
+    RUN_TEST(test_isotp_rx_rules__test_short_middle_cf_ignored);
+    RUN_TEST(test_isotp_rx_rules__test_sf_padding_forms);
 #if ISOTP_TX_PADDING
     RUN_TEST(test_isotp_padding__test_classic_sf_padded);
     RUN_TEST(test_isotp_padding__test_classic_sf_max_payload_no_tail);

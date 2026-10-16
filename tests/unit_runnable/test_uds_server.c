@@ -84,12 +84,36 @@ static uds_status_t stub_handler_err(uds_server_ctx_t *ctx,
     return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
 }
 
-/** Service table for tests — two entries. */
+/** [EDS#444] Handler whose outcome each test sets: a status to return, or
+ *  (g_stub_raw_nrc != 0) a negative response built by the handler itself. */
+static uds_status_t g_stub_status;
+static uint8_t      g_stub_raw_nrc;
+static uds_status_t stub_handler_cfg(uds_server_ctx_t *ctx,
+                                      const uds_msg_buf_t *req,
+                                      uds_msg_buf_t *resp)
+{
+    (void)ctx;
+    if (g_stub_raw_nrc != 0U) {
+        resp->data[0] = 0x7FU;
+        resp->data[1] = req->data[0];
+        resp->data[2] = g_stub_raw_nrc;
+        resp->length  = 3U;
+        return UDS_STATUS_OK;
+    }
+    if (g_stub_status == UDS_STATUS_OK) {
+        resp->data[0] = (uint8_t)(req->data[0] + 0x40U);
+        resp->length  = 1U;
+    }
+    return g_stub_status;
+}
+
+/** Service table for tests. */
 static const uds_service_entry_t g_test_service_table[] = {
     { 0x3EU, stub_handler_ok,  true  },   /* TesterPresent (stub) */
     { 0xFFU, stub_handler_err, false },   /* Artificial SID 0xFF — errors */
+    { 0xFDU, stub_handler_cfg, true  },   /* Artificial SID 0xFD — configurable */
 };
-#define TEST_SVC_TABLE_COUNT  (2U)
+#define TEST_SVC_TABLE_COUNT  (3U)
 
 /*
  * [#113] ACL rows for this file's test services.
@@ -108,8 +132,9 @@ static const uds_service_entry_t g_test_service_table[] = {
 static const uds_access_entry_t g_test_access_table[] = {
     { 0x3EU, UDS_ACL_SESSION_ALL, 0U, false },
     { 0xFFU, UDS_ACL_SESSION_ALL, 0U, false },
+    { 0xFDU, UDS_ACL_SESSION_ALL, 0U, false },
 };
-#define TEST_ACL_TABLE_COUNT  (2U)
+#define TEST_ACL_TABLE_COUNT  (3U)
 
 /* =========================================================================
  * Helpers
@@ -702,6 +727,87 @@ ZTEST(test_uds_server_tick, test_s3_timeout_resets_security_unlock)
 }
 
 /* =========================================================================
+ * [EDS#444] Functional addressing: ISO 14229-1:2026 §7.7.1, Table 4
+ * ========================================================================= */
+
+ZTEST_SUITE(test_uds_server_functional, NULL, NULL, NULL, NULL, NULL);
+
+static uds_msg_buf_t s_func_resp;
+
+static void func_setup(uds_status_t st, uint8_t raw_nrc)
+{
+    ctx_init_all();
+    zassert_equal(srv_init_with_table(), UDS_STATUS_OK, "init");
+    g_stub_status  = st;
+    g_stub_raw_nrc = raw_nrc;
+    memset(&s_func_resp, 0, sizeof(s_func_resp));
+}
+
+static uint16_t func_resp_len(uint8_t sid, uint8_t sub, uds_addressing_t a)
+{
+    uds_msg_buf_t req = make_req(sid, sub);
+    (void)uds_server_process_request_ex(&g_srv, &req, &s_func_resp, a);
+    return s_func_resp.length;
+}
+
+/** TC-SRV-FUNC-001: the five NRCs are not sent to a functional request,
+ *  and are sent to a physical one. */
+ZTEST(test_uds_server_functional, test_five_nrcs_suppressed)
+{
+    static const uds_status_t st[] = {
+        UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP,                /* 0x12 */
+        UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,               /* 0x31 */
+        UDS_STATUS_ERR_SERVICE_NOT_SUPPORTED_IN_SESSION,   /* 0x7F */
+    };
+    for (uint8_t i = 0U; i < 3U; i++) {
+        func_setup(st[i], 0U);
+        zassert_equal(func_resp_len(0xFDU, 0x01U, UDS_ADDRESSING_FUNCTIONAL), 0U,
+                      "status %u: NRC must not be sent (functional)", i);
+        func_setup(st[i], 0U);
+        zassert_equal(func_resp_len(0xFDU, 0x01U, UDS_ADDRESSING_PHYSICAL), 3U,
+                      "status %u: NRC must be sent (physical)", i);
+    }
+
+    func_setup(UDS_STATUS_OK, (uint8_t)UDS_NRC_SUBFUNCTION_NOT_SUPPORTED_IN_ACTIVE_SESSION);
+    zassert_equal(func_resp_len(0xFDU, 0x01U, UDS_ADDRESSING_FUNCTIONAL), 0U,
+                  "0x7E must not be sent (functional)");
+
+    /* 0x11: SID with no handler. */
+    func_setup(UDS_STATUS_OK, 0U);
+    zassert_equal(func_resp_len(0xA5U, 0x01U, UDS_ADDRESSING_FUNCTIONAL), 0U,
+                  "0x11 must not be sent (functional)");
+    func_setup(UDS_STATUS_OK, 0U);
+    zassert_equal(func_resp_len(0xA5U, 0x01U, UDS_ADDRESSING_PHYSICAL), 3U,
+                  "0x11 must be sent (physical)");
+}
+
+/** TC-SRV-FUNC-002: other NRCs (0x13, 0x22) are still sent to a functional
+ *  request, even with the suppress bit set (Table 4). */
+ZTEST(test_uds_server_functional, test_other_nrcs_still_sent)
+{
+    func_setup(UDS_STATUS_ERR_INVALID_PARAM, 0U);
+    zassert_equal(func_resp_len(0xFDU, 0x81U, UDS_ADDRESSING_FUNCTIONAL), 3U,
+                  "0x13 must be sent (functional, SPRMIB set)");
+    zassert_equal(s_func_resp.data[2], (uint8_t)UDS_NRC_INCORRECT_MSG_LEN_OR_FORMAT, "NRC 0x13");
+
+    func_setup(UDS_STATUS_ERR_CONDITIONS_NOT_MET, 0U);
+    zassert_equal(func_resp_len(0xFDU, 0x01U, UDS_ADDRESSING_FUNCTIONAL), 3U,
+                  "0x22 must be sent (functional)");
+}
+
+/** TC-SRV-FUNC-003: positive responses are unaffected: sent without the
+ *  suppress bit, suppressed with it. */
+ZTEST(test_uds_server_functional, test_positive_unaffected)
+{
+    func_setup(UDS_STATUS_OK, 0U);
+    zassert_equal(func_resp_len(0xFDU, 0x01U, UDS_ADDRESSING_FUNCTIONAL), 1U,
+                  "positive response sent (functional)");
+    func_setup(UDS_STATUS_OK, 0U);
+    zassert_equal(func_resp_len(0xFDU, 0x81U, UDS_ADDRESSING_FUNCTIONAL), 0U,
+                  "positive response suppressed by SPRMIB (functional)");
+}
+
+/* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
 
@@ -970,6 +1076,9 @@ extern void test_uds_server_timing__test_nrc_0x78_for_write_service(void);
 extern void test_uds_server_timing__test_nrc_0x78_for_download_service(void);
 extern void test_uds_server_timing__test_p2_zero_accepted(void);
 extern void test_uds_server_timing__test_timing_config_does_not_affect_dispatch(void);
+extern void test_uds_server_functional__test_five_nrcs_suppressed(void);
+extern void test_uds_server_functional__test_other_nrcs_still_sent(void);
+extern void test_uds_server_functional__test_positive_unaffected(void);
 
 void run_all_tests(void)
 {
@@ -1010,5 +1119,8 @@ void run_all_tests(void)
     RUN_TEST(test_uds_server_timing__test_nrc_0x78_for_download_service);
     RUN_TEST(test_uds_server_timing__test_p2_zero_accepted);
     RUN_TEST(test_uds_server_timing__test_timing_config_does_not_affect_dispatch);
+    RUN_TEST(test_uds_server_functional__test_five_nrcs_suppressed);
+    RUN_TEST(test_uds_server_functional__test_other_nrcs_still_sent);
+    RUN_TEST(test_uds_server_functional__test_positive_unaffected);
 
 }
