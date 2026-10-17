@@ -120,6 +120,8 @@ class TestNRCFormatAndSIDEcho:
 
     def test_0x2E_wdbi_nrc_echoes_sid(self):
         s = _sim(); _session(s, SESSION_EXTENDED)
+        # 0x2E needs level 1 at service level first (core/uds_access_table.c).
+        s.sec_unlocked[1] = True
         resp = _req(s, bytes([SID_WRITE_DATA_BY_ID, 0xDE, 0xAD, 0x00]))
         self._assert_nrc(resp, SID_WRITE_DATA_BY_ID, NRC_REQUEST_OUT_OF_RANGE)
 
@@ -240,6 +242,8 @@ class TestWDBICompleteness:
 
     def test_write_unknown_did_returns_nrc_31(self):
         s = _sim(); _session(s, SESSION_EXTENDED)
+        # 0x2E needs level 1 at service level first (core/uds_access_table.c).
+        s.sec_unlocked[1] = True
         resp = self._wdbi(s, 0xDEAD, bytes(4))
         assert resp is not None and resp[2] == NRC_REQUEST_OUT_OF_RANGE
 

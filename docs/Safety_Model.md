@@ -336,7 +336,7 @@ The EDS safety model makes the following assumptions about the integration envir
 | NVM is not externally modified after `dtc_mirror_load()` | DTC status bytes become inconsistent |
 | The platform NVM driver sets `nvm_store_is_ready()` to false when NVM is permanently degraded | DTC mirror silently discards writes; fault history lost without detection (residual risk — mitigate via NVM driver qualification) |
 
-These assumptions are documented in the Safety Manual (EDS-SM-001 Rev 1.1), available to Professional tier licensees at **https://xaloqi.com**.
+These assumptions are documented in the Safety Manual (EDS-SM-001; the revision delivered is listed in the package's `CUSTOMER_NOTICE.md`), available to Professional tier licensees at **https://xaloqi.com**.
 
 ### DFU Firmware Authenticity and Anti-Rollback Boundary ([#232](https://github.com/Xaloqi/EDS/issues/232))
 
@@ -387,20 +387,20 @@ Current status of ISO 26262-6:2018 Part 6 work products:
 
 | Work product | Status | Location |
 |---|---|---|
-| Software safety requirements (ASIL-B) | Present | `EDS_Requirements_Traceability_Matrix.csv` (30 rows) — included in Professional tier safety package |
+| Software safety requirements (ASIL-B) | Present | `EDS_Requirements_Traceability_Matrix.csv` — included in Professional tier safety package |
 | Software architectural design | Present | `docs/ARCHITECTURE.md`, this document |
-| MISRA C:2012 deviation log | Complete | the MISRA Deviation Log (Professional tier — xaloqi.com) (10 deviations, 0 open) |
-| Unit testing (ISO 26262-6 Table 10) | Present | 35 modules, `tests/unit_runnable/` |
+| MISRA C:2012 deviation log | Complete | the MISRA Deviation Log (Professional tier — xaloqi.com) (every deviation justified, 0 open violations — counts in the log itself) |
+| Unit testing (ISO 26262-6 Table 10) | Present | every module under `tests/unit_runnable/`, run by `build_tests.sh` |
 | Integration testing | Present | Firmware harness (68 tests) + generated pytest suite |
-| Safety manual | Complete | EDS-SM-001 Rev 1.1 — delivered to Professional tier licensees via xaloqi.com |
+| Safety manual | Complete | EDS-SM-001 — delivered to Professional tier licensees via xaloqi.com (revision in `CUSTOMER_NOTICE.md`) |
 | Requirements traceability matrix | Partial | REQ-SAFE-001..007 + REQ-DL-* + REQ-DTC-NVM-01 |
 
 **Present (Professional tier):**
 
-- HARA (EDS-HARA-001 Rev 1.0) — component-level hazard analysis, 6 hazard events, ASIL decomposition per ISO 26262-9
-- Tool Qualification Argument (EDS-TQA-001 Rev 1.0) — codegen.py classified TCL1 per ISO 26262-8 §11
-- Safety Manual (EDS-SM-001 Rev 1.1) — peer reviewed
-- Requirements Traceability Matrix — 30 requirements, all COVERED
+- HARA (EDS-HARA-001) — component-level hazard analysis, 6 hazard events, ASIL decomposition per ISO 26262-9
+- Tool Qualification Argument (EDS-TQA-001) — codegen.py classified TCL1 per ISO 26262-8 §11; the Zephyr cross-compiler classified TCL2 (§2.3)
+- Safety Manual (EDS-SM-001) — peer reviewed
+- Requirements Traceability Matrix — every requirement with its ASIL, implementation, tests and coverage status (COVERED or PARTIAL); the CSV is the source of truth for its counts
 
 **Remaining gaps before formal ASIL-B claim:**
 

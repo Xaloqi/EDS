@@ -44,12 +44,12 @@ source. This example ships no Raspberry Pi Pico target — EDS has no RP2040/RP2
 | `0xF190` | VehicleIdentificationNumber | 17 | ASCII | read |
 | `0xF18C` | ECUSerialNumber | 4 | ASCII | read |
 | `0xF189` | ECUSoftwareVersionNumber | 4 | major.minor.patch.build | read |
-| `0x0C00` | VehicleState_EngineSpeed_rpm | 2 | uint16 BE, 1 rpm/bit | read, write |
-| `0x0D00` | VehicleState_VehicleSpeed_kph | 2 | uint16 BE, 0.1 km/h/bit | read, write |
+| `0x0C00` | VehicleState_EngineSpeed_rpm | 2 | uint16 BE, 1 rpm/bit | read, write (extended session) |
+| `0x0D00` | VehicleState_VehicleSpeed_kph | 2 | uint16 BE, 0.1 km/h/bit | read, write (extended session) |
 
 **Why the vehicle-state DIDs are writable:** this ECU doesn't own the sensors — on a
 vehicle it receives both signals over the bus. `native_sim` has no bus, so writing these
-DIDs (behind a SecurityAccess level 1 / AES-128-CMAC challenge) is how a test campaign
+DIDs (in the extended session, behind a SecurityAccess level 1 / AES-128-CMAC challenge — WriteDataByIdentifier is never accepted in the default session) is how a test campaign
 *injects* the ECU's inputs and provokes the two DTC monitors below. In a production
 configuration, remove `write` from `access` in `diagnostics_config.yaml`, or compile the
 injection path out of the build.

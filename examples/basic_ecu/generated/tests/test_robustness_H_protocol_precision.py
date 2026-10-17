@@ -114,7 +114,7 @@ class TestDSCTimingPrecision:
         s = _sim()
         resp = _req(s, bytes([SID_DIAGNOSTIC_SESSION_CONTROL, SESSION_EXTENDED]))
         assert resp is not None and resp[0] == 0x50
-        p2s_ms = (resp[4] << 8) | resp[5]
+        p2s_ms = ((resp[4] << 8) | resp[5]) * 10   # 10 ms units on the wire
         assert p2s_ms == P2_STAR_SERVER_MAX_MS, \
             f"P2* encoded as {p2s_ms}ms, expected {P2_STAR_SERVER_MAX_MS}ms"
 
@@ -125,10 +125,14 @@ class TestDSCTimingPrecision:
         assert resp[3] == P2_SERVER_MAX_MS & 0xFF
 
     def test_dsc_p2star_bytes_are_big_endian(self):
+        # P2*server_max is sent in 10 ms units (ISO 14229-1; core/uds_services/
+        # service_0x10.c). These asserted raw ms against a simulator that
+        # disagreed with the stack (2026-10-16 validation campaign, F15).
         s = _sim()
         resp = _req(s, bytes([SID_DIAGNOSTIC_SESSION_CONTROL, SESSION_DEFAULT]))
-        assert resp[4] == (P2_STAR_SERVER_MAX_MS >> 8) & 0xFF
-        assert resp[5] == P2_STAR_SERVER_MAX_MS & 0xFF
+        enc = P2_STAR_SERVER_MAX_MS // 10
+        assert resp[4] == (enc >> 8) & 0xFF
+        assert resp[5] == enc & 0xFF
 
     def test_all_three_sessions_return_same_timing(self):
         """P2/P2* bytes are ECU constants — must be identical regardless of target session."""
@@ -214,10 +218,17 @@ class TestMultiDIDReadByIdentifier:
         assert both_len == 1 + (2 + vin_payload) + (2 + serial_payload), \
             "Two-DID response length must equal sum of individual payloads plus 2 DID-echo bytes each"
 
-    def test_unknown_did_in_batch_returns_nrc_immediately(self):
-        """If any DID in the batch is unknown, return NRC 0x31 — no partial response."""
+    def test_unknown_did_in_batch_is_skipped(self):
+        """An unknown DID in a batch is skipped and the known one answered
+        (ISO 14229-1:2026 Figure 21, EDS#465). Before v1.20.0 EDS rejected the
+        whole batch with 0x31, which this test asserted."""
         s = _sim()
         resp = _rdbi(s, DID_VIN, 0xDEAD)
+        assert resp is not None and resp[0] == 0x62, resp.hex()
+        assert resp[1:3] == bytes([(DID_VIN >> 8) & 0xFF, DID_VIN & 0xFF])
+        assert bytes([0xDE, 0xAD]) not in resp, "unknown DID must not be echoed"
+        # And a batch with no supported DID at all is still NRC 0x31 (Figure 21).
+        resp = _rdbi(s, 0xDEAD, 0xBEEF)
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
         assert resp[2] == NRC_REQUEST_OUT_OF_RANGE
 
@@ -253,11 +264,12 @@ class TestMultiDIDReadByIdentifier:
         assert readback == payload, f"Read-back mismatch: {readback.hex()} != {payload.hex()}"
 
     def test_session_gated_did_blocked_in_lower_session(self):
-        """DID_SPARE_PART has min_session=extended (ordinal 3); blocked in default (ordinal 1)."""
+        """DID_SPARE_PART has min_session=extended (ordinal 3); blocked in default
+        (ordinal 1) with NRC 0x31 (ISO 14229-1:2026 Figure 21, EDS#465)."""
         s = _sim()
         resp = _rdbi(s, DID_SPARE_PART)
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
-        assert resp[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION
+        assert resp[2] == NRC_REQUEST_OUT_OF_RANGE
 
     def test_session_gated_did_accessible_in_required_session(self):
         s = _sim()
@@ -295,14 +307,19 @@ class TestReadDTCPrecision:
 
     def test_sub01_count_is_zero_when_no_dtcs_match(self):
         s = _sim()
-        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x01, 0xFF]))
+        # Every DTC reports 0x50 after registration and after a clear
+        # (testNotCompletedSinceLastClear | testNotCompletedThisOperationCycle,
+        # EDS#448, v1.20.0). Mask 0x2F (the failure bits) is disjoint from that
+        # baseline, so it selects exactly the DTCs a monitor has failed. These
+        # used mask 0xFF on an all-0x00 premise the stack retired (2026-10-16, F15).
+        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x01, 0x2F]))
         count = (resp[4] << 8) | resp[5]
         assert count == 0, f"Expected 0 active DTCs, got {count}"
 
     def test_sub01_count_is_one_after_activating_one_dtc(self):
         s = _sim()
-        self._activate_dtc(s, 0, 0x08)  # testFailed bit
-        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x01, 0xFF]))
+        self._activate_dtc(s, 0, 0x08)  # confirmedDTC bit
+        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x01, 0x2F]))   # failure bits only
         count = (resp[4] << 8) | resp[5]
         assert count == 1, f"Expected 1 active DTC, got {count}"
 
@@ -323,19 +340,24 @@ class TestReadDTCPrecision:
         assert count == 0, "Mask 0x00 must match no DTCs regardless of status"
 
     def test_sub02_response_header_with_no_active_dtcs(self):
-        """Sub 0x02 with no matching DTCs: [0x59, 0x02, mask] — exactly 3 bytes."""
+        """Sub 0x02 with no matching DTCs: [0x59, 0x02, availabilityMask] — exactly 3 bytes."""
         s = _sim()
-        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x02, 0xFF]))
+        # Every DTC reports 0x50 after registration and after a clear
+        # (testNotCompletedSinceLastClear | testNotCompletedThisOperationCycle,
+        # EDS#448, v1.20.0). Mask 0x2F (the failure bits) is disjoint from that
+        # baseline, so it selects exactly the DTCs a monitor has failed. These
+        # used mask 0xFF on an all-0x00 premise the stack retired (2026-10-16, F15).
+        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x02, 0x2F]))
         assert resp is not None and resp[0] == 0x59
         assert resp[1] == 0x02
-        assert resp[2] == 0xFF
+        assert resp[2] == 0xFF, "byte 2 is the DTCStatusAvailabilityMask (EDS default 0xFF)"
         assert len(resp) == 3, f"Sub 0x02 with no DTCs must be 3 bytes, got {len(resp)}"
 
     def test_sub02_dtc_record_is_four_bytes(self):
         """Each DTC record appended to sub 0x02: [code_hi, code_mid, code_lo, status]."""
         s = _sim()
         self._activate_dtc(s, 0, 0x08)
-        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x02, 0xFF]))
+        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x02, 0x2F]))   # failure bits: just DTC 0
         assert len(resp) == 3 + 4, f"Sub 0x02 with 1 DTC: expected 7 bytes, got {len(resp)}"
 
     def test_sub02_dtc_code_bytes_match_config(self):
@@ -353,7 +375,7 @@ class TestReadDTCPrecision:
         s = _sim()
         status = 0x2F  # arbitrary non-zero
         self._activate_dtc(s, 1, status)
-        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x02, 0xFF]))
+        resp = _req(s, bytes([SID_READ_DTC_INFO, 0x02, 0x2F]))   # only the activated DTC
         assert resp[6] == status, \
             f"DTC status byte: expected 0x{status:02X}, got 0x{resp[6]:02X}"
 
@@ -436,11 +458,12 @@ class TestRoutineControlLifecycle:
             f"0xFF10 in programming session: expected 0x71, got {resp!r}"
 
     def test_programming_session_routine_blocked_in_default(self):
-        """Routine 0xFF10 blocked in default session (ordinal 1 < 2)."""
+        """Routine 0xFF10 blocked in default session (ordinal 1 < 2) with NRC 0x31
+        (ISO 14229-1:2026 Figure 31, EDS#468; was 0x7F before v1.20.0)."""
         s = _sim()
         resp = _req(s, bytes([SID_ROUTINE_CONTROL, 0x01, 0xFF, 0x10]))
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
-        assert resp[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION
+        assert resp[2] == NRC_REQUEST_OUT_OF_RANGE
 
     def test_routine_positive_response_is_exactly_4_bytes(self):
         """0x71 response: [0x71, sub_fn, rid_hi, rid_lo] — no extra bytes."""

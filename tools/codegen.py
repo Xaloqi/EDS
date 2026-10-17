@@ -627,6 +627,32 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                     "Ensure this matches your 0x27 handler configuration."
                 )
 
+        # A writable DID must be writable on the stack this config generates
+        # for. SID 0x2E is gated at service level before any DID check
+        # (core/uds_access_table.c, row [7]): a non-default session and
+        # SecurityAccess level 1 exactly (uds_security_is_unlocked compares
+        # active_level == 1). So a DID declaring default-session writes, or a
+        # write level above 1, can never be written: the config would document
+        # behaviour the ECU refuses with 0x7F or 0x33. Founder decision
+        # 2026-10-16: hard error (2026-10-16 validation campaign, F7/F14).
+        if "write" in access:
+            if min_sess == "default":
+                _fatal(
+                    f"{pfx}: DID has write access with min_session 'default', but "
+                    "WriteDataByIdentifier (0x2E) is only accepted in a non-default "
+                    "session (core/uds_access_table.c), so this DID can never be "
+                    "written. FIX: set min_session to 'extended' (or 'programming')."
+                )
+            wlvl = did.get("write_security_level", 0)
+            if isinstance(wlvl, int) and wlvl > 1:
+                _fatal(
+                    f"{pfx}: write_security_level = {wlvl}, but "
+                    "WriteDataByIdentifier (0x2E) requires SecurityAccess level 1 "
+                    "to be the active level (core/uds_access_table.c), so a DID that "
+                    f"also demands level {wlvl} can never be written. "
+                    "FIX: set write_security_level to 1."
+                )
+
         # write DIDs must declare data_length explicitly (REQ-SAFE-006)
         if "write" in access and "data_length" not in did:
             _fatal(

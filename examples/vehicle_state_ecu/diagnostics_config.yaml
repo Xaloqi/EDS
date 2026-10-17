@@ -98,13 +98,20 @@ dids:
   #   It is gated behind a SecurityAccess level 1 challenge (0x27,
   #   AES-128-CMAC). In a production configuration, remove 'write' from
   #   'access' here, or compile the injection path out of the build.
+  #
+  #   min_session is 'extended' because WriteDataByIdentifier is only
+  #   accepted outside the default session (core/uds_access_table.c). These
+  #   two DIDs said 'default' until 2026-10-16, promising writes the stack
+  #   refused with NRC 0x7F; codegen now rejects that combination. One
+  #   min_session covers read and write, so reads are extended-only too —
+  #   the campaigns already enter extended + unlock first.
 
   - id:   "0x0C00"
     name: "VehicleState_EngineSpeed_rpm"
     access:
       - read
       - write
-    min_session: "default"
+    min_session: "extended"
     read_security_level:  0
     write_security_level: 1       # ASIL-B: writable DID must be >= 1
     data_length: 2                 # uint16 big-endian, LSB = 1 rpm
@@ -114,7 +121,7 @@ dids:
     access:
       - read
       - write
-    min_session: "default"
+    min_session: "extended"
     read_security_level:  0
     write_security_level: 1
     data_length: 2                 # uint16 big-endian, LSB = 0.1 km/h

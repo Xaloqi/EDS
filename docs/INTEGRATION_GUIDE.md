@@ -1421,10 +1421,14 @@ ISO 14229-1 compliant responses.
 
 **Requirement:** `gcc` only — no Zephyr, no FreeRTOS, no hardware.
 
-### 8.3 Layer 3 — Robustness campaign (369 tests, 10 phases)
+### 8.3 Layer 3 — Robustness campaign (phases A–L)
 
 Covers protocol edge cases, security state machines, codegen limits, and SOVD CDA
-fidelity. Runs against the `basic_ecu` inline simulator.
+fidelity. Runs against the `basic_ecu` inline simulator — a Python model of the
+stack, not the compiled C code (see "What the protocol phases verify" in
+[TESTING_STRATEGY.md](TESTING_STRATEGY.md)). To judge the generated suite by
+the real stack instead, run it with `--can-interface=firmware` (Professional
+tier: builds and drives the harness).
 
 ```bash
 cd examples/basic_ecu/generated/tests

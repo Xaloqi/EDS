@@ -8,6 +8,49 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+Fixes from the 2026-10-16 validation campaign (F4, F5, F7, F11, F14, F15, and
+the EDS half of F1). Goes with EDS-toolchain's matching template fixes.
+
+### Changed
+
+- **codegen rejects a writable DID the stack can never write** (F7/F14 —
+  exit 1, founder decision 2026-10-16). WriteDataByIdentifier is gated at
+  service level before any DID check (`core/uds_access_table.c`): a
+  non-default session and SecurityAccess level 1 as the active level. So
+  `access: write` with `min_session: default`, or `write_security_level`
+  above 1, could only ever be answered 0x7F or 0x33. **Check your configs:**
+  set such DIDs to `min_session: extended` and `write_security_level: 1`.
+  `examples/vehicle_state_ecu` shipped two (0x0C00, 0x0D00), now extended
+  (one `min_session` covers reads too; its campaigns already enter extended
+  first); `docs/AI_CONTEXT.md` recommended level-2 writes three times.
+
+### Fixed
+
+- **Generated test suites and the robustness campaign match the 1.20.0 stack**
+  (F1/F15). `examples/*/generated/tests/` regenerated with EDS-toolchain's
+  fixed templates; the generated firmware suite failed 48 tests across all 14
+  examples against the 1.20.0 stack. In `basic_ecu`'s robustness phases and
+  phase-1 edge cases, 28 tests asserted behaviour the stack no longer has, or
+  never had, and passed only against the inline simulator, which modelled the
+  same old answers. They now expect what the stack does, and every protocol test
+  in `basic_ecu/generated/tests` passes against the compiled harness (603/0,
+  `--can-interface=firmware`). No test was added or removed; the published
+  counts are unchanged. `docs/TESTING_STRATEGY.md` now states that the
+  protocol phases verify the simulator model, and how that model is now tied to
+  the stack.
+- **INSTALL.md Step 5 deleted the test suite Step 6 runs** (F4). The optional
+  `--sovd` command reran codegen into the same `--out` without `--test-gen`,
+  and codegen's reconcile step (EDS#292) removed the 36-file suite. `--sovd` is
+  now added to the same command, with a note on why.
+- **The RTM was described as "30 requirements … all COVERED"** in INSTALL.md
+  (both ZIPs), `docs/Safety_Model.md` and README ("14 rows"), against a shipped
+  matrix of 36 rows with REQ-TIMING-001 PARTIAL (F5). The docs now describe the
+  RTM without restating its counts, and a test keeps it that way. Stale safety
+  document revisions in `docs/Safety_Model.md` and README are corrected the
+  same way.
+- **INSTALL.md's `eds_ai.py status` example** printed v1.0.0; the tool prints
+  the product version (F11).
+
 ## [1.20.0] — 2026-10-16
 
 ### Migration from 1.19.x

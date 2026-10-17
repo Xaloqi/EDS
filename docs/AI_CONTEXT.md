@@ -126,9 +126,9 @@ dids:
     access:
       - read
       - write
-    min_session: "extended"
+    min_session: "extended"   # Writable DIDs must be non-default: 0x2E is refused in default
     read_security_level:  0
-    write_security_level: 2   # Requires SecurityAccess level 2 to write
+    write_security_level: 1   # Writes need level 1 exactly — 0x2E's service gate requires it
     data_length: 8
 
 # ─── DTCs — Diagnostic Trouble Codes ─────────────────────────────────────────
@@ -707,12 +707,17 @@ dids:
     access: [read, write]
     min_session: "extended"
     read_security_level:  0
-    write_security_level: 2
+    write_security_level: 1
     data_length: 8
 ```
 
 The generated 5-step wrapper enforces: DID exists → session is extended →
-security level 2 is active → access is write → request length == 8.
+security level 1 is active → access is write → request length == 8.
+
+Two rules codegen enforces for every writable DID, because the 0x2E service
+gate (`core/uds_access_table.c`) runs before any DID check: `min_session` must
+not be `default`, and `write_security_level` must be 0 or 1. A config that
+breaks either can never be written on EDS, so codegen exits 1.
 Your handler is only called when all five checks pass.
 
 ---
@@ -775,11 +780,13 @@ dids:
     name: "ECUSerialNumber"
     access: [read, write]
     min_session: "extended"
-    read_security_level:  0
-    write_security_level: 2  # Level 2 to write
+    read_security_level:  2  # Level 2 to read
+    write_security_level: 1  # Writes always use level 1 (0x2E service gate)
 ```
 
 UDS tester to unlock level 2: send `27 03` → receive seed → compute AES-128-CMAC → send `27 04 <key>`.
+Levels above 1 apply to reads (and routines); a write needs level 1 to be the
+active level, so codegen rejects `write_security_level` above 1.
 
 ---
 

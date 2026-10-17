@@ -549,8 +549,8 @@ EDS targets ASIL-B candidate status (ISO 26262-6:2018). The following work produ
 
 | Work product | Status |
 |---|---|
-| Safety Manual (EDS-SM-001) | Rev 1.1 — peer reviewed |
-| Requirements Traceability Matrix | 14 rows, REQ-SAFE-001–007 + DFU/DTC/flash |
+| Safety Manual (EDS-SM-001) | Peer reviewed — current revision ships in the Professional package (`CUSTOMER_NOTICE.md` lists it) |
+| Requirements Traceability Matrix | Every requirement (REQ-SAFE, DFU, DTC, flash, timing, …) with its ASIL, implementation, tests and coverage status |
 | MISRA C:2012 deviation log | Complete — zero open violations |
 | ASIL-B 5-step wrapper chain | Generated, CI-verified on every codegen run |
 | `uds_safety_self_test()` | Present in every generated init sequence |

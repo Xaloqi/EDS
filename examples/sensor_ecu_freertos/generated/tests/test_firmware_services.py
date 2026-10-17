@@ -4,7 +4,7 @@
 #
 # ECU       : SensorECU
 # Version   : 1.0.0
-# Generated : 2026-08-30T13:16:46Z
+# Generated : 2026-10-16T12:00:00Z
 #
 # PURPOSE: Integration tests running against REAL COMPILED FIRMWARE.
 #
@@ -1324,15 +1324,17 @@ class TestFirmwareRoutine_resetsensorcalibration:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """
-        startRoutine 0xFF00 in Default session → NRC 0x7F.
+        startRoutine 0xFF00 in Default session → NRC 0x31.
 
         Default session ordinal (1) < required UDS_SESSION_EXTENDED ordinal (3).
-        s_validate_routine_access() → uds_safety_validate_session() → NRC 0x7F.
+        ISO 14229-1:2026 Figure 31 asks "RID supported in active session?"
+        and answers requestOutOfRange (0x31); EDS answers 0x31 since v1.20.0
+        (EDS#468 — it was 0x7F before, which Table 430 does not list here).
         Firmware is in Default session at fixture startup — no session switch needed.
         """
         # Firmware starts in Default session — do NOT switch
         pdu = firmware_bus.request(_rc_req(_RC_SUBFN_START, self.RID))
-        _assert_nrc_rc(pdu, NRC_SERVICE_NOT_SUPPORTED_IN_SESSION)
+        _assert_nrc_rc(pdu, NRC_REQUEST_OUT_OF_RANGE)
 
     def test_security_gate_locked_nrc(
         self, firmware_bus: FirmwareIsoTpTransport
@@ -1408,15 +1410,17 @@ class TestFirmwareRoutine_sensorselftest:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """
-        startRoutine 0xFF01 in Default session → NRC 0x7F.
+        startRoutine 0xFF01 in Default session → NRC 0x31.
 
         Default session ordinal (1) < required UDS_SESSION_EXTENDED ordinal (3).
-        s_validate_routine_access() → uds_safety_validate_session() → NRC 0x7F.
+        ISO 14229-1:2026 Figure 31 asks "RID supported in active session?"
+        and answers requestOutOfRange (0x31); EDS answers 0x31 since v1.20.0
+        (EDS#468 — it was 0x7F before, which Table 430 does not list here).
         Firmware is in Default session at fixture startup — no session switch needed.
         """
         # Firmware starts in Default session — do NOT switch
         pdu = firmware_bus.request(_rc_req(_RC_SUBFN_START, self.RID))
-        _assert_nrc_rc(pdu, NRC_SERVICE_NOT_SUPPORTED_IN_SESSION)
+        _assert_nrc_rc(pdu, NRC_REQUEST_OUT_OF_RANGE)
 
     def test_stop_not_supported_nrc(
         self, firmware_bus: FirmwareIsoTpTransport

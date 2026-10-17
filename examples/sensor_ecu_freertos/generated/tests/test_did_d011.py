@@ -4,7 +4,7 @@
 #
 # ECU       : SensorECU
 # Version   : 1.0.0
-# Generated : 2026-08-30T13:16:46Z
+# Generated : 2026-10-16T12:00:00Z
 #
 # DID       : 0xD011  (TemperatureThresholdLow)
 # Access    : read + write
@@ -334,10 +334,18 @@ class TestWriteTemperaturethresholdlow:
             NRC_SECURITY_ACCESS_DENIED,
         ), f"Unexpected NRC 0x{pdu[2]:02X} for wrong-session write"
 
-    def test_write_unknown_did_rejected(self, uds_bus: IsoTpTransport) -> None:
+    def test_write_unknown_did_rejected(
+        self, uds_bus: IsoTpTransport, aes_keys: dict
+    ) -> None:
         """
         Write to DID 0x0001 (not in database) must return NRC 0x31.
+
+        The service-level gate is satisfied first (a non-default session and
+        SecurityAccess level 1, uds_access_table.c), so the 0x31 observed is the
+        DID lookup's answer. Sent from the default session, the real stack
+        answers 0x7F before it ever looks the DID up (2026-10-16 campaign, F1).
         """
+        _setup_preconditions(uds_bus, aes_keys, for_write=True)
         pdu = uds_bus.request(bytes([SID_WRITE_DATA_BY_ID, 0x00, 0x01] + [0xFF] * DATA_LENGTH))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE

@@ -167,24 +167,34 @@ class TestSecurityAccessEdgeCases:
         assert resp[2] == NRC_REQUEST_SEED_BEFORE_KEY, (
             f"sendKey without requestSeed must return NRC 0x24, got 0x{resp[2]:02X}")
 
-    def test_send_key_wrong_length_short_returns_nrc_13(self):
-        """sendKey PDU too short (2 bytes instead of 6) → NRC 0x13."""
+    def test_send_key_wrong_length_short_returns_nrc_35(self):
+        """sendKey PDU too short (1 key byte instead of 4) → NRC 0x35."""
         state = _sim()
         _session(state, SESSION_EXTENDED)
         _request_seed(state, 1)
         resp = _req(state, bytes([SID_SECURITY_ACCESS, 0x02, 0x11]))  # only 1 key byte
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
-        assert resp[2] == NRC_INCORRECT_MSG_LEN, (
-            f"Short key PDU must return NRC 0x13, got 0x{resp[2]:02X}")
+        # EDS answers invalidKey (0x35), not incorrectMessageLength (0x13), on
+        # purpose: a distinct NRC would reveal UDS_SECURITY_KEY_LEN
+        # (core/uds_security.c, constant-time compare on a length mismatch).
+        # This asserted 0x13 against a simulator that disagreed with the
+        # stack since v1.7.0 (2026-10-16 validation campaign, F15).
+        assert resp[2] == NRC_INVALID_KEY, (
+            f"Short key PDU must return NRC 0x35, got 0x{resp[2]:02X}")
 
-    def test_send_key_wrong_length_long_returns_nrc_13(self):
-        """sendKey PDU too long (10 bytes) → NRC 0x13."""
+    def test_send_key_wrong_length_long_returns_nrc_35(self):
+        """sendKey PDU too long (8 key bytes instead of 4) → NRC 0x35."""
         state = _sim()
         _session(state, SESSION_EXTENDED)
         _request_seed(state, 1)
         resp = _req(state, bytes([SID_SECURITY_ACCESS, 0x02] + [0x11] * 8))  # 8 key bytes
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
-        assert resp[2] == NRC_INCORRECT_MSG_LEN
+        # EDS answers invalidKey (0x35), not incorrectMessageLength (0x13), on
+        # purpose: a distinct NRC would reveal UDS_SECURITY_KEY_LEN
+        # (core/uds_security.c, constant-time compare on a length mismatch).
+        # This asserted 0x13 against a simulator that disagreed with the
+        # stack since v1.7.0 (2026-10-16 validation campaign, F15).
+        assert resp[2] == NRC_INVALID_KEY
 
     def test_double_seed_request_replaces_pending_seed(self):
         """Requesting seed twice without sending key replaces the pending seed."""
