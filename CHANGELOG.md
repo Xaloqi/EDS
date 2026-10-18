@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.21.0] — 2026-10-18
+
 Fixes from the 2026-10-16 validation campaign (F4, F5, F7, F11, F14, F15, and
 the EDS half of F1). Goes with EDS-toolchain's matching template fixes.
 
