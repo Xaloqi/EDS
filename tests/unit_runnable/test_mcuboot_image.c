@@ -819,6 +819,94 @@ ZTEST(mcuboot_image, test_tlv_malformed_state_is_sticky)
 }
 
 /* ==========================================================================
+ * Swap-using-move capacity [#436]
+ * ========================================================================== */
+
+#define SZ_KB(x)  ((uint32_t)(x) * 1024U)
+
+/* The layout #436 was found on: NUCLEO-H753ZI safeboot_ecu, 768 KB slots of
+ * 6 x 128 KB sectors, 32-byte flash write block, MCUboot defaults. */
+ZTEST(mcuboot_image, test_swap_move_capacity_h753_layout_is_512k)
+{
+    uint32_t trailer = uds_mcuboot_swap_move_trailer_size(32U, 128U);
+
+    /* 128 * 3 * 32 status + 4 * 32 info + 32 magic */
+    zassert_equal(12448U, trailer, "trailer %u", (unsigned)trailer);
+    zassert_equal(SZ_KB(512),
+                  uds_mcuboot_swap_move_capacity(SZ_KB(768), SZ_KB(768), SZ_KB(128), trailer),
+                  "");
+    /* The image reproduced on hardware (614,736 B) must not fit. */
+    zassert_true(614736U >
+                 uds_mcuboot_swap_move_capacity(SZ_KB(768), SZ_KB(768), SZ_KB(128), trailer),
+                 "");
+}
+
+ZTEST(mcuboot_image, test_swap_move_trailer_default_align)
+{
+    /* write_size below 8: BOOT_MAX_ALIGN 8, magic 16 */
+    zassert_equal((128U * 3U * 8U) + (4U * 8U) + 16U,
+                  uds_mcuboot_swap_move_trailer_size(8U, 128U), "");
+    zassert_equal((128U * 3U * 4U) + (4U * 8U) + 16U,
+                  uds_mcuboot_swap_move_trailer_size(4U, 128U), "");
+}
+
+ZTEST(mcuboot_image, test_swap_move_trailer_spanning_two_sectors)
+{
+    /* 4 KB sectors, 16-byte write block: 6224 B trailer = 2 sectors.
+     * 64 KB slot = 16 sectors -> 16 - 1 - 2 = 13 usable. */
+    uint32_t trailer = uds_mcuboot_swap_move_trailer_size(16U, 128U);
+
+    zassert_equal(6224U, trailer, "");
+    zassert_equal(13U * SZ_KB(4),
+                  uds_mcuboot_swap_move_capacity(SZ_KB(64), SZ_KB(64), SZ_KB(4), trailer),
+                  "");
+}
+
+ZTEST(mcuboot_image, test_swap_move_trailer_exactly_one_sector)
+{
+    /* No round-up when the trailer fills a sector exactly. */
+    zassert_equal(6U * SZ_KB(4),
+                  uds_mcuboot_swap_move_capacity(SZ_KB(32), SZ_KB(32), SZ_KB(4), SZ_KB(4)),
+                  "");
+    /* One byte more spills into a second sector. */
+    zassert_equal(5U * SZ_KB(4),
+                  uds_mcuboot_swap_move_capacity(SZ_KB(32), SZ_KB(32), SZ_KB(4), SZ_KB(4) + 1U),
+                  "");
+}
+
+ZTEST(mcuboot_image, test_swap_move_capacity_too_small_slot_is_zero)
+{
+    /* 2 sectors: one for the move, one for the trailer, none for an image. */
+    zassert_equal(0U,
+                  uds_mcuboot_swap_move_capacity(SZ_KB(256), SZ_KB(256), SZ_KB(128), 12448U),
+                  "");
+    zassert_equal(SZ_KB(128),
+                  uds_mcuboot_swap_move_capacity(SZ_KB(384), SZ_KB(384), SZ_KB(128), 12448U),
+                  "");
+}
+
+ZTEST(mcuboot_image, test_swap_move_capacity_clamped_to_secondary)
+{
+    /* Primary one sector larger (a common swap-move layout): 7 - 2 = 5
+     * sectors, but the secondary slot holds only 4. */
+    zassert_equal(SZ_KB(512),
+                  uds_mcuboot_swap_move_capacity(SZ_KB(896), SZ_KB(512), SZ_KB(128), 12448U),
+                  "");
+}
+
+ZTEST(mcuboot_image, test_swap_move_zero_and_overflow_args)
+{
+    zassert_equal(0U, uds_mcuboot_swap_move_trailer_size(0U, 128U), "");
+    zassert_equal(0U, uds_mcuboot_swap_move_trailer_size(32U, 0U), "");
+    zassert_equal(0U, uds_mcuboot_swap_move_trailer_size(0xFFFFFFFFU, 128U), "");
+    zassert_equal(0U, uds_mcuboot_swap_move_trailer_size(32U, 0x7FFFFFFFU), "");
+    zassert_equal(0U, uds_mcuboot_swap_move_capacity(0U, SZ_KB(768), SZ_KB(128), 12448U), "");
+    zassert_equal(0U, uds_mcuboot_swap_move_capacity(SZ_KB(768), 0U, SZ_KB(128), 12448U), "");
+    zassert_equal(0U, uds_mcuboot_swap_move_capacity(SZ_KB(768), SZ_KB(768), 0U, 12448U), "");
+    zassert_equal(0U, uds_mcuboot_swap_move_capacity(SZ_KB(768), SZ_KB(768), SZ_KB(128), 0U), "");
+}
+
+/* ==========================================================================
  * run_all_tests — required by tests/runner/test_main.c
  * ========================================================================== */
 
@@ -849,4 +937,13 @@ void run_all_tests(void)
     RUN_TEST(mcuboot_image__test_tlv_null_args);
     RUN_TEST(mcuboot_image__test_tlv_maximal_len_reads_nothing_out_of_bounds);
     RUN_TEST(mcuboot_image__test_tlv_malformed_state_is_sticky);
+
+    /* --- swap-using-move capacity [#436] --- */
+    RUN_TEST(mcuboot_image__test_swap_move_capacity_h753_layout_is_512k);
+    RUN_TEST(mcuboot_image__test_swap_move_trailer_default_align);
+    RUN_TEST(mcuboot_image__test_swap_move_trailer_spanning_two_sectors);
+    RUN_TEST(mcuboot_image__test_swap_move_trailer_exactly_one_sector);
+    RUN_TEST(mcuboot_image__test_swap_move_capacity_too_small_slot_is_zero);
+    RUN_TEST(mcuboot_image__test_swap_move_capacity_clamped_to_secondary);
+    RUN_TEST(mcuboot_image__test_swap_move_zero_and_overflow_args);
 }

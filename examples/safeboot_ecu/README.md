@@ -162,6 +162,16 @@ Those three together are why the slots are 768 KB rather than a rounder-looking
 896 KB: 2 MB minus 2 sectors for MCUboot and 2 for NVS leaves 12 sectors, split
 evenly between two equal slots.
 
+**The largest image an update can install is 512 KB, not 768 KB** (#436),
+counting MCUboot's header and TLVs. MCUboot's swap-using-move needs one free
+sector for the move and one for its trailer, so 4 of the 6 sectors hold the
+image. `zephyr_flash_ops.c` advertises that capacity as the download region,
+so RequestDownload (0x34) answers NRC 0x31 for a larger `memorySize`. Before
+#436 it accepted up to 768 KB: the transfer and 0x37 succeeded, and MCUboot
+then logged `Not enough free space to run swap upgrade` and booted the old
+image. If MCUboot is built with a non-default `BOOT_MAX_IMG_SECTORS`, define
+`EDS_MCUBOOT_MAX_IMG_SECTORS` to match.
+
 > **RequestDownload's `memoryAddress` is flash-DEVICE-relative, not the
 > Cortex-M memory-mapped address.** `platform/zephyr/zephyr_flash_ops.c`
 > populates its memory-map region straight from Zephyr's `flash_area` API

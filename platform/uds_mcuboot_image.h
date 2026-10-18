@@ -384,6 +384,52 @@ bool uds_mcuboot_tlv_iter_next(uds_mcuboot_tlv_iter_t     *it,
                                uds_mcuboot_tlv_t          *out,
                                uds_mcuboot_parse_status_t *status);
 
+/* ==========================================================================
+ * Swap-using-move capacity [#436]
+ *
+ * MCUboot's swap-using-move cannot install an image that fills the slot: it
+ * needs one free sector for the move and the sectors holding the image
+ * trailer (boot/bootutil/src/swap_move.c, swap_run()). An image of K sectors
+ * swaps only if K <= N - 1 - T, where N is the primary slot's sector count
+ * and T = ceil(trailer / sector). A larger image verifies, arms the swap,
+ * and MCUboot then logs "Not enough free space to run swap upgrade" and
+ * boots the old image. The download region advertised to 0x34 must be this
+ * capacity, not the partition size.
+ * ========================================================================== */
+
+/** MCUboot's BOOT_MAX_IMG_SECTORS default (its Kconfig, MCUboot v2.1). */
+#define UDS_MCUBOOT_DEFAULT_MAX_IMG_SECTORS  (128U)
+
+/**
+ * @brief Size of MCUboot's image trailer for swap-using-move, unencrypted.
+ *
+ * Mirrors boot_trailer_sz(): max_img_sectors status entries of 3 states
+ * (move + 2 swap) each write_size bytes, plus swap_type, copy_done, image_ok
+ * and swap_size (BOOT_MAX_ALIGN each) and the magic (max(16, BOOT_MAX_ALIGN)).
+ * BOOT_MAX_ALIGN is taken as max(write_size, 8), MCUboot's default.
+ *
+ * @return Trailer size in bytes, or 0 if an argument is 0 or the result
+ *         would overflow uint32_t.
+ */
+uint32_t uds_mcuboot_swap_move_trailer_size(uint32_t write_size,
+                                            uint32_t max_img_sectors);
+
+/**
+ * @brief Largest image (header + body + TLVs) swap-using-move can install.
+ *
+ * @param primary_slot_size    image_0 partition size in bytes.
+ * @param secondary_slot_size  image_1 partition size in bytes; the result
+ *                             never exceeds it.
+ * @param sector_size          Erase sector size (uniform across the slots).
+ * @param trailer_size         From uds_mcuboot_swap_move_trailer_size().
+ *
+ * @return Capacity in bytes; 0 if no image fits or an argument is 0.
+ */
+uint32_t uds_mcuboot_swap_move_capacity(uint32_t primary_slot_size,
+                                        uint32_t secondary_slot_size,
+                                        uint32_t sector_size,
+                                        uint32_t trailer_size);
+
 #ifdef __cplusplus
 }
 #endif

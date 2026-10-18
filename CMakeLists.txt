@@ -432,6 +432,7 @@ if(EDS_PLATFORM STREQUAL "zephyr")
     else()
         target_sources(app PRIVATE platform/zephyr/nvm_store.c)
         target_sources(app PRIVATE platform/zephyr/zephyr_flash_ops.c)
+        target_sources(app PRIVATE platform/uds_mcuboot_image.c)  # [#436] swap-move capacity
     endif()
 
 elseif(EDS_PLATFORM STREQUAL "freertos")
