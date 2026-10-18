@@ -395,8 +395,12 @@ bash run_python_tests.sh
 > checkout (this repo, as cloned) and **3,059 of 3,102** with the
 > Professional-tier `harness/` build present — the gap is cases gated on
 > commercial prerequisites (TestLab, the firmware harness, or the
-> `tools/templates` codegen ZIP), not failures. See
-> [docs/TESTING_STRATEGY.md](docs/TESTING_STRATEGY.md) for the per-suite
+> `tools/templates` codegen ZIP), not failures. Not every executed case
+> runs the C stack: the robustness campaign's protocol phases (B, C, E, G,
+> H, I) check the generated suite's Python simulator, a model of the stack.
+> The release gate ties that model to the compiled firmware; see
+> [what the protocol phases verify](docs/TESTING_STRATEGY.md#what-the-protocol-phases-verify--the-simulator-and-how-it-is-tied-to-the-stack).
+> See [docs/TESTING_STRATEGY.md](docs/TESTING_STRATEGY.md) for the per-suite
 > breakdown.
 
 ### GUI configurator
