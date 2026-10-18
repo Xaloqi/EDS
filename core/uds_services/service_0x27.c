@@ -122,8 +122,15 @@ uds_status_t uds_service_0x27_handler(
             return status;
         }
 
-        key     = &req->data[2];
-        key_len = (uint8_t)(req->length - (uint16_t)2U);
+        key = &req->data[2];
+        /* [#478] Saturate, never truncate: (uint8_t)(262 - 2) is 4, which
+         * would check a 260-byte key's first 4 bytes as the whole key. Any
+         * length above 255 is a wrong-length key, answered 0x35 (#475). */
+        if ((req->length - (uint16_t)2U) > (uint16_t)0xFFU) {
+            key_len = (uint8_t)0xFFU;
+        } else {
+            key_len = (uint8_t)(req->length - (uint16_t)2U);
+        }
 
         status = uds_security_send_key(
             ctx->cfg.security_ctx,

@@ -515,6 +515,69 @@ ZTEST(test_service_0x27, tc015_lockout_expiry_allows_retry)
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
 
+/** Fresh seed, then the correct key for it in key[0..3]. */
+static void seed_and_correct_key(uint8_t key[UDS_ALGO_KEY_LEN])
+{
+    uds_msg_buf_t seed_req  = make_seed_req(0x01U);
+    uds_msg_buf_t seed_resp = {0};
+    uint8_t       seed[UDS_SECURITY_SEED_LEN];
+
+    uds_service_0x27_handler(&g_srv, &seed_req, &seed_resp);
+    get_seed_from_resp(&seed_resp, seed);
+    compute_key(seed, key);
+}
+
+/**
+ * TC-0x27-016 [#475]: a key of the wrong length answers invalidKey (0x35),
+ * not incorrectMessageLength (0x13), even when its leading bytes are right:
+ * a distinct NRC would reveal UDS_SECURITY_KEY_LEN. Documented deviation
+ * from ISO 14229-1:2026 in SECURITY.md.
+ */
+ZTEST(test_service_0x27, tc016_wrong_length_key_is_invalid_key)
+{
+    uint8_t       key[UDS_ALGO_KEY_LEN + 1U];
+    uds_msg_buf_t req;
+    uds_msg_buf_t resp = {0};
+
+    setup();
+
+    seed_and_correct_key(key);
+    req = make_key_req(0x02U, key, (uint8_t)(UDS_ALGO_KEY_LEN - 1U));
+    zassert_equal(uds_service_0x27_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_SEC_INVALID_KEY, "short key must be 0x35");
+
+    seed_and_correct_key(key);
+    key[UDS_ALGO_KEY_LEN] = 0x00U;
+    req = make_key_req(0x02U, key, (uint8_t)(UDS_ALGO_KEY_LEN + 1U));
+    zassert_equal(uds_service_0x27_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_SEC_INVALID_KEY, "long key must be 0x35");
+}
+
+/**
+ * TC-0x27-017 [#478]: a key longer than 255 bytes is a wrong-length key.
+ * key_len was (uint8_t)(length - 2), so a 262-byte request wrapped to 4 and
+ * its first 4 key bytes were checked as the whole key.
+ */
+ZTEST(test_service_0x27, tc017_overlong_key_not_truncated)
+{
+    uint8_t       key[UDS_ALGO_KEY_LEN];
+    uds_msg_buf_t req;
+    uds_msg_buf_t resp = {0};
+
+    setup();
+    seed_and_correct_key(key);
+
+    memset(&req, 0, sizeof(req));
+    req.data[0] = 0x27U;
+    req.data[1] = 0x02U;
+    memcpy(&req.data[2], key, UDS_ALGO_KEY_LEN);
+    req.length  = (uint16_t)(2U + 256U + UDS_ALGO_KEY_LEN);   /* 262 */
+
+    zassert_equal(uds_service_0x27_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_SEC_INVALID_KEY,
+                  "a 260-byte key must not unlock as a 4-byte key");
+}
+
 extern void test_service_0x27__tc001_seed_request_ok(void);
 extern void test_service_0x27__tc002_seed_length(void);
 extern void test_service_0x27__tc003_response_length(void);
@@ -530,6 +593,8 @@ extern void test_service_0x27__tc012_even_subfunction_key_path(void);
 extern void test_service_0x27__tc013_null_req(void);
 extern void test_service_0x27__tc014_null_resp(void);
 extern void test_service_0x27__tc015_lockout_expiry_allows_retry(void);
+extern void test_service_0x27__tc016_wrong_length_key_is_invalid_key(void);
+extern void test_service_0x27__tc017_overlong_key_not_truncated(void);
 
 void run_all_tests(void)
 {
@@ -548,4 +613,6 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x27__tc013_null_req);
     RUN_TEST(test_service_0x27__tc014_null_resp);
     RUN_TEST(test_service_0x27__tc015_lockout_expiry_allows_retry);
+    RUN_TEST(test_service_0x27__tc016_wrong_length_key_is_invalid_key);
+    RUN_TEST(test_service_0x27__tc017_overlong_key_not_truncated);
 }

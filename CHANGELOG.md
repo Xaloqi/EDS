@@ -28,6 +28,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   define `EDS_MCUBOOT_MAX_IMG_SECTORS` to match. Other MCUboot modes are
   unchanged.
 
+### Security
+
+- **A SecurityAccess key longer than 255 bytes is a wrong-length key** (#478).
+  `service_0x27.c` truncated the key length to `uint8_t`, so a 262-byte sendKey
+  was checked as a 4-byte key: a 260-byte key whose first 4 bytes were correct
+  unlocked the level. The correct key was still required, so this was not an
+  authentication bypass, but a malformed request was accepted. The length now
+  saturates, and such a request answers 0x35 like any other wrong-length key.
+- **Documented: a wrong-length key answers 0x35, not ISO 14229-1's 0x13** (#475).
+  Unchanged behaviour since v1.7.0, now recorded as a deliberate deviation in
+  `SECURITY.md` with its rationale (a distinct NRC would reveal the key length)
+  and pinned by a unit test.
+
 ## [1.21.0] — 2026-10-18
 
 Fixes from the 2026-10-16 validation campaign (F4, F5, F7, F11, F14, F15, and
