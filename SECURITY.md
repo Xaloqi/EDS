@@ -99,6 +99,20 @@ conflated:
   actually protects against, since CMAC is a secure PRF under the standard AES-128
   hardness assumption.
 
+**Deliberate deviation from ISO 14229-1:2026: a wrong-length key answers 0x35,
+not 0x13** (#475). A sendKey carrying one or more key bytes, but not exactly
+`UDS_SECURITY_KEY_LEN` (4), is answered NRC 0x35 invalidKey. The standard's
+general length handling would give 0x13 incorrectMessageLengthOrInvalidFormat.
+EDS keeps 0x35 on purpose, as it has since v1.7.0: a distinct NRC would tell an
+attacker the expected key length. The length mismatch also runs the same
+constant-time comparison as a real key check (`core/uds_security.c`), so timing
+does not reveal it either. It is treated as a failed attempt in every respect:
+it consumes the seed, counts toward `UDS_SECURITY_MAX_ATTEMPTS`, and the attempt
+that reaches the limit answers 0x36. Keys longer than 255 bytes are included
+(#478). A sendKey with *no* key bytes still answers 0x13, since there is no
+length to hide. Conformance suites that expect 0x13 for a wrong-length key
+should record this as a known deviation.
+
 **Placeholder keys:** The repository ships with placeholder AES-128 keys
 (`0x00..0x0F` / `0x10..0x1F`). Two independent gates now reliably stop accidental
 deployment of placeholder keys, both derived from a single shared build-mode primitive,
