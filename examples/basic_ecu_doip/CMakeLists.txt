@@ -181,6 +181,7 @@ endif()
 # [EDS#423] Bench flash-download build: see DIAG_DOIP_FLASH_BENCH above.
 if(DIAG_DOIP_FLASH_BENCH)
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/zephyr_flash_ops.c)
+    target_sources(app PRIVATE ${DIAG_ROOT}/platform/uds_mcuboot_image.c)  # [#436]
     target_compile_definitions(app PRIVATE DIAG_DOIP_FLASH_BENCH=1)
 endif()
 

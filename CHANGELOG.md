@@ -8,6 +8,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **A firmware update too large for MCUboot's swap-using-move is refused at
+  RequestDownload, instead of reported done and never installed** (#436).
+  `zephyr_flash_ops.c` advertised the whole `image_1` partition as the
+  download region. Swap-using-move needs one free sector for the move plus the
+  trailer sectors, so on `safeboot_ecu`'s NUCLEO-H753ZI layout (768 KB slots of
+  6 × 128 KB sectors) it can install at most 512 KB. A 600 KB signed image
+  transferred, verified at 0x37 and armed the swap; MCUboot then logged `Not
+  enough free space to run swap upgrade` and kept running the old image, while
+  the tester had been told the update succeeded. With MCUboot in swap-using-move
+  mode (`CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_WITHOUT_SCRATCH`, the Zephyr
+  default, or `..._SWAP_USING_MOVE`) the download region is now that capacity,
+  so 0x34 answers NRC 0x31 for a larger `memorySize`. New
+  `uds_mcuboot_swap_move_capacity()` / `uds_mcuboot_swap_move_trailer_size()`
+  in `platform/uds_mcuboot_image.c` mirror MCUboot v2.1's `swap_run()` check.
+  **Integrators:** if MCUboot is built with a non-default `BOOT_MAX_IMG_SECTORS`,
+  define `EDS_MCUBOOT_MAX_IMG_SECTORS` to match. Other MCUboot modes are
+  unchanged.
+
 ## [1.21.0] — 2026-10-18
 
 Fixes from the 2026-10-16 validation campaign (F4, F5, F7, F11, F14, F15, and

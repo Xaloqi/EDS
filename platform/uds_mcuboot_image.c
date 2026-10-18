@@ -324,3 +324,66 @@ bool uds_mcuboot_tlv_iter_next(uds_mcuboot_tlv_iter_t     *it,
     *status = UDS_MCUBOOT_PARSE_OK;
     return true;
 }
+
+/* ==========================================================================
+ * Swap-using-move capacity [#436] — see the header for the derivation.
+ * ========================================================================== */
+
+uint32_t uds_mcuboot_swap_move_trailer_size(uint32_t write_size,
+                                            uint32_t max_img_sectors)
+{
+    uint32_t max_align;
+    uint32_t magic_size;
+    uint32_t status_size;
+
+    if ((write_size == 0U) || (max_img_sectors == 0U)) {
+        return 0U;
+    }
+
+    max_align  = (write_size > 8U) ? write_size : 8U;
+    magic_size = (max_align > 16U) ? max_align : 16U;
+
+    /* status = max_img_sectors * 3 * write_size; each factor bounded first. */
+    if (write_size > (0xFFFFFFFFUL / 3UL)) {
+        return 0U;
+    }
+    if (max_img_sectors > (0xFFFFFFFFUL / (3UL * write_size))) {
+        return 0U;
+    }
+    status_size = max_img_sectors * 3U * write_size;
+
+    if (status_size > (0xFFFFFFFFUL - magic_size)) {
+        return 0U;
+    }
+    if (max_align >((0xFFFFFFFFUL - magic_size - status_size) / 4UL)) {
+        return 0U;
+    }
+    return status_size + (4U * max_align) + magic_size;
+}
+
+uint32_t uds_mcuboot_swap_move_capacity(uint32_t primary_slot_size,
+                                        uint32_t secondary_slot_size,
+                                        uint32_t sector_size,
+                                        uint32_t trailer_size)
+{
+    uint32_t num_sectors;
+    uint32_t trailer_sectors;
+    uint32_t capacity;
+
+    if ((primary_slot_size == 0U) || (secondary_slot_size == 0U) ||
+        (sector_size == 0U) || (trailer_size == 0U)) {
+        return 0U;
+    }
+
+    num_sectors     = primary_slot_size / sector_size;
+    trailer_sectors = (trailer_size / sector_size) +
+                      (((trailer_size % sector_size) != 0U) ? 1U : 0U);
+
+    /* One sector for the move, trailer_sectors for the trailer. */
+    if (num_sectors <= (1U + trailer_sectors)) {
+        return 0U;
+    }
+    capacity = (num_sectors - 1U - trailer_sectors) * sector_size;
+
+    return (capacity < secondary_slot_size) ? capacity : secondary_slot_size;
+}

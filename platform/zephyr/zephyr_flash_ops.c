@@ -50,9 +50,11 @@
 #include "uds_flash_ops.h"
 #include "uds_transfer_ctx.h"
 #include "uds_types.h"
+#include "uds_mcuboot_image.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/storage/flash_map.h>
+#include <zephyr/drivers/flash.h>
 #include <zephyr/logging/log.h>
 
 #include <string.h>
@@ -325,6 +327,67 @@ static uds_flash_ops_t s_zephyr_flash_ops = {
  * Public API
  * -------------------------------------------------------------------------- */
 
+#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_WITHOUT_SCRATCH) || \
+    defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_USING_MOVE)
+/**
+ * @brief [#436] Largest image MCUboot's swap-using-move can install.
+ *
+ * The secondary partition is NOT the limit: swap-using-move needs a free
+ * sector for the move plus the trailer sectors (uds_mcuboot_image.h). On
+ * the safeboot_ecu NUCLEO-H753ZI layout (768 KB slots, 6 x 128 KB sectors)
+ * that is 512 KB. Advertising the whole slot let 0x34 accept a 600 KB image,
+ * 0x37 verify it and arm the swap, and MCUboot then refuse it at boot and run
+ * the old image, with the tester told the update succeeded.
+ *
+ * MCUboot's own BOOT_MAX_IMG_SECTORS is not visible to the application;
+ * EDS_MCUBOOT_MAX_IMG_SECTORS must match it if MCUboot overrides the default.
+ */
+#ifndef EDS_MCUBOOT_MAX_IMG_SECTORS
+#  define EDS_MCUBOOT_MAX_IMG_SECTORS  UDS_MCUBOOT_DEFAULT_MAX_IMG_SECTORS
+#endif
+
+static uds_status_t z_swap_move_capacity(const struct flash_area *secondary,
+                                         uint32_t                 *out_capacity)
+{
+    const struct flash_area   *primary = NULL;
+    const struct device       *dev;
+    struct flash_pages_info    page;
+    uint32_t                   trailer;
+    int                        rc;
+
+    rc = flash_area_open(FIXED_PARTITION_ID(slot0_partition), &primary);
+    if (rc != 0) {
+        LOG_ERR("[#436] flash_area_open(slot0_partition) failed: %d", rc);
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+
+    dev = flash_area_get_device(secondary);
+    rc  = flash_get_page_info_by_offs(dev, (off_t)secondary->fa_off, &page);
+    if (rc != 0) {
+        flash_area_close(primary);
+        LOG_ERR("[#436] flash_get_page_info_by_offs failed: %d", rc);
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+
+    trailer = uds_mcuboot_swap_move_trailer_size(
+                  (uint32_t)flash_get_write_block_size(dev),
+                  (uint32_t)EDS_MCUBOOT_MAX_IMG_SECTORS);
+    *out_capacity = uds_mcuboot_swap_move_capacity((uint32_t)primary->fa_size,
+                                                   (uint32_t)secondary->fa_size,
+                                                   (uint32_t)page.size,
+                                                   trailer);
+    flash_area_close(primary);
+
+    if (*out_capacity == 0U) {
+        LOG_ERR("[#436] no image fits: slot %u B, sector %u B, trailer %u B",
+                (unsigned)secondary->fa_size, (unsigned)page.size,
+                (unsigned)trailer);
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+    return UDS_STATUS_OK;
+}
+#endif
+
 uds_status_t zephyr_flash_ops_init(void)
 {
     const struct flash_area *fa = NULL;
@@ -341,6 +404,23 @@ uds_status_t zephyr_flash_ops_init(void)
     s_flash_region.size_bytes   = (uint32_t)fa->fa_size;
     s_flash_region.writable     = true;
     s_flash_region.readable     = true;
+
+#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_WITHOUT_SCRATCH) || \
+    defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_USING_MOVE)
+    {
+        uint32_t     capacity = 0U;
+        uds_status_t st       = z_swap_move_capacity(fa, &capacity);
+
+        if (st != UDS_STATUS_OK) {
+            flash_area_close(fa);
+            return st;
+        }
+        /* [#436] 0x34 refuses (NRC 0x31) any memorySize past this. */
+        s_flash_region.size_bytes = capacity;
+        LOG_INF("Download region: %u B (swap-using-move capacity of a %u B slot)",
+                (unsigned)capacity, (unsigned)fa->fa_size);
+    }
+#endif
 
     flash_area_close(fa);
 
