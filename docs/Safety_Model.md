@@ -393,7 +393,7 @@ Current status of ISO 26262-6:2018 Part 6 work products:
 | Unit testing (ISO 26262-6 Table 10) | Present | every module under `tests/unit_runnable/`, run by `build_tests.sh` |
 | Integration testing | Present | Firmware harness (68 tests) + generated pytest suite |
 | Safety manual | Complete | EDS-SM-001 — delivered to Professional tier licensees via xaloqi.com (revision in `CUSTOMER_NOTICE.md`) |
-| Requirements traceability matrix | Partial | REQ-SAFE-001..007 + REQ-DL-* + REQ-DTC-NVM-01 |
+| Requirements traceability matrix | Present | `EDS_Requirements_Traceability_Matrix.csv` (Professional tier); the CSV is the only home for its counts and coverage; revision history in §12.1 |
 
 **Present (Professional tier):**
 
@@ -417,6 +417,19 @@ Current status of ISO 26262-6:2018 Part 6 work products:
   a structural (provably-O(N), no recursion, no dynamic allocation) argument
   for extrapolating to a larger DID/DTC table, not a formally proven bound —
   see `docs/PERFORMANCE.md` §7 for exactly what is and is not claimed.
+
+### 12.1 Revision history of the Requirements Traceability Matrix (EDS-RTM-001)
+
+The matrix is a CSV with no room for a revision record, so its history is kept
+here. Revisions before 2026-10-15 are recorded only in version control. This file
+is the single home of the safety model; the copy that used to live in the
+Professional safety repository was retired (EDS-Safety#34).
+
+| Date | Change |
+|---|---|
+| 2026-10-15 | All 30 rows checked against the shipped code. 8 corrected (REQ-DL-001, REQ-FLASH-003, REQ-TP-001, REQ-SESS-001, REQ-TIMING-001/002, REQ-WDT-001, stale paths). REQ-TIMING-001 set to PARTIAL. |
+| 2026-10-15 | Standard citations verified against the licensed ISO 14229-1:2026 and ISO 15765-2:2024 texts and corrected (the TP rows previously cited the 2016 edition; several clause numbers pointed at other services). REQ-DL-002 restated to ISO's NRC 0x24 and set to OPEN until the implementation follows. REQ-SESS-002 reattributes the 5000 ms S3server value to ISO 14229-2. REQ-TP-002 widened beyond Classic CAN. Six requirements already used in the source added: REQ-IMGPOL-001..004, REQ-DL-SEQ, REQ-TP-PAD-001. ISO 14229-2 and ISO 26262-6 references are not reviewed against licensed text and say so where relevant. |
+| 2026-10-15 | REQ-DL-002 OPEN → COVERED: EDS now answers NRC 0x24 for an incomplete transfer (EDS PR #460), verified by test and on hardware. REQ-DL-003 extended: every session transition aborts any transfer, the counterpart of refusing a RequestDownload during a download (ISO 14229-1:2026 Table 444). |
 
 ---
 

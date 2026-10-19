@@ -10,6 +10,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`docs/Safety_Model.md` is the single home of the safety model**
+  (EDS-Safety#34). The Professional safety repository kept a second copy that
+  had drifted; it is retired, and its one unique section, the RTM revision
+  history, is now §12.1 here. The §12 RTM row no longer claims "Partial" with
+  a stale requirement list: it points at the CSV, which holds the counts.
 - **`safeboot_ecu` README: the TransferData block counter wraps 0xFF → 0x00**
   (#481), as the stack has done since #433. The README still said 0xFF → 0x01
   with 0x00 invalid, so a tester following it got `7F 36 73` on block 257 of
