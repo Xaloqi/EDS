@@ -506,12 +506,17 @@ class TestGeneratedCCompilation:
         c_files = [f for f in os.listdir(gen_dir) if f.endswith(".c")]
         if not c_files:
             pytest.skip(f"No .c files in generated/ for {ecu}")
+        # The example's own src/ comes after generated/: handlers wired to real
+        # application state include its headers (sensor_ecu.h since #350, #488).
+        src_dir = os.path.join(EDS_ROOT, "examples", ecu, "src")
+        src_flags = [f"-I{src_dir}"] if os.path.isdir(src_dir) else []
         failures = []
         for c_file in sorted(c_files):
             cmd = (
                 ["gcc", "-fsyntax-only"]
                 + GCC_INCLUDE_FLAGS
                 + [f"-I{gen_dir}"]
+                + src_flags
                 + GCC_DEFINE_FLAGS
                 + [os.path.join(gen_dir, c_file)]
             )

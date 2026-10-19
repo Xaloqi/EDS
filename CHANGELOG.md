@@ -23,6 +23,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Phase F's gcc check passes for `sensor_ecu` and `sensor_ecu_freertos`**
+  (#488). Since #350 their generated handlers include `src/sensor_ecu.h`, but
+  `test_generated_c_syntax_clean` only put `generated/` on the include path.
+  The check now adds the example's `src/` after it. Public CI never saw this,
+  because Phase F skips without the toolchain templates. Building the harness
+  for these examples is a separate issue (EDS-toolchain#185).
 - **`docs/Safety_Model.md` is the single home of the safety model**
   (EDS-Safety#34). The Professional safety repository kept a second copy that
   had drifted; it is retired, and its one unique section, the RTM revision
