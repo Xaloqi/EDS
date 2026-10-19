@@ -307,7 +307,6 @@ class TestSuppressResponseBit:
             "(BUG: bit stripped with & 0x7F but no 'if pdu[1] & 0x80: return None' before response)"
         )
 
-    @firmware_divergence("Xaloqi/EDS#486")
     def test_0x31_suppress_bit_returns_none(self):
         """RoutineControl 0x31 — suppress bit must silence the 0x71 positive response."""
         s = _sim(); _session(s, SESSION_EXTENDED)

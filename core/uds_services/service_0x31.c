@@ -86,6 +86,9 @@
 #define SVC_0x31_SUBFN_STOP         (0x02U)
 #define SVC_0x31_SUBFN_RESULTS      (0x03U)
 
+/** routineControlType is bits 6-0; bit 7 is the suppress bit [EDS#486]. */
+#define SVC_0x31_SUBFN_MASK         (0x7FU)
+
 /* --------------------------------------------------------------------------
  * Internal helper: validate session and security for a routine
  * -------------------------------------------------------------------------- */
@@ -179,7 +182,7 @@ uds_status_t uds_service_0x31_handler(
         return status;
     }
 
-    sub_fn = req->data[SVC_0x31_SUBFN_OFFSET];
+    sub_fn = (uint8_t)(req->data[SVC_0x31_SUBFN_OFFSET] & (uint8_t)SVC_0x31_SUBFN_MASK);
 
     /* Validate sub-function: only 0x01, 0x02, 0x03 are defined. */
     if ((sub_fn < (uint8_t)SVC_0x31_SUBFN_START) ||
