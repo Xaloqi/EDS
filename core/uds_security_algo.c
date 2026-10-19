@@ -677,7 +677,9 @@ uds_status_t uds_security_algo_generate_seed(
     }
 
     if (!algo_level_to_index(security_level, &level_idx)) {
-        return UDS_STATUS_ERR_INVALID_PARAM;
+        /* [EDS#485] No such level: the securityAccessType itself is
+         * unsupported, which the server answers NRC 0x12. */
+        return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
     }
 
     /*

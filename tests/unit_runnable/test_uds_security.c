@@ -453,6 +453,80 @@ ZTEST(test_uds_security_seed, test_lockout_blocks_seed_request)
                   "Seed request during lockout must fail");
 }
 
+/** Supports level 1 only, as an application with one level would. */
+static uds_status_t stub_seed_level1_only(
+    uint8_t  security_level,
+    uint8_t *seed_buf,
+    uint8_t  seed_buf_len,
+    uint8_t *out_seed_len)
+{
+    if (security_level != UDS_SEC_LEVEL_1_SEED) {
+        return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
+    }
+    return test_seed_generate(security_level, seed_buf, seed_buf_len, out_seed_len);
+}
+
+/** Refuses every request, as a production build with no TRNG does. */
+static uds_status_t stub_seed_unavailable(
+    uint8_t  security_level,
+    uint8_t *seed_buf,
+    uint8_t  seed_buf_len,
+    uint8_t *out_seed_len)
+{
+    (void)security_level; (void)seed_buf; (void)seed_buf_len; (void)out_seed_len;
+    return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
+}
+
+/*
+ * [EDS#485] An unsupported level is an unsupported securityAccessType: NRC
+ * 0x12, with nothing left pending and no attempt consumed. It used to be 0x22
+ * like any other refusal.
+ */
+ZTEST(test_uds_security_seed, test_unsupported_level_is_subfunction_not_sup)
+{
+    uds_security_ctx_t ctx;
+    static const uds_security_cfg_t k_cfg = {
+        .max_attempts     = 3U,
+        .lockout_ms       = 100U,
+        .key_validate_cb  = test_key_validate,
+        .seed_generate_cb = stub_seed_level1_only,
+    };
+    uint8_t seed[UDS_SECURITY_SEED_LEN];
+    uint8_t seed_len = 0U;
+
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(uds_security_init(&ctx, &k_cfg), UDS_STATUS_OK, "init failed");
+
+    uds_status_t rc = uds_security_request_seed(&ctx, 0x05U, seed,
+                                                UDS_SECURITY_SEED_LEN, &seed_len);
+    zassert_equal(rc, UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP,
+                  "Unsupported level must be SUBFUNCTION_NOT_SUP (NRC 0x12, EDS#485)");
+    zassert_false(ctx.seed_pending, "No seed may be left pending");
+    zassert_equal(ctx.failed_attempts, 0U, "An unsupported level must not consume an attempt");
+
+    zassert_equal(do_seed_request(&ctx, seed, &seed_len), UDS_STATUS_OK,
+                  "A supported level must still get a seed");
+}
+
+/* Any other seed failure stays NRC 0x22 (EDS#446). */
+ZTEST(test_uds_security_seed, test_other_seed_failure_is_conditions_not_correct)
+{
+    uds_security_ctx_t ctx;
+    static const uds_security_cfg_t k_cfg = {
+        .max_attempts     = 3U,
+        .lockout_ms       = 100U,
+        .key_validate_cb  = test_key_validate,
+        .seed_generate_cb = stub_seed_unavailable,
+    };
+    uint8_t seed[UDS_SECURITY_SEED_LEN];
+    uint8_t seed_len = 0U;
+
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(uds_security_init(&ctx, &k_cfg), UDS_STATUS_OK, "init failed");
+    zassert_equal(do_seed_request(&ctx, seed, &seed_len), UDS_STATUS_ERR_CONDITIONS_NOT_MET,
+                  "A seed the server cannot produce must stay NRC 0x22");
+}
+
 /* =========================================================================
  * Test suite: uds_security_send_key
  * ========================================================================= */
@@ -853,6 +927,8 @@ void run_all_tests(void)
     RUN_TEST(test_uds_security_seed__test_seed_generated);
     RUN_TEST(test_uds_security_seed__test_already_unlocked_returns_zero_seed);
     RUN_TEST(test_uds_security_seed__test_lockout_blocks_seed_request);
+    RUN_TEST(test_uds_security_seed__test_unsupported_level_is_subfunction_not_sup);
+    RUN_TEST(test_uds_security_seed__test_other_seed_failure_is_conditions_not_correct);
     RUN_TEST(test_uds_security_send_key__test_null_ctx);
     RUN_TEST(test_uds_security_send_key__test_null_key);
     RUN_TEST(test_uds_security_send_key__test_key_without_seed);

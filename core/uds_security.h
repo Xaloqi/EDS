@@ -95,6 +95,9 @@ typedef bool (*uds_security_key_validate_fn)(
  *
  * @return UDS_STATUS_OK if seed was generated successfully.
  * @return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE if seed generation failed.
+ * @return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP if security_level is not one
+ *         this application supports: answered NRC 0x12 subFunctionNotSupported.
+ *         Any other failure is answered NRC 0x22 (EDS#485).
  *
  * @note SAFETY: Seed generation must use a hardware RNG source where available.
  *               Predictable seeds undermine the security model.

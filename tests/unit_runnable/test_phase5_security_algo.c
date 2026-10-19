@@ -33,6 +33,8 @@
  *   TC-ALGO-015  NULL seed_buf to generate_seed -> ERR_NULL_PTR
  *   TC-ALGO-016  NULL out_seed_len to generate_seed -> ERR_NULL_PTR
  *   TC-ALGO-017  seed_buf_len too small -> ERR_INVALID_PARAM
+ *   TC-ALGO-037  Undefined level in generate_seed -> ERR_SUBFUNCTION_NOT_SUP
+ *                (NRC 0x12, EDS#485)
  *   TC-ALGO-018  NULL seed to derive_key -> ERR_NULL_PTR
  *   TC-ALGO-019  NULL key_out to derive_key -> ERR_NULL_PTR
  *   TC-ALGO-020  Unknown security level in derive_key -> ERR_INVALID_PARAM
@@ -221,6 +223,20 @@ ZTEST(test_phase5_security_algo, tc017_generate_buf_too_small)
     uint8_t seed[2]; uint8_t len = 0U;
     zassert_equal(uds_security_algo_generate_seed(0x01U, seed, sizeof(seed), &len),
         UDS_STATUS_ERR_INVALID_PARAM, "small buf must return ERR_INVALID_PARAM");
+}
+ZTEST(test_phase5_security_algo, tc037_generate_undefined_level_is_subfunction_not_sup)
+{
+    /* [EDS#485] 0x05 (level 3), 0x43 and 0x7F (reserved) and 0xFF are not
+     * defined levels; requestSeed for them must surface as NRC 0x12. */
+    static const uint8_t k_undefined[] = { 0x05U, 0x43U, 0x7FU, 0xFFU };
+    uint8_t seed[UDS_ALGO_SEED_LEN]; uint8_t len = 0U;
+    uds_security_algo_reset();
+    for (uint8_t i = 0U; i < (uint8_t)sizeof(k_undefined); i++) {
+        zassert_equal(uds_security_algo_generate_seed(k_undefined[i], seed, sizeof(seed), &len),
+            UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP, "undefined level must return ERR_SUBFUNCTION_NOT_SUP");
+    }
+    zassert_equal(uds_security_algo_generate_seed(0x01U, seed, sizeof(seed), &len),
+        UDS_STATUS_OK, "level 1 must still produce a seed");
 }
 ZTEST(test_phase5_security_algo, tc018_derive_null_seed)
 {
@@ -605,4 +621,5 @@ void run_all_tests(void)
     RUN_TEST(test_phase5_security_algo__tc034_no_rng_cb_dev_mode_uses_lfsr);
     RUN_TEST(test_phase5_security_algo__tc035_trng_failure_dev_mode_soft_fallback);
     RUN_TEST(test_phase5_security_algo__tc036_lfsr_determinism_guard);
+    RUN_TEST(test_phase5_security_algo__tc037_generate_undefined_level_is_subfunction_not_sup);
 }

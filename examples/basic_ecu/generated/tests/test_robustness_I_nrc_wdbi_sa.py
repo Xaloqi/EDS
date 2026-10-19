@@ -295,14 +295,14 @@ class TestSecurityAccessProtocolEdges:
         assert resp[2] == NRC_SEQUENCE_ERROR, \
             f"Level mismatch (seed L1, key L2): expected NRC 0x24, got 0x{resp[2]:02X}"
 
-    @firmware_divergence("Xaloqi/EDS#485")
-    def test_sub_ff_requests_seed_for_level_128(self):
-        """Sub=0xFF is odd → requestSeed for level 128. Must return a seed, not NRC."""
-        s = _sim(); _session(s, SESSION_EXTENDED)
-        resp = _req(s, bytes([SID_SECURITY_ACCESS, 0xFF]))
-        assert resp is not None and resp[0] == 0x67, \
-            f"Sub=0xFF (level 128): expected seed response 0x67, got {resp!r}"
-        assert len(resp) == 2 + ALGO_SEED_LEN
+    def test_unsupported_security_access_type_returns_nrc_12(self):
+        """A securityAccessType with no defined level (level 3, reserved 0x43/0x7F,
+        0xFF) is unsupported → NRC 0x12, not a seed (EDS#485)."""
+        for sub in (0x05, 0x43, 0x7F, 0xFF):
+            s = _sim(); _session(s, SESSION_EXTENDED)
+            resp = _req(s, bytes([SID_SECURITY_ACCESS, sub]))
+            assert resp == bytes([SID_NEGATIVE_RESPONSE, SID_SECURITY_ACCESS, 0x12]), \
+                f"Sub=0x{sub:02X}: expected NRC 0x12, got {resp!r}"
 
     def test_pending_seed_cleared_after_successful_unlock(self):
         """After a successful unlock, pending_seed and pending_level must be None."""
