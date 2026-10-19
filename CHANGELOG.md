@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The robustness phases' last ECUReset and DTC tests now run against the
+  C stack, and sensor_ecu's firmware tests run at all** (EDS-toolchain#182,
+  #183, #185). With the harness from the matching EDS-toolchain release:
+  - An ECUReset reboots the harness. Session and unlock start over, while
+    the SecurityAccess attempt counter and DTC status survive in its NVM, as
+    on a generated ECU.
+  - DTC status can be set the way an application monitor sets it
+    (`robustness_backend.set_dtc_status()`).
+  - sensor_ecu has a host stand-in for its sensor monitor.
+  - `build_harness.sh` compiles the harness's NVM store and application
+    stand-ins when present, and adds the example's `src/` to the include path.
+  - In firmware mode the six phases give 205 passed / 0 xfail / 15
+    simulator-only (was 190 / 0 / 30). The 15 left check the simulator model
+    itself.
+  - Both sensor_ecu suites reach their floor of 165 (they were BLOCKED). The
+    generated `conftest_firmware.py` reconnects after a modelled reboot.
+  - Published counts are unchanged.
+
 - **DiagnosticSessionControl 0x04 (safetySystemDiagnosticSession) is opt-in
   per ECU** (#494). ISO 14229-1:2026 makes 0x04 optional, but every EDS ECU
   accepted it. In it, everything gated on a non-default session is reachable,

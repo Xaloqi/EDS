@@ -10,7 +10,9 @@
 # A firmware ECU deliberately exposes none of the simulator's attributes
 # (session, sec_unlocked, dtcs, ...): a test that still reads or writes
 # simulator state fails with AttributeError in firmware mode instead of
-# silently checking the model. Tests with no UDS path to the state they need
+# silently checking the model. DTC status is set through set_dtc_status(), and
+# an ECUReset reboots the harness (its transport reconnects), so state after a
+# reset is the rebooted ECU's (EDS-toolchain#182/#183). Tests with no UDS path to the state they need
 # are decorated @simulator_only(reason) and skip — with that reason — in
 # firmware mode.
 #
@@ -100,6 +102,24 @@ def is_unlocked(ecu: Ecu, level: int = 1) -> bool:
     if rsp is None or rsp[0] != 0x67:
         return False
     return not any(rsp[2:])
+
+
+def set_dtc_status(ecu: Ecu, dtc_code: int, status: int) -> None:
+    """Set a DTC's status the way an application monitor does.
+
+    Simulator: writes the model's status byte. Firmware: the harness's control
+    frame, which calls dtc_database_set_status() (and saves it to the NVM
+    mirror) on the ECU thread (EDS-toolchain#183). No UDS request is sent.
+    """
+    if isinstance(ecu, FirmwareEcu):
+        rc = ecu._transport.set_dtc_status(dtc_code, status)
+        assert rc == 0, f"harness refused DTC 0x{dtc_code:06X} status 0x{status:02X}: uds_status 0x{rc:02X}"
+        return
+    for d in ecu.dtcs:
+        if d["code"] == dtc_code:
+            d["status"] = status
+            return
+    raise AssertionError(f"DTC 0x{dtc_code:06X} is not configured")
 
 
 def simulator_only(reason: str) -> Callable:

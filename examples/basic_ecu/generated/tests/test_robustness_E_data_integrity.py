@@ -229,8 +229,9 @@ class TestDTCLifecycle:
     CODE_0 = 0xC00100   # 12583168
     CODE_1 = 0xC00200   # 12583424
 
-    def _set_dtc(self, state: _InlineEcuState, idx: int, status: int) -> None:
-        state.dtcs[idx]['status'] = status
+    def _set_dtc(self, state, idx: int, status: int) -> None:
+        # As an application monitor would (EDS-toolchain#183 on the harness).
+        backend.set_dtc_status(state, (self.CODE_0, self.CODE_1)[idx], status)
 
     def _read_dtc_sub02(self, state: _InlineEcuState, mask: int = 0xFF) -> bytes:
         resp = _req(state, bytes([SID_READ_DTC_INFO, 0x02, mask]))
@@ -245,7 +246,6 @@ class TestDTCLifecycle:
         assert [(int.from_bytes(r[:3], 'big'), r[3]) for r in records] == [
             (self.CODE_0, 0x50), (self.CODE_1, 0x50)]
 
-    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_dtc_visible_in_sub02_after_status_set(self):
         """Setting DTC status → it must appear in 0x19/0x02 with correct code."""
         state = _sim()
@@ -257,7 +257,6 @@ class TestDTCLifecycle:
         assert code == self.CODE_0
         assert records_payload[3] == 0x08
 
-    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_dtc_mask_excludes_non_matching_dtcs(self):
         """Only DTCs whose status byte has the mask bit set appear in response."""
         state = _sim()
@@ -281,7 +280,6 @@ class TestDTCLifecycle:
         records = (len(resp02) - 3) // 4
         assert count == records == 2
 
-    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_dtc_lifecycle_set_clear_verify_zero(self):
         """Full lifecycle: set active → 0x14 clear → 0x19/0x02 returns empty list."""
         state = _sim()
@@ -297,7 +295,6 @@ class TestDTCLifecycle:
         resp2 = self._read_dtc_sub02(state, mask=0x08)
         assert len(resp2) == 3, "No DTC records expected after clear"
 
-    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_both_dtcs_cleared_by_single_0x14(self):
         """A single 0x14 must reset all DTCs, not just one — to 0x50
         (ISO 14229-1:2026 / EDS#448: test-not-completed bits set, failure bits clear)."""
@@ -306,8 +303,10 @@ class TestDTCLifecycle:
         self._set_dtc(state, 0, 0x08)
         self._set_dtc(state, 1, 0x04)
         _req(state, bytes([SID_CLEAR_DTC, 0xFF, 0xFF, 0xFF]))
-        for d in state.dtcs:
-            assert d['status'] == 0x50
+        resp = self._read_dtc_sub02(state, mask=0xFF)
+        records = [bytes(resp[i:i + 4]) for i in range(3, len(resp), 4)]
+        assert [r[3] for r in records] == [0x50, 0x50], (
+            f"both DTCs must read back 0x50 after a single 0x14, got {resp.hex()}")
 
     def test_clear_dtc_in_default_session_returns_nrc_7f(self):
         state = _sim()
@@ -315,7 +314,6 @@ class TestDTCLifecycle:
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
         assert resp[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION
 
-    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_dtc_status_byte_preserved_exactly(self):
         """Multi-bit status byte must be returned verbatim from 0x19/0x02."""
         state = _sim()
@@ -368,22 +366,22 @@ class TestSessionSecurityIsolation:
         assert resp == bytes([SID_NEGATIVE_RESPONSE, SID_SECURITY_ACCESS, 0x24]), (
             f"Key for a seed issued before the session change must get NRC 0x24, got {resp!r}")
 
-    @simulator_only("needs the ECU state after a reboot; the harness server mode never performs the deferred ECUReset (Xaloqi/EDS-toolchain#182)")
     def test_ecu_reset_drops_session_to_default(self):
         state = _sim()
         _session(state, SESSION_EXTENDED)
-        assert state.session == SESSION_EXTENDED
+        assert _rdbi(state, DID_SPARE_PART)[0] == 0x62          # extended-only DID
         _req(state, bytes([SID_ECU_RESET, 0x01]))
-        assert state.session == SESSION_DEFAULT
+        resp = _rdbi(state, DID_SPARE_PART)
+        assert resp is not None and resp[:1] == bytes([SID_NEGATIVE_RESPONSE]) and resp[2] == NRC_REQUEST_OUT_OF_RANGE, (
+            f"ECUReset must drop to the default session; F187 answers {resp!r}")
 
-    @simulator_only("needs the ECU state after a reboot; the harness server mode never performs the deferred ECUReset (Xaloqi/EDS-toolchain#182)")
     def test_ecu_reset_clears_security_unlock(self):
         state = _sim()
         assert backend.unlock(state), "setup: extended session + level-1 unlock failed"
         _req(state, bytes([SID_ECU_RESET, 0x01]))
-        assert not state.sec_unlocked.get(1)
+        # Probed without a session change, which would re-lock by itself.
+        assert not backend.is_unlocked(state, 1), "ECUReset must clear security unlock"
 
-    @simulator_only("needs the ECU state after a reboot; the harness server mode never performs the deferred ECUReset (Xaloqi/EDS-toolchain#182)")
     def test_ecu_reset_keeps_fail_counter(self):
         """The SecurityAccess attempt counter survives ECUReset: the stack
         persists it in NVM (P3-SEC-01), so a reset can't be used to dodge the

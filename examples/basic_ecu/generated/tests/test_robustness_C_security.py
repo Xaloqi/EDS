@@ -25,7 +25,6 @@ from conftest import (
 )
 import robustness_backend as backend
 from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
-from robustness_backend import simulator_only
 
 NRC_EXCEEDED_ATTEMPTS = 0x36  # exceededNumberOfAttempts — not exported but defined by ISO 14229
 NRC_REQUEST_SEED_BEFORE_KEY = 0x24  # requestSequenceError
@@ -289,13 +288,13 @@ class TestSecurityLevelIsolation:
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
         assert resp[2] == NRC_SECURITY_ACCESS_DENIED
 
-    @simulator_only("needs the ECU state after a reboot; the harness server mode never performs the deferred ECUReset (Xaloqi/EDS-toolchain#182)")
     def test_security_cleared_by_ecu_reset(self):
         state = _sim()
         _session(state, SESSION_EXTENDED)
         assert _unlock(state, 1)
         _req(state, bytes([0x11, 0x01]))  # ECUReset hardReset
-        assert not state.sec_unlocked.get(1), "ECUReset must clear security unlock"
+        # Probed without a session change, which would re-lock by itself.
+        assert not backend.is_unlocked(state, 1), "ECUReset must clear security unlock"
 
     def test_security_survives_tester_present(self):
         """TesterPresent must NOT clear security unlock."""

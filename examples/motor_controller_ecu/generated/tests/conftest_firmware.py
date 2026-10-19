@@ -4,7 +4,7 @@
 #
 # ECU       : MotorController_Inverter
 # Version   : 1.0.0
-# Generated : 2026-08-31T12:21:25Z
+# Generated : 2026-10-19T13:03:09Z
 #
 # PURPOSE: pytest conftest for firmware-backed integration tests.
 #
@@ -97,6 +97,12 @@ _FIRMWARE_AES_KEYS = {
 # ---------------------------------------------------------------------------
 # Wire frame encoding / decoding  (mirrors socketcan_wire_frame_t exactly)
 # ---------------------------------------------------------------------------
+
+# [EDS-toolchain#183] Harness control frames: wire flag bit 7, never put on
+# the virtual CAN bus (harness_main.c).
+HARNESS_WIRE_FLAG_CTRL:      int = 0x80
+HARNESS_CTRL_SET_DTC_STATUS: int = 0x01
+
 
 def _encode_wire(can_id: int, data: bytes) -> bytes:
     """Pack a CAN frame into the 16-byte socketcan_wire_frame_t."""
@@ -369,14 +375,20 @@ class FirmwareIsoTpTransport:
         self._rx_q:     queue.Queue                 = queue.Queue()
         self._rx_thread: Optional[threading.Thread] = None
         self._running:  bool                        = False
+        # [EDS-toolchain#182] The harness's "flash" (harness_nvm_store.c): it
+        # survives the reboot an ECUReset triggers, and nothing else.
+        self._nvm_path: str  = ""
+        self._connected: bool = False
 
     def start(self, timeout_s: float = 5.0) -> None:
         """Build and launch the firmware harness, wait for it to be ready."""
+        self._nvm_path = tempfile.mktemp(prefix="/tmp/eds_firmware_nvm_", suffix=".bin")
         self._sock_path = tempfile.mktemp(prefix="/tmp/eds_firmware_", suffix=".sock")
 
         env = {
             **os.environ,
             "OUTPUT": str(self._binary),
+            "HARNESS_NVM_FILE": self._nvm_path,
         }
 
         log.info("Launching harness: %s --server %s", self._binary, self._sock_path)
@@ -410,15 +422,18 @@ class FirmwareIsoTpTransport:
                 f"stderr: {chr(10).join(stderr_lines)}"
             )
 
-        # Connect via AF_UNIX SOCK_SEQPACKET
+        self._connect(timeout_s=2.0)
+
+    def _connect(self, timeout_s: float) -> None:
+        """Connect to the harness socket, read its sentinel, start the RX thread."""
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-        deadline2 = time.monotonic() + 2.0
+        deadline2 = time.monotonic() + timeout_s
         while time.monotonic() < deadline2:
             try:
                 self._sock.connect(self._sock_path)
                 break
             except (FileNotFoundError, ConnectionRefusedError):
-                time.sleep(0.05)
+                time.sleep(0.01)
         else:
             raise RuntimeError(f"Could not connect to harness socket {self._sock_path}")
 
@@ -431,9 +446,25 @@ class FirmwareIsoTpTransport:
             raise RuntimeError("Did not receive sentinel from harness")
 
         # Start RX thread
+        self._connected = True
         self._running = True
         self._rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
         self._rx_thread.start()
+
+    def _ensure_connected(self) -> None:
+        """[EDS-toolchain#182] After an ECUReset the harness re-executes itself
+        (a cold boot) and closes the socket; reconnect to the rebooted ECU."""
+        if self._connected:
+            return
+        self._running = False
+        if self._rx_thread:
+            self._rx_thread.join(timeout=0.5)
+        if self._sock:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+        self._connect(timeout_s=5.0)
 
     def _rx_loop(self) -> None:
         assert self._sock is not None
@@ -441,11 +472,15 @@ class FirmwareIsoTpTransport:
         while self._running:
             try:
                 raw = self._sock.recv(WIRE_FRAME_LEN)
-                if raw:
-                    self._rx_q.put(raw, block=False)
+                if not raw:
+                    # [EDS-toolchain#182] EOF: the harness is rebooting.
+                    self._connected = False
+                    break
+                self._rx_q.put(raw, block=False)
             except socket.timeout:
                 pass
             except Exception:
+                self._connected = False
                 break
 
     def _send_frame(self, can_id: int, data: bytes) -> None:
@@ -460,11 +495,27 @@ class FirmwareIsoTpTransport:
             return None
 
     def request(self, pdu: bytes, timeout: float = RESPONSE_TIMEOUT_S) -> Optional[bytes]:
+        """Send a UDS PDU and return the response; see _request_once.
+
+        [EDS-toolchain#182] An accepted ECUReset (0x51, or no answer with the
+        suppress bit) reboots the harness: wait for that disconnect so the next
+        request reaches the rebooted ECU, not the one shutting down. A harness
+        without the reboot model never disconnects; the wait then just ends.
+        """
+        rsp = self._request_once(pdu, timeout)
+        if pdu[:1] == b"\x11" and (rsp is None or rsp[:1] == b"\x51"):
+            deadline = time.monotonic() + 1.0
+            while self._connected and time.monotonic() < deadline:
+                time.sleep(0.005)
+        return rsp
+
+    def _request_once(self, pdu: bytes, timeout: float = RESPONSE_TIMEOUT_S) -> Optional[bytes]:
         """
         Send a UDS PDU to the real firmware and return the reassembled response.
 
         Handles full ISO-TP SF/FF/CF/FC framing in both directions.
         """
+        self._ensure_connected()
         frames = _isotp_encode(pdu)
         deadline = time.monotonic() + timeout
 
@@ -529,6 +580,30 @@ class FirmwareIsoTpTransport:
 
         return None
 
+    def set_dtc_status(self, dtc_code: int, status: int, timeout: float = 2.0) -> int:
+        """[EDS-toolchain#183] Set a DTC's status as an application monitor does
+        (dtc_database_set_status + NVM mirror) via a harness control frame.
+
+        Returns the uds_status_t (0 = OK; e.g. CONDITIONS_NOT_MET while
+        ControlDTCSetting is off). Harness-only: no UDS request is sent.
+        """
+        self._ensure_connected()
+        assert self._sock is not None
+        payload = bytes([HARNESS_CTRL_SET_DTC_STATUS,
+                         (dtc_code >> 16) & 0xFF, (dtc_code >> 8) & 0xFF, dtc_code & 0xFF,
+                         status & 0xFF])
+        wire = _encode_wire(0, payload)
+        wire = wire[:5] + bytes([HARNESS_WIRE_FLAG_CTRL]) + wire[6:]
+        self._sock.send(wire)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            raw = self._recv_wire(max(deadline - time.monotonic(), 0.01))
+            if raw is not None and len(raw) >= WIRE_FRAME_LEN and (raw[5] & HARNESS_WIRE_FLAG_CTRL):
+                if raw[8] != HARNESS_CTRL_SET_DTC_STATUS or raw[10] != 0:
+                    raise RuntimeError(f"harness DTC control failed: {raw.hex()}")
+                return raw[9]
+        raise RuntimeError("no answer to the harness DTC control frame")
+
     def close(self) -> None:
         """Stop the RX thread, close the socket, terminate the harness process."""
         self._running = False
@@ -548,6 +623,10 @@ class FirmwareIsoTpTransport:
         try:
             os.unlink(self._sock_path)
         except FileNotFoundError:
+            pass
+        try:
+            os.unlink(self._nvm_path)
+        except (FileNotFoundError, TypeError):
             pass
 
 
