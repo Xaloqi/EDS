@@ -423,6 +423,7 @@ static uds_nrc_t srv_status_to_nrc(uds_status_t status)
             return UDS_NRC_RESPONSE_TOO_LONG;               /* 0x14 [EDS#465] */
 
         case UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE:
+        case UDS_STATUS_ERR_REQUEST_SEQUENCE:     /* 0x24 [EDS#484] */
             return UDS_NRC_REQUEST_SEQUENCE_ERROR;     /* 0x24: sendKey without requestSeed (ISO 14229-1:2026 Table 45) */
 
         case UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE:

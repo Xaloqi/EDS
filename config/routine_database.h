@@ -74,6 +74,14 @@ extern "C" {
 /** Routine supports 0x31/0x03 requestRoutineResults (optional per ISO 14229-1). */
 #define ROUTINE_SUPPORT_RESULTS (0x04U)
 
+/** Routine has been started since power-on: results may be requested
+ *  (also after a stop, ISO 14229-1:2026 §13.1 method "A") [EDS#484]. */
+#define ROUTINE_STATE_STARTED   (0x01U)
+
+/** Routine is running: started and not stopped since. stopRoutine requires it
+ *  (ISO 14229-1:2026 Table 430, NRC 0x24) [EDS#484]. */
+#define ROUTINE_STATE_ACTIVE    (0x02U)
+
 /* --------------------------------------------------------------------------
  * Routine callback prototypes
  * -------------------------------------------------------------------------- */
@@ -224,6 +232,35 @@ const routine_entry_t *routine_database_find(uint16_t rid);
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if database not initialized.
  */
 uds_status_t routine_database_get_count(uint16_t *out_count);
+
+/**
+ * @brief Read a routine's ROUTINE_STATE_* flags [EDS#484].
+ *
+ * @param[in]  rid        Routine Identifier.
+ * @param[out] out_state  Receives the flags (0 = never started).
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NULL_PTR if out_state is NULL.
+ * @return UDS_STATUS_ERR_ROUTINE_NOT_FOUND if rid is not registered.
+ */
+uds_status_t routine_database_get_state(uint16_t rid, uint8_t *out_state);
+
+/**
+ * @brief Replace a routine's ROUTINE_STATE_* flags [EDS#484].
+ *
+ * Called by the RoutineControl service after a successful start or stop.
+ * An application whose routine ends on its own (ISO 14229-1 method "B") may
+ * clear ROUTINE_STATE_ACTIVE so that a later stopRoutine gets NRC 0x24.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_ROUTINE_NOT_FOUND if rid is not registered.
+ */
+uds_status_t routine_database_set_state(uint16_t rid, uint8_t state);
+
+/**
+ * @brief Return every routine to its power-on state (never started) [EDS#484].
+ */
+void routine_database_reset_state(void);
 
 #ifdef __cplusplus
 }

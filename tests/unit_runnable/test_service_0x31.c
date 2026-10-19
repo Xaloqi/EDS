@@ -145,6 +145,7 @@ void setUp(void)
 
     (void)uds_safety_init();
     (void)routine_database_init();
+    routine_database_reset_state(); /* [EDS#484] every RID starts never-started */
 
     s_sess.initialized    = true;
     s_sess.active_session = UDS_SESSION_EXTENDED;
@@ -169,6 +170,15 @@ static void build_req(uint8_t subfn, uint16_t rid)
     s_req.data[2] = (uint8_t)(rid >> 8U);
     s_req.data[3] = (uint8_t)(rid & 0xFFU);
     s_req.length  = 4U;
+}
+
+/* [EDS#484] Start RID_FULL so stop/results are in sequence. */
+static void start_full(void)
+{
+    build_req(0x01U, RID_FULL);
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "start must succeed");
+    memset(&s_resp, 0, sizeof(s_resp));
 }
 
 /* ==========================================================================
@@ -267,6 +277,7 @@ ZTEST(svc_0x31, test_stop_not_supported_on_simple_rid)
 
 ZTEST(svc_0x31, test_stop_success_on_full_rid)
 {
+    start_full();
     build_req(0x02U, RID_FULL);
     zassert_equal(UDS_STATUS_OK,
                   uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
@@ -283,6 +294,7 @@ ZTEST(svc_0x31, test_results_not_supported_on_simple_rid)
 
 ZTEST(svc_0x31, test_results_success_with_payload)
 {
+    start_full();
     build_req(0x03U, RID_FULL);
     s_result_len     = 2U;
     s_result_data[0] = 0x01U;
@@ -297,10 +309,61 @@ ZTEST(svc_0x31, test_results_success_with_payload)
 
 ZTEST(svc_0x31, test_results_callback_cond_not_met)
 {
+    start_full();
     build_req(0x03U, RID_FULL);
     s_results_fail = true;
     zassert_equal(UDS_STATUS_ERR_CONDITIONS_NOT_MET,
                   uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
+}
+
+/* [EDS#484] ISO 14229-1:2026 Table 430: results for a routine that was
+ * never started → NRC 0x24, and the callback is not invoked. */
+ZTEST(svc_0x31, test_results_before_start_is_sequence_error)
+{
+    build_req(0x03U, RID_FULL);
+    s_results_fail = true; /* would be 0x22 if the callback were reached */
+    zassert_equal(UDS_STATUS_ERR_REQUEST_SEQUENCE,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp),
+                  "results before start must be NRC 0x24 (EDS#484)");
+}
+
+/* [EDS#484] Table 430: stop for a routine that is not active → 0x24. */
+ZTEST(svc_0x31, test_stop_before_start_is_sequence_error)
+{
+    build_req(0x02U, RID_FULL);
+    zassert_equal(UDS_STATUS_ERR_REQUEST_SEQUENCE,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp),
+                  "stop before start must be NRC 0x24 (EDS#484)");
+}
+
+/* [EDS#484] A stopped routine is no longer active, but its results remain. */
+ZTEST(svc_0x31, test_after_stop_results_ok_second_stop_sequence_error)
+{
+    start_full();
+    build_req(0x02U, RID_FULL);
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "first stop");
+    build_req(0x02U, RID_FULL);
+    zassert_equal(UDS_STATUS_ERR_REQUEST_SEQUENCE,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp),
+                  "a second stop must be NRC 0x24");
+    build_req(0x03U, RID_FULL);
+    zassert_equal(UDS_STATUS_OK,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp),
+                  "results must stay available after a stop (method A)");
+}
+
+/* [EDS#484] A failed start records nothing. */
+ZTEST(svc_0x31, test_failed_start_does_not_count_as_started)
+{
+    build_req(0x01U, RID_FULL);
+    s_start_fail = true;
+    zassert_equal(UDS_STATUS_ERR_ROUTINE_FAILED,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "start fails");
+    build_req(0x03U, RID_FULL);
+    zassert_equal(UDS_STATUS_ERR_REQUEST_SEQUENCE,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp),
+                  "results after a failed start must be NRC 0x24");
 }
 
 ZTEST(svc_0x31, test_option_record_no_crash)
@@ -333,5 +396,9 @@ void run_all_tests(void)
     RUN_TEST(svc_0x31__test_results_not_supported_on_simple_rid);
     RUN_TEST(svc_0x31__test_results_success_with_payload);
     RUN_TEST(svc_0x31__test_results_callback_cond_not_met);
+    RUN_TEST(svc_0x31__test_results_before_start_is_sequence_error);
+    RUN_TEST(svc_0x31__test_stop_before_start_is_sequence_error);
+    RUN_TEST(svc_0x31__test_after_stop_results_ok_second_stop_sequence_error);
+    RUN_TEST(svc_0x31__test_failed_start_does_not_count_as_started);
     RUN_TEST(svc_0x31__test_option_record_no_crash);
 }

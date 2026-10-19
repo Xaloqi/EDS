@@ -199,7 +199,8 @@ typedef enum uds_status {
                                                          SecurityAccess delay timer runs
                                                          (NRC 0x37, ISO 14229-1:2026
                                                          Table 45). */
-    UDS_STATUS_ERR_RESPONSE_TOO_LONG     = 0x67U, /**< [EDS#465] Response would exceed
+    UDS_STATUS_ERR_RESPONSE_TOO_LONG     = 0x67U,
+    UDS_STATUS_ERR_REQUEST_SEQUENCE      = 0x68U, /**< Request out of sequence (NRC 0x24), e.g. routine results before start [EDS#484]. */ /**< [EDS#465] Response would exceed
                                                          the transport limit (NRC 0x14
                                                          responseTooLong, ISO 14229-1:2026
                                                          Table 190). */
