@@ -285,7 +285,6 @@ class TestSecurityAccessProtocolEdges:
     level mismatch, high sub-function (level 128), fail-count per-level isolation.
     """
 
-    @firmware_divergence("Xaloqi/EDS#487")
     def test_level_mismatch_seed_l1_key_l2_returns_nrc_24(self):
         """Request seed for level 1 (sub=0x01) then try to send key for level 2 (sub=0x04)."""
         s = _sim(); _session(s, SESSION_EXTENDED)

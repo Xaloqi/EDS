@@ -676,8 +676,9 @@ ZTEST(test_uds_security_send_key, test_send_key_during_lockout_is_sequence_error
 }
 
 /**
- * TC-SEC-KEY-007: [P4-SEC-01] Key for wrong level → REQUEST_OUT_OF_RANGE,
- *                 seed consumed, failed_attempts incremented.
+ * TC-SEC-KEY-007: [P4-SEC-01] Key for wrong level → NRC 0x24 (SEED_UNAVAILABLE,
+ *                 EDS#487; was REQUEST_OUT_OF_RANGE), seed consumed,
+ *                 failed_attempts incremented.
  *
  * Seeds Level 1, then submits a Level 2 key.  Before the fix the early
  * return left seed_pending = true and failed_attempts = 0, allowing
@@ -696,8 +697,8 @@ ZTEST(test_uds_security_send_key, test_wrong_level_key_consumed_as_failed_attemp
     uds_status_t rc = uds_security_send_key(&ctx, UDS_SEC_LEVEL_2_KEY,
                                              key, (uint8_t)UDS_SECURITY_KEY_LEN);
 
-    zassert_equal(rc, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE,
-                  "[P4-SEC-01] Level mismatch must return REQUEST_OUT_OF_RANGE");
+    zassert_equal(rc, UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE,
+                  "[P4-SEC-01] Level mismatch must be NRC 0x24 (ISO 14229-1:2026 Table 45, EDS#487)");
     zassert_false(ctx.seed_pending,
                   "[P4-SEC-01] Seed must be consumed on level mismatch");
     zassert_equal(ctx.failed_attempts, 1U,

@@ -295,9 +295,11 @@ uds_status_t uds_security_send_key(
          * undermining the ASIL-B security-access claim.
          *
          * Treatment: identical to an invalid key — seed consumed, counter
-         * incremented, lockout engaged if max_attempts reached — but NRC
-         * remains REQUEST_OUT_OF_RANGE so the caller can distinguish the
-         * error type from a wrong-key submission.
+         * incremented, lockout engaged if max_attempts reached — but answered
+         * NRC 0x24, not 0x35, so the error type stays distinguishable from a
+         * wrong key. [EDS#487] ISO 14229-1:2026 Table 45: no requestSeed was
+         * received for this key's level (0x24); 0x31 is reserved there for an
+         * invalid securityAccessDataRecord. Was 0x31.
          */
         ctx->seed_pending = false;
         ctx->failed_attempts++;
@@ -316,7 +318,7 @@ uds_status_t uds_security_send_key(
             (void)ctx->nvm_save_cb(ctx->failed_attempts, (uint32_t)0U);
         }
 
-        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+        return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;
     }
 
     /*
