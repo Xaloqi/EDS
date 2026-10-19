@@ -26,7 +26,7 @@ from conftest import (
 )
 import robustness_backend as backend
 from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
-from robustness_backend import firmware_divergence, simulator_only
+from robustness_backend import simulator_only
 
 # Additional SIDs not in conftest constants
 SID_COMM_CONTROL    = 0x28
@@ -337,7 +337,6 @@ class TestDiagnosticSessionControl:
         resp = _req(state, bytes([SID_DIAGNOSTIC_SESSION_CONTROL, 0x00]))
         assert resp == _nrc(SID_DIAGNOSTIC_SESSION_CONTROL, NRC_SUB_FUNCTION_NOT_SUPPORTED)
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#180")
     def test_invalid_session_0x04_returns_nrc_12(self):
         state = _sim()
         resp = _req(state, bytes([SID_DIAGNOSTIC_SESSION_CONTROL, 0x04]))

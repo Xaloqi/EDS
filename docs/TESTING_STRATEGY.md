@@ -422,21 +422,19 @@ Firmware-mode split for `basic_ecu`:
 
 | Phase | Pass on the C stack | Known divergence (strict xfail) | Simulator-only | Total |
 |---|---|---|---|---|
-| B protocol | 38 | 1 | 4 | 43 |
+| B protocol | 39 | 0 | 4 | 43 |
 | C security | 19 | 0 | 1 | 20 |
 | E data integrity | 26 | 0 | 9 | 35 |
-| G resilience | 33 | 1 | 13 | 47 |
+| G resilience | 34 | 0 | 13 | 47 |
 | H protocol precision | 38 | 0 | 3 | 41 |
 | I NRC / WDBI / SA | 34 | 0 | 0 | 34 |
-| **All** | **188** | **2** | **30** | **220** |
+| **All** | **190** | **0** | **30** | **220** |
 
 - **Known divergence:** the C stack and the model answer differently. The
-  test still runs and is a strict xfail naming the issue. The two left are
-  DiagnosticSessionControl 0x04, which the stack accepts and the model
-  rejects (EDS-toolchain#180, a product decision). When a divergence is fixed
-  the test XPASSes and fails the run until the mark is removed. The other 16
-  found in October were fixed against ISO 14229-1:2026 (#484–#487, #492,
-  EDS-toolchain#178–#181).
+  test still runs and is a strict xfail (`@firmware_divergence`) naming the
+  issue; when the divergence is fixed it XPASSes and fails the run until the
+  mark is removed. **None is open.** The 18 found in October were fixed
+  against ISO 14229-1:2026 (#484–#487, #492, #494, EDS-toolchain#178–#181).
 - **Simulator-only:** skipped in firmware mode with the reason stated on the
   test:
   - 12 check the model's own DID/routine tables against the YAML.

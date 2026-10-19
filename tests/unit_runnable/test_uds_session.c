@@ -183,12 +183,14 @@ ZTEST(test_uds_session_transition, test_extended_to_default)
 }
 
 /**
- * TC-SESS-TRANS-006: Transition to SAFETY_SYSTEM session → OK.
+ * TC-SESS-TRANS-006: Transition to SAFETY_SYSTEM session, once enabled → OK.
  */
 ZTEST(test_uds_session_transition, test_to_safety_system)
 {
     uds_session_ctx_t ctx;
     zassert_equal(default_init(&ctx), UDS_STATUS_OK, "init failed");
+    zassert_equal(uds_session_set_safety_system_enabled(&ctx, true), UDS_STATUS_OK,
+                  "enable 0x04 [EDS#494]");
     uds_status_t rc = uds_session_transition(&ctx, UDS_SESSION_SAFETY_SYSTEM);
     zassert_equal(rc, UDS_STATUS_OK, "Transition to SAFETY_SYSTEM must succeed");
 
@@ -511,6 +513,8 @@ ZTEST(test_uds_session_strict, test_other_transitions_unaffected)
     zassert_equal(default_init(&ctx), UDS_STATUS_OK, "init failed");
     zassert_equal(uds_session_set_strict_programming(&ctx, true),
                   UDS_STATUS_OK, "set_strict failed");
+    zassert_equal(uds_session_set_safety_system_enabled(&ctx, true),
+                  UDS_STATUS_OK, "enable 0x04 [EDS#494]");
 
     zassert_equal(uds_session_transition(&ctx, UDS_SESSION_EXTENDED),
                   UDS_STATUS_OK, "DEFAULT→EXTENDED must work in strict mode");
@@ -521,9 +525,54 @@ ZTEST(test_uds_session_strict, test_other_transitions_unaffected)
 }
 
 /* =========================================================================
+ * Test suite: safetySystemDiagnosticSession opt-in [EDS#494]
+ * ========================================================================= */
+
+ZTEST_SUITE(test_uds_session_safety_opt_in, NULL, NULL, NULL, NULL, NULL);
+
+/* Disabled after init: 0x04 is unsupported (NRC 0x12), session unchanged. */
+ZTEST(test_uds_session_safety_opt_in, test_disabled_by_default)
+{
+    uds_session_ctx_t ctx;
+    zassert_equal(default_init(&ctx), UDS_STATUS_OK, "init failed");
+    zassert_equal(uds_session_transition(&ctx, UDS_SESSION_SAFETY_SYSTEM),
+                  UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP,
+                  "0x04 must be unsupported until enabled (EDS#494)");
+    uds_session_type_t active;
+    (void)uds_session_get_active(&ctx, &active);
+    zassert_equal(active, UDS_SESSION_DEFAULT, "session must stay DEFAULT");
+}
+
+/* Disabling again after use blocks a new entry. */
+ZTEST(test_uds_session_safety_opt_in, test_can_be_disabled_again)
+{
+    uds_session_ctx_t ctx;
+    zassert_equal(default_init(&ctx), UDS_STATUS_OK, "init failed");
+    zassert_equal(uds_session_set_safety_system_enabled(&ctx, true), UDS_STATUS_OK, "enable");
+    zassert_equal(uds_session_transition(&ctx, UDS_SESSION_SAFETY_SYSTEM), UDS_STATUS_OK, "enter");
+    zassert_equal(uds_session_transition(&ctx, UDS_SESSION_DEFAULT), UDS_STATUS_OK, "leave");
+    zassert_equal(uds_session_set_safety_system_enabled(&ctx, false), UDS_STATUS_OK, "disable");
+    zassert_equal(uds_session_transition(&ctx, UDS_SESSION_SAFETY_SYSTEM),
+                  UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP, "disabled again → unsupported");
+}
+
+ZTEST(test_uds_session_safety_opt_in, test_setter_null_and_uninitialized)
+{
+    uds_session_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(uds_session_set_safety_system_enabled(NULL, true),
+                  UDS_STATUS_ERR_NULL_PTR, "NULL ctx");
+    zassert_equal(uds_session_set_safety_system_enabled(&ctx, true),
+                  UDS_STATUS_ERR_NOT_INITIALIZED, "uninitialized ctx");
+}
+
+/* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
 
+extern void test_uds_session_safety_opt_in__test_disabled_by_default(void);
+extern void test_uds_session_safety_opt_in__test_can_be_disabled_again(void);
+extern void test_uds_session_safety_opt_in__test_setter_null_and_uninitialized(void);
 extern void test_uds_session_init__test_null_ctx(void);
 extern void test_uds_session_init__test_zero_timeout(void);
 extern void test_uds_session_init__test_happy_path(void);
@@ -585,4 +634,7 @@ void run_all_tests(void)
     RUN_TEST(test_uds_session_strict__test_blocks_default_to_programming);
     RUN_TEST(test_uds_session_strict__test_allows_via_extended);
     RUN_TEST(test_uds_session_strict__test_other_transitions_unaffected);
+    RUN_TEST(test_uds_session_safety_opt_in__test_disabled_by_default);
+    RUN_TEST(test_uds_session_safety_opt_in__test_can_be_disabled_again);
+    RUN_TEST(test_uds_session_safety_opt_in__test_setter_null_and_uninitialized);
 }

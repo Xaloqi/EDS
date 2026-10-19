@@ -47,6 +47,9 @@ static void setup(void)
 {
     memset(&g_ctx, 0, sizeof(g_ctx));
     uds_session_init(&g_ctx, 5000U);
+    /* This file tests the transition matrix, 0x04 included: enable it
+     * (disabled after init since EDS#494). */
+    (void)uds_session_set_safety_system_enabled(&g_ctx, true);
     g_cb_old = UDS_SESSION_DEFAULT;
     g_cb_new = UDS_SESSION_DEFAULT;
     g_cb_count = 0U;

@@ -418,6 +418,18 @@ def load_config(config_path: Path) -> Dict[str, Any]:
 # STEP 2 — Validate
 # =============================================================================
 
+def _safety_session_enabled(cfg: Dict[str, Any]) -> bool:
+    """True if ecu.sessions.safety_system is true [EDS#494].
+
+    safetySystemDiagnosticSession (0x04) is optional in ISO 14229-1:2026 and
+    off unless the ECU enables it: the stack answers 0x04 with NRC 0x12 until
+    the generated init calls uds_session_set_safety_system_enabled().
+    """
+    ecu = cfg.get("ecu", {}) or {}
+    sessions = ecu.get("sessions", {}) or {}
+    return sessions.get("safety_system", False) is True
+
+
 def validate_config(cfg: Dict[str, Any]) -> None:
     """
     Validate the loaded configuration against schema and constraint rules.
@@ -808,6 +820,33 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                 )
         if "start" not in support:
             _fatal(f"{pfx}: 'start' must always be in 'support' — it is mandatory per ISO 14229-1.")
+
+    # ── ecu.sessions (optional) — safetySystemDiagnosticSession opt-in ───────
+    # [EDS#494] 0x04 is off unless enabled; a DID or routine gated on it while
+    # it is off could never be reached.
+    ecu_sessions = (cfg.get("ecu", {}) or {}).get("sessions")
+    if ecu_sessions is not None:
+        if not isinstance(ecu_sessions, dict):
+            _fatal("VALIDATION: 'ecu.sessions' must be a mapping, e.g. "
+                   "'sessions: {safety_system: true}'.")
+        for key, value in ecu_sessions.items():
+            if key != "safety_system":
+                _fatal(f"VALIDATION: unknown 'ecu.sessions.{key}'. The only optional "
+                       "session is 'safety_system' (0x04); default, extended and "
+                       "programming are always supported.")
+            if not isinstance(value, bool):
+                _fatal(f"VALIDATION: 'ecu.sessions.safety_system' must be true or "
+                       f"false, got: {value!r}")
+    if not _safety_session_enabled(cfg):
+        gated = [f"dids {d.get('id')}" for d in (cfg.get("dids") or [])
+                 if d.get("min_session") == "safety_system"]
+        gated += [f"routines {r.get('id')}" for r in (cfg.get("routines") or [])
+                  if r.get("min_session") == "safety_system"]
+        if gated:
+            _fatal(f"VALIDATION: {', '.join(gated)} use min_session 'safety_system', "
+                   "but the safety-system session (0x04) is not enabled, so the ECU "
+                   "answers it NRC 0x12 and they could never be reached. "
+                   "FIX: set 'ecu: {sessions: {safety_system: true}}' (EDS#494).")
 
     # ── service_ids (optional override list) ─────────────────────────────────
     service_ids: List[Any] = cfg.get("service_ids", [])
@@ -1226,6 +1265,8 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "safeboot_enabled":      safeboot_enabled,
         "safeboot_platform":     safeboot_platform,
         "safeboot_max_block":    safeboot_max_block,
+        # [EDS#494] uds_init.c enables 0x04 only when the YAML asks for it.
+        "safety_system_session": _safety_session_enabled(cfg),
     }
 
 

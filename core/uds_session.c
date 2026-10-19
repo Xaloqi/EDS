@@ -107,6 +107,14 @@ uds_status_t uds_session_transition(
         return UDS_STATUS_ERR_SESSION_INVALID;
     }
 
+    /* [EDS#494] safetySystemDiagnosticSession (0x04) is an optional
+     * SubFunction (ISO 14229-1:2026): an ECU that has not enabled it does
+     * not support it, NRC 0x12 (Figure 6 / Table 3 case e). Checked here, the
+     * one place every path into a session goes through. */
+    if ((new_session == UDS_SESSION_SAFETY_SYSTEM) && (!ctx->safety_system_enabled)) {
+        return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
+    }
+
     /* [P2-SESS-01] Enforce ISO 14229-1 transition matrix. */
     rc = session_validate_transition(ctx->active_session, new_session);
     if (rc != UDS_STATUS_OK) {
@@ -250,6 +258,22 @@ uds_status_t uds_session_set_strict_programming(
     }
 
     ctx->strict_programming = strict;
+    return UDS_STATUS_OK;
+}
+
+uds_status_t uds_session_set_safety_system_enabled(
+    uds_session_ctx_t *ctx,
+    bool               enabled)
+{
+    if (ctx == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    if (!ctx->initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    ctx->safety_system_enabled = enabled;
     return UDS_STATUS_OK;
 }
 

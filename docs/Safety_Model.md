@@ -121,7 +121,7 @@ Four sessions are defined, with ascending privilege:
 | Default | 0x01 | Normal ECU operation; minimal diagnostic access |
 | Programming | 0x02 | Firmware download (0x34/0x36/0x37); requires security Level 1 |
 | Extended | 0x03 | Advanced diagnostics; read/write most DIDs |
-| SafetySystem | 0x04 | Safety-system diagnostics (OEM-specific) |
+| SafetySystem | 0x04 | Safety-system diagnostics (OEM-specific). **Opt-in per ECU** (`ecu.sessions.safety_system: true`); otherwise NRC 0x12 (EDS#494) |
 
 Every DID and routine declares its minimum required session via `min_session` in YAML. Requests in a lower-privilege session are rejected with NRC 0x7F.
 

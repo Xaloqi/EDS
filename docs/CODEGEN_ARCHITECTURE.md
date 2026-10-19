@@ -179,6 +179,11 @@ ecu:
     logical_address: "0xE400"   # This ECU's DoIP logical address
     source_address:  "0x0E00"   # Expected tester source address
     port:            13400       # Standard DoIP TCP port
+  # Optional: safetySystemDiagnosticSession (0x04) is off unless enabled; an
+  # ECU without it answers 10 04 with NRC 0x12 (EDS#494). Required for any
+  # DID/routine with min_session: safety_system.
+  sessions:
+    safety_system: true
 
 can:
   rx_can_id:  "0x7DF"    # ISO 15765-4 functional address
@@ -236,6 +241,7 @@ routines:
 | `safeboot_enabled` | bool | `safeboot.enabled` (default `False`) | |
 | `safeboot_platform` | str | `safeboot.platform` (default `"zephyr"`) | Valid values: `"zephyr"` → `zephyr_flash_ops_init()`; `"freertos"` → `freertos_flash_ops_init()` |
 | `safeboot_max_block` | int | `safeboot.max_block_length` (default `256`) | |
+| `safety_system_session` | bool | `ecu.sessions.safety_system` (default `False`) | When true, `uds_init.c` calls `uds_session_set_safety_system_enabled(..., true)`; otherwise 0x04 is NRC 0x12 (EDS#494) |
 
 `ecu.transport`/`ecu.doip` are **not** in this table — `build_uds_init_context()` never
 computed fields any template reads from them (EDS#352, fixed). They still feed

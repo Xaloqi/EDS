@@ -176,11 +176,13 @@ ZTEST(test_service_0x10, tc003_extended_session)
 }
 
 /**
- * TC-0x10-004: Safety system session (0x04) → 0x50, echo 0x04.
+ * TC-0x10-004: Safety system session (0x04), once enabled → 0x50, echo 0x04.
  */
 ZTEST(test_service_0x10, tc004_safety_system_session)
 {
     setup();
+    zassert_equal(uds_session_set_safety_system_enabled(&g_sess, true), UDS_STATUS_OK,
+                  "enable 0x04 [EDS#494]");
     uds_msg_buf_t req  = make_req(0x04U);
     uds_msg_buf_t resp = {0};
 
@@ -188,6 +190,24 @@ ZTEST(test_service_0x10, tc004_safety_system_session)
 
     zassert_equal(rc, UDS_STATUS_OK, "handler must return OK");
     zassert_equal(resp.data[1], 0x04U, "echo sub-function must be 0x04");
+}
+
+/**
+ * TC-0x10-004b: 0x04 not enabled (the default) → SUBFUNCTION_NOT_SUP (NRC
+ * 0x12), session unchanged [EDS#494].
+ */
+ZTEST(test_service_0x10, tc004b_safety_system_session_disabled_by_default)
+{
+    setup();
+    uds_msg_buf_t req  = make_req(0x04U);
+    uds_msg_buf_t resp = {0};
+
+    zassert_equal(uds_service_0x10_handler(&g_srv, &req, &resp),
+                  UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP,
+                  "0x04 must be unsupported until enabled (NRC 0x12, EDS#494)");
+    uds_session_type_t active;
+    (void)uds_session_get_active(&g_sess, &active);
+    zassert_equal(active, UDS_SESSION_DEFAULT, "session must stay DEFAULT");
 }
 
 /**
@@ -516,4 +536,5 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x10__tc020_nondefault_transition_keeps_comm_state);
     RUN_TEST(test_service_0x10__tc021_session_change_aborts_transfer);
     RUN_TEST(test_service_0x10__tc022_s3_timeout_aborts_transfer);
+    RUN_TEST(test_service_0x10__tc004b_safety_system_session_disabled_by_default);
 }

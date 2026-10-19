@@ -75,6 +75,9 @@ typedef struct uds_session_ctx {
     bool                          strict_programming;    /**< When true, DEFAULT→PROGRAMMING is blocked;
                                                           *   EXTENDED session is required as an
                                                           *   intermediate step (common OEM policy). */
+    bool                          safety_system_enabled; /**< [EDS#494] When false (the default after
+                                                          *   init), 0x04 safetySystemDiagnosticSession
+                                                          *   is not supported: NRC 0x12. */
 } uds_session_ctx_t;
 
 /* --------------------------------------------------------------------------
@@ -174,6 +177,28 @@ bool uds_session_is_default(const uds_session_ctx_t *ctx);
 uds_status_t uds_session_set_strict_programming(
     uds_session_ctx_t *ctx,
     bool               strict);
+
+/**
+ * @brief Enable or disable safetySystemDiagnosticSession (0x04) [EDS#494].
+ *
+ * 0x04 is optional in ISO 14229-1:2026. It is disabled after
+ * uds_session_init(); while disabled, DiagnosticSessionControl 0x04 is
+ * answered NRC 0x12 subFunctionNotSupported. Enable it only for an ECU that
+ * implements safety-system diagnostics: in it, everything gated on a
+ * non-default session is reachable (security is still reset on entry).
+ * Generated code calls this when diagnostics_config.yaml sets
+ * ecu.sessions.safety_system: true.
+ *
+ * @param[in] ctx      Initialized session context.
+ * @param[in] enabled  True to accept 0x04.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NULL_PTR if ctx is NULL.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
+ */
+uds_status_t uds_session_set_safety_system_enabled(
+    uds_session_ctx_t *ctx,
+    bool               enabled);
 
 #ifdef __cplusplus
 }
