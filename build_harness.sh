@@ -148,6 +148,21 @@ fi
 # ---------------------------------------------------------------------------
 # Source files
 # ---------------------------------------------------------------------------
+
+# NVM: a harness that ships harness_nvm_store.c gets "flash" that survives its
+# modelled ECUReset reboot (EDS-toolchain#182); otherwise the RAM mock.
+NVM_STORE_SRC="$ROOT/platform/zephyr/nvm_store_mock.c"
+if [[ -f "$ROOT/harness/harness_nvm_store.c" ]]; then
+    NVM_STORE_SRC="$ROOT/harness/harness_nvm_store.c"
+fi
+
+# Application stand-in: an example whose generated handlers call into its own
+# application code (sensor_ecu since #350) needs a host version of it, which
+# the harness ships as harness/app_stubs/<example>.c (EDS-toolchain#185).
+APP_STUB_SRCS=()
+if [[ -f "$ROOT/harness/app_stubs/${EXAMPLE}.c" ]]; then
+    APP_STUB_SRCS=("$ROOT/harness/app_stubs/${EXAMPLE}.c")
+fi
 HARNESS_SRCS=(
     "$ROOT/harness/harness_main.c"
     "$ROOT/harness/harness_ecu.c"
@@ -195,7 +210,8 @@ STACK_SRCS=(
     "$ROOT/examples/${EXAMPLE}/generated/did_handlers.c"
     "$ROOT/examples/${EXAMPLE}/generated/did_safety_wrappers.c"
     "$ROOT/examples/${EXAMPLE}/generated/routine_handlers.c"
-    "$ROOT/platform/zephyr/nvm_store_mock.c"
+    "${NVM_STORE_SRC}"
+    "$ROOT/core/uds_security_nvm.c"
     "$ROOT/platform/uds_flash_ops.c"
     "$ROOT/platform/uds_image_policy.c"
     "$ROOT/platform/zephyr/harness_flash_mock.c"
@@ -213,6 +229,7 @@ INCLUDES=(
     "-I$ROOT/platform"
     "-I$ROOT/platform/zephyr"
     "-I$ROOT/examples/${EXAMPLE}/generated"
+    "-I$ROOT/examples/${EXAMPLE}/src"   # after generated/; app headers (#488)
     "-I$ROOT/harness"
     "-I$ROOT/tests/mocks"
     "-I$ROOT/tests/runner"
@@ -259,7 +276,7 @@ fi
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
-ALL_SRCS=("${HARNESS_SRCS[@]}" "${STACK_SRCS[@]}")
+ALL_SRCS=("${HARNESS_SRCS[@]}" "${STACK_SRCS[@]}" ${APP_STUB_SRCS[@]+"${APP_STUB_SRCS[@]}"})
 
 echo "[build_harness] Phase 7 MISRA-clean build (example: ${EXAMPLE})..."
 gcc "${CFLAGS[@]}" "${INCLUDES[@]}" "${ALL_SRCS[@]}" \

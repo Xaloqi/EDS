@@ -45,7 +45,6 @@ from conftest import (
 )
 import robustness_backend as backend
 from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
-from robustness_backend import simulator_only
 
 NRC_SERVICE_NOT_SUPPORTED_IN_SESSION = 0x7F
 
@@ -293,7 +292,8 @@ class TestReadDTCPrecision:
     """
 
     def _activate_dtc(self, state, index, status=0x08):
-        state.dtcs[index]['status'] = status
+        # As an application monitor would (EDS-toolchain#183 on the harness).
+        backend.set_dtc_status(state, (0xC00100, 0xC00200)[index], status)
 
     def test_sub01_response_format_no_active_dtcs(self):
         """
@@ -319,7 +319,6 @@ class TestReadDTCPrecision:
         count = (resp[4] << 8) | resp[5]
         assert count == 0, f"Expected 0 active DTCs, got {count}"
 
-    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_sub01_count_is_one_after_activating_one_dtc(self):
         s = _sim()
         self._activate_dtc(s, 0, 0x08)  # confirmedDTC bit
@@ -360,7 +359,6 @@ class TestReadDTCPrecision:
         assert resp[2] == 0xFF, "byte 2 is the DTCStatusAvailabilityMask (EDS default 0xFF)"
         assert len(resp) == 3, f"Sub 0x02 with no DTCs must be 3 bytes, got {len(resp)}"
 
-    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_sub02_dtc_record_is_four_bytes(self):
         """Each DTC record appended to sub 0x02: [code_hi, code_mid, code_lo, status]."""
         s = _sim()
@@ -380,7 +378,6 @@ class TestReadDTCPrecision:
         assert code_bytes == expected, \
             f"DTC 0xC00100 code bytes: expected {expected.hex()}, got {code_bytes.hex()}"
 
-    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_sub02_status_byte_matches_what_was_set(self):
         """The 4th byte of each DTC record must be the exact status value."""
         s = _sim()

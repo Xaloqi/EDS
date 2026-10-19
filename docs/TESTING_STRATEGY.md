@@ -374,6 +374,22 @@ Harness tests cover scenarios that are difficult to isolate in pure unit tests: 
 interaction, end-to-end NRC generation, and the full ISO-TP → UDS → safety wrapper →
 handler call chain.
 
+In `--server` mode (what `--can-interface=firmware` drives), the harness also models
+what the stack leaves to the integration:
+- **ECUReset reboots** (EDS-toolchain#182): once the response is out, the harness
+  re-executes itself, a cold boot in which every RAM variable starts over. Its NVM
+  (`harness_nvm_store.c`, a file per test) survives, with the security NVM
+  callbacks and the DTC mirror wired as generated `uds_init.c` wires them. So the
+  SecurityAccess attempt counter and DTC status persist across the reset, and
+  session and unlock do not. The test transport reconnects by itself.
+- **DTC status is set as an application monitor sets it** (EDS-toolchain#183): a
+  harness-only control frame, never on the CAN bus, calls `dtc_database_set_status()`
+  (blocked while ControlDTCSetting is off) and saves it to the NVM mirror.
+  Tests use `robustness_backend.set_dtc_status()`.
+- **Application code an example's handlers call** has a host stand-in
+  (`harness/app_stubs/<example>.c`), e.g. sensor_ecu's sensor monitor
+  (EDS-toolchain#185).
+
 ### What the robustness phases actually cover
 
 The phase table in
@@ -422,13 +438,13 @@ Firmware-mode split for `basic_ecu`:
 
 | Phase | Pass on the C stack | Known divergence (strict xfail) | Simulator-only | Total |
 |---|---|---|---|---|
-| B protocol | 39 | 0 | 4 | 43 |
-| C security | 19 | 0 | 1 | 20 |
-| E data integrity | 26 | 0 | 9 | 35 |
+| B protocol | 42 | 0 | 1 | 43 |
+| C security | 20 | 0 | 0 | 20 |
+| E data integrity | 34 | 0 | 1 | 35 |
 | G resilience | 34 | 0 | 13 | 47 |
-| H protocol precision | 38 | 0 | 3 | 41 |
+| H protocol precision | 41 | 0 | 0 | 41 |
 | I NRC / WDBI / SA | 34 | 0 | 0 | 34 |
-| **All** | **190** | **0** | **30** | **220** |
+| **All** | **205** | **0** | **15** | **220** |
 
 - **Known divergence:** the C stack and the model answer differently. The
   test still runs and is a strict xfail (`@firmware_divergence`) naming the
@@ -438,10 +454,6 @@ Firmware-mode split for `basic_ecu`:
 - **Simulator-only:** skipped in firmware mode with the reason stated on the
   test:
   - 12 check the model's own DID/routine tables against the YAML.
-  - 9 need a DTC failure status set directly, and no UDS service or harness
-    hook does that (EDS-toolchain#183).
-  - 6 need the state after a reboot, and the harness never performs the
-    deferred ECUReset (EDS-toolchain#182).
   - 2 check the model's 0xAA DID fill pattern.
   - 1 sends an empty PDU, which ISO-TP cannot frame.
 
