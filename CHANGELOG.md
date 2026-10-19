@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.22.0] — 2026-10-19
+
 ### Changed
 
 - **The robustness phases' last ECUReset and DTC tests now run against the

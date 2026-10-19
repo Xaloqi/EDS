@@ -65,7 +65,7 @@
 #
 # SAFETY CONTEXT : Contains ASIL-B candidate modules (ISO 26262 Part 6).
 # CODING STANDARD: MISRA C:2012 alignment intended.
-# VERSION        : 1.21.0
+# VERSION        : 1.22.0
 # SPDX-License-Identifier: Apache-2.0
 # =============================================================================
 
@@ -78,7 +78,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/eds_zephyr_module.cmake)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(zephyr_diagnostics_suite
-    VERSION     1.21.0
+    VERSION     1.22.0
     LANGUAGES   C
     DESCRIPTION "Production-grade UDS/ISO-TP diagnostics stack for Zephyr RTOS"
 )
