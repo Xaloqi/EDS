@@ -144,11 +144,11 @@ class TestRDBISessionAndSecurityGates:
 
 
 class TestRoutineControlStateTracking:
-    """RoutineControl must track started/stopped state — results before start → NRC 0x22."""
+    """RoutineControl must track started/stopped state — results before start → NRC 0x24."""
 
-    @firmware_divergence("Xaloqi/EDS#484")
-    def test_rc_results_before_start_returns_nrc_22(self):
-        """ISO 14229-1: requestResults (0x03) before startRoutine (0x01) → NRC 0x22."""
+    def test_rc_results_before_start_returns_nrc_24(self):
+        """ISO 14229-1:2026 Table 430: requestRoutineResults (0x03) before
+        startRoutine (0x01) → NRC 0x24 requestSequenceError (EDS#484; was 0x22)."""
         state = _sim()
         _session(state, SESSION_EXTENDED)
         resp = _req(state, bytes([SID_ROUTINE_CONTROL, 0x03,
@@ -156,9 +156,9 @@ class TestRoutineControlStateTracking:
                                     RID_SELF_TEST & 0xFF]))
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE, (
             f"Expected NRC for results-before-start, got positive: {resp.hex()}")
-        assert resp[2] == NRC_CONDITIONS_NOT_CORRECT, (
-            f"ISO 14229-1 requires NRC 0x22 (conditionsNotCorrect) for requestResults "
-            f"before startRoutine, got NRC 0x{resp[2]:02X}")
+        assert resp[2] == 0x24, (
+            f"ISO 14229-1:2026 Table 430 requires NRC 0x24 (requestSequenceError) for "
+            f"requestResults before startRoutine, got NRC 0x{resp[2]:02X}")
 
     def test_rc_start_then_results_returns_positive(self):
         state = _sim()
@@ -207,6 +207,13 @@ class TestRoutineControlStateTracking:
                                    (RID_UNKNOWN >> 8) & 0xFF,
                                     RID_UNKNOWN & 0xFF]))
         assert resp == _nrc(SID_ROUTINE_CONTROL, NRC_REQUEST_OUT_OF_RANGE)
+        # ISO 14229-1:2026 Figure 31: the RID is checked before the SubFunction,
+        # so a reserved routineControlType on an unknown RID is still 0x31 (EDS#492).
+        resp = _req(state, bytes([SID_ROUTINE_CONTROL, 0x04,
+                                   (RID_UNKNOWN >> 8) & 0xFF,
+                                    RID_UNKNOWN & 0xFF]))
+        assert resp == _nrc(SID_ROUTINE_CONTROL, NRC_REQUEST_OUT_OF_RANGE), (
+            f"31 04 on an unknown RID must be 0x31 (Figure 31), got {resp!r}")
 
     def test_rc_invalid_subfunction_0x00_returns_nrc_12(self):
         state = _sim()

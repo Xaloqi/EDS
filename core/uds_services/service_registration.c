@@ -149,10 +149,13 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
          *         grant unauthorised access to reprogramming or calibration services.
          *         Seed entropy source must be validated. Key algorithm must be
          *         reviewed by security team before production deployment.
+         *
+         * securityAccessType is a SubFunction (ISO 14229-1:2026 Table 41, bits
+         * 6-0), so bit 7 is the suppress bit (Table 10) [EDS#486].
          */
         .service_id                    = UDS_SID_SECURITY_ACCESS,
         .handler                       = uds_service_0x27_handler,
-        .suppress_pos_response_supported = false,
+        .suppress_pos_response_supported = true,
     },
     {
         /* SID 0x3E — TesterPresent
@@ -268,14 +271,14 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
          * SAFETY: Routines can modify safety-relevant ECU state (e.g. NVM erase,
          *         output actuation). The service layer validates session and
          *         security level before invoking any callback.
-         *         suppressPosRspMsgIndicationBit is NOT applicable —
-         *         0x31 carries a routineControlType byte that is not a true
-         *         sub-function byte; suppress-bit semantics do not apply per
-         *         ISO 14229-1:2026 §13.2.
+         *         routineControlType is a SubFunction (ISO 14229-1:2026
+         *         Tables 425/426, bits 6-0), so bit 7 is the suppress bit,
+         *         supported for every routineControlType (Table 10) [EDS#486].
+         *         This used to say the bit did not apply.
          */
         .service_id                      = UDS_SID_ROUTINE_CONTROL,
         .handler                         = uds_service_0x31_handler,
-        .suppress_pos_response_supported = false,
+        .suppress_pos_response_supported = true,
     },
     {
         /* SID 0x85 — ControlDTCSetting

@@ -33,6 +33,8 @@
  *   NRC 0x33 (securityAccessDenied)    — security level not unlocked
  *   NRC 0x12 (subFunctionNotSupported) — stop/results requested but not supported
  *   NRC 0x22 (conditionsNotCorrect)    — routine execution failed
+ *   NRC 0x24 (requestSequenceError)    — results before any start, or stop
+ *                                        while not active (Table 430) [EDS#484]
  *
  * Architecture:
  *   ISO-TP layer → uds_server.c → service_0x31.c
@@ -85,6 +87,9 @@
 #define SVC_0x31_SUBFN_START        (0x01U)
 #define SVC_0x31_SUBFN_STOP         (0x02U)
 #define SVC_0x31_SUBFN_RESULTS      (0x03U)
+
+/** routineControlType is bits 6-0; bit 7 is the suppress bit [EDS#486]. */
+#define SVC_0x31_SUBFN_MASK         (0x7FU)
 
 /* --------------------------------------------------------------------------
  * Internal helper: validate session and security for a routine
@@ -168,6 +173,7 @@ uds_status_t uds_service_0x31_handler(
     uint8_t                   opt_len       = (uint8_t)0U;
     uint8_t                   result_buf[ROUTINE_MAX_RESULT_LEN];
     uint8_t                   result_len    = (uint8_t)0U;
+    uint8_t                   state         = (uint8_t)0U;
 
     if (ctx == NULL) {
         return UDS_STATUS_ERR_NULL_PTR;
@@ -179,13 +185,11 @@ uds_status_t uds_service_0x31_handler(
         return status;
     }
 
-    sub_fn = req->data[SVC_0x31_SUBFN_OFFSET];
+    sub_fn = (uint8_t)(req->data[SVC_0x31_SUBFN_OFFSET] & (uint8_t)SVC_0x31_SUBFN_MASK);
 
-    /* Validate sub-function: only 0x01, 0x02, 0x03 are defined. */
-    if ((sub_fn < (uint8_t)SVC_0x31_SUBFN_START) ||
-        (sub_fn > (uint8_t)SVC_0x31_SUBFN_RESULTS)) {
-        return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
-    }
+    /* [EDS#492] ISO 14229-1:2026 Figure 31 checks the routineIdentifier
+     * (supported in the active session → 0x31, security → 0x33) before the
+     * SubFunction (→ 0x12), so the RID is resolved first. */
 
     /* Decode big-endian 16-bit RID. */
     rid = (uint16_t)(
@@ -214,6 +218,12 @@ uds_status_t uds_service_0x31_handler(
         return status;
     }
 
+    /* Validate sub-function: only 0x01, 0x02, 0x03 are defined. */
+    if ((sub_fn < (uint8_t)SVC_0x31_SUBFN_START) ||
+        (sub_fn > (uint8_t)SVC_0x31_SUBFN_RESULTS)) {
+        return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
+    }
+
     /* Extract option record (bytes after [SID, subFn, RID_hi, RID_lo]). */
     if (req->length > (uint16_t)SVC_0x31_OPT_OFFSET) {
         opt_buf = &req->data[SVC_0x31_OPT_OFFSET];
@@ -222,6 +232,9 @@ uds_status_t uds_service_0x31_handler(
 
     /* Zero the result buffer before invoking callback. */
     (void)memset(result_buf, 0, sizeof(result_buf));
+
+    /* [EDS#484] Started/active state, for the sequence checks below. */
+    (void)routine_database_get_state(rid, &state);
 
     /* Dispatch to the appropriate callback. */
     switch (sub_fn) {
@@ -240,6 +253,11 @@ uds_status_t uds_service_0x31_handler(
                 ((entry->support_flags & (uint8_t)ROUTINE_SUPPORT_STOP) == (uint8_t)0U)) {
                 return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
             }
+            /* [EDS#484] ISO 14229-1:2026 Table 430: the routine is not
+             * currently active when stopRoutine is received → NRC 0x24. */
+            if ((state & (uint8_t)ROUTINE_STATE_ACTIVE) == (uint8_t)0U) {
+                return UDS_STATUS_ERR_REQUEST_SEQUENCE;
+            }
             status = entry->stop_cb(
                 opt_buf, opt_len,
                 result_buf, (uint8_t)sizeof(result_buf),
@@ -251,6 +269,12 @@ uds_status_t uds_service_0x31_handler(
             if ((entry->results_cb == NULL) ||
                 ((entry->support_flags & (uint8_t)ROUTINE_SUPPORT_RESULTS) == (uint8_t)0U)) {
                 return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
+            }
+            /* [EDS#484] Table 430: routine results are not available (the
+             * routine was never started) → NRC 0x24. Was a positive response
+             * from whatever the results callback returned. */
+            if ((state & (uint8_t)ROUTINE_STATE_STARTED) == (uint8_t)0U) {
+                return UDS_STATUS_ERR_REQUEST_SEQUENCE;
             }
             status = entry->results_cb(
                 result_buf, (uint8_t)sizeof(result_buf),
@@ -264,6 +288,20 @@ uds_status_t uds_service_0x31_handler(
 
     if (status != UDS_STATUS_OK) {
         return status;
+    }
+
+    /* [EDS#484] Record the transition only once the callback succeeded.
+     * Restarting an active routine stays allowed (Table 430 leaves that to
+     * the vehicle manufacturer). */
+    if (sub_fn == (uint8_t)SVC_0x31_SUBFN_START) {
+        (void)routine_database_set_state(rid,
+            (uint8_t)(ROUTINE_STATE_STARTED | ROUTINE_STATE_ACTIVE));
+    } else if (sub_fn == (uint8_t)SVC_0x31_SUBFN_STOP) {
+        /* Stopped: no longer active, results stay available. */
+        (void)routine_database_set_state(rid,
+            (uint8_t)(state & (uint8_t)ROUTINE_STATE_STARTED));
+    } else {
+        /* requestRoutineResults does not change the state. */
     }
 
     /* Build positive response: [0x71, subFn, RID_hi, RID_lo {, statusRecord}] */

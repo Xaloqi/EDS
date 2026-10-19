@@ -233,9 +233,13 @@ class TestWDBICompleteness:
         resp = self._wdbi(s, DID_SPARE_PART, b'')
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#179")
     def test_pdu_under_4_bytes_returns_nrc_13(self):
-        resp = _req(_sim(), bytes([SID_WRITE_DATA_BY_ID, 0xF1]))  # only 2 bytes total
+        s = _sim(); _session(s, SESSION_EXTENDED)
+        resp = _req(s, bytes([SID_WRITE_DATA_BY_ID, 0xF1]))
+        assert resp is not None and resp[2] == 0x33, (
+            f"Locked, the service's security gate answers before length: 0x33, got {resp!r}")
+        assert _do_cmac_unlock(s, level=1)   # 0x7F/0x33 come before length (Figure 5)
+        resp = _req(s, bytes([SID_WRITE_DATA_BY_ID, 0xF1]))  # only 2 bytes total
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
     def test_write_to_read_only_did_returns_nrc_31(self):
@@ -285,7 +289,6 @@ class TestSecurityAccessProtocolEdges:
     level mismatch, high sub-function (level 128), fail-count per-level isolation.
     """
 
-    @firmware_divergence("Xaloqi/EDS#487")
     def test_level_mismatch_seed_l1_key_l2_returns_nrc_24(self):
         """Request seed for level 1 (sub=0x01) then try to send key for level 2 (sub=0x04)."""
         s = _sim(); _session(s, SESSION_EXTENDED)
@@ -303,6 +306,15 @@ class TestSecurityAccessProtocolEdges:
             resp = _req(s, bytes([SID_SECURITY_ACCESS, sub]))
             assert resp == bytes([SID_NEGATIVE_RESPONSE, SID_SECURITY_ACCESS, 0x12]), \
                 f"Sub=0x{sub:02X}: expected NRC 0x12, got {resp!r}"
+        # 0x81 is not unsupported: it is requestSeed level 1 with the suppress
+        # bit (Table 41 / Table 10, EDS#486). No response, but the seed is
+        # issued: a wrong key now gets 0x35, not 0x24 (no seed pending).
+        s = _sim(); _session(s, SESSION_EXTENDED)
+        assert _req(s, bytes([SID_SECURITY_ACCESS, 0x81])) is None, \
+            "27 81 must be processed as a suppressed requestSeed"
+        resp = _req(s, bytes([SID_SECURITY_ACCESS, 0x02]) + bytes(ALGO_KEY_LEN))
+        assert resp == bytes([SID_NEGATIVE_RESPONSE, SID_SECURITY_ACCESS, 0x35]), \
+            f"The suppressed requestSeed must have left a seed pending, got {resp!r}"
 
     def test_pending_seed_cleared_after_successful_unlock(self):
         """After a successful unlock, pending_seed and pending_level must be None."""
@@ -335,20 +347,21 @@ class TestSecurityAccessProtocolEdges:
         ok = _do_cmac_unlock(s, level=1)
         assert ok, "Correct key after 1 wrong attempt must succeed"
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#178")
-    def test_fail_count_is_per_level_l1_failure_does_not_affect_l2(self):
-        """3 wrong L1 keys locks out L1 but L2 must still accept a seed request."""
+    def test_lockout_covers_every_level(self):
+        """3 wrong L1 keys start the delay for every level: the stack has one
+        attempt counter and one delay timer (EDS-toolchain#178). This test used
+        to assert per-level lockout, which the simulator modelled and the stack
+        never had."""
         s = _sim(); _session(s, SESSION_EXTENDED)
         for _ in range(3):
             _req(s, bytes([SID_SECURITY_ACCESS, 0x01]))  # seed L1
             _req(s, bytes([SID_SECURITY_ACCESS, 0x02]) + bytes(ALGO_KEY_LEN))  # wrong
         # L1 is now locked out
         lock_resp = _req(s, bytes([SID_SECURITY_ACCESS, 0x01]))
-        assert lock_resp is not None and lock_resp[2] == NRC_EXCEEDED_NUMBER_OF_ATTEMPTS
-        # L2 must still accept a seed request
+        assert lock_resp is not None and lock_resp[2] == 0x37   # Table 45
         l2_resp = _req(s, bytes([SID_SECURITY_ACCESS, 0x03]))
-        assert l2_resp is not None and l2_resp[0] == 0x67, \
-            "L1 lockout must not affect L2 seed request"
+        assert l2_resp == bytes([SID_NEGATIVE_RESPONSE, SID_SECURITY_ACCESS, 0x37]), \
+            f"The delay applies to level 2 as well, got {l2_resp!r}"
 
     def test_l1_unlock_does_not_set_l2_unlocked(self):
         """Unlocking L1 must leave L2 locked."""

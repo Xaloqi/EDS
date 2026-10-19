@@ -37,6 +37,9 @@
 /** Minimum key submission length: [SID, subFunction, key...] = 3 bytes. */
 #define SVC_0x27_KEY_MIN_LEN   (3U)
 
+/** securityAccessType is bits 6-0; bit 7 is the suppress bit [EDS#486]. */
+#define SVC_0x27_SUBFN_MASK    (0x7FU)
+
 /* --------------------------------------------------------------------------
  * SID 0x27 handler implementation
  * -------------------------------------------------------------------------- */
@@ -62,7 +65,7 @@ uds_status_t uds_service_0x27_handler(
         return status;
     }
 
-    sub_function = req->data[1];
+    sub_function = (uint8_t)(req->data[1] & (uint8_t)SVC_0x27_SUBFN_MASK);
 
     /* [P2-0x27-02] Session constraint: SecurityAccess not allowed in DEFAULT.
      * The server dispatcher already enforces this, but we double-check here
@@ -83,7 +86,7 @@ uds_status_t uds_service_0x27_handler(
         return status;
     }
 
-    resp->data[1] = sub_function;
+    resp->data[1] = sub_function; /* Echo of bits 6-0 (Table 44). */
 
     if (is_seed_request) {
         /* ---------- Seed request path ---------- */

@@ -384,13 +384,22 @@ class TestSessionSecurityIsolation:
         assert not state.sec_unlocked.get(1)
 
     @simulator_only("needs the ECU state after a reboot; the harness server mode never performs the deferred ECUReset (Xaloqi/EDS-toolchain#182)")
-    def test_ecu_reset_clears_fail_counter(self):
-        """Security fail count must reset on ECU reset (lockout window lifts)."""
+    def test_ecu_reset_keeps_fail_counter(self):
+        """The SecurityAccess attempt counter survives ECUReset: the stack
+        persists it in NVM (P3-SEC-01), so a reset can't be used to dodge the
+        lockout. 2 wrong keys + reset + 1 wrong key → 0x36 (EDS-toolchain#178;
+        this test used to assert the opposite)."""
         state = _sim()
         _session(state, SESSION_EXTENDED)
-        state.sec_fail_count[1] = 3
+        for _ in range(2):
+            _req(state, bytes([SID_SECURITY_ACCESS, 0x01]))
+            _req(state, bytes([SID_SECURITY_ACCESS, 0x02]) + bytes(ALGO_KEY_LEN))
         _req(state, bytes([SID_ECU_RESET, 0x01]))
-        assert state.sec_fail_count.get(1, 0) == 0
+        _session(state, SESSION_EXTENDED)
+        _req(state, bytes([SID_SECURITY_ACCESS, 0x01]))
+        resp = _req(state, bytes([SID_SECURITY_ACCESS, 0x02]) + bytes(ALGO_KEY_LEN))
+        assert resp == bytes([SID_NEGATIVE_RESPONSE, SID_SECURITY_ACCESS, 0x36]), (
+            f"The 3rd wrong key across an ECUReset must activate the delay (0x36), got {resp!r}")
 
     def test_security_unlock_persists_within_session(self):
         """Once unlocked, subsequent requests within the same session see the unlock."""

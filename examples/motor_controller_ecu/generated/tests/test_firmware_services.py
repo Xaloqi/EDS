@@ -4,7 +4,7 @@
 #
 # ECU       : MotorController_Inverter
 # Version   : 1.0.0
-# Generated : 2026-10-16T12:00:00Z
+# Generated : 2026-10-19T10:30:11Z
 #
 # PURPOSE: Integration tests running against REAL COMPILED FIRMWARE.
 #
@@ -2635,13 +2635,17 @@ class TestFirmwareRoutine_mc_selftest:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """
-        requestRoutineResults 0xCC00 → 0x71 0x03.
+        requestRoutineResults 0xCC00 → 0x71 0x03, after a startRoutine.
 
         MC_SelfTest includes ROUTINE_SUPPORT_RESULTS.
         Stub callback returns UDS_STATUS_OK with zero result bytes.
         Response: [0x71, 0x03, RID_hi, RID_lo]
+        Results before any start is NRC 0x24 (ISO 14229-1:2026 Table 430,
+        EDS#484), so the routine is started first.
         """
         _enter_session(firmware_bus, SESSION_EXTENDED)
+        pdu = firmware_bus.request(_rc_req(_RC_SUBFN_START, self.RID))
+        _assert_positive_rc(pdu, _RC_SUBFN_START, self.RID)
         pdu = firmware_bus.request(_rc_req(_RC_SUBFN_RESULTS, self.RID))
         _assert_positive_rc(pdu, _RC_SUBFN_RESULTS, self.RID)
 
@@ -2721,14 +2725,18 @@ class TestFirmwareRoutine_mc_phasebalancetest:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """
-        requestRoutineResults 0xCC01 → 0x71 0x03.
+        requestRoutineResults 0xCC01 → 0x71 0x03, after a startRoutine.
 
         MC_PhaseBalanceTest includes ROUTINE_SUPPORT_RESULTS.
         Stub callback returns UDS_STATUS_OK with zero result bytes.
         Response: [0x71, 0x03, RID_hi, RID_lo]
+        Results before any start is NRC 0x24 (ISO 14229-1:2026 Table 430,
+        EDS#484), so the routine is started first.
         """
         _enter_session(firmware_bus, SESSION_EXTENDED)
         _unlock_level(firmware_bus, 1)
+        pdu = firmware_bus.request(_rc_req(_RC_SUBFN_START, self.RID))
+        _assert_positive_rc(pdu, _RC_SUBFN_START, self.RID)
         pdu = firmware_bus.request(_rc_req(_RC_SUBFN_RESULTS, self.RID))
         _assert_positive_rc(pdu, _RC_SUBFN_RESULTS, self.RID)
 
@@ -2808,14 +2816,18 @@ class TestFirmwareRoutine_mc_gatedriverfunctionaltest:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """
-        requestRoutineResults 0xCC02 → 0x71 0x03.
+        requestRoutineResults 0xCC02 → 0x71 0x03, after a startRoutine.
 
         MC_GateDriverFunctionalTest includes ROUTINE_SUPPORT_RESULTS.
         Stub callback returns UDS_STATUS_OK with zero result bytes.
         Response: [0x71, 0x03, RID_hi, RID_lo]
+        Results before any start is NRC 0x24 (ISO 14229-1:2026 Table 430,
+        EDS#484), so the routine is started first.
         """
         _enter_session(firmware_bus, SESSION_EXTENDED)
         _unlock_level(firmware_bus, 1)
+        pdu = firmware_bus.request(_rc_req(_RC_SUBFN_START, self.RID))
+        _assert_positive_rc(pdu, _RC_SUBFN_START, self.RID)
         pdu = firmware_bus.request(_rc_req(_RC_SUBFN_RESULTS, self.RID))
         _assert_positive_rc(pdu, _RC_SUBFN_RESULTS, self.RID)
 
@@ -2895,14 +2907,18 @@ class TestFirmwareRoutine_mc_resolveroffsetcalibration:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """
-        requestRoutineResults 0xCC10 → 0x71 0x03.
+        requestRoutineResults 0xCC10 → 0x71 0x03, after a startRoutine.
 
         MC_ResolverOffsetCalibration includes ROUTINE_SUPPORT_RESULTS.
         Stub callback returns UDS_STATUS_OK with zero result bytes.
         Response: [0x71, 0x03, RID_hi, RID_lo]
+        Results before any start is NRC 0x24 (ISO 14229-1:2026 Table 430,
+        EDS#484), so the routine is started first.
         """
         _enter_session(firmware_bus, SESSION_PROGRAMMING)
         _unlock_level(firmware_bus, 1)
+        pdu = firmware_bus.request(_rc_req(_RC_SUBFN_START, self.RID))
+        _assert_positive_rc(pdu, _RC_SUBFN_START, self.RID)
         pdu = firmware_bus.request(_rc_req(_RC_SUBFN_RESULTS, self.RID))
         _assert_positive_rc(pdu, _RC_SUBFN_RESULTS, self.RID)
 
@@ -3063,7 +3079,8 @@ class TestFirmwareRoutineControlEdgeCases:
         RoutineControl with subFn 0x04 (undefined) → NRC 0x12 subFunctionNotSupported.
 
         ISO 14229-1 §13 defines only sub-functions 0x01, 0x02, 0x03.
-        service_0x31.c validates sub_fn before any database lookup.
+        ISO 14229-1:2026 Figure 31 checks the RID's session (0x31) and security
+        (0x33) before the SubFunction (EDS#492), so both are satisfied first.
         """
         _enter_session(firmware_bus, SESSION_EXTENDED)
         first_rid = 52224

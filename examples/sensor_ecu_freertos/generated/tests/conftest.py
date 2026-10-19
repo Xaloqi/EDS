@@ -4,7 +4,7 @@
 #
 # ECU       : SensorECU
 # Version   : 1.0.0
-# Generated : 2026-10-19T09:18:02Z
+# Generated : 2026-10-19T10:11:55Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -180,8 +180,15 @@ class _InlineEcuState:
     def __init__(self) -> None:
         self.session: int = 0x01
         self.sec_unlocked: dict = {}
-        self.sec_fail_count: dict = {}
+        # SecurityAccess mirrors core/uds_security.c (EDS-toolchain#178): one
+        # attempt counter and one lockout for all levels, kept across session
+        # changes and ECUReset (NVM-persisted, P3-SEC-01); at most one level
+        # unlocked at a time (active_level).
+        self.sec_failed_attempts: int = 0
+        self.sec_locked_out: bool = False
+        # RoutineControl started/active state (EDS#484, ISO 14229-1:2026 Table 430).
         self.routine_started: dict = {}
+        self.routine_active: dict = {}
         self.pending_seed: Optional[bytes] = None
         self.pending_level: Optional[int] = None
         self.did_store: dict = {
@@ -289,7 +296,9 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if len(pdu) < 2: return nrc(0x10, 0x13)
         sub = pdu[1] & 0x7F
         if sub not in (0x01, 0x02, 0x03): return nrc(0x10, 0x12)
-        state.session = sub; state.sec_unlocked.clear(); state.sec_fail_count.clear()
+        # uds_session.c: from programming only default or programming -> else 0x22.
+        if state.session == 0x02 and sub not in (0x01, 0x02): return nrc(0x10, 0x22)
+        state.session = sub; state.sec_unlocked.clear()
         state.pending_seed = state.pending_level = None
         if pdu[1] & 0x80: return None
         p2_hi=0; p2_lo=25; p2s_hi=1; p2s_lo=244
@@ -303,45 +312,55 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if len(pdu) < 2: return nrc(0x11, 0x13)
         sub = pdu[1] & 0x7F
         if sub not in (0x01, 0x02, 0x03): return nrc(0x11, 0x12)
-        state.session = 0x01; state.sec_unlocked.clear(); state.sec_fail_count.clear()
+        state.session = 0x01; state.sec_unlocked.clear()
+        state.pending_seed = state.pending_level = None
         if pdu[1] & 0x80: return None
         return bytes([0x51, sub])
     if sid == 0x27:
-        if len(pdu) < 2: return nrc(0x27, 0x13)
+        # Session gate before length (ISO 14229-1:2026 Figure 5, EDS-toolchain#179).
         if state.session == 0x01: return nrc(0x27, 0x7F)
-        sub = pdu[1]
+        if len(pdu) < 2: return nrc(0x27, 0x13)
+        # securityAccessType is bits 6-0; bit 7 suppresses the positive
+        # response (Table 41 / Table 10, EDS#486).
+        sub = pdu[1] & 0x7F; suppress = bool(pdu[1] & 0x80)
         if sub % 2 == 1:
             level = (sub + 1) // 2
-            if state.sec_fail_count.get(level, 0) >= 3: return nrc(0x27, 0x36)
-            if state.sec_unlocked.get(level): return bytes([0x67, sub] + [0x00] * ALGO_SEED_LEN)
-            # EDS#485: a level the stack's algorithm doesn't define is an
-            # unsupported securityAccessType -> NRC 0x12 (was: a seed for any odd sub).
+            if state.sec_locked_out: return nrc(0x27, 0x37)         # EDS#446
+            if state.sec_unlocked.get(level):
+                return None if suppress else bytes([0x67, sub] + [0x00] * ALGO_SEED_LEN)
+            # EDS#485: a level the stack's algorithm doesn't define -> NRC 0x12.
             if level not in _LEVEL_KEYS: return nrc(0x27, 0x12)
             import os as _os
             seed = _os.urandom(6) + bytes([0x00, level & 0xFF])
             state.pending_seed = seed; state.pending_level = level
-            return bytes([0x67, sub]) + seed
+            return None if suppress else bytes([0x67, sub]) + seed
         else:
             level = sub // 2
-            if state.sec_fail_count.get(level, 0) >= 3: return nrc(0x27, 0x36)
-            if state.pending_seed is None or state.pending_level != level: return nrc(0x27, 0x24)
+            if len(pdu) < 3: return nrc(0x27, 0x13)
+            # During the delay no seed can be pending: sendKey is 0x24 (EDS#446).
+            if state.pending_seed is None: return nrc(0x27, 0x24)
+            def _fail(code):
+                state.pending_seed = state.pending_level = None
+                state.sec_failed_attempts += 1
+                if state.sec_failed_attempts >= 3:
+                    state.sec_failed_attempts = 0; state.sec_locked_out = True
+                    return nrc(0x27, 0x36)                        # Table 45
+                return nrc(0x27, code)
+            # Key for a level with no pending seed: 0x24, and it costs an
+            # attempt (EDS#487, P4-SEC-01).
+            if state.pending_level != level: return _fail(0x24)
             # Wrong key length is invalidKey, not 0x13, mirroring the stack's
             # deliberate no-length-oracle behaviour (core/uds_security.c).
-            if len(pdu) != 2 + ALGO_KEY_LEN:
-                state.pending_seed = state.pending_level = None
-                state.sec_fail_count[level] = state.sec_fail_count.get(level, 0) + 1
-                return nrc(0x27, 0x35)
+            if len(pdu) != 2 + ALGO_KEY_LEN: return _fail(0x35)
             key_material = _LEVEL_KEYS.get(level, _LEVEL_KEYS[1])
             expected = (aes_cmac(key_material, state.pending_seed)[:ALGO_KEY_LEN]
                         if _XALOQI_AVAILABLE else
                         _EcuSimulator._cmac(key_material, state.pending_seed)[:ALGO_KEY_LEN])
+            if bytes(pdu[2:]) != expected: return _fail(0x35)
             state.pending_seed = state.pending_level = None
-            if bytes(pdu[2:]) != expected:
-                state.sec_fail_count[level] = state.sec_fail_count.get(level, 0) + 1
-                return nrc(0x27, 0x35)
-            state.sec_fail_count[level] = 0
-            state.sec_unlocked[level] = True
-            return bytes([0x67, sub])
+            state.sec_failed_attempts = 0
+            state.sec_unlocked.clear(); state.sec_unlocked[level] = True
+            return None if suppress else bytes([0x67, sub])
     if sid == 0x22:
         if len(pdu) < 3: return nrc(0x22, 0x13)
         if (len(pdu) - 1) % 2 != 0: return nrc(0x22, 0x13)
@@ -359,11 +378,12 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if len(resp) == 1: return nrc(0x22, 0x31)
         return bytes(resp)
     if sid == 0x2E:
-        if len(pdu) < 4: return nrc(0x2E, 0x13)
         # Service-level gate first, as uds_access_table.c does: 0x2E needs a
-        # non-default session (NRC 0x7F) and SecurityAccess level 1 (NRC 0x33).
+        # non-default session (NRC 0x7F) and SecurityAccess level 1 (NRC 0x33),
+        # both before any length check (Figure 5, EDS-toolchain#179).
         if state.session == 0x01: return nrc(0x2E, 0x7F)
         if not state.sec_unlocked.get(1): return nrc(0x2E, 0x33)
+        if len(pdu) < 4: return nrc(0x2E, 0x13)
         did_id = (pdu[1] << 8) | pdu[2]; meta = state._dids_meta; entry = meta.get(did_id)
         if entry is None or not entry['access_write']: return nrc(0x2E, 0x31)
         # EDS#466/#449: DID not writable in the active session -> NRC 0x31.
@@ -374,7 +394,8 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         state.did_store[did_id] = bytearray(data); return bytes([0x6E, pdu[1], pdu[2]])
     if sid == 0x19:
         if len(pdu) < 2: return nrc(0x19, 0x13)
-        sub = pdu[1]
+        # reportType is a SubFunction: bit 7 suppresses the positive response.
+        sub = pdu[1] & 0x7F; suppress = bool(pdu[1] & 0x80)
         if sub == 0x01:
             if len(pdu) < 3: return nrc(0x19, 0x13)
             mask = pdu[2]
@@ -382,6 +403,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
             # EDS#451), not an echo of the request mask — echoing it went
             # unnoticed while every test used mask 0xFF (2026-10-16, F15).
             n = sum(1 for d in state.dtcs if d['status'] & mask & _DTC_AVAILABILITY_MASK)
+            if suppress: return None
             return bytes([0x59, 0x01, _DTC_AVAILABILITY_MASK, 0x01, (n >> 8) & 0xFF, n & 0xFF])
         if sub == 0x02:
             if len(pdu) < 3: return nrc(0x19, 0x13)
@@ -391,39 +413,60 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
                 if d['status'] & mask & _DTC_AVAILABILITY_MASK:
                     c = d['code']
                     resp.extend([(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, d['status']])
+            if suppress: return None
+            return bytes(resp)
+        if sub == 0x0A:   # reportSupportedDTC: every DTC, whatever its status
+            resp = bytearray([0x59, 0x0A, _DTC_AVAILABILITY_MASK])
+            for d in state.dtcs:
+                c = d['code']
+                resp.extend([(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, d['status']])
+            if suppress: return None
             return bytes(resp)
         return nrc(0x19, 0x12)
     if sid == 0x14:
         if state.session == 0x01: return nrc(0x14, 0x7F)
-        for d in state.dtcs: d['status'] = 0x50   # after ClearDTC, as EDS#448
+        # service_0x14.c: exactly [SID, groupOfDTC(3)]; 0xFFFFFF = all, or one
+        # registered DTC; anything else -> 0x31 (EDS#450).
+        if len(pdu) != 4: return nrc(0x14, 0x13)
+        group = (pdu[1] << 16) | (pdu[2] << 8) | pdu[3]
+        targets = [d for d in state.dtcs if group == 0xFFFFFF or d['code'] == group]
+        if not targets: return nrc(0x14, 0x31)
+        for d in targets: d['status'] = 0x50   # after ClearDTC, as EDS#448
         return bytes([0x54])
     if sid == 0x31:
         if len(pdu) < 4: return nrc(0x31, 0x13)
         sub_fn = pdu[1] & 0x7F
-        if sub_fn < 0x01 or sub_fn > 0x03: return nrc(0x31, 0x12)
+        # ISO 14229-1:2026 Figure 31: the RID (0x31, 0x33) before the SubFunction (EDS#492).
         rid = (pdu[2] << 8) | pdu[3]; meta = state._routines_meta; entry = meta.get(rid)
         if entry is None: return nrc(0x31, 0x31)
-        # EDS#468, ISO 14229-1:2026 Figure 31: RID not supported in the
-        # active session -> NRC 0x31 (0x7F is not in Table 430 for this case).
+        # EDS#468: RID not supported in the active session -> NRC 0x31.
         if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: return nrc(0x31, 0x31)
         if entry['sec_level'] > 0 and not state.sec_unlocked.get(entry['sec_level']): return nrc(0x31, 0x33)
+        if sub_fn < 0x01 or sub_fn > 0x03: return nrc(0x31, 0x12)
         if sub_fn == 0x01 and 'start'   not in entry['support']: return nrc(0x31, 0x12)
         if sub_fn == 0x02 and 'stop'    not in entry['support']: return nrc(0x31, 0x12)
         if sub_fn == 0x03 and 'results' not in entry['support']: return nrc(0x31, 0x12)
-        if sub_fn == 0x03 and not state.routine_started.get(rid, False): return nrc(0x31, 0x22)
-        if sub_fn == 0x01: state.routine_started[rid] = True
+        # EDS#484, Table 430: stop needs an active routine, results a started one.
+        if sub_fn == 0x02 and not state.routine_active.get(rid, False): return nrc(0x31, 0x24)
+        if sub_fn == 0x03 and not state.routine_started.get(rid, False): return nrc(0x31, 0x24)
+        if sub_fn == 0x01: state.routine_started[rid] = True; state.routine_active[rid] = True
+        if sub_fn == 0x02: state.routine_active[rid] = False
         if pdu[1] & 0x80: return None
         return bytes([0x71, sub_fn, pdu[2], pdu[3]])
     if sid == 0x28:
+        if state.session == 0x01: return nrc(0x28, 0x7F)            # EDS-toolchain#179
         if len(pdu) < 2: return nrc(0x28, 0x13)
-        if state.session == 0x01: return nrc(0x28, 0x7F)
         sub = pdu[1] & 0x7F
         if sub > 0x03: return nrc(0x28, 0x12)
+        # Exactly controlType + communicationType (EDS-toolchain#181).
+        if len(pdu) != 3: return nrc(0x28, 0x13)
+        # Annex B Table B.1: bits 1-0 = 0 or any of bits 3-2 is reserved -> 0x31.
+        if (pdu[2] & 0x03) == 0 or (pdu[2] & 0x0C) != 0: return nrc(0x28, 0x31)
         if pdu[1] & 0x80: return None
         return bytes([0x68, sub])
     if sid == 0x85:
+        if state.session == 0x01: return nrc(0x85, 0x7F)            # EDS-toolchain#179
         if len(pdu) < 2: return nrc(0x85, 0x13)
-        if state.session == 0x01: return nrc(0x85, 0x7F)
         sub = pdu[1] & 0x7F
         if sub not in (0x01, 0x02): return nrc(0x85, 0x12)
         if pdu[1] & 0x80: return None

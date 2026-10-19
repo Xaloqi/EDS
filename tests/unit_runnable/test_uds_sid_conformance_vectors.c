@@ -280,10 +280,14 @@ static uds_status_t did_write_cb(const uint8_t *buf, uint16_t len)
 
 static uint8_t g_routine_status[2] = { 0x11U, 0x22U };
 
+/** Counts startRoutine executions, to show a suppressed request still ran. */
+static uint32_t g_routine_start_calls = 0U;
+
 static uds_status_t routine_start_cb(const uint8_t *opt, uint8_t opt_len,
                                       uint8_t *res, uint8_t res_max, uint8_t *res_out)
 {
     (void)opt; (void)opt_len;
+    g_routine_start_calls++;
     if (res_max < 2U) {
         return UDS_STATUS_ERR_BUFFER_OVERFLOW;
     }
@@ -852,6 +856,114 @@ ZTEST(test_uds_sid_conformance_vectors, vec_sid_31_001_routine_control_shape)
     zassert_equal(resp.data[3], 0x12U, "byte3 must echo the RID low byte");
 }
 
+/* =========================================================================
+ * VEC-SID-27-002 — SecurityAccess with the suppress bit [EDS#486]
+ * ISO 14229-1:2026 Table 41: securityAccessType is bits 6-0 of a SubFunction;
+ * Table 10: the suppress bit is supported for every SubFunction value, and
+ * the service executes in full. So 27 85 is requestSeed level 3, no response.
+ * ========================================================================= */
+
+ZTEST(test_uds_sid_conformance_vectors, vec_sid_27_002_security_access_suppress_bit)
+{
+    setup(UDS_SESSION_EXTENDED);
+
+    uint8_t seed_req_bytes[] = { 0x27U, 0x85U };
+    uds_msg_buf_t seed_req  = make_req(seed_req_bytes, (uint16_t)sizeof(seed_req_bytes));
+    uds_msg_buf_t seed_resp;
+    (void)memset(&seed_resp, 0, sizeof(seed_resp));
+
+    zassert_equal(uds_server_process_request(&g_srv, &seed_req, &seed_resp), UDS_STATUS_OK,
+                  "27 85 must be accepted as requestSeed level 3 (EDS#486)");
+    zassert_equal(seed_resp.length, 0U,
+                  "suppressPosRspMsgIndicationBit set: caller must not transmit a frame");
+
+    /* The seed was still issued: t_seed's fixed 0x10..0x13, key = seed ^ 0xAA. */
+    uint8_t key_req_bytes[] = { 0x27U, 0x06U,
+                                (uint8_t)(0x10U ^ 0xAAU), (uint8_t)(0x11U ^ 0xAAU),
+                                (uint8_t)(0x12U ^ 0xAAU), (uint8_t)(0x13U ^ 0xAAU) };
+    uds_msg_buf_t key_req  = make_req(key_req_bytes, (uint16_t)sizeof(key_req_bytes));
+    uds_msg_buf_t key_resp;
+    (void)memset(&key_resp, 0, sizeof(key_resp));
+
+    zassert_equal(uds_server_process_request(&g_srv, &key_req, &key_resp), UDS_STATUS_OK,
+                  "key for the suppressed seed must be processed");
+    uint8_t expected[] = { 0x67U, 0x06U };
+    zassert_equal(key_resp.length, (uint16_t)sizeof(expected),
+                  "the suppressed requestSeed must have left its seed pending");
+    zassert_equal(memcmp(key_resp.data, expected, sizeof(expected)), 0,
+                  "key response must echo bits 6-0 of the SubFunction");
+}
+
+/* =========================================================================
+ * VEC-SID-31-002 — RoutineControl with the suppress bit [EDS#486]
+ * ISO 14229-1:2026 Tables 425/426: routineControlType is bits 6-0 of a
+ * SubFunction. 31 81 runs startRoutine and sends nothing; a negative
+ * response is still sent (Table 3, case g).
+ * ========================================================================= */
+
+ZTEST(test_uds_sid_conformance_vectors, vec_sid_31_002_routine_control_suppress_bit)
+{
+    setup(UDS_SESSION_DEFAULT);
+
+    uint32_t calls_before = g_routine_start_calls;
+    uint8_t req_bytes[] = { 0x31U, 0x81U, 0x00U, 0x12U };
+    uds_msg_buf_t req  = make_req(req_bytes, (uint16_t)sizeof(req_bytes));
+    uds_msg_buf_t resp;
+    (void)memset(&resp, 0, sizeof(resp));
+
+    zassert_equal(uds_server_process_request(&g_srv, &req, &resp), UDS_STATUS_OK,
+                  "31 81 must be accepted as startRoutine (EDS#486)");
+    zassert_equal(resp.length, 0U,
+                  "suppressPosRspMsgIndicationBit set: caller must not transmit a frame");
+    zassert_equal(g_routine_start_calls, calls_before + 1U,
+                  "the routine must still have been started");
+
+    /* stopRoutine is not supported by this RID: the NRC ignores the bit. */
+    uint8_t stop_bytes[] = { 0x31U, 0x82U, 0x00U, 0x12U };
+    uds_msg_buf_t stop_req  = make_req(stop_bytes, (uint16_t)sizeof(stop_bytes));
+    uds_msg_buf_t stop_resp;
+    (void)memset(&stop_resp, 0, sizeof(stop_resp));
+    (void)uds_server_process_request(&g_srv, &stop_req, &stop_resp);
+    uint8_t expected_nrc[] = { 0x7FU, 0x31U, 0x12U };
+    zassert_equal(stop_resp.length, (uint16_t)sizeof(expected_nrc),
+                  "a negative response must be sent despite the suppress bit");
+    zassert_equal(memcmp(stop_resp.data, expected_nrc, sizeof(expected_nrc)), 0,
+                  "31 82 on a start-only RID must be 7F 31 12");
+}
+
+/* =========================================================================
+ * VEC-SID-31-003 — RoutineControl check order [EDS#492]
+ * ISO 14229-1:2026 Figure 31: "RID supported in active session?" (0x31)
+ * comes before "SubFunction supported for routineIdentifier?" (0x12).
+ * ========================================================================= */
+
+ZTEST(test_uds_sid_conformance_vectors, vec_sid_31_003_rid_checked_before_subfunction)
+{
+    setup(UDS_SESSION_DEFAULT);
+
+    /* Reserved routineControlType 0x04 on an unknown RID → the RID check wins. */
+    uint8_t unknown_bytes[] = { 0x31U, 0x04U, 0x99U, 0x99U };
+    uds_msg_buf_t req  = make_req(unknown_bytes, (uint16_t)sizeof(unknown_bytes));
+    uds_msg_buf_t resp;
+    (void)memset(&resp, 0, sizeof(resp));
+    (void)uds_server_process_request(&g_srv, &req, &resp);
+    uint8_t expected_31[] = { 0x7FU, 0x31U, 0x31U };
+    zassert_equal(resp.length, (uint16_t)sizeof(expected_31), "must be a 3-byte NRC");
+    zassert_equal(memcmp(resp.data, expected_31, sizeof(expected_31)), 0,
+                  "31 04 on an unknown RID must be 7F 31 31 (Figure 31), not 7F 31 12");
+
+    /* The same reserved type on a known RID → 0x12. */
+    uint8_t known_bytes[] = { 0x31U, 0x04U, 0x00U, 0x12U };
+    uds_msg_buf_t req2  = make_req(known_bytes, (uint16_t)sizeof(known_bytes));
+    uds_msg_buf_t resp2;
+    (void)memset(&resp2, 0, sizeof(resp2));
+    (void)uds_server_process_request(&g_srv, &req2, &resp2);
+    uint8_t expected_12[] = { 0x7FU, 0x31U, 0x12U };
+    zassert_equal(resp2.length, (uint16_t)sizeof(expected_12), "must be a 3-byte NRC");
+    zassert_equal(memcmp(resp2.data, expected_12, sizeof(expected_12)), 0,
+                  "31 04 on a known RID must be 7F 31 12");
+}
+
 /* run_all_tests shim */
 extern void test_uds_sid_conformance_vectors__vec_gen_001_unsupported_sid(void);
 extern void test_uds_sid_conformance_vectors__vec_gen_002_subfunction_not_supported_byte_exact(void);
@@ -868,6 +980,9 @@ extern void test_uds_sid_conformance_vectors__vec_sid_3e_001_tester_present_byte
 extern void test_uds_sid_conformance_vectors__vec_sid_22_001_read_data_by_id_shape(void);
 extern void test_uds_sid_conformance_vectors__vec_sid_2e_001_write_data_by_id_byte_exact(void);
 extern void test_uds_sid_conformance_vectors__vec_sid_31_001_routine_control_shape(void);
+extern void test_uds_sid_conformance_vectors__vec_sid_27_002_security_access_suppress_bit(void);
+extern void test_uds_sid_conformance_vectors__vec_sid_31_002_routine_control_suppress_bit(void);
+extern void test_uds_sid_conformance_vectors__vec_sid_31_003_rid_checked_before_subfunction(void);
 
 void run_all_tests(void)
 {
@@ -886,4 +1001,7 @@ void run_all_tests(void)
     RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_22_001_read_data_by_id_shape);
     RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_2e_001_write_data_by_id_byte_exact);
     RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_31_001_routine_control_shape);
+    RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_27_002_security_access_suppress_bit);
+    RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_31_002_routine_control_suppress_bit);
+    RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_31_003_rid_checked_before_subfunction);
 }

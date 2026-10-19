@@ -39,6 +39,9 @@
 /** Fixed-capacity routine registration table. */
 static routine_entry_t s_routine_table[UDS_MAX_ROUTINE_COUNT];
 
+/** ROUTINE_STATE_* flags, parallel to s_routine_table [EDS#484]. */
+static uint8_t s_routine_state[UDS_MAX_ROUTINE_COUNT];
+
 /** Number of entries currently registered. */
 static uint16_t s_routine_count = (uint16_t)0U;
 
@@ -56,6 +59,7 @@ uds_status_t routine_database_init(void)
     }
 
     (void)memset(s_routine_table, 0, sizeof(s_routine_table));
+    (void)memset(s_routine_state, 0, sizeof(s_routine_state));
     s_routine_count = (uint16_t)0U;
     s_initialized   = true;
 
@@ -134,3 +138,48 @@ uds_status_t routine_database_get_count(uint16_t *out_count)
 }
 
 // End of routine_database.c
+
+/* [EDS#484] Index of rid in s_routine_table, or s_routine_count if absent. */
+static uint16_t routine_database_index(uint16_t rid)
+{
+    uint16_t i;
+
+    for (i = (uint16_t)0U; i < s_routine_count; i++) {
+        if (s_routine_table[i].rid == rid) {
+            break;
+        }
+    }
+    return i;
+}
+
+uds_status_t routine_database_get_state(uint16_t rid, uint8_t *out_state)
+{
+    uint16_t idx;
+
+    if (out_state == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    idx = routine_database_index(rid);
+    if ((!s_initialized) || (idx >= s_routine_count)) {
+        return UDS_STATUS_ERR_ROUTINE_NOT_FOUND;
+    }
+    *out_state = s_routine_state[idx];
+    return UDS_STATUS_OK;
+}
+
+uds_status_t routine_database_set_state(uint16_t rid, uint8_t state)
+{
+    uint16_t idx;
+
+    idx = routine_database_index(rid);
+    if ((!s_initialized) || (idx >= s_routine_count)) {
+        return UDS_STATUS_ERR_ROUTINE_NOT_FOUND;
+    }
+    s_routine_state[idx] = state;
+    return UDS_STATUS_OK;
+}
+
+void routine_database_reset_state(void)
+{
+    (void)memset(s_routine_state, 0, sizeof(s_routine_state));
+}
