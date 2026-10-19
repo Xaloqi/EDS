@@ -9,6 +9,8 @@
 #   TestRoutineControlLifecycle — stop-unsupported, security-gated, programming session
 #
 # Run: pytest test_robustness_H_protocol_precision.py -v
+#      add --can-interface=firmware to judge the compiled C stack instead
+#      (Professional; see robustness_backend.py)
 from __future__ import annotations
 
 import os
@@ -18,8 +20,6 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from conftest import (
-    _inline_handle,
-    _InlineEcuState,
     _EcuSimulator,
     SID_DIAGNOSTIC_SESSION_CONTROL,
     SID_ECU_RESET,
@@ -43,6 +43,9 @@ from conftest import (
     P2_SERVER_MAX_MS,
     P2_STAR_SERVER_MAX_MS,
 )
+import robustness_backend as backend
+from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
+from robustness_backend import firmware_divergence, simulator_only
 
 NRC_SERVICE_NOT_SUPPORTED_IN_SESSION = 0x7F
 
@@ -60,15 +63,15 @@ RID_ERASE_NVM  = 0xFF10   # programming, sec=1, support=[start, results]
 
 
 def _sim():
-    return _InlineEcuState()
+    return backend.sim()
 
 
 def _req(state, pdu):
-    return _inline_handle(pdu, state, False)
+    return backend.req(state, pdu)
 
 
 def _session(state, s):
-    _inline_handle(bytes([SID_DIAGNOSTIC_SESSION_CONTROL, s]), state, False)
+    _req(state, bytes([SID_DIAGNOSTIC_SESSION_CONTROL, s]))
 
 
 def _do_cmac_unlock(state, level=1):
@@ -316,6 +319,7 @@ class TestReadDTCPrecision:
         count = (resp[4] << 8) | resp[5]
         assert count == 0, f"Expected 0 active DTCs, got {count}"
 
+    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_sub01_count_is_one_after_activating_one_dtc(self):
         s = _sim()
         self._activate_dtc(s, 0, 0x08)  # confirmedDTC bit
@@ -325,8 +329,9 @@ class TestReadDTCPrecision:
 
     def test_sub01_count_is_two_when_both_dtcs_active(self):
         s = _sim()
-        self._activate_dtc(s, 0, 0x08)
-        self._activate_dtc(s, 1, 0x08)
+        # Both DTCs report 0x50 after registration (EDS#448), which mask 0xFF
+        # selects and mask 0x00 does not — no status injection needed, so this
+        # also runs against the C stack (EDS#474).
         resp = _req(s, bytes([SID_READ_DTC_INFO, 0x01, 0xFF]))
         count = (resp[4] << 8) | resp[5]
         assert count == 2, f"Expected 2 active DTCs, got {count}"
@@ -334,7 +339,9 @@ class TestReadDTCPrecision:
     def test_sub01_mask_zero_reports_zero_count(self):
         """Mask 0x00 never matches any status byte, so count must be 0."""
         s = _sim()
-        self._activate_dtc(s, 0, 0x08)  # testFailed, but mask 0x00 won't match 0x08
+        # Both DTCs report 0x50 after registration (EDS#448), which mask 0xFF
+        # selects and mask 0x00 does not — no status injection needed, so this
+        # also runs against the C stack (EDS#474).
         resp = _req(s, bytes([SID_READ_DTC_INFO, 0x01, 0x00]))
         count = (resp[4] << 8) | resp[5]
         assert count == 0, "Mask 0x00 must match no DTCs regardless of status"
@@ -353,6 +360,7 @@ class TestReadDTCPrecision:
         assert resp[2] == 0xFF, "byte 2 is the DTCStatusAvailabilityMask (EDS default 0xFF)"
         assert len(resp) == 3, f"Sub 0x02 with no DTCs must be 3 bytes, got {len(resp)}"
 
+    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_sub02_dtc_record_is_four_bytes(self):
         """Each DTC record appended to sub 0x02: [code_hi, code_mid, code_lo, status]."""
         s = _sim()
@@ -363,13 +371,16 @@ class TestReadDTCPrecision:
     def test_sub02_dtc_code_bytes_match_config(self):
         """DTC 0xC00100 must appear as bytes [0xC0, 0x01, 0x00] in the record."""
         s = _sim()
-        self._activate_dtc(s, 0, 0x08)
+        # Both DTCs report 0x50 after registration (EDS#448), which mask 0xFF
+        # selects and mask 0x00 does not — no status injection needed, so this
+        # also runs against the C stack (EDS#474).
         resp = _req(s, bytes([SID_READ_DTC_INFO, 0x02, 0xFF]))
         code_bytes = bytes(resp[3:6])
         expected = bytes([0xC0, 0x01, 0x00])
         assert code_bytes == expected, \
             f"DTC 0xC00100 code bytes: expected {expected.hex()}, got {code_bytes.hex()}"
 
+    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_sub02_status_byte_matches_what_was_set(self):
         """The 4th byte of each DTC record must be the exact status value."""
         s = _sim()
@@ -382,8 +393,9 @@ class TestReadDTCPrecision:
     def test_sub02_two_dtcs_appended_in_order(self):
         """With 2 active DTCs, sub 0x02 response is 3 + 4 + 4 = 11 bytes."""
         s = _sim()
-        self._activate_dtc(s, 0, 0x08)
-        self._activate_dtc(s, 1, 0x10)
+        # Both DTCs report 0x50 after registration (EDS#448), which mask 0xFF
+        # selects and mask 0x00 does not — no status injection needed, so this
+        # also runs against the C stack (EDS#474).
         resp = _req(s, bytes([SID_READ_DTC_INFO, 0x02, 0xFF]))
         assert len(resp) == 3 + 4 + 4, f"Expected 11 bytes, got {len(resp)}"
 
@@ -413,6 +425,7 @@ class TestRoutineControlLifecycle:
         assert resp[2] == NRC_SUB_FUNCTION_NOT_SUPPORTED, \
             f"Stop on unsupported routine: expected NRC 0x12, got 0x{resp[2]:02X}"
 
+    @firmware_divergence("Xaloqi/EDS#484")
     def test_results_before_start_returns_nrc_22(self):
         """Requesting results (sub 0x03) before starting the routine → NRC 0x22."""
         s = _sim()

@@ -399,12 +399,50 @@ docs sweep if the documented figure disagrees — added after the row read
 "All 14 UDS services", was corrected to 19 on the assumption it was a stale
 total, and turned out to be 10.
 
-#### What the protocol phases verify — the simulator, and how it is tied to the stack
+#### What the protocol phases verify — the simulator, and the C stack
 
-Phases B, C, E, G, H and I call the generated `conftest.py`'s inline ECU
-simulator directly (`_InlineEcuState` / `_inline_handle`). They verify that
-**Python model** of EDS's protocol behaviour, not the compiled C stack, so a
-claim drawn from them is only as good as the model's fidelity to the stack.
+Phases B, C, E, G, H and I (220 tests in `basic_ecu`) reach their ECU through
+`_sim()` / `_req()` in `robustness_backend.py`. Which ECU that is depends on
+the mode:
+
+- **Default (`--can-interface=simulator`, public CI):** the generated
+  `conftest.py`'s inline **Python model** of EDS. No licence, no harness. A
+  claim drawn from this mode is only as good as the model's fidelity to the
+  stack.
+- **`--can-interface=firmware` (Professional, needs the harness):** each
+  `_sim()` starts a fresh compiled harness process, and the same PDUs go to
+  the **real C stack** over ISO-TP (#474).
+
+In firmware mode a test cannot read or write the model's state: the ECU handle
+has no such attributes. Tests reach state through UDS (session change, a real
+seed/key exchange) and observe it through UDS (an all-zero seed means the
+level is unlocked; a key for a discarded seed gets 0x24).
+
+Firmware-mode split for `basic_ecu`:
+
+| Phase | Pass on the C stack | Known divergence (strict xfail) | Simulator-only | Total |
+|---|---|---|---|---|
+| B protocol | 37 | 2 | 4 | 43 |
+| C security | 16 | 3 | 1 | 20 |
+| E data integrity | 26 | 0 | 9 | 35 |
+| G resilience | 26 | 8 | 13 | 47 |
+| H protocol precision | 37 | 1 | 3 | 41 |
+| I NRC / WDBI / SA | 30 | 4 | 0 | 34 |
+| **All** | **172** | **18** | **30** | **220** |
+
+- **Known divergence:** the C stack and the model answer differently. The
+  test still runs and is a strict xfail naming the issue (#484–#487,
+  EDS-toolchain#178–#181). When the divergence is fixed it XPASSes and fails
+  the run until the mark is removed.
+- **Simulator-only:** skipped in firmware mode with the reason stated on the
+  test:
+  - 12 check the model's own DID/routine tables against the YAML.
+  - 9 need a DTC failure status set directly, and no UDS service or harness
+    hook does that (EDS-toolchain#183).
+  - 6 need the state after a reboot, and the harness never performs the
+    deferred ECUReset (EDS-toolchain#182).
+  - 2 check the model's 0xAA DID fill pattern.
+  - 1 sends an empty PDU, which ISO-TP cannot frame.
 
 That fidelity was not checked by anything until 2026-10-16. v1.20.0 changed
 the stack's NRCs for 0x22/0x2E/0x31 (EDS#465–#468) and DTC status after a
@@ -415,10 +453,10 @@ wrong-length key). The model was corrected and the tests with it.
 
 The tie now: the generated suite runs in `--can-interface=firmware` mode, where
 every test is judged by the compiled harness instead of the model, and
-EDS-toolchain's release gate requires it to pass for `bms_ecu` (gate 6b). A
+EDS-toolchain's release gate requires it to pass for `bms_ecu` (gate 6b), and
+the `basic_ecu` robustness phases above to pass the same way (gate 6c). A new
 divergence between model and stack therefore fails a release, rather than
-passing a qualification count. Porting the protocol phases themselves onto the
-harness is tracked separately.
+passing a qualification count.
 
 ### The 68 assertions target `basic_ecu` (#252)
 

@@ -7,11 +7,13 @@
 # control boundaries, ECUReset state propagation.
 #
 # Run: pytest test_robustness_B_protocol.py -v --can-interface=simulator
+#      add --can-interface=firmware to judge the compiled C stack instead
+#      (Professional; see robustness_backend.py)
 from __future__ import annotations
 
 import pytest
 from conftest import (
-    _InlineEcuState, _inline_handle,
+    _InlineEcuState,
     SESSION_DEFAULT, SESSION_EXTENDED, SESSION_PROGRAMMING,
     NRC_INCORRECT_MSG_LEN, NRC_CONDITIONS_NOT_CORRECT,
     NRC_REQUEST_OUT_OF_RANGE, NRC_SECURITY_ACCESS_DENIED,
@@ -22,6 +24,9 @@ from conftest import (
     SID_ROUTINE_CONTROL, SID_TESTER_PRESENT,
     SID_NEGATIVE_RESPONSE, POSITIVE_RESPONSE_OFFSET,
 )
+import robustness_backend as backend
+from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
+from robustness_backend import firmware_divergence, simulator_only
 
 # Additional SIDs not in conftest constants
 SID_COMM_CONTROL    = 0x28
@@ -46,11 +51,11 @@ RID_UNKNOWN        = 0x1234  # does not exist
 
 def _sim():
     """Fresh inline ECU simulator state."""
-    return _InlineEcuState()
+    return backend.sim()
 
 
 def _req(state: _InlineEcuState, pdu: bytes) -> bytes | None:
-    return _inline_handle(pdu, state, False)
+    return backend.req(state, pdu)
 
 
 def _session(state: _InlineEcuState, sub: int) -> None:
@@ -125,6 +130,7 @@ class TestRDBISessionAndSecurityGates:
         resp = _req(state, bytes([SID_READ_DATA_BY_ID, 0xF1, 0x90, 0xF1]))  # 3 bytes after SID
         assert resp == _nrc(SID_READ_DATA_BY_ID, NRC_INCORRECT_MSG_LEN)
 
+    @simulator_only("DID content is application data: the simulator pre-fills 0xAA, the harness application zero-initialises")
     def test_rdbi_default_value_before_write_is_nonzero(self):
         """Inline simulator pre-fills DIDs with 0xAA. Read before write returns 0xAA bytes."""
         state = _sim()
@@ -140,6 +146,7 @@ class TestRDBISessionAndSecurityGates:
 class TestRoutineControlStateTracking:
     """RoutineControl must track started/stopped state — results before start → NRC 0x22."""
 
+    @firmware_divergence("Xaloqi/EDS#484")
     def test_rc_results_before_start_returns_nrc_22(self):
         """ISO 14229-1: requestResults (0x03) before startRoutine (0x01) → NRC 0x22."""
         state = _sim()
@@ -186,7 +193,7 @@ class TestRoutineControlStateTracking:
         """FF01 supports only 'start', not 'results'. Requesting results → NRC 0x12."""
         state = _sim()
         _session(state, SESSION_EXTENDED)
-        state.sec_unlocked[1] = True  # bypass security to test the support-check layer
+        assert backend.unlock(state), "setup: extended session + level-1 unlock failed"
         resp = _req(state, bytes([SID_ROUTINE_CONTROL, 0x03,
                                    (RID_FACTORY_RESET >> 8) & 0xFF,
                                     RID_FACTORY_RESET & 0xFF]))
@@ -291,8 +298,6 @@ class TestClearDiagnosticInformationSession:
     def test_clear_dtc_in_default_session_rejected(self):
         """ISO 14229-1: ClearDTC requires extended session. Default → NRC 0x7F."""
         state = _sim()
-        # Set a DTC first
-        state.dtcs[0]['status'] = 0x08
         resp = _req(state, bytes([SID_CLEAR_DTC, 0xFF, 0xFF, 0xFF]))
         assert resp is not None
         # Correct behavior: NRC 0x7F in default session
@@ -325,6 +330,7 @@ class TestDiagnosticSessionControl:
         resp = _req(state, bytes([SID_DIAGNOSTIC_SESSION_CONTROL, 0x00]))
         assert resp == _nrc(SID_DIAGNOSTIC_SESSION_CONTROL, NRC_SUB_FUNCTION_NOT_SUPPORTED)
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#180")
     def test_invalid_session_0x04_returns_nrc_12(self):
         state = _sim()
         resp = _req(state, bytes([SID_DIAGNOSTIC_SESSION_CONTROL, 0x04]))
@@ -376,6 +382,7 @@ class TestECUResetBehavior:
         resp = _req(state, bytes([SID_ECU_RESET, 0x04]))
         assert resp == _nrc(SID_ECU_RESET, NRC_SUB_FUNCTION_NOT_SUPPORTED)
 
+    @simulator_only("needs the ECU state after a reboot; the harness server mode never performs the deferred ECUReset (Xaloqi/EDS-toolchain#182)")
     def test_ecu_reset_resets_session_to_default(self):
         """After ECUReset, session must be 0x01 (default)."""
         state = _sim()
@@ -386,11 +393,11 @@ class TestECUResetBehavior:
             f"ECUReset must reset session to default (0x01), "
             f"but session is still 0x{state.session:02X}")
 
+    @simulator_only("needs the ECU state after a reboot; the harness server mode never performs the deferred ECUReset (Xaloqi/EDS-toolchain#182)")
     def test_ecu_reset_clears_security_unlock(self):
         """After ECUReset, security must be cleared."""
         state = _sim()
-        state.session = SESSION_EXTENDED
-        state.sec_unlocked[1] = True
+        assert backend.unlock(state), "setup: extended session + level-1 unlock failed"
         _req(state, bytes([SID_ECU_RESET, 0x01]))
         assert not state.sec_unlocked.get(1), "ECUReset must clear security unlock"
 
@@ -406,12 +413,15 @@ class TestReadDTCInfoEdgeCases:
     def test_rdtc_sub_01_mask_0x00_returns_count_0(self):
         """Mask 0x00 matches no DTC status bits → count must be 0."""
         state = _sim()
-        state.dtcs[0]['status'] = 0xFF  # all bits set
+        # Both DTCs report 0x50 after registration (EDS#448), which mask 0xFF
+        # selects and mask 0x00 does not — no status injection needed, so this
+        # also runs against the C stack (EDS#474).
         resp = _req(state, bytes([SID_READ_DTC, 0x01, 0x00]))
         assert resp is not None and resp[0] == SID_READ_DTC + POSITIVE_RESPONSE_OFFSET
         count = (resp[4] << 8) | resp[5]
         assert count == 0, f"Mask 0x00 should match 0 DTCs, got {count}"
 
+    @simulator_only("needs a DTC failure status set directly; no UDS service sets DTC status and the harness has no injection hook (Xaloqi/EDS-toolchain#183)")
     def test_rdtc_sub_01_mask_0xff_returns_all_active(self):
         state = _sim()
         state.dtcs[0]['status'] = 0x08

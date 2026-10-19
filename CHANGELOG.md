@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **Robustness phases B/C/E/G/H/I can now be judged by the compiled C stack**
+  (#474). With `--can-interface=firmware` (Professional, needs the harness),
+  `_sim()` starts a fresh harness process and `_req()` sends the same PDUs to
+  it. 190 of the 220 tests run against the stack: 172 pass, and 18 are
+  stack/simulator divergences, each a strict xfail naming its issue (#484–#487,
+  EDS-toolchain#178–#181). The other 30 are marked simulator-only, each with a
+  reason (for example DTC status injection, EDS-toolchain#183, or post-reset
+  state, EDS-toolchain#182). Tests no longer read or write simulator state:
+  they reach and observe it through UDS. Simulator mode, public CI and the
+  published test counts are unchanged.
+
 ### Fixed
 
 - **`docs/Safety_Model.md` is the single home of the safety model**

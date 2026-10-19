@@ -7,6 +7,8 @@
 #   TestSecurityAccessProtocolEdges  — level mismatch, high sub-fn, fail-count isolation
 #
 # Run: pytest test_robustness_I_nrc_wdbi_sa.py -v
+#      add --can-interface=firmware to judge the compiled C stack instead
+#      (Professional; see robustness_backend.py)
 from __future__ import annotations
 
 import os
@@ -16,7 +18,6 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from conftest import (
-    _inline_handle,
     _InlineEcuState,
     _EcuSimulator,
     SID_DIAGNOSTIC_SESSION_CONTROL,
@@ -39,6 +40,9 @@ from conftest import (
     ALGO_KEY_LEN,
     _LEVEL_KEYS,
 )
+import robustness_backend as backend
+from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
+from robustness_backend import firmware_divergence
 
 SID_COMMUNICATION_CONTROL = 0x28
 SID_CONTROL_DTC_SETTING   = 0x85
@@ -52,15 +56,15 @@ DID_SPARE_PART = 0xF187   # read+write, 11 bytes, min_session=extended, write_se
 
 
 def _sim():
-    return _InlineEcuState()
+    return backend.sim()
 
 
 def _req(state, pdu):
-    return _inline_handle(pdu, state, False)
+    return backend.req(state, pdu)
 
 
 def _session(state, s):
-    _inline_handle(bytes([SID_DIAGNOSTIC_SESSION_CONTROL, s]), state, False)
+    _req(state, bytes([SID_DIAGNOSTIC_SESSION_CONTROL, s]))
 
 
 def _do_cmac_unlock(state, level=1):
@@ -121,7 +125,7 @@ class TestNRCFormatAndSIDEcho:
     def test_0x2E_wdbi_nrc_echoes_sid(self):
         s = _sim(); _session(s, SESSION_EXTENDED)
         # 0x2E needs level 1 at service level first (core/uds_access_table.c).
-        s.sec_unlocked[1] = True
+        assert backend.unlock(s), "setup: extended session + level-1 unlock failed"
         resp = _req(s, bytes([SID_WRITE_DATA_BY_ID, 0xDE, 0xAD, 0x00]))
         self._assert_nrc(resp, SID_WRITE_DATA_BY_ID, NRC_REQUEST_OUT_OF_RANGE)
 
@@ -229,6 +233,7 @@ class TestWDBICompleteness:
         resp = self._wdbi(s, DID_SPARE_PART, b'')
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#179")
     def test_pdu_under_4_bytes_returns_nrc_13(self):
         resp = _req(_sim(), bytes([SID_WRITE_DATA_BY_ID, 0xF1]))  # only 2 bytes total
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
@@ -243,7 +248,7 @@ class TestWDBICompleteness:
     def test_write_unknown_did_returns_nrc_31(self):
         s = _sim(); _session(s, SESSION_EXTENDED)
         # 0x2E needs level 1 at service level first (core/uds_access_table.c).
-        s.sec_unlocked[1] = True
+        assert backend.unlock(s), "setup: extended session + level-1 unlock failed"
         resp = self._wdbi(s, 0xDEAD, bytes(4))
         assert resp is not None and resp[2] == NRC_REQUEST_OUT_OF_RANGE
 
@@ -280,6 +285,7 @@ class TestSecurityAccessProtocolEdges:
     level mismatch, high sub-function (level 128), fail-count per-level isolation.
     """
 
+    @firmware_divergence("Xaloqi/EDS#487")
     def test_level_mismatch_seed_l1_key_l2_returns_nrc_24(self):
         """Request seed for level 1 (sub=0x01) then try to send key for level 2 (sub=0x04)."""
         s = _sim(); _session(s, SESSION_EXTENDED)
@@ -289,6 +295,7 @@ class TestSecurityAccessProtocolEdges:
         assert resp[2] == NRC_SEQUENCE_ERROR, \
             f"Level mismatch (seed L1, key L2): expected NRC 0x24, got 0x{resp[2]:02X}"
 
+    @firmware_divergence("Xaloqi/EDS#485")
     def test_sub_ff_requests_seed_for_level_128(self):
         """Sub=0xFF is odd → requestSeed for level 128. Must return a seed, not NRC."""
         s = _sim(); _session(s, SESSION_EXTENDED)
@@ -300,9 +307,16 @@ class TestSecurityAccessProtocolEdges:
     def test_pending_seed_cleared_after_successful_unlock(self):
         """After a successful unlock, pending_seed and pending_level must be None."""
         s = _sim(); _session(s, SESSION_EXTENDED)
-        assert _do_cmac_unlock(s, level=1)
-        assert s.pending_seed is None
-        assert s.pending_level is None
+        seed_rsp = _req(s, bytes([SID_SECURITY_ACCESS, 0x01]))
+        assert seed_rsp is not None and seed_rsp[0] == 0x67
+        key_material = _LEVEL_KEYS[1]
+        key = _EcuSimulator._cmac(key_material, bytes(seed_rsp[2:]))[:ALGO_KEY_LEN]
+        ok = _req(s, bytes([SID_SECURITY_ACCESS, 0x02]) + key)
+        assert ok is not None and ok[0] == 0x67
+        # Replaying the same key only succeeds if the seed was left pending.
+        resp = _req(s, bytes([SID_SECURITY_ACCESS, 0x02]) + key)
+        assert resp == bytes([SID_NEGATIVE_RESPONSE, SID_SECURITY_ACCESS, 0x24]), (
+            f"Seed must be consumed by a successful unlock; replayed key got {resp!r}")
 
     def test_after_one_wrong_key_can_request_new_seed(self):
         """One wrong key increments fail count but does not lock out — new seed allowed."""
@@ -321,6 +335,7 @@ class TestSecurityAccessProtocolEdges:
         ok = _do_cmac_unlock(s, level=1)
         assert ok, "Correct key after 1 wrong attempt must succeed"
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#178")
     def test_fail_count_is_per_level_l1_failure_does_not_affect_l2(self):
         """3 wrong L1 keys locks out L1 but L2 must still accept a seed request."""
         s = _sim(); _session(s, SESSION_EXTENDED)
@@ -339,15 +354,19 @@ class TestSecurityAccessProtocolEdges:
         """Unlocking L1 must leave L2 locked."""
         s = _sim(); _session(s, SESSION_EXTENDED)
         assert _do_cmac_unlock(s, level=1)
-        assert s.sec_unlocked.get(1) is True
-        assert not s.sec_unlocked.get(2), "L1 unlock must not grant L2 access"
+        assert backend.is_unlocked(s, 1)
+        assert not backend.is_unlocked(s, 2), "L1 unlock must not grant L2 access"
 
     def test_independent_state_objects_share_no_state(self):
         """Two _InlineEcuState instances must be fully independent."""
         s1 = _sim(); _session(s1, SESSION_EXTENDED); _do_cmac_unlock(s1, level=1)
         s2 = _sim()  # fresh state
-        assert not s2.sec_unlocked.get(1), "s2 must not inherit s1's security unlock"
-        assert s2.session == SESSION_DEFAULT, "s2 session must be default, not s1's extended"
+        # F187 is extended-session only: 0x31 in default proves s2 is not in s1's session.
+        resp = _req(s2, bytes([SID_READ_DATA_BY_ID, 0xF1, 0x87]))
+        assert resp == bytes([SID_NEGATIVE_RESPONSE, SID_READ_DATA_BY_ID, 0x31]), \
+            "s2 session must be default, not s1's extended"
+        _session(s2, SESSION_EXTENDED)
+        assert not backend.is_unlocked(s2, 1), "s2 must not inherit s1's security unlock"
 
     def test_double_seed_request_replaces_pending_seed(self):
         """Second requestSeed before sendKey must replace the first seed (not accumulate)."""

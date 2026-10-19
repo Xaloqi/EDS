@@ -6,11 +6,13 @@
 # key-length validation, double-seed requests, and session interaction.
 #
 # Run: pytest test_robustness_C_security.py -v --can-interface=simulator
+#      add --can-interface=firmware to judge the compiled C stack instead
+#      (Professional; see robustness_backend.py)
 from __future__ import annotations
 
 import pytest
 from conftest import (
-    _InlineEcuState, _inline_handle, _LEVEL_KEYS, _EcuSimulator,
+    _LEVEL_KEYS, _EcuSimulator,
     SESSION_DEFAULT, SESSION_EXTENDED, SESSION_PROGRAMMING,
     NRC_INCORRECT_MSG_LEN, NRC_CONDITIONS_NOT_CORRECT,
     NRC_REQUEST_OUT_OF_RANGE, NRC_SECURITY_ACCESS_DENIED,
@@ -21,6 +23,9 @@ from conftest import (
     SID_NEGATIVE_RESPONSE, POSITIVE_RESPONSE_OFFSET,
     ALGO_SEED_LEN, ALGO_KEY_LEN,
 )
+import robustness_backend as backend
+from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
+from robustness_backend import firmware_divergence, simulator_only
 
 NRC_EXCEEDED_ATTEMPTS = 0x36  # exceededNumberOfAttempts — not exported but defined by ISO 14229
 NRC_REQUEST_SEED_BEFORE_KEY = 0x24  # requestSequenceError
@@ -30,11 +35,11 @@ DID_SPARE_PART = 0xF187  # extended session, write_sec=1
 
 
 def _sim():
-    return _InlineEcuState()
+    return backend.sim()
 
 
 def _req(state, pdu):
-    return _inline_handle(pdu, state, False)
+    return backend.req(state, pdu)
 
 
 def _session(state, sub):
@@ -106,6 +111,7 @@ class TestSecurityAccessLockout:
         seed = _request_seed(state, 1)
         assert seed is not None, "Should be able to request seed for attempt 3 after 2 failures"
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#178")
     def test_three_wrong_keys_triggers_lockout_nrc_36(self):
         """ISO 14229-1 §10.4.5: after maxNumberOfAttempts failures → NRC 0x36."""
         state = _sim()
@@ -122,6 +128,7 @@ class TestSecurityAccessLockout:
             f"After 3 failed key attempts, NRC 0x36 (exceededNumberOfAttempts) required. "
             f"Got NRC 0x{seed_resp[2]:02X}. Security lockout not implemented in simulator.")
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#178")
     def test_lockout_persists_after_tester_present(self):
         """TesterPresent must not bypass lockout."""
         state = _sim()
@@ -136,6 +143,7 @@ class TestSecurityAccessLockout:
         assert resp[2] == NRC_EXCEEDED_ATTEMPTS, (
             f"TesterPresent must not reset lockout counter. Got NRC 0x{resp[2]:02X}")
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#178")
     def test_correct_key_after_single_wrong_resets_counter(self):
         """1 wrong → 1 correct → counter resets → 3 more wrongs lock out."""
         state = _sim()
@@ -145,7 +153,7 @@ class TestSecurityAccessLockout:
         # 1 correct — should reset failure counter
         assert _unlock(state, 1), "Correct key after one wrong must succeed"
         # Now 3 more wrong attempts must still trigger lockout (not after 2)
-        state.sec_unlocked.clear()  # clear unlock to re-test
+        _session(state, SESSION_EXTENDED)  # any DSC re-locks, to re-test
         for _ in range(3):
             seed = _request_seed(state, 1)
             if seed is None:
@@ -261,17 +269,17 @@ class TestSecurityLevelIsolation:
         state = _sim()
         _session(state, SESSION_EXTENDED)
         assert _unlock(state, 1)
-        assert not state.sec_unlocked.get(2, False), "Level 2 must not be unlocked by level 1"
+        assert not backend.is_unlocked(state, 2), "Level 2 must not be unlocked by level 1"
 
     def test_security_cleared_on_session_downgrade(self):
         """Downgrading session (extended → default) must clear all security unlocks."""
         state = _sim()
         _session(state, SESSION_EXTENDED)
         assert _unlock(state, 1)
-        assert state.sec_unlocked.get(1)
+        assert backend.is_unlocked(state, 1)
         # Downgrade to default
         _session(state, SESSION_DEFAULT)
-        assert not state.sec_unlocked.get(1), (
+        assert not backend.is_unlocked(state, 1), (
             "Session downgrade must clear security unlock (ASIL-B safety chain)")
         # Re-upgrade and check DID requires re-auth
         _session(state, SESSION_EXTENDED)
@@ -281,6 +289,7 @@ class TestSecurityLevelIsolation:
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
         assert resp[2] == NRC_SECURITY_ACCESS_DENIED
 
+    @simulator_only("needs the ECU state after a reboot; the harness server mode never performs the deferred ECUReset (Xaloqi/EDS-toolchain#182)")
     def test_security_cleared_by_ecu_reset(self):
         state = _sim()
         _session(state, SESSION_EXTENDED)
@@ -294,7 +303,7 @@ class TestSecurityLevelIsolation:
         _session(state, SESSION_EXTENDED)
         assert _unlock(state, 1)
         _req(state, bytes([SID_TESTER_PRESENT, 0x00]))
-        assert state.sec_unlocked.get(1), "TesterPresent must not clear security unlock"
+        assert backend.is_unlocked(state, 1), "TesterPresent must not clear security unlock"
 
     def test_full_unlock_flow_level1_write_read_back(self):
         """Full happy path: extended session → unlock L1 → write F187 → read back."""
