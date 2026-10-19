@@ -9,6 +9,8 @@
 #   TestYAMLSimulatorConsistency — _dids_meta / _routines_meta must match diagnostics_config.yaml
 #
 # Run: pytest test_robustness_G_resilience.py -v
+#      add --can-interface=firmware to judge the compiled C stack instead
+#      (Professional; see robustness_backend.py)
 from __future__ import annotations
 
 import os
@@ -18,7 +20,6 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from conftest import (
-    _inline_handle,
     _InlineEcuState,
     _EcuSimulator,
     SID_DIAGNOSTIC_SESSION_CONTROL,
@@ -41,6 +42,9 @@ from conftest import (
     ALGO_KEY_LEN,
     _LEVEL_KEYS,
 )
+import robustness_backend as backend
+from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
+from robustness_backend import firmware_divergence, simulator_only
 
 EDS_ROOT  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 YAML_PATH = os.path.join(EDS_ROOT, "examples", "basic_ecu", "diagnostics_config.yaml")
@@ -56,15 +60,15 @@ _SESSION_MAP = {"default": 1, "extended": 3, "programming": 2}
 
 
 def _sim():
-    return _InlineEcuState()
+    return backend.sim()
 
 
 def _req(state, pdu):
-    return _inline_handle(pdu, state, False)
+    return backend.req(state, pdu)
 
 
 def _session(state, s):
-    _inline_handle(bytes([SID_DIAGNOSTIC_SESSION_CONTROL, s]), state, False)
+    _req(state, bytes([SID_DIAGNOSTIC_SESSION_CONTROL, s]))
 
 
 def _do_cmac_unlock(state, level=1):
@@ -87,6 +91,7 @@ def _do_cmac_unlock(state, level=1):
 class TestMalformedPDUResilience:
     """Inline simulator must return valid NRC bytes for any malformed input — never raise."""
 
+    @simulator_only("an empty UDS request cannot be framed over ISO-TP (SF_DL=0 is invalid, ISO 15765-2)")
     def test_empty_pdu_returns_nrc_13(self):
         resp = _req(_sim(), b'')
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
@@ -118,6 +123,7 @@ class TestMalformedPDUResilience:
         resp = _req(_sim(), bytes([SID_READ_DATA_BY_ID]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#179")
     def test_0x2E_truncated_returns_nrc_13(self):
         resp = _req(_sim(), bytes([SID_WRITE_DATA_BY_ID, 0xF1]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
@@ -126,10 +132,12 @@ class TestMalformedPDUResilience:
         resp = _req(_sim(), bytes([SID_ROUTINE_CONTROL, 0x01, 0xFF]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#179")
     def test_0x28_truncated_returns_nrc_13(self):
         resp = _req(_sim(), bytes([SID_COMMUNICATION_CONTROL]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#179")
     def test_0x85_truncated_returns_nrc_13(self):
         resp = _req(_sim(), bytes([SID_CONTROL_DTC_SETTING]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
@@ -138,6 +146,7 @@ class TestMalformedPDUResilience:
         resp = _req(_sim(), bytes([SID_READ_DTC_INFO]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#180")
     def test_0x10_invalid_sub_returns_nrc_12(self):
         for sub in (0x00, 0x04, 0x7F):
             resp = _req(_sim(), bytes([SID_DIAGNOSTIC_SESSION_CONTROL, sub]))
@@ -189,6 +198,7 @@ class TestEndToEndCMACFlow:
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
         assert resp[2] == NRC_INVALID_KEY, f"Expected NRC 0x35, got 0x{resp[2]:02X}"
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#178")
     def test_three_wrong_keys_triggers_lockout(self):
         s = _sim(); _session(s, SESSION_EXTENDED)
         for _ in range(3):
@@ -224,9 +234,13 @@ class TestEndToEndCMACFlow:
         assert ok1 and ok2, "Level 1 and Level 2 must be independently unlockable in one session"
 
     def test_seed_randomness_across_requests(self):
+        # One ECU, a fresh seed per session entry. Fresh ECUs would not do on the
+        # C stack: a dev/CI build without a TRNG seeds its LFSR identically at every
+        # power-up (production builds refuse instead, SEC-TRNG-FAILCLOSED-01).
         seeds = set()
+        s = _sim()
         for _ in range(5):
-            s = _sim(); _session(s, SESSION_EXTENDED)
+            _session(s, SESSION_EXTENDED)
             resp = _req(s, bytes([SID_SECURITY_ACCESS, 0x01]))
             assert resp is not None and resp[0] == 0x67
             seeds.add(bytes(resp[2:]))
@@ -274,6 +288,7 @@ class TestSuppressResponseBit:
             "(BUG: missing 'if pdu[1] & 0x80: return None' before 'return bytes([0x51, sub])')"
         )
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#181")
     def test_0x28_suppress_bit_returns_none(self):
         """CommunicationControl 0x28 — suppress bit must silence the 0x68 positive response."""
         s = _sim(); _session(s, SESSION_EXTENDED)
@@ -292,6 +307,7 @@ class TestSuppressResponseBit:
             "(BUG: bit stripped with & 0x7F but no 'if pdu[1] & 0x80: return None' before response)"
         )
 
+    @firmware_divergence("Xaloqi/EDS#486")
     def test_0x31_suppress_bit_returns_none(self):
         """RoutineControl 0x31 — suppress bit must silence the 0x71 positive response."""
         s = _sim(); _session(s, SESSION_EXTENDED)
@@ -308,6 +324,7 @@ class TestSuppressResponseBit:
         assert resp is not None and resp[0] == 0x51, \
             f"0x11 without suppress bit: expected 0x51, got {resp!r}"
 
+    @firmware_divergence("Xaloqi/EDS-toolchain#181")
     def test_0x28_without_suppress_bit_returns_positive(self):
         s = _sim(); _session(s, SESSION_EXTENDED)
         resp = _req(s, bytes([SID_COMMUNICATION_CONTROL, 0x01]))
@@ -362,18 +379,21 @@ class TestYAMLSimulatorConsistency:
         s = _sim()
         return s._dids_meta, s._routines_meta
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_did_count_matches_yaml(self, yaml_cfg, sim_meta):
         dids_meta, _ = sim_meta
         yaml_count = len(yaml_cfg.get("dids", []))
         assert len(dids_meta) == yaml_count, \
             f"_dids_meta has {len(dids_meta)} DIDs but YAML has {yaml_count}"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_all_yaml_did_ids_present_in_sim_meta(self, yaml_cfg, sim_meta):
         dids_meta, _ = sim_meta
         for did in yaml_cfg.get("dids", []):
             did_id = int(did["id"], 16)
             assert did_id in dids_meta, f"DID {did['id']} (0x{did_id:04X}) missing from _dids_meta"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_did_data_lengths_match_yaml(self, yaml_cfg, sim_meta):
         dids_meta, _ = sim_meta
         for did in yaml_cfg.get("dids", []):
@@ -383,6 +403,7 @@ class TestYAMLSimulatorConsistency:
             assert dids_meta[did_id]["data_length"] == did["data_length"], \
                 f"DID {did['id']}: data_length {dids_meta[did_id]['data_length']} != {did['data_length']}"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_did_access_read_matches_yaml(self, yaml_cfg, sim_meta):
         dids_meta, _ = sim_meta
         for did in yaml_cfg.get("dids", []):
@@ -393,6 +414,7 @@ class TestYAMLSimulatorConsistency:
             assert dids_meta[did_id]["access_read"] == expected, \
                 f"DID {did['id']}: access_read mismatch"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_did_access_write_matches_yaml(self, yaml_cfg, sim_meta):
         dids_meta, _ = sim_meta
         for did in yaml_cfg.get("dids", []):
@@ -403,6 +425,7 @@ class TestYAMLSimulatorConsistency:
             assert dids_meta[did_id]["access_write"] == expected, \
                 f"DID {did['id']}: access_write mismatch"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_did_min_session_matches_yaml(self, yaml_cfg, sim_meta):
         dids_meta, _ = sim_meta
         for did in yaml_cfg.get("dids", []):
@@ -413,6 +436,7 @@ class TestYAMLSimulatorConsistency:
             assert dids_meta[did_id]["min_session"] == expected_ord, \
                 f"DID {did['id']}: min_session {dids_meta[did_id]['min_session']} != {expected_ord}"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_did_read_sec_matches_yaml(self, yaml_cfg, sim_meta):
         dids_meta, _ = sim_meta
         for did in yaml_cfg.get("dids", []):
@@ -422,18 +446,21 @@ class TestYAMLSimulatorConsistency:
             assert dids_meta[did_id]["read_sec"] == did.get("read_security_level", 0), \
                 f"DID {did['id']}: read_sec mismatch"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_routine_count_matches_yaml(self, yaml_cfg, sim_meta):
         _, routines_meta = sim_meta
         yaml_count = len(yaml_cfg.get("routines", []))
         assert len(routines_meta) == yaml_count, \
             f"_routines_meta has {len(routines_meta)} routines but YAML has {yaml_count}"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_all_yaml_routine_ids_present_in_sim_meta(self, yaml_cfg, sim_meta):
         _, routines_meta = sim_meta
         for r in yaml_cfg.get("routines", []):
             rid = int(r["id"], 16)
             assert rid in routines_meta, f"Routine {r['id']} (0x{rid:04X}) missing from _routines_meta"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_routine_min_session_matches_yaml(self, yaml_cfg, sim_meta):
         _, routines_meta = sim_meta
         for r in yaml_cfg.get("routines", []):
@@ -444,6 +471,7 @@ class TestYAMLSimulatorConsistency:
             assert routines_meta[rid]["min_session"] == expected_ord, \
                 f"Routine {r['id']}: min_session {routines_meta[rid]['min_session']} != {expected_ord}"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_routine_sec_level_matches_yaml(self, yaml_cfg, sim_meta):
         _, routines_meta = sim_meta
         for r in yaml_cfg.get("routines", []):
@@ -453,6 +481,7 @@ class TestYAMLSimulatorConsistency:
             assert routines_meta[rid]["sec_level"] == r.get("security_level", 0), \
                 f"Routine {r['id']}: sec_level mismatch"
 
+    @simulator_only("checks the simulator's own DID/routine tables against the YAML; no ECU is involved")
     def test_routine_support_matches_yaml(self, yaml_cfg, sim_meta):
         _, routines_meta = sim_meta
         for r in yaml_cfg.get("routines", []):
