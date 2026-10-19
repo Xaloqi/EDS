@@ -10,6 +10,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`safeboot_ecu` README: the TransferData block counter wraps 0xFF → 0x00**
+  (#481), as the stack has done since #433. The README still said 0xFF → 0x01
+  with 0x00 invalid, so a tester following it got `7F 36 73` on block 257 of
+  any image over about 64 KB.
 - **A firmware update too large for MCUboot's swap-using-move is refused at
   RequestDownload, instead of reported done and never installed** (#436).
   `zephyr_flash_ops.c` advertised the whole `image_1` partition as the

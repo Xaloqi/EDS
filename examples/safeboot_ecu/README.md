@@ -413,8 +413,9 @@ except where shown symbolic (`<...>`) because they depend on the image being sen
 →  7F 34 78                              (responsePending — repeats per sector)
 →  74 20 01 01                          (maxNumberOfBlockLength = 257)
 
-# 6. TransferData — repeat for each block (blk_seq wraps 0x01→0xFF→0x01,
-#    0x00 is always invalid). maxNumberOfBlockLength above INCLUDES the
+# 6. TransferData — repeat for each block (blk_seq starts at 0x01 and
+#    wraps 0xFF→0x00 per ISO 14229-1, #433/#481; 0x01 after 0xFF answers
+#    7F 36 73). maxNumberOfBlockLength above INCLUDES the
 #    1-byte block counter, so the payload here is 255 bytes, not 256.
 #    Needs multi-frame ISO-TP for any block over 7 bytes — this ECU
 #    advertises block_size=4 / STmin=1ms in its Flow Control (issue #313);
