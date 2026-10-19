@@ -184,11 +184,9 @@ uds_status_t uds_service_0x31_handler(
 
     sub_fn = (uint8_t)(req->data[SVC_0x31_SUBFN_OFFSET] & (uint8_t)SVC_0x31_SUBFN_MASK);
 
-    /* Validate sub-function: only 0x01, 0x02, 0x03 are defined. */
-    if ((sub_fn < (uint8_t)SVC_0x31_SUBFN_START) ||
-        (sub_fn > (uint8_t)SVC_0x31_SUBFN_RESULTS)) {
-        return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
-    }
+    /* [EDS#492] ISO 14229-1:2026 Figure 31 checks the routineIdentifier
+     * (supported in the active session → 0x31, security → 0x33) before the
+     * SubFunction (→ 0x12), so the RID is resolved first. */
 
     /* Decode big-endian 16-bit RID. */
     rid = (uint16_t)(
@@ -215,6 +213,12 @@ uds_status_t uds_service_0x31_handler(
             return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
         }
         return status;
+    }
+
+    /* Validate sub-function: only 0x01, 0x02, 0x03 are defined. */
+    if ((sub_fn < (uint8_t)SVC_0x31_SUBFN_START) ||
+        (sub_fn > (uint8_t)SVC_0x31_SUBFN_RESULTS)) {
+        return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
     }
 
     /* Extract option record (bytes after [SID, subFn, RID_hi, RID_lo]). */

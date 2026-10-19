@@ -931,6 +931,39 @@ ZTEST(test_uds_sid_conformance_vectors, vec_sid_31_002_routine_control_suppress_
                   "31 82 on a start-only RID must be 7F 31 12");
 }
 
+/* =========================================================================
+ * VEC-SID-31-003 — RoutineControl check order [EDS#492]
+ * ISO 14229-1:2026 Figure 31: "RID supported in active session?" (0x31)
+ * comes before "SubFunction supported for routineIdentifier?" (0x12).
+ * ========================================================================= */
+
+ZTEST(test_uds_sid_conformance_vectors, vec_sid_31_003_rid_checked_before_subfunction)
+{
+    setup(UDS_SESSION_DEFAULT);
+
+    /* Reserved routineControlType 0x04 on an unknown RID → the RID check wins. */
+    uint8_t unknown_bytes[] = { 0x31U, 0x04U, 0x99U, 0x99U };
+    uds_msg_buf_t req  = make_req(unknown_bytes, (uint16_t)sizeof(unknown_bytes));
+    uds_msg_buf_t resp;
+    (void)memset(&resp, 0, sizeof(resp));
+    (void)uds_server_process_request(&g_srv, &req, &resp);
+    uint8_t expected_31[] = { 0x7FU, 0x31U, 0x31U };
+    zassert_equal(resp.length, (uint16_t)sizeof(expected_31), "must be a 3-byte NRC");
+    zassert_equal(memcmp(resp.data, expected_31, sizeof(expected_31)), 0,
+                  "31 04 on an unknown RID must be 7F 31 31 (Figure 31), not 7F 31 12");
+
+    /* The same reserved type on a known RID → 0x12. */
+    uint8_t known_bytes[] = { 0x31U, 0x04U, 0x00U, 0x12U };
+    uds_msg_buf_t req2  = make_req(known_bytes, (uint16_t)sizeof(known_bytes));
+    uds_msg_buf_t resp2;
+    (void)memset(&resp2, 0, sizeof(resp2));
+    (void)uds_server_process_request(&g_srv, &req2, &resp2);
+    uint8_t expected_12[] = { 0x7FU, 0x31U, 0x12U };
+    zassert_equal(resp2.length, (uint16_t)sizeof(expected_12), "must be a 3-byte NRC");
+    zassert_equal(memcmp(resp2.data, expected_12, sizeof(expected_12)), 0,
+                  "31 04 on a known RID must be 7F 31 12");
+}
+
 /* run_all_tests shim */
 extern void test_uds_sid_conformance_vectors__vec_gen_001_unsupported_sid(void);
 extern void test_uds_sid_conformance_vectors__vec_gen_002_subfunction_not_supported_byte_exact(void);
@@ -949,6 +982,7 @@ extern void test_uds_sid_conformance_vectors__vec_sid_2e_001_write_data_by_id_by
 extern void test_uds_sid_conformance_vectors__vec_sid_31_001_routine_control_shape(void);
 extern void test_uds_sid_conformance_vectors__vec_sid_27_002_security_access_suppress_bit(void);
 extern void test_uds_sid_conformance_vectors__vec_sid_31_002_routine_control_suppress_bit(void);
+extern void test_uds_sid_conformance_vectors__vec_sid_31_003_rid_checked_before_subfunction(void);
 
 void run_all_tests(void)
 {
@@ -969,4 +1003,5 @@ void run_all_tests(void)
     RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_31_001_routine_control_shape);
     RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_27_002_security_access_suppress_bit);
     RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_31_002_routine_control_suppress_bit);
+    RUN_TEST(test_uds_sid_conformance_vectors__vec_sid_31_003_rid_checked_before_subfunction);
 }
