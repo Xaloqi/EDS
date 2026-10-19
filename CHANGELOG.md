@@ -23,12 +23,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **SecurityAccess answers NRC 0x12 for an unsupported securityAccessType**
+  (#485). Any odd sub-function was treated as a requestSeed. When the seed
+  algorithm then refused the level, the request got 0x22 conditionsNotCorrect
+  (since #446), e.g. `27 05` (level 3, not defined), `27 43`, `27 7F`. ISO
+  14229-1 answers an unsupported securityAccessType with 0x12, which is also
+  suppressed on functional requests. The built-in algorithm now reports an
+  undefined level as `UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP`, and
+  `uds_security_request_seed()` passes it through. Every other seed failure
+  is still 0x22. **Integrators with their own `seed_generate_cb`:** return
+  `UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP` for a level you don't support to get
+  0x12. The generated tests' simulator is aligned (EDS-toolchain), so robustness
+  phase I's former divergence now passes against the C stack (173 pass).
+
 - **Phase F's gcc check passes for `sensor_ecu` and `sensor_ecu_freertos`**
   (#488). Since #350 their generated handlers include `src/sensor_ecu.h`, but
   `test_generated_c_syntax_clean` only put `generated/` on the include path.
   The check now adds the example's `src/` after it. Public CI never saw this,
   because Phase F skips without the toolchain templates. Building the harness
   for these examples is a separate issue (EDS-toolchain#185).
+
 - **`docs/Safety_Model.md` is the single home of the safety model**
   (EDS-Safety#34). The Professional safety repository kept a second copy that
   had drifted; it is retired, and its one unique section, the RTM revision

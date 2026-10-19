@@ -196,6 +196,12 @@ uds_status_t uds_security_request_seed(
     if (status != UDS_STATUS_OK) {
         ctx->seed_pending  = false;
         ctx->pending_level = (uint8_t)0U;
+        /* [EDS#485] An unsupported level is an unsupported securityAccessType:
+         * NRC 0x12. It was 0x22 like every other refusal, since any odd
+         * sub-function reaches this point. */
+        if (status == UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP) {
+            return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
+        }
         /* [EDS#446] The server can't produce a seed: NRC 0x22
          * conditionsNotCorrect. Was 0x24, which ISO 14229-1:2026 Table 45
          * defines only for sendKey without requestSeed. */

@@ -427,11 +427,11 @@ Firmware-mode split for `basic_ecu`:
 | E data integrity | 26 | 0 | 9 | 35 |
 | G resilience | 26 | 8 | 13 | 47 |
 | H protocol precision | 37 | 1 | 3 | 41 |
-| I NRC / WDBI / SA | 30 | 4 | 0 | 34 |
-| **All** | **172** | **18** | **30** | **220** |
+| I NRC / WDBI / SA | 31 | 3 | 0 | 34 |
+| **All** | **173** | **17** | **30** | **220** |
 
 - **Known divergence:** the C stack and the model answer differently. The
-  test still runs and is a strict xfail naming the issue (#484–#487,
+  test still runs and is a strict xfail naming the issue (#484, #486, #487,
   EDS-toolchain#178–#181). When the divergence is fixed it XPASSes and fails
   the run until the mark is removed.
 - **Simulator-only:** skipped in firmware mode with the reason stated on the

@@ -437,7 +437,9 @@ bool uds_security_algo_keys_are_placeholder(void);
  *
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NULL_PTR if any pointer is NULL.
- * @return UDS_STATUS_ERR_INVALID_PARAM if buffer too small or level unknown.
+ * @return UDS_STATUS_ERR_INVALID_PARAM if buffer too small.
+ * @return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP if the level is not defined
+ *         (NRC 0x12, EDS#485).
  * @return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE (production builds only) if no
  *         entropy source is available. See core/uds_security.c, which maps
  *         this to the same code from the seed_generate_cb contract, and

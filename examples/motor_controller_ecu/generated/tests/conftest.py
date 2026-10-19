@@ -4,7 +4,7 @@
 #
 # ECU       : MotorController_Inverter
 # Version   : 1.0.0
-# Generated : 2026-10-16T12:00:00Z
+# Generated : 2026-10-19T09:18:01Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -520,6 +520,9 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
             level = (sub + 1) // 2
             if state.sec_fail_count.get(level, 0) >= 3: return nrc(0x27, 0x36)
             if state.sec_unlocked.get(level): return bytes([0x67, sub] + [0x00] * ALGO_SEED_LEN)
+            # EDS#485: a level the stack's algorithm doesn't define is an
+            # unsupported securityAccessType -> NRC 0x12 (was: a seed for any odd sub).
+            if level not in _LEVEL_KEYS: return nrc(0x27, 0x12)
             import os as _os
             seed = _os.urandom(6) + bytes([0x00, level & 0xFF])
             state.pending_seed = seed; state.pending_level = level
