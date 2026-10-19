@@ -44,7 +44,7 @@ from conftest import (
 )
 import robustness_backend as backend
 from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
-from robustness_backend import firmware_divergence, simulator_only
+from robustness_backend import simulator_only
 
 EDS_ROOT  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 YAML_PATH = os.path.join(EDS_ROOT, "examples", "basic_ecu", "diagnostics_config.yaml")
@@ -160,7 +160,6 @@ class TestMalformedPDUResilience:
         resp = _req(_sim(), bytes([SID_READ_DTC_INFO]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#180")
     def test_0x10_invalid_sub_returns_nrc_12(self):
         for sub in (0x00, 0x04, 0x7F):
             resp = _req(_sim(), bytes([SID_DIAGNOSTIC_SESSION_CONTROL, sub]))

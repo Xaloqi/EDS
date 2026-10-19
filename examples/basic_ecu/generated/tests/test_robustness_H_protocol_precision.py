@@ -45,7 +45,7 @@ from conftest import (
 )
 import robustness_backend as backend
 from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
-from robustness_backend import firmware_divergence, simulator_only
+from robustness_backend import simulator_only
 
 NRC_SERVICE_NOT_SUPPORTED_IN_SESSION = 0x7F
 

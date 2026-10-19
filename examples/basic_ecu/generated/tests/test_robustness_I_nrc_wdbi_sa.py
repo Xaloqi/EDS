@@ -42,7 +42,6 @@ from conftest import (
 )
 import robustness_backend as backend
 from robustness_backend import robustness_backend  # noqa: F401  (autouse fixture)
-from robustness_backend import firmware_divergence
 
 SID_COMMUNICATION_CONTROL = 0x28
 SID_CONTROL_DTC_SETTING   = 0x85

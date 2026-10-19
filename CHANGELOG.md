@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **DiagnosticSessionControl 0x04 (safetySystemDiagnosticSession) is opt-in
+  per ECU** (#494). ISO 14229-1:2026 makes 0x04 optional, but every EDS ECU
+  accepted it. In it, everything gated on a non-default session is reachable,
+  so it was a session nobody asked for that granted extended-level access.
+  - It is now off after `uds_session_init()`, and `10 04` is answered NRC 0x12.
+  - Enable it with `ecu: {sessions: {safety_system: true}}` in
+    `diagnostics_config.yaml`; the generated init calls the new
+    `uds_session_set_safety_system_enabled()`. A hand-written init can call
+    that function directly.
+  - Codegen now refuses a DID or routine with `min_session: safety_system`
+    while the session is off.
+  - **Integrators:** a `10 04` that used to work gets 0x12 until enabled. No
+    shipped example used it. The generated tests' simulator follows the same
+    setting (EDS-toolchain), which removes the last two known divergences in
+    robustness phases B and G.
+
 - **Robustness phases B/C/E/G/H/I can now be judged by the compiled C stack**
   (#474). With `--can-interface=firmware` (Professional, needs the harness),
   `_sim()` starts a fresh harness process and `_req()` sends the same PDUs to
