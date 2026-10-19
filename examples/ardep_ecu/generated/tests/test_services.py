@@ -4,7 +4,7 @@
 #
 # ECU       : ARDEP_IOController
 # Version   : 1.0.0
-# Generated : 2026-10-16T12:00:00Z
+# Generated : 2026-10-19T10:24:29Z
 #
 # PURPOSE: UDS service-level and ISO-TP transport tests derived from
 #          diagnostics_config.yaml.
@@ -1393,9 +1393,15 @@ class TestRoutineControl:
         assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE
 
     def test_bad_subfn_nrc_12(self, uds_bus: IsoTpTransport) -> None:
-        """subFn 0x04 (undefined) → NRC 0x12 subFunctionNotSupported."""
+        """subFn 0x04 (undefined) on 0xFF00 → NRC 0x12 subFunctionNotSupported.
+
+        ISO 14229-1:2026 Figure 31 checks the RID (session 0x31, security 0x33)
+        before the SubFunction (EDS#492), so the request targets a configured
+        RID with its session and security satisfied.
+        """
         _session(uds_bus, SESSION_EXTENDED)
-        pdu = uds_bus.request(bytes([SID_ROUTINE_CONTROL, 0x04, 0xFF, 0x00]))
+        pdu = uds_bus.request(bytes([SID_ROUTINE_CONTROL, 0x04,
+                                     255, 0]))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
         assert pdu[2] == NRC_SUB_FUNCTION_NOT_SUPPORTED

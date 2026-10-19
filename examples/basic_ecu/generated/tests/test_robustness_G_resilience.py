@@ -123,23 +123,37 @@ class TestMalformedPDUResilience:
         resp = _req(_sim(), bytes([SID_READ_DATA_BY_ID]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#179")
     def test_0x2E_truncated_returns_nrc_13(self):
-        resp = _req(_sim(), bytes([SID_WRITE_DATA_BY_ID, 0xF1]))
+        # Session (0x7F) and service security (0x33) come before length
+        # (ISO 14229-1:2026 Figure 5), so reach a state where only length fails.
+        s = _sim()
+        resp = _req(s, bytes([SID_WRITE_DATA_BY_ID, 0xF1]))
+        assert resp is not None and resp[2] == 0x7F, (
+            f"In the default session the session gate answers first: 0x7F, got {resp!r}")
+        assert backend.unlock(s), "setup: extended session + level-1 unlock failed"
+        resp = _req(s, bytes([SID_WRITE_DATA_BY_ID, 0xF1]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
     def test_0x31_truncated_returns_nrc_13(self):
         resp = _req(_sim(), bytes([SID_ROUTINE_CONTROL, 0x01, 0xFF]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#179")
     def test_0x28_truncated_returns_nrc_13(self):
-        resp = _req(_sim(), bytes([SID_COMMUNICATION_CONTROL]))
+        s = _sim()
+        resp = _req(s, bytes([SID_COMMUNICATION_CONTROL]))
+        assert resp is not None and resp[2] == 0x7F, (
+            f"In the default session the session gate answers first: 0x7F, got {resp!r}")
+        _session(s, SESSION_EXTENDED)
+        resp = _req(s, bytes([SID_COMMUNICATION_CONTROL]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#179")
     def test_0x85_truncated_returns_nrc_13(self):
-        resp = _req(_sim(), bytes([SID_CONTROL_DTC_SETTING]))
+        s = _sim()
+        resp = _req(s, bytes([SID_CONTROL_DTC_SETTING]))
+        assert resp is not None and resp[2] == 0x7F, (
+            f"In the default session the session gate answers first: 0x7F, got {resp!r}")
+        _session(s, SESSION_EXTENDED)
+        resp = _req(s, bytes([SID_CONTROL_DTC_SETTING]))
         assert resp is not None and resp[2] == NRC_INCORRECT_MSG_LEN
 
     def test_0x19_truncated_returns_nrc_13(self):
@@ -198,15 +212,16 @@ class TestEndToEndCMACFlow:
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
         assert resp[2] == NRC_INVALID_KEY, f"Expected NRC 0x35, got 0x{resp[2]:02X}"
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#178")
     def test_three_wrong_keys_triggers_lockout(self):
         s = _sim(); _session(s, SESSION_EXTENDED)
         for _ in range(3):
             _req(s, bytes([SID_SECURITY_ACCESS, 0x01]))
-            _req(s, bytes([SID_SECURITY_ACCESS, 0x02]) + bytes([0x00] * ALGO_KEY_LEN))
+            key_resp = _req(s, bytes([SID_SECURITY_ACCESS, 0x02]) + bytes([0x00] * ALGO_KEY_LEN))
+        assert key_resp is not None and key_resp[2] == NRC_EXCEEDED_NUMBER_OF_ATTEMPTS, \
+            f"3rd wrong key: expected NRC 0x36, got {key_resp.hex() if key_resp else None}"
         resp = _req(s, bytes([SID_SECURITY_ACCESS, 0x01]))
-        assert resp is not None and resp[2] == NRC_EXCEEDED_NUMBER_OF_ATTEMPTS, \
-            f"Expected NRC 0x36, got {resp.hex() if resp else None}"
+        assert resp is not None and resp[2] == 0x37, \
+            f"requestSeed during the delay: expected NRC 0x37 (Table 45), got {resp.hex() if resp else None}"
 
     def test_send_key_before_seed_returns_sequence_error(self):
         s = _sim(); _session(s, SESSION_EXTENDED)
@@ -288,11 +303,10 @@ class TestSuppressResponseBit:
             "(BUG: missing 'if pdu[1] & 0x80: return None' before 'return bytes([0x51, sub])')"
         )
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#181")
     def test_0x28_suppress_bit_returns_none(self):
         """CommunicationControl 0x28 — suppress bit must silence the 0x68 positive response."""
         s = _sim(); _session(s, SESSION_EXTENDED)
-        resp = _req(s, bytes([SID_COMMUNICATION_CONTROL, 0x01 | 0x80]))
+        resp = _req(s, bytes([SID_COMMUNICATION_CONTROL, 0x01 | 0x80, 0x01]))  # + communicationType
         assert resp is None, (
             f"0x28 suppress bit: expected None, got {resp!r} "
             "(BUG: bit stripped with & 0x7F but no 'if pdu[1] & 0x80: return None' before response)"
@@ -323,10 +337,12 @@ class TestSuppressResponseBit:
         assert resp is not None and resp[0] == 0x51, \
             f"0x11 without suppress bit: expected 0x51, got {resp!r}"
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#181")
     def test_0x28_without_suppress_bit_returns_positive(self):
         s = _sim(); _session(s, SESSION_EXTENDED)
-        resp = _req(s, bytes([SID_COMMUNICATION_CONTROL, 0x01]))
+        short = _req(s, bytes([SID_COMMUNICATION_CONTROL, 0x01]))
+        assert short == bytes([SID_NEGATIVE_RESPONSE, SID_COMMUNICATION_CONTROL, NRC_INCORRECT_MSG_LEN]), (
+            f"28 01 without its communicationType is too short: 0x13, got {short!r}")
+        resp = _req(s, bytes([SID_COMMUNICATION_CONTROL, 0x01, 0x01]))  # + communicationType
         assert resp is not None and resp[0] == 0x68, \
             f"0x28 without suppress bit: expected 0x68, got {resp!r}"
 

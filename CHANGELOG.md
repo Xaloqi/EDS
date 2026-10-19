@@ -23,6 +23,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **SecurityAccess and RoutineControl now follow ISO 14229-1:2026** (#484,
+  #486, #487, #492), checked against the standard's text:
+  - **sendKey for a level with no pending seed** (seed requested for level 1,
+    key sent for level 2) is NRC **0x24**, not 0x31 (Table 45 reserves 0x31
+    for an invalid securityAccessDataRecord). It still uses up an attempt
+    (P4-SEC-01). #487.
+  - **The suppress bit works on SecurityAccess (0x27) and RoutineControl
+    (0x31).** Both have a SubFunction (Tables 41, 425/426), and Table 10
+    requires the suppress bit for every SubFunction value. They were
+    registered without it, so `27 81` and `31 81` got NRC 0x12. Now the
+    request is executed and the positive response suppressed. Responses echo
+    bits 6–0. #486.
+  - **RoutineControl checks the routineIdentifier before the SubFunction**
+    (Figure 31): `31 04` on an unknown routine is 0x31, not 0x12. #492.
+  - **requestRoutineResults before startRoutine, and stopRoutine on a routine
+    that isn't running, are NRC 0x24** (Table 430). The first used to get a
+    positive response. The routine database keeps a started/active flag per
+    routine. Results stay available after a stop, and restarting a running
+    routine stays allowed. New API: `routine_database_get_state()`,
+    `routine_database_set_state()` and `routine_database_reset_state()`. An
+    application whose routine ends on its own may clear `ROUTINE_STATE_ACTIVE`.
+    New status `UDS_STATUS_ERR_REQUEST_SEQUENCE` maps to 0x24. #484.
+  - **Integrators:** a tester that sent `31 03` without a start now gets
+    `7F 31 24`, and one that relied on `27 81`/`31 81` being rejected now
+    gets the service executed.
+  - The generated tests and their simulator are aligned (EDS-toolchain), and
+    a request-by-request comparison of the simulator against the compiled
+    stack shows no other difference in the services they cover. In
+    `--can-interface=firmware` mode, basic_ecu's robustness phases now give
+    188 passed, 2 known divergences and 30 simulator-only tests (was 173 / 17
+    / 30). Published test counts are unchanged.
+
 - **SecurityAccess answers NRC 0x12 for an unsupported securityAccessType**
   (#485). Any odd sub-function was treated as a requestSeed. When the seed
   algorithm then refused the level, the request got 0x22 conditionsNotCorrect

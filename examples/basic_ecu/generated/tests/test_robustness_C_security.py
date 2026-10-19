@@ -111,24 +111,24 @@ class TestSecurityAccessLockout:
         seed = _request_seed(state, 1)
         assert seed is not None, "Should be able to request seed for attempt 3 after 2 failures"
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#178")
     def test_three_wrong_keys_triggers_lockout_nrc_36(self):
-        """ISO 14229-1 §10.4.5: after maxNumberOfAttempts failures → NRC 0x36."""
+        """ISO 14229-1:2026 Table 45: the wrong key that activates the delay timer
+        is answered 0x36; a requestSeed while it runs is 0x37 (EDS#446)."""
         state = _sim()
         _session(state, SESSION_EXTENDED)
         for attempt in range(3):
             seed = _request_seed(state, 1)
             assert seed is not None, f"Seed request should work on attempt {attempt+1}"
-            _send_wrong_key(state, 1)
-        # Fourth attempt — should be locked out
+            key_resp = _req(state, bytes([SID_SECURITY_ACCESS, 0x02]) + bytes(ALGO_KEY_LEN))
+        assert key_resp is not None and key_resp[2] == NRC_EXCEEDED_ATTEMPTS, (
+            f"The 3rd wrong key activates the delay: NRC 0x36 required, got {key_resp!r}")
         seed_resp = _req(state, bytes([SID_SECURITY_ACCESS, 0x01]))
         assert seed_resp is not None and seed_resp[0] == SID_NEGATIVE_RESPONSE, (
             "After 3 wrong keys, requestSeed must fail with NRC")
-        assert seed_resp[2] == NRC_EXCEEDED_ATTEMPTS, (
-            f"After 3 failed key attempts, NRC 0x36 (exceededNumberOfAttempts) required. "
-            f"Got NRC 0x{seed_resp[2]:02X}. Security lockout not implemented in simulator.")
+        assert seed_resp[2] == 0x37, (
+            f"requestSeed during the delay: NRC 0x37 (requiredTimeDelayNotExpired) "
+            f"required, got NRC 0x{seed_resp[2]:02X}")
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#178")
     def test_lockout_persists_after_tester_present(self):
         """TesterPresent must not bypass lockout."""
         state = _sim()
@@ -140,10 +140,9 @@ class TestSecurityAccessLockout:
         # Still locked
         resp = _req(state, bytes([SID_SECURITY_ACCESS, 0x01]))
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
-        assert resp[2] == NRC_EXCEEDED_ATTEMPTS, (
-            f"TesterPresent must not reset lockout counter. Got NRC 0x{resp[2]:02X}")
+        assert resp[2] == 0x37, (
+            f"TesterPresent must not lift the delay (NRC 0x37). Got NRC 0x{resp[2]:02X}")
 
-    @firmware_divergence("Xaloqi/EDS-toolchain#178")
     def test_correct_key_after_single_wrong_resets_counter(self):
         """1 wrong → 1 correct → counter resets → 3 more wrongs lock out."""
         state = _sim()
@@ -160,7 +159,8 @@ class TestSecurityAccessLockout:
                 pytest.skip("Lockout feature not yet implemented — skipping counter-reset test")
             _send_wrong_key(state, 1)
         resp = _req(state, bytes([SID_SECURITY_ACCESS, 0x01]))
-        assert resp is not None and resp[2] == NRC_EXCEEDED_ATTEMPTS
+        assert resp is not None and resp[2] == 0x37, (
+            f"3 wrong keys after the reset counter must start the delay (0x37), got {resp!r}")
 
 
 class TestSecurityAccessEdgeCases:

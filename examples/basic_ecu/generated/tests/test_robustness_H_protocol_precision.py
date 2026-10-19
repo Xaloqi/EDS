@@ -425,15 +425,17 @@ class TestRoutineControlLifecycle:
         assert resp[2] == NRC_SUB_FUNCTION_NOT_SUPPORTED, \
             f"Stop on unsupported routine: expected NRC 0x12, got 0x{resp[2]:02X}"
 
-    @firmware_divergence("Xaloqi/EDS#484")
-    def test_results_before_start_returns_nrc_22(self):
-        """Requesting results (sub 0x03) before starting the routine → NRC 0x22."""
+    def test_results_before_start_returns_nrc_24(self):
+        """Results (0x03) before the routine was started → NRC 0x24
+        requestSequenceError (ISO 14229-1:2026 Table 430, EDS#484; was 0x22).
+        Stop-before-start is covered by the unit tests: no basic_ecu routine
+        supports stop."""
         s = _sim()
         _session(s, SESSION_EXTENDED)
         resp = _req(s, bytes([SID_ROUTINE_CONTROL, 0x03, 0xFF, 0x00]))
         assert resp is not None and resp[0] == SID_NEGATIVE_RESPONSE
-        assert resp[2] == NRC_CONDITIONS_NOT_CORRECT, \
-            f"Results before start: expected NRC 0x22, got 0x{resp[2]:02X}"
+        assert resp[2] == 0x24, \
+            f"Results before start: expected NRC 0x24, got 0x{resp[2]:02X}"
 
     def test_results_after_start_succeeds(self):
         s = _sim()

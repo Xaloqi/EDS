@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU_DoIP_FreeRTOS
 # Version   : 1.6.0
-# Generated : 2026-10-16T12:00:00Z
+# Generated : 2026-10-19T10:24:30Z
 #
 # Routine   : 0xFF00  (ECU_SelfTest)
 # Session   : extended (ordinal 3)
@@ -245,13 +245,14 @@ class TestProtocolEcuselftest:
     These tests do not depend on session or security state.
     """
 
-    def test_bad_subfn_nrc_12(self, uds_bus: IsoTpTransport) -> None:
+    def test_bad_subfn_nrc_12(self, uds_bus: IsoTpTransport, aes_keys: dict) -> None:
         """
         subFn 0x04 (undefined in ISO 14229-1 §13) → NRC 0x12.
-        service_0x31.c validates sub_fn before any database lookup.
+        ISO 14229-1:2026 Figure 31 checks the RID's session (0x31) and
+        security (0x33) before the SubFunction (EDS#492), so both are
+        satisfied first.
         """
-        if MIN_SESSION_BYTE != SESSION_DEFAULT:
-            _enter_session(uds_bus, MIN_SESSION_BYTE)
+        _setup(uds_bus, aes_keys)
         pdu = uds_bus.request(
             bytes([SID_ROUTINE_CONTROL, 0x04, ROUTINE_HI, ROUTINE_LO])
         )
