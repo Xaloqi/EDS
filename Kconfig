@@ -266,6 +266,11 @@ config EDS_REQUIRE_STACK_CANARIES
 	      canary would come from a k_cycle_get_32() fallback.
 	  A board that cannot provide canaries says so explicitly:
 	  CONFIG_STACK_CANARIES=n and CONFIG_EDS_REQUIRE_STACK_CANARIES=n.
+	  On Zephyr 4.x the canary levels are members of an optional choice:
+	  a later CONFIG_STACK_CANARIES=n does NOT undo an earlier fragment's
+	  =y, and canaries stay on. Remove the =y instead, and check the final
+	  build/zephyr/.config. Canaries with a virtio-rng zephyr,entropy are
+	  refused even with this option set to n (#501).
 	  native_sim (ARCH_POSIX) is exempt: it is a simulation, never shipped.
 
 endmenu
