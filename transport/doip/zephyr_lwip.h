@@ -31,7 +31,7 @@
  *   CONFIG_NET_IF_MAX_IPV4_COUNT=1
  *   CONFIG_NET_MAX_CONN=8
  *   CONFIG_NET_TCP_MAX_SEND_WINDOW_SIZE=4096
- *   CONFIG_POSIX_MAX_FDS=16
+ *   CONFIG_ZVFS_OPEN_MAX=16        # was POSIX_MAX_FDS (removed in Zephyr 4.x, #498)
  *   CONFIG_NET_LOOPBACK=y          # for native_sim
  *   CONFIG_NET_NATIVE=y            # for native_sim
  *
