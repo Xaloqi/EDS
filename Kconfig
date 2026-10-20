@@ -229,4 +229,22 @@ config UDS_ACL_ALLOW_UNLISTED_SERVICES
 	  (no CONFIG_ prefix) directly, e.g. -DUDS_ACL_ALLOW_UNLISTED_SERVICES=1.
 	  TRACEABILITY: #113
 
+# ---------------------------------------------------------------------------
+# Build-configuration intent guards  [#498]
+# ---------------------------------------------------------------------------
+
+config EDS_REQUIRE_NEWLIB
+	bool "Fail the build unless newlib is the C library"
+	default n
+	help
+	  Set this next to CONFIG_NEWLIB_LIBC=y. Kconfig drops NEWLIB_LIBC=y
+	  with only a warning when the toolchain has no newlib (Zephyr SDK
+	  1.0.x, used by Zephyr 4.4, ships none), and the build then links
+	  picolibc instead. With this option set, that swap fails the build
+	  (platform/zephyr/zephyr_platform_api.c) instead of passing silently.
+	  To accept picolibc on such a toolchain, set it to 'n' explicitly
+	  together with CONFIG_NEWLIB_LIBC=n. native_sim (ARCH_POSIX) is exempt:
+	  its host toolchain never has newlib.
+	  TRACEABILITY: #498
+
 endmenu

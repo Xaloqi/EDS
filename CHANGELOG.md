@@ -8,6 +8,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **`basic_ecu_doip` configures on Zephyr 4.4** (#498). Its `prj.conf` set
+  `CONFIG_POSIX_MAX_FDS`, which Zephyr deprecated in 3.7 and has since
+  removed, so Kconfig rejected the build. It now sets `CONFIG_ZVFS_OPEN_MAX`,
+  which exists in both versions. CI now fails if any EDS `.conf` sets a
+  Kconfig symbol the pinned Zephyr marks deprecated
+  (`scripts/verify_no_deprecated_kconfig.py`).
+- **A conf that asks for newlib no longer gets picolibc silently** (#498).
+  Kconfig drops `CONFIG_NEWLIB_LIBC=y` with only a warning when the toolchain
+  has no newlib, as with Zephyr SDK 1.0.x. Confs that set it now also set the
+  new `CONFIG_EDS_REQUIRE_NEWLIB`, and the build fails if newlib did not
+  result. To accept picolibc on such a toolchain, set
+  `CONFIG_NEWLIB_LIBC=n` and `CONFIG_EDS_REQUIRE_NEWLIB=n`. The libc of every
+  build on Zephyr 3.7 is unchanged. native_sim is exempt, because its host
+  toolchain never has newlib; it always linked picolibc despite the
+  `NEWLIB_LIBC=y` in its confs. Those confs now say `CONFIG_PICOLIBC=y`.
+
 ## [1.22.0] — 2026-10-19
 
 ### Changed

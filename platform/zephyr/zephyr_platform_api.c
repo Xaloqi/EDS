@@ -46,6 +46,19 @@
 
 LOG_MODULE_REGISTER(zephyr_platform_api, LOG_LEVEL_INF);
 
+/* [#498] A conf that asks for newlib marks the request with
+ * CONFIG_EDS_REQUIRE_NEWLIB. Kconfig drops CONFIG_NEWLIB_LIBC=y with only a
+ * warning when the toolchain has no newlib (Zephyr SDK 1.0.x), and the build
+ * silently links picolibc. Every Zephyr EDS build compiles this file, so it
+ * is where the swap is refused. */
+#if defined(CONFIG_EDS_REQUIRE_NEWLIB) && !defined(CONFIG_NEWLIB_LIBC) && \
+    !defined(CONFIG_ARCH_POSIX)
+/* CONFIG_ARCH_POSIX (native_sim) is exempt: its host toolchain never has
+ * newlib (TOOLCHAIN_HAS_NEWLIB is false), and a simulation binary is never
+ * shipped. Its confs state CONFIG_PICOLIBC=y explicitly instead. */
+#error "CONFIG_EDS_REQUIRE_NEWLIB=y but the C library is not newlib: this toolchain has no newlib (Zephyr SDK 1.0.x ships none). To accept picolibc, set CONFIG_NEWLIB_LIBC=n and CONFIG_EDS_REQUIRE_NEWLIB=n - see issue #498."
+#endif
+
 /* Forward declaration — implemented in platform/zephyr/nvm_store.c. Mirrors
  * platform/freertos/freertos_platform_api.c's identical forward
  * declaration of freertos_nvm_register_ops(). [#304] Stage 1. */

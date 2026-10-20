@@ -905,6 +905,12 @@ jobs:
       - name: Install Zephyr Python requirements
         run: pip install -r zephyr/scripts/requirements.txt
 
+      # [#498] A Kconfig symbol the pinned Zephyr marks deprecated is one that a
+      # later Zephyr removes, and then the build stops configuring (POSIX_MAX_FDS:
+      # deprecated in 3.7, gone by 4.4). Refuse it while it is still a warning.
+      - name: No EDS .conf sets a deprecated Kconfig symbol (#498)
+        run: python3 EDS/scripts/verify_no_deprecated_kconfig.py "${GITHUB_WORKSPACE}/zephyr" EDS
+
       - name: Install project Python dependencies
         run: pip install pyyaml jinja2
 
@@ -1001,6 +1007,33 @@ jobs:
         run: |
           test -f build/zephyr/zephyr.elf && echo "PASS: .elf" || exit 1
           test -f build/zephyr/zephyr.hex && echo "PASS: .hex" || exit 1
+
+      # [#498] prj.conf asks for newlib; check the shipped build really got it.
+      - name: Verify the C library is newlib (#498)
+        run: |
+          grep -qx "CONFIG_NEWLIB_LIBC=y" build/zephyr/.config \
+            && echo "PASS: newlib linked" \
+            || (echo "FAIL: prj.conf requests newlib, .config does not have it" && exit 1)
+
+      # [#498] On a toolchain without newlib (Zephyr SDK 1.0.x), Kconfig drops
+      # NEWLIB_LIBC=y with a warning and links picolibc. Force that outcome and
+      # require the EDS guard to refuse the build, for the guard's own reason.
+      - name: "Guard: a newlib request that ends as picolibc must fail (#498)"
+        run: |
+          set +e
+          west build --pristine -d build-498-guard -b nucleo_h743zi EDS/examples/basic_ecu -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h743zi/nucleo_h743zi.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h743zi/nucleo_h743zi.overlay" \
+            -DCONFIG_NEWLIB_LIBC=n -DCONFIG_PICOLIBC=y > guard-498.log 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: build with newlib swapped for picolibc succeeded; the #498 guard did not fire"; exit 1
+          fi
+          grep -q "CONFIG_EDS_REQUIRE_NEWLIB=y but the C library is not newlib" guard-498.log \
+            || (echo "FAIL: build failed, but not on the #498 guard:"; tail -40 guard-498.log; exit 1)
+          echo "PASS: #498 guard refused the silent newlib -> picolibc swap"
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
