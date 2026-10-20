@@ -39,6 +39,7 @@
 #include "uds_session_stats.h"
 
 #include <zephyr/kernel.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/sys/reboot.h>
 #include <zephyr/logging/log.h>
 
@@ -57,6 +58,25 @@ LOG_MODULE_REGISTER(zephyr_platform_api, LOG_LEVEL_INF);
  * newlib (TOOLCHAIN_HAS_NEWLIB is false), and a simulation binary is never
  * shipped. Its confs state CONFIG_PICOLIBC=y explicitly instead. */
 #error "CONFIG_EDS_REQUIRE_NEWLIB=y but the C library is not newlib: this toolchain has no newlib (Zephyr SDK 1.0.x ships none). To accept picolibc, set CONFIG_NEWLIB_LIBC=n and CONFIG_EDS_REQUIRE_NEWLIB=n - see issue #498."
+#endif
+
+/* A conf that asks for compiler stack canaries marks the request with
+ * CONFIG_EDS_REQUIRE_STACK_CANARIES. Refuse every configuration in which
+ * the request is not met for real: dropped by Kconfig (no entropy driver),
+ * satisfied only by TEST_RANDOM_GENERATOR, or seeded by an entropy driver
+ * that is not usable when the kernel seeds __stack_chk_guard. Zephyr's
+ * z_early_rand_get() runs after PRE_KERNEL_2 and needs
+ * entropy_get_entropy_isr(). virtio-rng initialises at POST_KERNEL and has
+ * no ISR API (-ENOSYS), so its canary would be a k_cycle_get_32()-derived
+ * value. native_sim (ARCH_POSIX) is exempt as a simulation target. */
+#if defined(CONFIG_EDS_REQUIRE_STACK_CANARIES) && !defined(CONFIG_ARCH_POSIX)
+#if !defined(CONFIG_STACK_CANARIES)
+#error "CONFIG_EDS_REQUIRE_STACK_CANARIES=y but Kconfig dropped CONFIG_STACK_CANARIES (no entropy driver on this board). Enable an entropy source, or set CONFIG_STACK_CANARIES=n and CONFIG_EDS_REQUIRE_STACK_CANARIES=n explicitly."
+#elif !defined(CONFIG_ENTROPY_HAS_DRIVER)
+#error "CONFIG_EDS_REQUIRE_STACK_CANARIES=y but the canary is seeded only by TEST_RANDOM_GENERATOR (no entropy driver): it is predictable. Enable a real entropy source, or opt out explicitly."
+#elif DT_HAS_CHOSEN(zephyr_entropy) && DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_entropy), virtio_device4)
+#error "CONFIG_EDS_REQUIRE_STACK_CANARIES=y but zephyr,entropy is virtio-rng, which initialises at POST_KERNEL with no ISR API: the kernel seeds the canary before it, from k_cycle_get_32(). Use an early entropy source for canaries, or opt out explicitly."
+#endif
 #endif
 
 /* Forward declaration — implemented in platform/zephyr/nvm_store.c. Mirrors

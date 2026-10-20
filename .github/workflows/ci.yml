@@ -1035,6 +1035,30 @@ jobs:
             || (echo "FAIL: build failed, but not on the #498 guard:"; tail -40 guard-498.log; exit 1)
           echo "PASS: #498 guard refused the silent newlib -> picolibc swap"
 
+      # Stack canaries: a conf that asks for them (CONFIG_EDS_REQUIRE_STACK_CANARIES)
+      # must get real ones. Force each way they can be lost or faked, and require
+      # the guard in zephyr_platform_api.c to refuse each, for its own reason.
+      - name: "Guard: stack canaries dropped, test-RNG-seeded or virtio-seeded must fail"
+        run: |
+          set +e
+          fails=0
+          guard() {  # <name> <expected message fragment> <extra cmake args...>
+            name=$1; msg=$2; shift 2
+            west build --pristine -d build-canary-$name -b nucleo_h743zi EDS/examples/basic_ecu -- \
+              -DDIAG_SKIP_CODEGEN=ON \
+              "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h743zi/nucleo_h743zi.conf" \
+              "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h743zi/nucleo_h743zi.overlay" \
+              -DCONFIG_EDS_REQUIRE_STACK_CANARIES=y -DCONFIG_STACK_CANARIES=y "$@" > canary-$name.log 2>&1
+            if [ $? -eq 0 ]; then echo "FAIL [$name]: build succeeded; the canary guard did not fire"; fails=1
+            elif grep -q "$msg" canary-$name.log; then echo "PASS [$name]: refused on the canary guard"
+            else echo "FAIL [$name]: failed, but not on the canary guard:"; tail -30 canary-$name.log; fails=1; fi
+          }
+          guard dropped  "Kconfig dropped CONFIG_STACK_CANARIES" -DCONFIG_ENTROPY_GENERATOR=n
+          guard test-rng "seeded only by TEST_RANDOM_GENERATOR"  -DCONFIG_ENTROPY_GENERATOR=n -DCONFIG_TEST_RANDOM_GENERATOR=y
+          guard virtio   "zephyr,entropy is virtio-rng" \
+            "-DEXTRA_DTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/tests/kconfig_guards/virtio_entropy_chosen.overlay"
+          exit $fails
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
