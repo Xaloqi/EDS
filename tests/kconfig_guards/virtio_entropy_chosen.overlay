@@ -1,0 +1,11 @@
+/* CI fixture for the stack-canary guard (zephyr_platform_api.c): make a
+ * virtio-rng node the chosen entropy device. Only the devicetree compatible
+ * matters; the guard must refuse the build before anything links. */
+/ {
+	chosen {
+		zephyr,entropy = &ci_virtio_rng;
+	};
+	ci_virtio_rng: ci-virtio-rng {
+		compatible = "virtio,device4";
+	};
+};

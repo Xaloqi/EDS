@@ -247,4 +247,25 @@ config EDS_REQUIRE_NEWLIB
 	  its host toolchain never has newlib.
 	  TRACEABILITY: #498
 
+
+config EDS_REQUIRE_STACK_CANARIES
+	bool "Fail the build unless stack canaries are real"
+	default n
+	help
+	  Set this next to CONFIG_STACK_CANARIES=y. Kconfig drops that request
+	  with only a warning when the board has no entropy driver, because
+	  STACK_CANARIES depends on ENTROPY_GENERATOR || TEST_RANDOM_GENERATOR.
+	  With this option set, the build fails (platform/zephyr/
+	  zephyr_platform_api.c) when:
+	    - canaries were dropped;
+	    - they are enabled only through TEST_RANDOM_GENERATOR, with no
+	      entropy driver; or
+	    - the chosen zephyr,entropy device is virtio-rng. Zephyr seeds the
+	      canary after PRE_KERNEL_2 through entropy_get_entropy_isr(). The
+	      virtio driver initialises at POST_KERNEL and has no ISR API, so the
+	      canary would come from a k_cycle_get_32() fallback.
+	  A board that cannot provide canaries says so explicitly:
+	  CONFIG_STACK_CANARIES=n and CONFIG_EDS_REQUIRE_STACK_CANARIES=n.
+	  native_sim (ARCH_POSIX) is exempt: it is a simulation, never shipped.
+
 endmenu

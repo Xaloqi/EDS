@@ -25,6 +25,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   build on Zephyr 3.7 is unchanged. native_sim is exempt, because its host
   toolchain never has newlib; it always linked picolibc despite the
   `NEWLIB_LIBC=y` in its confs. Those confs now say `CONFIG_PICOLIBC=y`.
+- **A conf that asks for stack canaries no longer loses them silently.**
+  `CONFIG_STACK_CANARIES=y` depends on an entropy driver, and Kconfig drops
+  it with only a warning on boards without one. Confs that request canaries
+  now also set the new `CONFIG_EDS_REQUIRE_STACK_CANARIES`. The build then
+  fails if canaries were dropped, are enabled only through
+  `TEST_RANDOM_GENERATOR`, or would be seeded by virtio-rng. virtio-rng
+  initialises after Zephyr seeds the canary and has no ISR API, so the
+  canary comes from a cycle-counter fallback. The board confs that already
+  turn canaries off (nucleo_h743zi/h753zi, frdm_mcxn947, mr_canhubk3,
+  safeboot_ecu's nucleo confs) now opt out explicitly. Every shipped binary
+  is unchanged. native_sim is exempt.
 
 ## [1.22.0] — 2026-10-19
 
