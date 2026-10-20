@@ -69,14 +69,33 @@ LOG_MODULE_REGISTER(zephyr_platform_api, LOG_LEVEL_INF);
  * entropy_get_entropy_isr(). virtio-rng initialises at POST_KERNEL and has
  * no ISR API (-ENOSYS), so its canary would be a k_cycle_get_32()-derived
  * value. native_sim (ARCH_POSIX) is exempt as a simulation target. */
+/* [#501] On Zephyr 4.x the canary levels are members of an optional choice
+ * (STACK_CANARIES, _STRONG, _ALL, _EXPLICIT); each selects
+ * REQUIRES_STACK_CANARIES. On 3.7 only STACK_CANARIES exists. Either means
+ * the compiler emits canaries. */
+#if defined(CONFIG_STACK_CANARIES) || defined(CONFIG_REQUIRES_STACK_CANARIES)
+#define EDS_STACK_CANARIES_ON 1
+#endif
+
 #if defined(CONFIG_EDS_REQUIRE_STACK_CANARIES) && !defined(CONFIG_ARCH_POSIX)
-#if !defined(CONFIG_STACK_CANARIES)
+#if !defined(EDS_STACK_CANARIES_ON)
 #error "CONFIG_EDS_REQUIRE_STACK_CANARIES=y but Kconfig dropped CONFIG_STACK_CANARIES (no entropy driver on this board). Enable an entropy source, or set CONFIG_STACK_CANARIES=n and CONFIG_EDS_REQUIRE_STACK_CANARIES=n explicitly."
 #elif !defined(CONFIG_ENTROPY_HAS_DRIVER)
 #error "CONFIG_EDS_REQUIRE_STACK_CANARIES=y but the canary is seeded only by TEST_RANDOM_GENERATOR (no entropy driver): it is predictable. Enable a real entropy source, or opt out explicitly."
 #elif DT_HAS_CHOSEN(zephyr_entropy) && DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_entropy), virtio_device4)
 #error "CONFIG_EDS_REQUIRE_STACK_CANARIES=y but zephyr,entropy is virtio-rng, which initialises at POST_KERNEL with no ISR API: the kernel seeds the canary before it, from k_cycle_get_32(). Use an early entropy source for canaries, or opt out explicitly."
 #endif
+#endif
+
+/* [#501] Not opt-out-able: canaries that are on while zephyr,entropy is
+ * virtio-rng are always seeded by the k_cycle_get_32() fallback, so no
+ * configuration makes them meaningful. This also catches the Zephyr 4.x trap
+ * where a board opts out with CONFIG_STACK_CANARIES=n after an earlier
+ * fragment set =y: the choice stays in y-mode, canaries stay on, and
+ * EDS_REQUIRE_STACK_CANARIES=n would otherwise let it through silently. */
+#if defined(EDS_STACK_CANARIES_ON) && !defined(CONFIG_ARCH_POSIX) && \
+    DT_HAS_CHOSEN(zephyr_entropy) && DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_entropy), virtio_device4)
+#error "Stack canaries are enabled but zephyr,entropy is virtio-rng: the canary would be seeded from k_cycle_get_32(), with or without CONFIG_EDS_REQUIRE_STACK_CANARIES. Turn canaries off in the final .config. On Zephyr 4.x, CONFIG_STACK_CANARIES=n does not undo an earlier fragment's =y (choice member): remove the =y instead. See issue #501."
 #endif
 
 /* Forward declaration — implemented in platform/zephyr/nvm_store.c. Mirrors

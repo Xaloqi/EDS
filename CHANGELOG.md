@@ -37,6 +37,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   safeboot_ecu's nucleo confs) now opt out explicitly. Every shipped binary
   is unchanged. native_sim is exempt.
 
+- **Canaries seeded by virtio-rng are refused even with the opt-out** (#501).
+  On Zephyr 4.x the canary levels are members of an optional choice, so a
+  board's `CONFIG_STACK_CANARIES=n` after an earlier fragment's `=y` leaves
+  canaries on. With `CONFIG_EDS_REQUIRE_STACK_CANARIES=n` that passed
+  silently, and with a virtio-rng `zephyr,entropy` the canary is seeded from
+  `k_cycle_get_32()`. That combination now fails the build whatever the
+  opt-out says. The guard also recognises 4.x's other canary levels
+  (`REQUIRES_STACK_CANARIES`), and the Kconfig help states the 4.x rule.
+
 ## [1.22.0] — 2026-10-19
 
 ### Changed

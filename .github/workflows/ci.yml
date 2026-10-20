@@ -1057,6 +1057,12 @@ jobs:
           guard test-rng "seeded only by TEST_RANDOM_GENERATOR"  -DCONFIG_ENTROPY_GENERATOR=n -DCONFIG_TEST_RANDOM_GENERATOR=y
           guard virtio   "zephyr,entropy is virtio-rng" \
             "-DEXTRA_DTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/tests/kconfig_guards/virtio_entropy_chosen.overlay"
+          # [#501] The opt-out must not let virtio-seeded canaries through: on
+          # Zephyr 4.x a board's CONFIG_STACK_CANARIES=n after an earlier =y
+          # leaves them on, and EDS_REQUIRE_STACK_CANARIES=n then hid that.
+          guard virtio-optout "with or without CONFIG_EDS_REQUIRE_STACK_CANARIES" \
+            "-DEXTRA_DTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/tests/kconfig_guards/virtio_entropy_chosen.overlay" \
+            -DCONFIG_EDS_REQUIRE_STACK_CANARIES=n
           exit $fails
 
       - name: Upload firmware artifacts
