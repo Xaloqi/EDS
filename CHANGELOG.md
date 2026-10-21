@@ -8,6 +8,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.23.0] — 2026-10-21
+
+### Migration from 1.22.x
+
+Three new build guards can stop a build that passed on 1.22.x. Each fails with
+a message naming the symbol; none changes a shipped binary.
+
+- **Deprecated Kconfig symbol in a `.conf`** (#498). Replace it, for example
+  `CONFIG_POSIX_MAX_FDS` with `CONFIG_ZVFS_OPEN_MAX`. On Zephyr 4.4 the old
+  symbol is rejected anyway.
+- **`CONFIG_NEWLIB_LIBC=y` without newlib in the toolchain** (#498), as with
+  Zephyr SDK 1.0.x. Install a toolchain with newlib, or set
+  `CONFIG_NEWLIB_LIBC=n` and `CONFIG_EDS_REQUIRE_NEWLIB=n` to accept picolibc.
+- **`CONFIG_STACK_CANARIES=y` that does not take effect** (#500, #501): no
+  entropy driver, enabled only through `TEST_RANDOM_GENERATOR`, or seeded by
+  virtio-rng. Use a board with a real entropy source. To build without
+  canaries, set `CONFIG_STACK_CANARIES=n` and
+  `CONFIG_EDS_REQUIRE_STACK_CANARIES=n`. The virtio-rng case is refused even
+  with that opt-out.
+
 ### Fixed
 
 - **`basic_ecu_doip` configures on Zephyr 4.4** (#498). Its `prj.conf` set
