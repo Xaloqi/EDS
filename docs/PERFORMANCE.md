@@ -38,6 +38,14 @@ behaviour only and is not representative of target hardware.
   project's own CAN reassembly logic (CAN path) — not a saved TestLab
   campaign file, since the goal here was maximum-size/worst-case-shaped
   requests rather than a representative diagnostic session.
+- **Stack canaries**: §2, §3 and §5 were re-measured on 2026-10-21 with stack
+  canaries on, as the NUCLEO board confs now build them (Zephyr 3.7
+  `CONFIG_STACK_CANARIES=y`, i.e. `-fstack-protector-all`), with Zephyr SDK
+  0.17.0. Each figure is the worst of two runs; the runs agreed to within
+  0.2%. The same stimulus on the same build without canaries is given
+  alongside for comparison. §4 (DoIP) is unchanged: `basic_ecu_doip` does not
+  enable canaries, and its image is byte-identical with and without this
+  change.
 
 ## 2. `uds_server_process_request()`
 
@@ -48,17 +56,20 @@ deliberately-absent DID (forces a full, non-early-exit linear scan of
 
 | | cycles | @ 480 MHz |
 |---|---:|---:|
-| min | 1,732 | 3.6 µs |
-| avg | 2,898 | 6.0 µs |
-| **max** | **3,792** | **7.9 µs** |
+| min | 4,314 | 9.0 µs |
+| avg | 5,138 | 10.7 µs |
+| **max** | **6,418** | **13.4 µs** |
 
-Converged cleanly: the maximum stopped moving after the first ~50 trials and
-held for the remaining ~370.
+Measured with canaries on. Without canaries, the same build and stimulus give
+min 2,684, avg 3,224, max 4,180 cycles: canaries add about 54% at the maximum,
+because `-fstack-protector-all` instruments every function in the call chain.
+Converged cleanly: the maximum was reached on the second trial and held for
+the rest of the run.
 
 ### 2.1 Well inside the P2 budget
 
 `GEN_P2_SERVER_MAX_MS` (this config) is 50 ms. The measured worst case
-(7.9 µs) is ~6,300x inside that budget — the dispatch itself is not the
+(13.4 µs) is ~3,700x inside that budget — the dispatch itself is not the
 constraint on this table size; UDS transport/ISO-TP framing overhead
 (§3) and any policy-registered flash/crypto work dominate instead.
 
@@ -81,9 +92,9 @@ exceed 5 iterations regardless of the ceiling.
 
 Two same-service trials at different table depths bound a per-iteration
 cost: DID index 0 (`0xF190`) vs. the deliberately-absent probe (index 5, a
-full miss) differ by roughly `(3,792 − 1,732) / 5 ≈ 412 cycles` per DID
-scanned (~0.86 µs at 480 MHz) — consistent with a tight linear scan over a
-small fixed-size struct (id, access flags, callback pointer). This project
+full miss) differ by roughly `(6,418 − 4,314) / 5 ≈ 421 cycles` per DID
+scanned (~0.88 µs at 480 MHz, canaries on) — consistent with a tight linear
+scan over a small fixed-size struct (id, access flags, callback pointer). This project
 does not use `-O3`; a `-Os` build's per-iteration cost is what's reported
 here.
 
@@ -95,13 +106,13 @@ this ECU's own 5-entry figure:
 
 ```
 WCET(N) ≈ fixed_dispatch_overhead + N × per_iteration_cost
-        ≈ (1,732 − 5×412) + N × 412 cycles
-        ≈ (-328, i.e. ~0) + N × 412 cycles        [only 2 data points — see caveat]
+        ≈ (4,314 − 5×421) + N × 421 cycles
+        ≈ 2,209 + N × 421 cycles                  [only 2 data points — see caveat]
 ```
 
 At the compiled ceiling (`UDS_MAX_DID_COUNT = 64`):
-`WCET(64) ≈ 64 × 412 ≈ 26,400 cycles ≈ 55 µs` — still ~900x inside the 50 ms
-P2 budget. **Caveat**: this line is fit from exactly two measured points on
+`WCET(64) ≈ 2,209 + 64 × 421 ≈ 29,200 cycles ≈ 61 µs` — still ~820x inside
+the 50 ms P2 budget. **Caveat**: this line is fit from exactly two measured points on
 one 5-entry table; it is a structural argument (the loop is provably O(N),
 so a linear formula is the right SHAPE), not a statistically-fit worst-case
 bound. An integrator with a materially larger table should re-run this same
@@ -110,7 +121,7 @@ verbatim.
 
 ## 3. `isotp_process_rx_frame()` — multi-frame reassembly
 
-Measured via `safeboot_ecu` over CAN: ~53,000 trials (one call per received
+Measured via `safeboot_ecu` over CAN: ~56,000 trials (one call per received
 CAN frame) across two stimulus phases — the 420 single-frame requests from
 §2 (each isotp call for those is trivially small), and 95 near-maximum
 multi-frame messages (4,094-byte payload, `SID 0xFF` so dispatch itself is a
@@ -120,9 +131,12 @@ requiring 585 Consecutive Frames to reassemble.
 
 | | cycles | @ 480 MHz |
 |---|---:|---:|
-| min (mid-message CF) | 322 | 0.67 µs |
-| avg (mixed FF/CF/dispatch) | ~21,700–80,500¹ | — |
-| **max** (final CF of a 4,094 B message, incl. nested dispatch) | **152,310** | **317 µs** |
+| min (mid-message CF) | 532 | 1.1 µs |
+| avg (mixed FF/CF/dispatch) | ~23,500¹ | — |
+| **max** (final CF of a 4,094 B message, incl. nested dispatch) | **164,620** | **343 µs** |
+
+Measured with canaries on. Without canaries: min 380, max 155,616 cycles;
+canaries add about 6% at the maximum.
 
 ¹ The running average is dominated by which mix of frame types happened to
 be in the sample window (this instrumentation logs on every new maximum, not
@@ -131,24 +145,23 @@ bearing figures, not this column.
 
 ### 3.1 Convergence
 
-The observed maximum climbed through the first ~4,700 trials
-(127,956 → 149,138 cycles) as message-boundary effects (first CF of a
+The observed maximum climbed through the first ~3,000 trials
+(~143,000 → ~158,800 cycles) as message-boundary effects (first CF of a
 message vs. steady mid-message CFs) got sampled, then a further, smaller
-step to 152,310 partway through a dedicated 80-message batch, after which it
-held flat for the batch's remaining ~176 logged checkpoints (spanning tens
-of thousands of individual `isotp_process_rx_frame()` calls). Treat 152,310
-cycles as an **empirically observed maximum across ~53,000 trials**, not a
+step to ~164,400 at trial ~18,150 (both runs), after which it moved by at
+most 38 cycles over the remaining ~38,000 calls. Treat 164,620
+cycles as an **empirically observed maximum across ~56,000 trials**, not a
 formally proven upper bound — see §3.3 for what a formal bound would need.
 
 ### 3.2 What the final-CF figure includes
 
 `isotp_process_rx_frame()`'s own reassembly work (buffer copy, sequence
 counter check, completion detection) is the `min`/typical-CF figure
-(322–696 cycles, ~0.7–1.5 µs) — visible directly in the steady mid-message
-samples (`cur=692`..`696` throughout the campaign). The **First Frame**
-costs more (~80,000–81,500 cycles, ~167–170 µs) — buffer/state setup for a
+(532–860 cycles, ~1.1–1.8 µs) — visible directly in the steady mid-message
+samples (`cur=850`..`860` throughout the campaign). The **First Frame**
+costs more (~87,000–88,000 cycles, ~181–183 µs) — buffer/state setup for a
 new reassembly. The **final Consecutive Frame** of a message costs the most
-(~149,000–152,000 cycles) because it triggers `on_isotp_rx_complete()` →
+(~158,000–164,600 cycles) because it triggers `on_isotp_rx_complete()` →
 `uds_server_process_request()` synchronously, nested inside the same call —
 for `SID 0xFF` that's mostly response-building and CAN TX, not table lookup
 (§2 already bounds the lookup cost separately for a real service).
@@ -160,11 +173,11 @@ tens of seconds of continuous wall-clock time) produced an obviously
 corrupted `max` (`~1.8×10^19`, near `UINT64_MAX`) — consistent with
 `DWT_CYCCNT` wrapping its 32-bit range (~8.9 s at 480 MHz) mid-sample and
 `timing_cycles_get()` not correcting for it across a long-lived measurement
-window. The figures reported above come from two **shorter** campaigns (each
-comfortably under the wrap period) that did not hit this, cross-checked
-against each other (independent runs agree on 149,138 → 152,310 cycles as
-the plateau). A production WCET campaign run continuously for longer than
-~8 s per measurement window should either reset `DWT_CYCCNT` periodically or
+window. The figures reported above come from two runs per configuration of
+about 85 s each. Neither showed a corrupted sample, and the two runs agree
+to within 0.2%, but a sample that spans a wrap remains possible. A
+production WCET campaign run continuously for longer than ~8 s per
+measurement window should either reset `DWT_CYCCNT` periodically or
 accumulate a 64-bit extended counter across wraps — this repo's
 instrumentation does neither, since it is measurement scaffolding, not
 shipped code.
@@ -220,18 +233,22 @@ build):
 
 | Frame | Bytes | Class |
 |---|---:|---|
-| `on_isotp_rx_complete` (main.c) | 136 | dynamic, bounded |
-| `uds_server_process_request` (core/uds_server.c) | 64 | static |
-| `uds_service_0x2F_handler` (deepest single handler, `WriteMemoryByAddress`) | 128 | static |
+| `on_isotp_rx_complete` (main.c) | 144 | dynamic, bounded |
+| `uds_server_process_request` (core/uds_server.c) | 16 | static |
+| `uds_service_0x2F_handler` (deepest single handler, `WriteMemoryByAddress`) | 136 | static |
 | `uds_safety_validate_did_access` (deepest safety-wrapper call this handler makes) | 32 | static |
-| **Traced subtotal** | **360** | |
+| **Traced subtotal** | **328** | |
+
+Canaries on: each function keeps a copy of the guard in its frame, and stack
+alignment rounds the growth up. Without canaries the same frames total 296
+bytes.
 
 `examples/safeboot_ecu/src/main.c`'s own header comment separately documents
 a prior, more deeply-traced static estimate of **~1,600 bytes** for this
 same chain (predating this issue's work) — that figure was not
-independently re-derived call-by-call here; the 360-byte subtotal above is
+independently re-derived call-by-call here; the 328-byte subtotal above is
 what this specific campaign traced and can cite directly. Treat 1,600 bytes
-as the standing conservative design figure and 360 bytes as a partial,
+as the standing conservative design figure and 328 bytes as a partial,
 independently-confirmed lower bound on the same chain, not a contradiction —
 the gap is unexplored deeper frames (DID/DTC generated callback bodies,
 CRC/CMAC helpers on other SIDs), not a discrepancy in what was actually
@@ -244,8 +261,10 @@ stimulus campaign (session control, DID reads, and 95 near-maximum
 multi-frame messages):
 
 ```
-diag_task stack: used=688/4096 bytes  (peak observed)
+diag_task stack: used=736/4096 bytes  (peak observed, canaries on)
 ```
+
+Without canaries the same stimulus peaks at 624 bytes.
 
 Lower than the 1,600-byte static design figure, as expected — the runtime
 campaign did not specifically stress `SecurityAccess` (AES-128-CMAC,
@@ -253,19 +272,19 @@ campaign did not specifically stress `SecurityAccess` (AES-128-CMAC,
 contributors to the static estimate's extra margin. `CONFIG_DIAG_TASK_STACK_SIZE`
 is 4,096 bytes by default — even against the more conservative 1,600-byte
 static figure that leaves a 2.5x margin (already noted in `main.c`'s header
-before this issue); against the 688-byte runtime observation the margin is
-~6x for this specific stimulus shape.
+before this issue); against the 736-byte runtime observation the margin is
+~5.6x for this specific stimulus shape.
 
 ## 6. Summary table
 
 | Path | Worst case (cycles) | Worst case (µs @ 480 MHz) | Budget | Margin |
 |---|---:|---:|---|---|
-| `uds_server_process_request()` (5 DIDs) | 3,792 | 7.9 | P2 = 50 ms | ~6,300x |
-| `uds_server_process_request()` (extrapolated, 64 DIDs) | ~26,400 | ~55 | P2 = 50 ms | ~900x |
-| `isotp_process_rx_frame()` (4,094 B message, final CF) | 152,310 | 317 | P2 = 50 ms | ~158x |
+| `uds_server_process_request()` (5 DIDs) | 6,418 | 13.4 | P2 = 50 ms | ~3,700x |
+| `uds_server_process_request()` (extrapolated, 64 DIDs) | ~29,200 | ~61 | P2 = 50 ms | ~820x |
+| `isotp_process_rx_frame()` (4,094 B message, final CF) | 164,620 | 343 | P2 = 50 ms | ~146x |
 | DoIP forward, steady state | 137,710 | 287 | P2 = 50 ms | ~174x |
 | DoIP forward, first-message-on-connection | 351,870 | 733 | P2 = 50 ms | ~68x |
-| Stack (diag_task, runtime observed) | — | — | 4,096 B | ~6x |
+| Stack (diag_task, runtime observed) | — | — | 4,096 B | ~5.6x |
 | Stack (diag_task, static design figure) | — | — | 4,096 B | 2.5x |
 
 Every measured path stays inside the reference configuration's P2 timing
