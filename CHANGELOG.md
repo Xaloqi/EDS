@@ -25,6 +25,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   page now gives figures measured with canaries on, plus the figures without.
   `basic_ecu_doip` does not enable canaries and is unchanged.
 
+### Fixed
+
+- **`basic_ecu` on nucleo_h743zi/h753zi now keeps its NVM state across a
+  reset** (#504). It used the NVS backend, whose 16-bit sector size cannot
+  hold STM32H7's 128 KB sectors, so `nvs_mount()` failed on every boot. The
+  SecurityAccess failed-attempt counter and the DTC mirror were therefore lost
+  on each reset: two wrong keys, a reset and a third wrong key gave NRC 0x35
+  instead of locking out. It now uses the append-only backend that
+  `safeboot_ecu` uses on these boards (#304), with the same partition, and
+  feeds the watchdog across its bank erase. The first boot on an erased
+  partition takes a few seconds longer while the banks are formatted.
+
 ## [1.23.0] — 2026-10-21
 
 ### Migration from 1.22.x
