@@ -8,6 +8,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **Stack canaries are on for nucleo_h743zi and nucleo_h753zi.** The board
+  confs, and `safeboot_ecu`'s copies, forced `CONFIG_STACK_CANARIES=n`
+  because the board supposedly had no RNG. That was stale: the confs enable
+  `ENTROPY_GENERATOR` and the overlays the STM32 RNG. The RNG driver
+  initialises at `PRE_KERNEL_1` and implements `entropy_get_entropy_isr()`,
+  so the kernel seeds the canary from it. The override and its
+  `CONFIG_EDS_REQUIRE_STACK_CANARIES=n` opt-out are gone; the canary guard
+  now applies to these boards. Checked on a NUCLEO-H753ZI: the canary
+  differs on every boot, and a deliberate stack buffer overrun stops the
+  system with a stack-check fatal error. On Zephyr 3.7 canaries mean
+  `-fstack-protector-all`: `basic_ecu` grows by about 22 KB of flash (+25%),
+  and the CAN-path timings in `docs/PERFORMANCE.md` rise by up to 54%. That
+  page now gives figures measured with canaries on, plus the figures without.
+  `basic_ecu_doip` does not enable canaries and is unchanged.
+
 ## [1.23.0] — 2026-10-21
 
 ### Migration from 1.22.x

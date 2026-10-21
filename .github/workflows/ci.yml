@@ -127,6 +127,8 @@
 #     Added CONFIG_STATS=y to prj.conf (CAN_STATS dependency, valid everywhere).
 #     Added CONFIG_STACK_CANARIES=n override to nucleo_h743zi.conf
 #     (MPU_STACK_GUARD already provides hardware-enforced stack protection).
+#     Since removed: the conf enables ENTROPY_GENERATOR and the overlay the
+#     STM32 RNG, so canaries are on for the nucleo boards.
 #
 # [B1-FIX] native_sim: DT_ALIAS(can0) was unresolved because the .overlay
 #   was never passed to west build. EXTRA_CONF_FILE carries only Kconfig (.conf);
@@ -1133,9 +1135,9 @@ jobs:
 
       # [#31] Static stack-depth budget for the diag_task poll loop's hot
       # chain, cross-checked against real NUCLEO-H753ZI hardware measurements
-      # in docs/PERFORMANCE.md (runtime high-water-mark: 688/4096 bytes;
+      # in docs/PERFORMANCE.md (runtime high-water-mark: 736/4096 bytes;
       # this file's own -fstack-usage-traced subtotal for the same chain:
-      # 360 bytes across on_isotp_rx_complete -> uds_server_process_request
+      # 328 bytes across on_isotp_rx_complete -> uds_server_process_request
       # -> the deepest single service handler -> its deepest safety-wrapper
       # call). 1024 bytes gives real headroom over both figures while still
       # catching a regression (an accidentally-added large local buffer/array
