@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.23.0] — 2026-10-21
+
 ### Migration from 1.22.x
 
 Three new build guards can stop a build that passed on 1.22.x. Each fails with
