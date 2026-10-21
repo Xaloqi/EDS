@@ -306,7 +306,12 @@ target_sources(app PRIVATE
 #     Requires CONFIG_FLASH=y, CONFIG_FLASH_MAP=y, CONFIG_NVS=y (set in
 #     boards/nucleo_h743zi/nucleo_h743zi.conf) and a DTS flash partition
 #     (defined in boards/nucleo_h743zi/nucleo_h743zi.overlay as "diag_nvs").
-#     Used for all real hardware targets.
+#     Used for the other real hardware targets (frdm_mcxn947).
+#
+#   platform/nvm_store_append.c — append-only backend (#304) for STM32H7
+#     boards. Their 128 KB sectors overflow NVS's uint16_t sector_size, so
+#     nvm_store.c fails nvs_mount() there (EDS#504). Same diag_nvs partition
+#     (2 x 128 KB) and the same nvm_store_* API. Used for nucleo_h743zi/h753zi.
 #
 #   platform/nvm_store_mock.c — RAM-backed mock for host simulation.
 #     Self-defines NVM_STORE_HOST_MOCK at the top of the file.
@@ -314,11 +319,14 @@ target_sources(app PRIVATE
 #     subsystem dependency.
 #     Used for native_sim, where NVS flash infrastructure is absent.
 #
-# Both files export the same symbols. Exactly one must be compiled per build.
+# All three export the same symbols. Exactly one must be compiled per build.
 # Including both would produce duplicate-symbol linker errors.
 # ──────────────────────────────────────────────────────────────────────────────
 if(CONFIG_BOARD_NATIVE_SIM)
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
+elseif(CONFIG_BOARD_NUCLEO_H743ZI OR CONFIG_BOARD_NUCLEO_H753ZI)
+    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_append.c)
+    target_compile_definitions(app PRIVATE DIAG_NVM_BACKEND_APPEND=1)
 else()
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store.c)
 endif()

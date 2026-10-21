@@ -51,6 +51,9 @@
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
 #include "nvm_store.h"
+#if defined(DIAG_NVM_BACKEND_APPEND)
+#include "nvm_store_append.h"
+#endif
 
 /* --------------------------------------------------------------------------
  * Generated headers (from diagnostics_config.yaml via codegen.py)
@@ -267,6 +270,13 @@ int main(void)
             return -1;
         }
     }
+
+#if defined(DIAG_NVM_BACKEND_APPEND)
+    /* [EDS#504] The append-only backend erases one 128 KB bank during
+     * compaction (up to 4 s on STM32H7); it feeds the watchdog across that
+     * call. Must run before nvm_store_init() below. */
+    nvm_store_append_set_wdt(&s_wdt);
+#endif
 
     /*
      * [EDS#200] Must run before uds_generated_init() (dtc_mirror_init() at
