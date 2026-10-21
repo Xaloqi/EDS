@@ -25,6 +25,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   page now gives figures measured with canaries on, plus the figures without.
   `basic_ecu_doip` does not enable canaries and is unchanged.
 
+### Removed
+
+- **The repository-root `CMakeLists.txt`** (#507). It described itself as a
+  Zephyr application, but it no longer configured for any board: there is no
+  root `prj.conf`, and the root `Kconfig` it would use as the application's
+  never sources Zephyr's. EDS is a Zephyr module (`zephyr/module.yml`
+  registers its `Kconfig` only), and every documented and CI build uses an
+  example's own `CMakeLists.txt`. That does not change. Integrations that
+  wire EDS sources into their own application, as `docs/INTEGRATION_GUIDE.md`
+  describes, are unaffected.
+
 ### Fixed
 
 - **`basic_ecu` on nucleo_h743zi/h753zi now keeps its NVM state across a
