@@ -511,7 +511,7 @@ target_sources(app PRIVATE
 )
 ```
 
-The root `CMakeLists.txt` defines a `run_codegen` custom target that re-runs `codegen.py` when any `.j2` template or the YAML changes (via `CODEGEN_SENTINEL` dependency tracking). To skip codegen during iterative builds:
+Each Zephyr example's `CMakeLists.txt` (for example `examples/basic_ecu/CMakeLists.txt`) defines a `run_codegen` custom target that re-runs `codegen.py` when any `.j2` template or the YAML changes (via `CODEGEN_SENTINEL` dependency tracking). To skip codegen during iterative builds:
 
 ```bash
 west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON
