@@ -23,7 +23,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `-fstack-protector-all`: `basic_ecu` grows by about 22 KB of flash (+25%),
   and the CAN-path timings in `docs/PERFORMANCE.md` rise by up to 54%. That
   page now gives figures measured with canaries on, plus the figures without.
-  `basic_ecu_doip` does not enable canaries and is unchanged.
+- **`basic_ecu_doip` now builds with stack canaries.** Its `prj.conf` never
+  requested them, although its NUCLEO-H753ZI conf says not to disable them
+  and its native_sim confs turn them off. It now sets
+  `CONFIG_STACK_CANARIES=y` and `CONFIG_EDS_REQUIRE_STACK_CANARIES=y`, like
+  the other examples, and the NUCLEO conf sets `ENTROPY_GENERATOR=y`
+  explicitly instead of relying on `NETWORKING` selecting it. Checked on a
+  NUCLEO-H753ZI: the canary differs on every boot, including after a power
+  cycle, and the DoIP smoke (routing activation, TesterPresent, session
+  control, every DID, SecurityAccess) passes with no watchdog reset. The
+  NUCLEO image grows by about 44 KB of flash (+27%). The DoIP timings in
+  `docs/PERFORMANCE.md` §4 were re-measured with canaries on and off: the
+  steady-state maximum rises by about 47%. The DoIP margins there now use
+  the example's own 25 ms P2. The native_sim builds keep canaries off, and
+  their loaded image is unchanged. A native_sim build that passes neither
+  native_sim conf now gets canaries.
 
 ### Removed
 
