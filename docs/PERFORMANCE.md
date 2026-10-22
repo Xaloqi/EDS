@@ -43,9 +43,9 @@ behaviour only and is not representative of target hardware.
   `CONFIG_STACK_CANARIES=y`, i.e. `-fstack-protector-all`), with Zephyr SDK
   0.17.0. Each figure is the worst of two runs; the runs agreed to within
   0.2%. The same stimulus on the same build without canaries is given
-  alongside for comparison. §4 (DoIP) is unchanged: `basic_ecu_doip` does not
-  enable canaries, and its image is byte-identical with and without this
-  change.
+  alongside for comparison. §4 (DoIP) was re-measured the same way on
+  2026-10-22, when `basic_ecu_doip` began building with canaries; its runs
+  agreed to within 0.5% at the minimum and maximum.
 
 ## 2. `uds_server_process_request()`
 
@@ -188,25 +188,40 @@ Measured via `basic_ecu_doip` over real Ethernet (STM32H753ZI's onboard MAC
 + PHY, RMII, 100 Mb full duplex — no board devicetree changes needed, the
 NUCLEO-H753ZI's Zephyr board support already wires this; only application-
 level static-IP Kconfig was added, see
-`examples/basic_ecu_doip/boards/nucleo_h753zi/`). 300 trials —
-`ReadDataByIdentifier` against every configured DID plus one absent DID,
-over one persistent TCP connection.
+`examples/basic_ecu_doip/boards/nucleo_h753zi/`). After routing activation,
+300 trials of `ReadDataByIdentifier` against every configured DID plus one
+absent DID, over one persistent TCP connection from a fresh boot, in the
+default session, 30 ms apart.
 
 | | cycles | @ 480 MHz |
 |---|---:|---:|
-| min (steady state) | 49,360 | 103 µs |
-| steady-state max | 137,710 | 287 µs |
-| avg (steady state) | ~135,700–137,000 | ~283–285 µs |
-| **first-message-on-connection outlier** | **351,870** | **733 µs** |
+| min (steady state) | 363,322 | 757 µs |
+| **steady-state max** | **531,956** | **1,108 µs** |
+| avg (steady state) | 401,059–414,339 | 836–863 µs |
+| first `ReadDataByIdentifier` on the connection | 389,824 | 812 µs |
+| **first message on the connection (routing activation)** | **581,732** | **1,212 µs** |
+
+Measured with canaries on. Without canaries, the same build and stimulus give
+min 244,512, max 361,786, avg 251,405–251,921 cycles, first
+`ReadDataByIdentifier` 261,964 and routing activation 368,012: canaries add
+about 47% at the steady-state maximum. "Steady state" is trials 2–300; each
+figure is the extreme of two runs per side.
+
+These figures are higher than the September 2026 ones (steady-state max
+137,710, first message 351,870, canaries off). The DoIP server has changed
+since then: among other things it now sets `TCP_NODELAY` (#406), so both
+the positive ACK and the response leave inside the measured call. Compare
+canaries on and off with the two sets above, not with the September figures.
 
 ### 4.1 The cold-start outlier is real, and reportable separately
 
-Trial #1 on a fresh connection cost 351,870 cycles; no trial after it ever
-exceeded 137,710 across the remaining 299. This is consistent with one-time
-connection/state setup rather than a per-message cost that would recur on a
-long-lived diagnostic session — both numbers are reported because both are
-real worst cases, for different scenarios (opening a session vs. staying in
-one).
+The first frame on a connection is the routing activation request, and it is
+the most expensive call measured: 581,732 cycles, against a steady-state
+maximum of 531,956. It varies from boot to boot (without canaries it was
+368,012 in one run and 105,014 in the other). The first
+`ReadDataByIdentifier` after it costs about the same as the steady state. Both
+worst cases are reported, because they apply to different scenarios: opening
+a session, and staying in one.
 
 ### 4.2 What this figure includes
 
@@ -214,8 +229,8 @@ Unlike the CAN-path figures in §2/§3 (measured separately),
 `doip_handle_frame()` was measured as one combined figure covering address
 validation, the positive ACK send, `uds_server_process_request()` dispatch,
 and DoIP response encoding/send — i.e. it already includes an instance of
-the §2 dispatch cost. §2's isolated 7.9 µs max is small enough relative to
-this path's 287 µs steady-state max that TCP/socket-layer overhead
+the §2 dispatch cost. §2's isolated 13.4 µs max is small enough relative to
+this path's 1,108 µs steady-state max that TCP/socket-layer overhead
 (`tcp_recv`/`send` inside the Zephyr net stack, not this project's own code)
 plausibly dominates over the UDS dispatch itself here — this repo's
 instrumentation does not further decompose the net-stack portion.
@@ -282,15 +297,18 @@ before this issue); against the 736-byte runtime observation the margin is
 | `uds_server_process_request()` (5 DIDs) | 6,418 | 13.4 | P2 = 50 ms | ~3,700x |
 | `uds_server_process_request()` (extrapolated, 64 DIDs) | ~29,200 | ~61 | P2 = 50 ms | ~820x |
 | `isotp_process_rx_frame()` (4,094 B message, final CF) | 164,620 | 343 | P2 = 50 ms | ~146x |
-| DoIP forward, steady state | 137,710 | 287 | P2 = 50 ms | ~174x |
-| DoIP forward, first-message-on-connection | 351,870 | 733 | P2 = 50 ms | ~68x |
+| DoIP forward, steady state | 531,956 | 1,108 | P2 = 25 ms | ~22x |
+| DoIP forward, first message on the connection | 581,732 | 1,212 | P2 = 25 ms | ~20x |
 | Stack (diag_task, runtime observed) | — | — | 4,096 B | ~5.6x |
 | Stack (diag_task, static design figure) | — | — | 4,096 B | 2.5x |
 
 Every measured path stays inside the reference configuration's P2 timing
-budget by at least ~68x, including the DoIP cold-start outlier — none of
+budget by at least ~20x, including the DoIP cold-start outlier — none of
 these paths is close to being the bottleneck against P2/P2*, on this table
 size and this hardware.
+
+The DoIP rows are measured against `basic_ecu_doip`'s own P2 (25 ms,
+`GEN_P2_SERVER_MAX_MS`). Before 2026-10-22 they used `safeboot_ecu`'s 50 ms.
 
 ## 7. What this is not
 
@@ -325,7 +343,8 @@ west build -b nucleo_h753zi examples/basic_ecu_doip -- \
     -DDIAG_SKIP_CODEGEN=ON -DDIAG_USE_MOCK_NVM=ON \
     -DEXTRA_CFLAGS=-DDIAG_WCET_MEASURE=1 \
     "-DEXTRA_CONF_FILE=examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.conf;\
-examples/basic_ecu_doip/boards/nucleo_h753zi/wcet_measurement.conf"
+examples/basic_ecu_doip/boards/nucleo_h753zi/wcet_measurement.conf" \
+    -DEXTRA_DTC_OVERLAY_FILE=examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.overlay
 # flash directly (west flash / openocd — no MCUboot involved), connect a
 # host NIC with a static IP on the same /24 as CONFIG_NET_CONFIG_MY_IPV4_ADDR,
 # then watch the console for "[WCET]" lines while driving stimulus over DoIP.

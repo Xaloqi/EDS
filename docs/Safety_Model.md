@@ -412,7 +412,7 @@ Current status of ISO 26262-6:2018 Part 6 work products:
   NUCLEO-H753ZI hardware (issue #31), not the simulator: `docs/PERFORMANCE.md`.
   Every measured path (UDS server dispatch, ISO-TP multi-frame reassembly,
   DoIP diagnostic message forwarding) stays inside the reference
-  configuration's P2 timing budget by at least ~68x; the report is explicit
+  configuration's P2 timing budget by at least ~20x; the report is explicit
   that this is an empirically observed maximum over large trial counts plus
   a structural (provably-O(N), no recursion, no dynamic allocation) argument
   for extrapolating to a larger DID/DTC table, not a formally proven bound —
