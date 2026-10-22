@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.24.0] — 2026-10-22
+
+### Migration from 1.23.x
+
+- **Flash and timing on STM32H7 and `basic_ecu_doip`.** Canaries are now on for
+  nucleo_h743zi/h753zi (and `safeboot_ecu`'s copies) and for `basic_ecu_doip`.
+  Expect roughly +25% flash and up to +54% on CAN-path timings (DoIP steady-state
+  maximum about +47%); `docs/PERFORMANCE.md` has figures with and without. Check
+  your flash and timing margins before upgrading.
+- **Root `CMakeLists.txt` is gone** (#507). It no longer configured for any
+  board. Build from an example's own `CMakeLists.txt`; integrations that wire
+  EDS sources into their own application are unaffected.
+- **NVM on nucleo_h743zi/h753zi `basic_ecu`** now uses the append-only backend
+  (#504). Existing NVS contents were never readable there (mount failed on every
+  boot), so there is nothing to migrate.
+
 ### Changed
 
 - **Stack canaries are on for nucleo_h743zi and nucleo_h753zi.** The board
