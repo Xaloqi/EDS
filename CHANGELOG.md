@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.24.0] — 2026-10-22
+
 ### Migration from 1.23.x
 
 - **Flash and timing on STM32H7 and `basic_ecu_doip`.** Canaries are now on for
