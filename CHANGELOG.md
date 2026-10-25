@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.25.0] — 2026-10-25
+
 ### Highlights
 
 - **`safeboot_ecu` builds again on Zephyr SDK 1.0.x** (#518). On Zephyr 4.4 and
