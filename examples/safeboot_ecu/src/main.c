@@ -61,6 +61,7 @@
 #include "uds_types.h"
 #include "uds_server.h"
 #include "uds_periodic.h"
+#include "services.h"         /* uds_service_0x34_pending_tick() [#518] */
 #include "uds_session.h"
 #include "isotp.h"
 #include "can_transport.h"

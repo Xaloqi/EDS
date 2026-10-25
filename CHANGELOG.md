@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`safeboot_ecu` builds on Zephyr 4.4+ (SDK 1.0.x)** (#518). `examples/safeboot_ecu/src/main.c`
+  called `uds_service_0x34_pending_tick()` without including `services.h`. GCC 14 (Zephyr SDK
+  1.0.x, used by Zephyr 4.4 and 4.5) makes an implicit function declaration a **hard error even
+  without warnings as errors**, so on 4.4.1 and 4.5 the example did not build at all; on 3.7
+  (SDK 0.16.8, GCC 12) it was only a warning. The header is now included. No object-code change
+  on 3.7.
+
+- **Zephyr 4.4+: the real NVS backend no longer includes the deprecated `<zephyr/fs/nvs.h>`** (#520).
+  `platform/zephyr/nvm_store.c` includes `<zephyr/kvss/nvs.h>` from Zephyr 4.4 and the old header
+  before; the NVS API itself is unchanged. The legacy header raised a deprecation error under
+  warnings as errors. Object code unchanged on 3.7.
+
+- **`ardep_ecu` builds with GCC 15 and warnings as errors** (#519). Its fixed-width DID fields
+  (the 17-byte VIN, the 8-byte serial, the 11-byte part number, the 5-byte supplier id) are
+  initialised from strings with no room for a terminator, which GCC 15 reports with
+  `-Wunterminated-string-initialization`. They are now marked `nonstring` (accepted by GCC 12,
+  14 and 15). Same widths, same bytes.
+
 - **Zephyr 4.5: the CAN overlays no longer use the removed `bus-speed` property** (#514).
   Zephyr 4.5 removed `bus-speed` from the CAN controller binding, so
   `boards/native_sim/native_sim.overlay` and the native_sim overlays of `bms_ecu`,
