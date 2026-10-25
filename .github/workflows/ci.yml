@@ -949,6 +949,25 @@ jobs:
             && echo "PASS: zephyr.exe produced" \
             || (echo "FAIL: zephyr.exe not found" && exit 1)
 
+      # [#511] A CAN build on a board whose conf does not set CONFIG_REBOOT must
+      # still link: EDS's Kconfig turns REBOOT on for every Zephyr build (before
+      # #511 only for socket builds, and this failed with an undefined sys_reboot).
+      # native_sim.conf sets it, so build with that one line removed.
+      - name: West build — native_sim, CAN, board conf without CONFIG_REBOOT (#511)
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          grep -v '^CONFIG_REBOOT=' "${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.conf" \
+            > "${RUNNER_TEMP}/native_sim_no_reboot.conf"
+          ! grep -q 'REBOOT' "${RUNNER_TEMP}/native_sim_no_reboot.conf"
+          west build --pristine -d build-511 -b native_sim EDS/examples/basic_ecu -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${RUNNER_TEMP}/native_sim_no_reboot.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/native_sim/native_sim.overlay"
+          grep -qx 'CONFIG_REBOOT=y' build-511/zephyr/.config \
+            || (echo "FAIL: CONFIG_REBOOT is not on by default" && exit 1)
+          test -f build-511/zephyr/zephyr.exe && echo "PASS: CAN build links without a board CONFIG_REBOOT"
+
       - name: Upload native_sim binary
         uses: actions/upload-artifact@v4
         with:
