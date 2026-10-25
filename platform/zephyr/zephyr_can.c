@@ -63,7 +63,17 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/can.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/version.h>
 #include <string.h>
+
+/* Zephyr 4.5 replaced the single state-change callback with a list of
+ * caller-owned callbacks (can_add_state_change_callback()) and deprecated
+ * can_set_state_change_callback(), which fails under -Werror [EDS#513].
+ * ZEPHYR_VERSION_CODE ignores the rc suffix, so 4.5.0-rcN counts as 4.5.
+ * Zephyr 3.7 and 4.4.x keep the single-callback API unchanged. */
+#if ZEPHYR_VERSION_CODE >= ZEPHYR_VERSION(4, 5, 0)
+#define EDS_CAN_STATE_CB_LIST 1
+#endif
 
 /* [FIX] Was LOG_MODULE_DECLARE(basic_ecu, LOG_LEVEL_INF). That symbol is only
  * instantiated when basic_ecu/src/main.c is compiled.  BMS and MC ECU builds
@@ -87,6 +97,11 @@ K_MSGQ_DEFINE(s_can_rx_msgq,
  * -------------------------------------------------------------------------- */
 static volatile bool s_bus_off = false;
 
+#ifdef EDS_CAN_STATE_CB_LIST
+/* Caller-owned and registered for the life of the program (Zephyr >= 4.5). */
+static struct can_state_change_callback s_state_change_cb;
+#endif
+
 /* --------------------------------------------------------------------------
  * Platform context
  * -------------------------------------------------------------------------- */
@@ -103,16 +118,27 @@ static can_transport_t       s_zephyr_can_transport;
 /* --------------------------------------------------------------------------
  * State change callback (ISR / workqueue context)
  * -------------------------------------------------------------------------- */
+#ifdef EDS_CAN_STATE_CB_LIST
+static void state_change_cb(const struct device         *dev,
+                             struct can_state_change_callback *cb,
+                             enum can_state               state,
+                             struct can_bus_err_cnt       err_cnt)
+#else
 static void state_change_cb(const struct device   *dev,
                              enum can_state         state,
                              struct can_bus_err_cnt err_cnt,
                              void                  *user_data)
+#endif
 {
     unsigned int key;
 
     (void)dev;
     (void)err_cnt;
+#ifdef EDS_CAN_STATE_CB_LIST
+    (void)cb;
+#else
     (void)user_data;
+#endif
 
     key = irq_lock();
     s_bus_off = (state == CAN_STATE_BUS_OFF);
@@ -355,7 +381,16 @@ uds_status_t zephyr_can_platform_init(
     }
 
     /* Register state-change (bus-off) callback. */
+#ifdef EDS_CAN_STATE_CB_LIST
+    can_init_state_change_callback(&s_state_change_cb, state_change_cb);
+    rc = can_add_state_change_callback(can_dev, &s_state_change_cb);
+    if (rc != 0) {
+        LOG_ERR("CAN: can_add_state_change_callback() failed: %d", rc);
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+#else
     can_set_state_change_callback(can_dev, state_change_cb, NULL);
+#endif
 
     /* ── Filter 1: ISO 15765-4 functional address 0x7DF ─────────────────────
      *

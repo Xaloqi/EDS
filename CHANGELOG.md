@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Zephyr 4.5: the CAN bus-off handler no longer uses a deprecated call** (#513).
+  `platform/zephyr/zephyr_can.c` registered its bus-off handler with
+  `can_set_state_change_callback()`, which Zephyr 4.5 deprecates. A build with
+  warnings as errors (`CONFIG_COMPILER_WARNINGS_AS_ERRORS=y`, or twister) failed
+  on it. On Zephyr >= 4.5 EDS now registers a caller-owned
+  `struct can_state_change_callback` with `can_add_state_change_callback()`; a
+  failed registration makes `zephyr_can_platform_init()` return
+  `UDS_STATUS_ERR_PLATFORM`. The handler logic (bus-off flag, `irq_lock`
+  protection) is unchanged. **Behaviour is unchanged on Zephyr 3.7 and 4.4.x:**
+  the code path is the same call, and the object code of `zephyr_can.c` is
+  identical before and after. New test `tests/zephyr_can_state` checks on every
+  line that the handler is registered and sets and clears the flag when a state
+  change is delivered; CI runs it on native_sim.
+
 - **Zephyr CAN builds link on boards that do not set `CONFIG_REBOOT`** (#511).
   ECUReset on Zephyr calls `sys_reboot()` on the CAN path too
   (`platform/zephyr/zephyr_port.c`, `zephyr_platform_api.c`), but EDS's

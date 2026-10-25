@@ -968,6 +968,19 @@ jobs:
             || (echo "FAIL: CONFIG_REBOOT is not on by default" && exit 1)
           test -f build-511/zephyr/zephyr.exe && echo "PASS: CAN build links without a board CONFIG_REBOOT"
 
+      # [#513] The CAN state-change (bus-off) handler: registered, and it sets and
+      # clears the bus-off flag when a state change is delivered. Built and run on
+      # the job's Zephyr (3.7); the same source builds on 4.4.x and 4.5. Passes only
+      # on an explicit PASS line AND the ztest success banner.
+      - name: Zephyr CAN state-change handler test (#513)
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          west build --pristine -d build-513 -b native_sim EDS/tests/zephyr_can_state
+          build-513/zephyr/zephyr.exe | tee state-change-test.log
+          grep -q "PASS - test_handler_registered_and_sets_bus_off" state-change-test.log
+          grep -q "PROJECT EXECUTION SUCCESSFUL" state-change-test.log
+
       - name: Upload native_sim binary
         uses: actions/upload-artifact@v4
         with:
