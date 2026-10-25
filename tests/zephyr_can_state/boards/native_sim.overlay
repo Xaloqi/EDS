@@ -1,0 +1,10 @@
+/ {
+	fake_can0: fake-can {
+		compatible = "zephyr,fake-can";
+		status = "okay";
+	};
+
+	aliases {
+		can0 = &fake_can0;
+	};
+};
