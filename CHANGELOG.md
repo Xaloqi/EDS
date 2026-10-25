@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **Zephyr CAN builds link on boards that do not set `CONFIG_REBOOT`** (#511).
+  ECUReset on Zephyr calls `sys_reboot()` on the CAN path too
+  (`platform/zephyr/zephyr_port.c`, `zephyr_platform_api.c`), but EDS's
+  Kconfig turned `REBOOT` on only for socket builds (#434). A CAN-only build
+  on a board with no reboot default (Zephyr's `xenvm`, or native_sim without
+  its board conf line) failed with `undefined reference to 'sys_reboot'`.
+  `REBOOT` now defaults to on for every EDS Zephyr build, and both files
+  refuse to build with it explicitly off. CI builds `basic_ecu` on native_sim
+  with the board conf's `CONFIG_REBOOT=y` removed. Board confs that set it
+  (native_sim, frdm_mcxn947, mr_canhubk3) are unaffected.
+
 ## [1.24.0] — 2026-10-22
 
 ### Migration from 1.23.x

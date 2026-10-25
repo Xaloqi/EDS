@@ -43,6 +43,13 @@
 #include <zephyr/sys/reboot.h>
 #include <zephyr/logging/log.h>
 
+/* ECUReset is performed with sys_reboot(). EDS's Kconfig turns REBOOT on for
+ * every Zephyr build; refuse to build if it was turned off, rather than fail
+ * at link time (EDS#511). */
+#if !defined(CONFIG_REBOOT)
+#error "EDS on Zephyr needs CONFIG_REBOOT=y: ECUReset is performed with sys_reboot() (EDS#511)."
+#endif
+
 #include <string.h>
 
 LOG_MODULE_REGISTER(zephyr_platform_api, LOG_LEVEL_INF);
