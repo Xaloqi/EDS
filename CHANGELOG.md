@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Zephyr 4.5: the CAN overlays no longer use the removed `bus-speed` property** (#514).
+  Zephyr 4.5 removed `bus-speed` from the CAN controller binding, so
+  `boards/native_sim/native_sim.overlay` and the native_sim overlays of `bms_ecu`,
+  `motor_controller_ecu`, `sensor_ecu` and `robot_joint_controller_ecu`, and the
+  `ardep_ecu` ARDEP overlay, stopped configuring. They now set `bitrate`, which Zephyr
+  3.7 and 4.4.1 also accept; the compiled CAN controller config is byte-identical
+  (500000 bit/s) on both. `docs/INTEGRATION_GUIDE.md` shows `bitrate`. If you copied
+  one of these overlays, rename the property in your copy.
+
+- **Zephyr 4.4+: no more `FIXED_PARTITION_*` deprecation errors** (#516). Zephyr 4.4
+  renamed `FIXED_PARTITION_DEVICE/OFFSET/SIZE/ID` to `PARTITION_*` and made the old names
+  deprecated macros (an error with warnings as errors). New `platform/zephyr/eds_partition.h`
+  provides `EDS_PARTITION_DEVICE/OFFSET/SIZE/ID`: `PARTITION_*` from Zephyr 4.4, the old
+  names before. `basic_ecu`, `basic_ecu_cda_demo`, `safeboot_ecu`, `zephyr_flash_ops.c` and
+  `zephyr_mcuboot_image_policy.c` use it. The object code is unchanged on Zephyr 3.7.
+
 - **Builds with `CONFIG_COMPILER_WARNINGS_AS_ERRORS=y` no longer fail inside Zephyr and HAL headers** (#515).
   The examples set `-Wundef` (MISRA C:2012 Rule 20.9) on the Zephyr `app` target, so GCC also
   applied it to every Zephyr, module and STM32 HAL header EDS code includes, and those headers

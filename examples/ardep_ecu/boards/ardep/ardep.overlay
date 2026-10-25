@@ -61,13 +61,13 @@
  * ISO 15765-4 specifies 500 kbps as the standard diagnostic CAN bus speed.
  * The ARDEP onboard transceiver supports up to 1 Mbps nominal.
  *
- * timing: bus-speed and sample-point are set for a robust 500 kbps link.
+ * timing: bitrate and sample-point are set for a robust 500 kbps link.
  * The sample-point of 87.5% (875 in Zephyr's per-mille notation) is the
  * CiA 601 recommended value for automotive CAN.
  */
 &fdcan1 {
 	status     = "okay";
-	bus-speed  = <500000>;    /* 500 kbps — ISO 15765-4 diagnostic default */
+	bitrate    = <500000>;    /* 500 kbps — ISO 15765-4 diagnostic default */
 	sample-point = <875>;     /* 87.5% — CiA 601 automotive recommendation */
 
 	can-transceiver {

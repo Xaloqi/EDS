@@ -57,6 +57,7 @@
 #include "uds_types.h"
 
 #include <zephyr/storage/flash_map.h>
+#include "eds_partition.h"   /* EDS_PARTITION_ID: FIXED_PARTITION_ID before Zephyr 4.4 [#516] */
 #include <zephyr/logging/log.h>
 
 #include <string.h>
@@ -71,13 +72,13 @@ LOG_MODULE_REGISTER(zephyr_mcuboot_image_policy, LOG_LEVEL_INF);
  * Constants
  * -------------------------------------------------------------------------- */
 
-#ifndef FIXED_PARTITION_ID
-#  error "FIXED_PARTITION_ID not available — ensure CONFIG_FLASH_MAP=y in prj.conf"
+#ifndef EDS_PARTITION_ID
+#  error "EDS_PARTITION_ID not available — ensure CONFIG_FLASH_MAP=y in prj.conf"
 #endif
 
 /** @brief ID of the MCUboot secondary slot (image_1) — same slot the flash
  *         ops table in zephyr_flash_ops.c writes to. */
-#define ZEPHYR_IMGPOL_SECONDARY_SLOT  FIXED_PARTITION_ID(image_1)
+#define ZEPHYR_IMGPOL_SECONDARY_SLOT  EDS_PARTITION_ID(image_1)
 
 /**
  * @brief Maximum TLV trailer size this policy will read into RAM.

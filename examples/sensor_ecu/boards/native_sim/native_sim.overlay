@@ -71,5 +71,5 @@
 
 &can_loopback0 {
     status = "okay";
-    bus-speed = <500000>;
+    bitrate   = <500000>;
 };
