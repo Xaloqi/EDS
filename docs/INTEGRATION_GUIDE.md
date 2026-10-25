@@ -369,7 +369,7 @@ endif()
 
 &fdcan1 {
     status     = "okay";
-    bus-speed  = <500000>;   /* ISO 15765-4 default */
+    bitrate    = <500000>;   /* ISO 15765-4 default */
     sample-point = <875>;    /* CiA 601: 87.5% */
     can-transceiver {
         max-bitrate = <1000000>;
@@ -1537,7 +1537,7 @@ pytest test_firmware_services.py -v
 | What you want | Where to change |
 |---|---|
 | Add a DID | `diagnostics_config.yaml` → `dids:` → run `codegen.py` |
-| Change CAN bus speed | `boards/<board>/<board>.overlay` → `bus-speed` (Zephyr) or CAN peripheral init (FreeRTOS) |
+| Change CAN bus speed | `boards/<board>/<board>.overlay` → `bitrate` (Zephyr; `bus-speed` was removed in 4.5) or CAN peripheral init (FreeRTOS) |
 | Change CAN RX/TX IDs | `diagnostics_config.yaml` (add `can:` section) or `generated_config.h` directly |
 | Inject OEM security key | `main.c`: `uds_security_algo_set_level_key(0x01U, your_key)` |
 | Reduce RAM usage | `core/uds_types.h`: reduce `UDS_MAX_PAYLOAD_LEN` |

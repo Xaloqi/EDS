@@ -49,11 +49,11 @@
  * compatible = "zephyr,can-loopback": Software loopback driver.
  * Frames sent via can_send() are immediately queued to the RX filter.
  *
- * bus-speed: 500000 bps (ISO 15765-4 default for 11-bit addressing).
+ * bitrate: 500000 bps (ISO 15765-4 default for 11-bit addressing).
  *   This value is informational only for the loopback driver — it does not
  *   affect actual transmission speed in simulation.
  */
 &can_loopback0 {
 	status = "okay";
-	bus-speed = <500000>;
+	bitrate = <500000>;
 };

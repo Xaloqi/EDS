@@ -93,6 +93,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/dfu/mcuboot.h>
 #include <zephyr/storage/flash_map.h>
+#include "eds_partition.h"      /* EDS_PARTITION_* : FIXED_PARTITION_* before Zephyr 4.4, PARTITION_* after (#516) */
 
 LOG_MODULE_REGISTER(safeboot_ecu, LOG_LEVEL_INF);
 
@@ -716,7 +717,7 @@ int main(void)
      * both sit on top of nvm_store and silently no-op
      * (nvm_store_is_ready() == false) until this call has succeeded.
      *
-     * FIXED_PARTITION_DEVICE()/FIXED_PARTITION_OFFSET() take the DTS
+     * EDS_PARTITION_DEVICE()/EDS_PARTITION_OFFSET() (Zephyr FIXED_PARTITION_* up to 4.3, PARTITION_* from 4.4, #516) take the DTS
      * *node label* (eds_nvs_slot), not the partition's string "label"
      * property ("diag_nvs") — passing the latter fails to compile with
      * "'__device_dts_ord_DT_N_NODELABEL_diag_nvs...' undeclared" (caught
@@ -731,8 +732,8 @@ int main(void)
      */
     {
         const nvm_store_cfg_t nvm_cfg = {
-            .flash_dev    = (const void *)FIXED_PARTITION_DEVICE(eds_nvs_slot),
-            .flash_offset = (uint32_t)FIXED_PARTITION_OFFSET(eds_nvs_slot),
+            .flash_dev    = (const void *)EDS_PARTITION_DEVICE(eds_nvs_slot),
+            .flash_offset = (uint32_t)EDS_PARTITION_OFFSET(eds_nvs_slot),
             .sector_size  = (uint32_t)0x20000U, /* 128 KB */
             .sector_count = (uint8_t)2U,
         };

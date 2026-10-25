@@ -71,6 +71,7 @@
 #include <zephyr/drivers/flash.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/storage/flash_map.h>
+#include "eds_partition.h"      /* EDS_PARTITION_* : FIXED_PARTITION_* before Zephyr 4.4, PARTITION_* after (#516) */
 
 LOG_MODULE_REGISTER(basic_ecu, LOG_LEVEL_INF);
 
@@ -304,7 +305,7 @@ int main(void)
      * nvm_store.h: "may be NULL on host") and there is no "diag_nvs"
      * partition to resolve.
      *
-     * FIXED_PARTITION_DEVICE/OFFSET/SIZE below take the DTS *node label*
+     * EDS_PARTITION_DEVICE/OFFSET/SIZE below (platform/zephyr/eds_partition.h: Zephyr's FIXED_PARTITION_* up to 4.3, PARTITION_* from 4.4, #516) take the DTS *node label*
      * (eds_nvs_slot), not the partition's string "label" property
      * ("diag_nvs") — passing "diag_nvs" fails to compile with
      * "'__device_dts_ord_DT_N_NODELABEL_diag_nvs...' undeclared" (caught
@@ -327,9 +328,9 @@ int main(void)
     status = nvm_store_init(NULL);
 #else
     {
-        const struct device    *nvs_dev = FIXED_PARTITION_DEVICE(eds_nvs_slot);
-        const off_t              nvs_off = FIXED_PARTITION_OFFSET(eds_nvs_slot);
-        const size_t              nvs_sz = FIXED_PARTITION_SIZE(eds_nvs_slot);
+        const struct device    *nvs_dev = EDS_PARTITION_DEVICE(eds_nvs_slot);
+        const off_t              nvs_off = EDS_PARTITION_OFFSET(eds_nvs_slot);
+        const size_t              nvs_sz = EDS_PARTITION_SIZE(eds_nvs_slot);
         struct flash_pages_info  page_info;
         int rc = flash_get_page_info_by_offs(nvs_dev, nvs_off, &page_info);
 

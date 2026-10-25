@@ -19,7 +19,7 @@
  *     uds_generated_init(can_transport, rx_id, tx_id);
  *
  * FLASH AREA:
- *   FIXED_PARTITION_ID(image_1) — MCUboot secondary slot.
+ *   EDS_PARTITION_ID(image_1) — MCUboot secondary slot.
  *   [#200/#291] Was FLASH_AREA_ID(image_1) — that macro does not exist in
  *   Zephyr v3.7.0 (this project's pinned revision, west.yml). It was
  *   renamed to FIXED_PARTITION_ID some releases back; FLASH_AREA_ID
@@ -54,6 +54,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/storage/flash_map.h>
+#include "eds_partition.h"   /* EDS_PARTITION_ID: FIXED_PARTITION_ID before Zephyr 4.4 [#516] */
 #include <zephyr/drivers/flash.h>
 #include <zephyr/logging/log.h>
 
@@ -67,12 +68,12 @@ LOG_MODULE_REGISTER(zephyr_flash_ops, LOG_LEVEL_INF);
  * Secondary slot region (derived from flash map at compile time)
  * -------------------------------------------------------------------------- */
 
-#ifndef FIXED_PARTITION_ID
-#  error "FIXED_PARTITION_ID not available — ensure CONFIG_FLASH_MAP=y in prj.conf"
+#ifndef EDS_PARTITION_ID
+#  error "EDS_PARTITION_ID not available — ensure CONFIG_FLASH_MAP=y in prj.conf"
 #endif
 
 /** @brief ID of the MCUboot secondary slot (image_1). */
-#define ZEPHYR_FLASH_SECONDARY_SLOT  FIXED_PARTITION_ID(image_1)
+#define ZEPHYR_FLASH_SECONDARY_SLOT  EDS_PARTITION_ID(image_1)
 
 /* --------------------------------------------------------------------------
  * Static memory map — single readable + writable region (secondary slot)
@@ -355,7 +356,7 @@ static uds_status_t z_swap_move_capacity(const struct flash_area *secondary,
     uint32_t                   trailer;
     int                        rc;
 
-    rc = flash_area_open(FIXED_PARTITION_ID(slot0_partition), &primary);
+    rc = flash_area_open(EDS_PARTITION_ID(slot0_partition), &primary);
     if (rc != 0) {
         LOG_ERR("[#436] flash_area_open(slot0_partition) failed: %d", rc);
         return UDS_STATUS_ERR_PLATFORM;
