@@ -129,7 +129,15 @@ void zephyr_nvm_store_register_ops(const eds_nvm_ops_t *ops)
 /* Zephyr NVS and flash headers — conditionally included for host build */
 #ifndef NVM_STORE_HOST_MOCK
 
+#include <zephyr/version.h>
+/* NVS moved to <zephyr/kvss/nvs.h> in Zephyr 4.4; <zephyr/fs/nvs.h> became a legacy
+ * header that warns (an error with warnings as errors) [#520]. The API (nvs_mount,
+ * nvs_read, nvs_write, nvs_delete, nvs_clear) is the same. Gate form as zephyr_can.c (#513). */
+#if ZEPHYR_VERSION_CODE >= ZEPHYR_VERSION(4, 4, 0)
+#include <zephyr/kvss/nvs.h>
+#else
 #include <zephyr/fs/nvs.h>
+#endif
 #include <zephyr/drivers/flash.h>
 #include <zephyr/device.h>
 #include <zephyr/logging/log.h>

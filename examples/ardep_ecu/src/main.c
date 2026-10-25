@@ -127,11 +127,17 @@ LOG_MODULE_REGISTER(ardep_ecu, LOG_LEVEL_INF);
  * =============================================================================*/
 
 /* ── ECU identity ─────────────────────────────────────────────────────────── */
-static const uint8_t s_vin[17]            = "ARDEPEDS000000001";
-static const uint8_t s_ecu_serial[8]      = "EDS00001";
-static       uint8_t s_spare_part_num[11] = "EDS-IO-0001";
+/* These are fixed-width DID fields, not C strings: the width is the field width
+ * and there is no terminator (the 17-byte VIN fills its 17 bytes exactly). GCC 15
+ * warns about that (-Wunterminated-string-initialization) unless the array is
+ * marked `nonstring` (GCC >= 8). Same bytes as before [#519]. */
+#define ARDEP_FIELD __attribute__((nonstring))
+
+static const uint8_t s_vin[17] ARDEP_FIELD            = "ARDEPEDS000000001";
+static const uint8_t s_ecu_serial[8] ARDEP_FIELD      = "EDS00001";
+static       uint8_t s_spare_part_num[11] ARDEP_FIELD = "EDS-IO-0001";
 static const uint8_t s_sw_version[4]      = { 1U, 0U, 0U, 0U }; /* 1.0.0.0 */
-static const uint8_t s_supplier_id[5]     = "00000";             /* CAGE code */
+static const uint8_t s_supplier_id[5] ARDEP_FIELD     = "00000";             /* CAGE code */
 
 /* ── PowerIO output state ─────────────────────────────────────────────────── */
 static uint8_t  s_output_bitmask       = 0x00U;     /* All outputs OFF */
