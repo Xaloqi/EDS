@@ -41,6 +41,11 @@ set(CMAKE_C_STANDARD          11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS        OFF)
 
+# [#515] -Wundef (MISRA 20.9) below applies to EDS code only: Zephyr, module and
+# HAL headers are system includes for this target. See the cmake file.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/eds_third_party_headers.cmake)
+eds_third_party_headers_are_system(app)
+
 target_compile_options(app PRIVATE
     -Wall -Wextra -Wshadow -Wdouble-promotion -Wundef
     -Wno-unused-parameter -Wno-sign-conversion

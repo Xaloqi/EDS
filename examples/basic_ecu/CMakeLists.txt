@@ -58,13 +58,18 @@ set(CMAKE_C_EXTENSIONS        OFF)
 # ---------------------------------------------------------------------------
 # Compiler flags (mirrors root CMakeLists.txt for consistency)
 # ---------------------------------------------------------------------------
+# [#515] -Wundef (MISRA 20.9) below applies to EDS code only: Zephyr, module and
+# HAL headers are system includes for this target. See the cmake file.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/eds_third_party_headers.cmake)
+eds_third_party_headers_are_system(app)
+
 target_compile_options(app PRIVATE
     # ── Enabled ───────────────────────────────────────────────────────────
     -Wall                    # standard: most likely bugs
     -Wextra                  # extra checks beyond -Wall
     -Wshadow                 # shadowed variable declarations
     -Wdouble-promotion       # implicit float-to-double (embedded risk)
-    -Wundef                  # undefined macro used in #if
+    -Wundef                  # undefined macro used in #if (MISRA 20.9; EDS code only, see #515)
     -Wno-unused-parameter    # suppress noisy unused-param warnings
 
     # ── Intentionally removed ──────────────────────────────────────────────
