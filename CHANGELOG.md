@@ -8,6 +8,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Highlights
+
+- **`safeboot_ecu` builds again on Zephyr SDK 1.0.x** (#518). On Zephyr 4.4 and
+  later (GCC 14) it did not build at all; it now does.
+- **Builds with warnings as errors work on Zephyr 3.7, 4.4 and 4.5**
+  (#512–#523). Zephyr 4.5 devicetree, bus-off and partition changes are handled,
+  and the examples no longer fail inside Zephyr and HAL headers.
+
+### Migration from 1.24.x
+
+- **Example builds now treat Zephyr and HAL headers as system headers** (#515).
+  The include directories Zephyr hands to an example's `app` target are marked
+  system includes (`cmake/eds_third_party_headers.cmake`), so `-Wundef` (and any
+  other warning) no longer fires inside Zephyr, module or STM32 HAL headers. It
+  still fires in EDS headers and sources. If you copied an example's
+  `CMakeLists.txt` or rely on warnings from those third-party headers, expect
+  them to disappear; the object code is unchanged.
+- **If you copied a CAN overlay**, rename `bus-speed` to `bitrate` in your copy
+  (#514). Zephyr 4.5 removed `bus-speed`; 3.7 and 4.4.1 accept `bitrate`.
+- **CAN-only builds** now get `CONFIG_REBOOT=y` by default (#512); a build that
+  sets it off explicitly is refused.
+
 ### Fixed
 
 - **`safeboot_ecu` builds on Zephyr 4.4+ (SDK 1.0.x)** (#518). `examples/safeboot_ecu/src/main.c`
