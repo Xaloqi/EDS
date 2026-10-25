@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Builds with `CONFIG_COMPILER_WARNINGS_AS_ERRORS=y` no longer fail inside Zephyr and HAL headers** (#515).
+  The examples set `-Wundef` (MISRA C:2012 Rule 20.9) on the Zephyr `app` target, so GCC also
+  applied it to every Zephyr, module and STM32 HAL header EDS code includes, and those headers
+  use undefined macros in `#if` on purpose (`CONFIG_FLASH_MAP_LABELS`,
+  `USE_HAL_RAMECC_REGISTER_CALLBACKS`, ...). With warnings as errors the build failed on
+  Zephyr 3.7, 4.4.1 and 4.5. `-Wundef` stays, scoped to EDS code: the include directories
+  Zephyr hands to the app are now system includes for that target
+  (`cmake/eds_third_party_headers.cmake`, used by every example that sets the flag). An
+  undefined macro in an EDS header or source still fails the build. MISRA evidence
+  (`misra_analysis.py`) is unchanged.
+
 - **Zephyr 4.5: the CAN bus-off handler no longer uses a deprecated call** (#513).
   `platform/zephyr/zephyr_can.c` registered its bus-off handler with
   `can_set_state_change_callback()`, which Zephyr 4.5 deprecates. A build with
