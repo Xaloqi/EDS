@@ -5,6 +5,7 @@
 [![Version](https://img.shields.io/badge/version-v1.25.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.25.0)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Zephyr](https://img.shields.io/badge/Zephyr-v3.7%2B-brightgreen)](https://zephyrproject.org)
+[![Zephyr main (weekly, report-only)](https://github.com/Xaloqi/EDS/actions/workflows/zephyr-main-weekly.yml/badge.svg)](https://github.com/Xaloqi/EDS/actions/workflows/zephyr-main-weekly.yml)
 
 Software Bill of Materials: [sbom.json](sbom.json) (CycloneDX 1.4)
 
@@ -636,6 +637,7 @@ Unlike alternatives that use PolyForm Noncommercial (which prohibits production 
 ## Requirements
 
 - **Zephyr RTOS**: v3.7+, West 1.2+, CMake ≥ 3.20
+  CI gates on Zephyr 3.7; a weekly report-only job builds against Zephyr `main` with warnings as errors (`basic_ecu` / `basic_ecu_doip` / `safeboot_ecu` on `nucleo_h753zi`, `basic_ecu_doip` on `xenvm`, the `native_sim` examples, plus a deprecation sweep; list in [`.github/zephyr-main/builds.tsv`](.github/zephyr-main/builds.tsv)).
 - **FreeRTOS**: FreeRTOS-Kernel (any recent release), `arm-none-eabi-gcc` (CI is pinned to [ARM GNU Toolchain 13.3.rel1](https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz), which bundles newlib — a separate `libnewlib-arm-none-eabi` package is not required with that toolchain), CMake ≥ 3.20
 - **DoIP (optional)**: LwIP 2.x (any MCU with Ethernet) for FreeRTOS targets; Zephyr networking stack (`CONFIG_NETWORKING=y`) for Zephyr targets
 - Python 3.9+ with `pyyaml`, `jinja2`, `pytest`

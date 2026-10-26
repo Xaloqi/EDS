@@ -146,6 +146,21 @@ CI runs the full workflow automatically on pull requests — see
 added; don't hardcode a count here, it has drifted before — #91). A PR will
 not be merged if any CI job is red.
 
+### Weekly build against Zephyr main
+
+`.github/workflows/zephyr-main-weekly.yml` is report-only (schedule and manual dispatch, never on
+a PR): it builds the examples listed in `.github/zephyr-main/builds.tsv` against Zephyr `main`
+with warnings as errors, then sweeps for deprecation notices. It passes only if **every listed
+row** passes, so the list must stay current:
+
+- **Adding or removing an example, board or build variant that `ci.yml` builds:** edit
+  `builds.tsv` and bump `EXPECT_ROWS` in the workflow (rows + 1 for the sweep). The job fails when
+  the two disagree, on purpose: a job that silently built fewer things would look green.
+- **A row fails against `main`:** that is an upstream change reaching EDS. Fix EDS (or file an
+  issue); do not add `-Wno-error` to a row.
+- **Run it by hand:** Actions > "zephyr main weekly" > Run workflow, optionally with a `zephyr_rev`
+  (a Zephyr 4.4 or newer ref; the job needs SDK 1.x).
+
 ### 5. Pull request checklist
 
 - [ ] Issue number referenced in the PR description

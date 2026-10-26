@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# The expected builds of .github/workflows/zephyr-main-weekly.yml. THIS FILE IS THE LIST:
+# check-results.py fails the job if any row here has no PASS result, and the workflow's
+# EXPECT_ROWS must equal the row count here (+1 for the deprecation sweep). See CONTRIBUTING.md
+# "Weekly build against Zephyr main" before editing.
+#
+# Columns (TAB-separated): name, kind, app, board, sweep, extra cmake args
+#   kind   build = must configure, compile and link
+#          test  = build, then run zephyr.exe; both PASS lines must be printed
+#   sweep  y = this build's EDS translation units go through the deprecation sweep (EDS#524)
+#   args   @EDS@ = the EDS checkout; @NATIVE_BOARD@ = the example's own boards/native_sim
+#          conf+overlay if it has them, else the generic ones (as ci.yml's zephyr-examples-native);
+#          @PRJ_NO_CANARIES@ = the app's prj.conf minus its stack-canary lines (xenvm, see xenvm.conf)
+# Every row also gets -DDIAG_SKIP_CODEGEN=ON and -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y. No row may
+# carry a -Wno-error. Nucleo and xenvm rows add -DCONFIG_NEWLIB_LIBC=n -DCONFIG_EDS_REQUIRE_NEWLIB=n
+# (Zephyr SDK 1.0.x ships no newlib, #498); that is a documented option, not a warning escape.
+basic_ecu_native_sim	build	examples/basic_ecu	native_sim	y	@NATIVE_BOARD@
+can_state_test_native_sim	test	tests/zephyr_can_state	native_sim	n	
+basic_ecu_nucleo_h753zi	build	examples/basic_ecu	nucleo_h753zi	y	-DEXTRA_CONF_FILE=@EDS@/boards/nucleo_h753zi/nucleo_h753zi.conf -DDTC_OVERLAY_FILE=@EDS@/boards/nucleo_h753zi/nucleo_h753zi.overlay
+basic_ecu_doip_nucleo_h753zi	build	examples/basic_ecu_doip	nucleo_h753zi	y	-DDIAG_USE_MOCK_NVM=ON -DEXTRA_CONF_FILE=@EDS@/examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.conf -DEXTRA_DTC_OVERLAY_FILE=@EDS@/examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.overlay
+basic_ecu_doip_nucleo_h753zi_nvs	build	examples/basic_ecu_doip	nucleo_h753zi	y	-DDIAG_USE_MOCK_NVM=OFF -DCONFIG_NVS=y -DCONFIG_FLASH=y -DCONFIG_FLASH_MAP=y -DEXTRA_CONF_FILE=@EDS@/examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.conf -DEXTRA_DTC_OVERLAY_FILE=@EDS@/examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.overlay
+safeboot_ecu_nucleo_h753zi	build	examples/safeboot_ecu	nucleo_h753zi	y	-DEXTRA_CONF_FILE=@EDS@/examples/safeboot_ecu/boards/nucleo_h753zi/nucleo_h753zi.conf -DDTC_OVERLAY_FILE=@EDS@/examples/safeboot_ecu/boards/nucleo_h753zi/nucleo_h753zi.overlay
+basic_ecu_doip_xenvm	build	examples/basic_ecu_doip	xenvm	y	-DDIAG_USE_MOCK_NVM=ON -DCONF_FILE=@PRJ_NO_CANARIES@ -DEXTRA_CONF_FILE=@EDS@/.github/zephyr-main/xenvm.conf -DEXTRA_DTC_OVERLAY_FILE=@EDS@/.github/zephyr-main/xenvm.overlay
+bms_ecu_native_sim	build	examples/bms_ecu	native_sim	n	@NATIVE_BOARD@
+motor_controller_ecu_native_sim	build	examples/motor_controller_ecu	native_sim	n	@NATIVE_BOARD@
+sensor_ecu_native_sim	build	examples/sensor_ecu	native_sim	n	@NATIVE_BOARD@
+robot_joint_controller_ecu_native_sim	build	examples/robot_joint_controller_ecu	native_sim	n	@NATIVE_BOARD@
+basic_ecu_cda_demo_native_sim	build	examples/basic_ecu_cda_demo	native_sim	n	@NATIVE_BOARD@
+ardep_ecu_native_sim	build	examples/ardep_ecu	native_sim	y	@NATIVE_BOARD@
+vehicle_state_ecu_native_sim	build	examples/vehicle_state_ecu	native_sim	n	@NATIVE_BOARD@

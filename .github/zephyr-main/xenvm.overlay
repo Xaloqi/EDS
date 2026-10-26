@@ -1,0 +1,43 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * CI fixture of .github/workflows/zephyr-main-weekly.yml (build-only, see xenvm.conf).
+ *
+ * The two virtio-mmio slots libxl allocates on Arm for the first two virtio= entries of SoDeV's
+ * domz.cfg: slot 0 virtio-net, slot 1 virtio-rng (zephyr,entropy). Zephyr's xenvm uses a static
+ * devicetree, so the nodes libxl writes into the guest DTB are ignored and are mirrored here.
+ * Same nodes as Xaloqi/Zephyr-Reference-ECU boards/xenvm_doip.overlay, without its simulated flash.
+ */
+#include <zephyr/dt-bindings/interrupt-controller/arm-gic.h>
+
+/ {
+	chosen {
+		zephyr,entropy = &virtio_rng;
+	};
+
+	virtio_mmio0: virtio_mmio@2000000 {
+		compatible = "virtio,mmio";
+		reg = <0x0 0x02000000 0x0 0x200>;
+		interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+		interrupt-parent = <&gic>;
+		status = "okay";
+
+		virtio_net: virtio-net {
+			compatible = "virtio,net";
+			status = "okay";
+			local-mac-address = [00 16 3e 5a 00 01];
+		};
+	};
+
+	virtio_mmio1: virtio_mmio@2000200 {
+		compatible = "virtio,mmio";
+		reg = <0x0 0x02000200 0x0 0x200>;
+		interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+		interrupt-parent = <&gic>;
+		status = "okay";
+
+		virtio_rng: virtio-rng {
+			compatible = "virtio,device4";
+			status = "okay";
+		};
+	};
+};
