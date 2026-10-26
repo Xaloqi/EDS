@@ -1,0 +1,150 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Weekly, REPORT-ONLY: build representative EDS examples against Zephyr `main` with
+# CONFIG_COMPILER_WARNINGS_AS_ERRORS=y.
+#
+# ci.yml (Zephyr 3.7, west.yml's pin) stays the gate. This job exists so that we, not a customer
+# on the next Zephyr release, are first to see an upstream deprecation or removal break EDS. It
+# deliberately has no pull_request or push trigger: `main` moves, and a PR made red by upstream
+# churn would teach everyone to ignore red.
+#
+# Pass = every row of .github/zephyr-main/builds.tsv has a PASS line, plus the deprecation sweep
+# (EDS#524), and the row count equals EXPECT_ROWS below (check-results.py). A missing, failed or
+# skipped row fails the job. Adding or removing a build: edit builds.tsv AND EXPECT_ROWS, see
+# CONTRIBUTING.md "Weekly build against Zephyr main".
+#
+# Zephyr is fetched at `zephyr_rev` (default main) through a manifest generated from west.yml
+# with ONLY Zephyr's revision replaced and the module import narrowed; the SDK is the one that
+# tree's SDK_VERSION names, verified against the release's own sha256.sum. Needs SDK 1.x (Zephyr
+# 4.4 or newer); the exact SHA and SDK are in the job summary.
+#
+# On a failed SCHEDULED run one tracking issue is opened (or commented on), and closed on the next
+# pass. GitHub disables scheduled workflows after 60 days with no repository activity:
+# re-enable under Actions > "zephyr main weekly" > "Enable workflow" (or
+# `gh workflow enable zephyr-main-weekly.yml`).
+name: zephyr main weekly
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # Mondays 03:17 UTC, off-peak, off the hour (the driver's job: Wed 04:43)
+  workflow_dispatch:
+    inputs:
+      zephyr_rev:
+        description: "Zephyr ref to test (default: main)"
+        default: main
+permissions:
+  contents: read
+env:
+  ZREV: ${{ inputs.zephyr_rev || 'main' }}
+  OUT: ${{ github.workspace }}/ci-out
+  # 14 builds/tests in builds.tsv + the deprecation sweep. Update together with builds.tsv.
+  EXPECT_ROWS: "15"
+  # Zephyr modules the builds need: STM32 HAL + CMSIS (nucleo_h753zi), MCUboot (safeboot_ecu), the
+  # Xen public headers (xenvm).
+  ZEPHYR_MODULES: "hal_stm32 cmsis cmsis_6 mcuboot zephyr-xenlib"
+jobs:
+  main:
+    # 26.04 for its host GCC 15: ardep_ecu's -Wunterminated-string-initialization (EDS#519)
+    # only exists there. Asserted below.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    concurrency:
+      group: zephyr-main-weekly-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: EDS
+          persist-credentials: false
+      - name: Host packages
+        run: |
+          mkdir -p "$OUT"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends cmake ninja-build gperf device-tree-compiler \
+            gcc g++ gcc-multilib g++-multilib python3-venv xz-utils wget git
+          GCCV=$(gcc -dumpfullversion)
+          echo "host gcc $GCCV, cmake $(cmake --version | head -1)"
+          [ "${GCCV%%.*}" -ge 15 ] || { echo "::error::host GCC $GCCV is older than 15; ardep_ecu's GCC 15 diagnostics (EDS#519) would go unchecked"; exit 1; }
+          echo "host gcc \`$GCCV\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: West workspace (Zephyr ${{ env.ZREV }})
+        run: |
+          python3 -m venv .venv && . .venv/bin/activate
+          pip install -q west pyyaml
+          python3 EDS/.github/zephyr-main/west-manifest.py EDS/west.yml "$ZREV" EDS/west-main.yml $ZEPHYR_MODULES
+          west init -l --mf west-main.yml EDS
+          west update --narrow -o=--depth=1
+          cp EDS/west-main.yml "$OUT/"
+          SHA=$(git -C zephyr rev-parse HEAD)
+          echo "$SHA" > "$OUT/sha.txt"
+          VER=$(tr -d ' ' < zephyr/VERSION | grep -E '^(VERSION_MAJOR|VERSION_MINOR|PATCHLEVEL|EXTRAVERSION)=' | cut -d= -f2 | paste -sd.)
+          echo "Zephyr $ZREV: $SHA ($VER; $(git -C zephyr log -1 --format='%cs %s' | cut -c1-100))"
+          echo "### Zephyr $ZREV \`$SHA\` ($VER)" >> "$GITHUB_STEP_SUMMARY"
+          pip install -q -r zephyr/scripts/requirements-base.txt pyyaml jinja2
+          [ -f bootloader/mcuboot/scripts/requirements.txt ] && pip install -q -r bootloader/mcuboot/scripts/requirements.txt
+          west zephyr-export
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Zephyr SDK (version from the tree, checksums from the release)
+        run: |
+          D=$(EDS/.github/zephyr-main/install-sdk.sh "$PWD/zephyr" /opt "$OUT" | tail -n 1)
+          echo "ZEPHYR_SDK_INSTALL_DIR=$D" >> "$GITHUB_ENV"
+          echo "SDK \`$(cat "$OUT/sdk.txt")\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Builds (warnings as errors)
+        env:
+          WS: ${{ github.workspace }}
+        run: EDS/.github/zephyr-main/run-builds.sh
+      - name: Deprecation sweep (EDS#524)
+        if: always()
+        run: python3 -I EDS/.github/zephyr-main/deprecation-sweep.py "$PWD" "$OUT" 2>&1 | tee "$OUT/deprecation-sweep.log"
+      - name: Verdict (every expected row must PASS)
+        if: always()
+        run: |
+          python3 -I EDS/.github/zephyr-main/check-results.py EDS/.github/zephyr-main/builds.tsv "$OUT/results.tsv" "$EXPECT_ROWS" | tee "$OUT/verdict.txt"
+          { echo '```'; cat "$OUT/results.tsv" | cut -f1,2; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = success ]; then echo pass > "$OUT/result"; else echo fail > "$OUT/result"; fi
+          [ -s "$OUT/first-failure.txt" ] || grep -h "FAIL" "$OUT/verdict.txt" 2>/dev/null | head -1 > "$OUT/first-failure.txt" || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: zephyr-main-logs
+          path: ci-out/
+          retention-days: 14
+          if-no-files-found: warn
+
+  # Tracking issue. Separate job so only it holds issues: write. Scheduled runs act;
+  # a manual dispatch only prints what it would do.
+  report:
+    needs: main
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: zephyr-main-weekly-report
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: zephyr-main-logs
+          path: ci-out
+      - name: Open, update or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && '0' || '1' }}
+          JOB_RESULT: ${{ needs.main.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$JOB_RESULT" = cancelled ] || [ "$JOB_RESULT" = skipped ]; then
+            echo "job was $JOB_RESULT: no verdict, leaving the tracking issue alone"; exit 0
+          fi
+          R=$(cat ci-out/result 2>/dev/null || echo fail)   # no verdict file = never got that far = fail
+          echo "job result $JOB_RESULT, verdict $R, dry run $DRY_RUN"
+          .github/zephyr-main/tracking-issue.sh "$R" "$RUN_URL" ci-out

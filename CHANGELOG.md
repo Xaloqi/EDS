@@ -8,6 +8,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### CI
+
+- **Weekly, report-only build against Zephyr `main` with warnings as errors**
+  (`.github/workflows/zephyr-main-weekly.yml`). `ci.yml` stays the gate on Zephyr 3.7; this job
+  builds `basic_ecu` (`native_sim`, `nucleo_h753zi`), `basic_ecu_doip` (`nucleo_h753zi` with and
+  without the real NVS backend, and `xenvm`), `safeboot_ecu`, and the `native_sim` examples with
+  `CONFIG_COMPILER_WARNINGS_AS_ERRORS=y`, runs the CAN state-change test, and sweeps every EDS
+  translation unit for deprecation notices that system-header scoping hides (#524). It passes only
+  if every listed build reports success. On a failed scheduled run it opens one tracking issue,
+  "EDS breaks against Zephyr main", and closes it on the next pass. No EDS source or behaviour
+  changes.
+
 ## [1.25.0] — 2026-10-25
 
 ### Highlights
