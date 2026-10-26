@@ -343,6 +343,3 @@ static uds_status_t session_validate_transition(
 
     return UDS_STATUS_ERR_SESSION_TRANSITION;
 }
-
-#if UNDEFINED_EDS_CANARY_MACRO
-#endif
