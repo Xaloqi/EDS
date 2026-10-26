@@ -24,6 +24,8 @@
 # `gh workflow enable zephyr-main-weekly.yml`).
 name: zephyr main weekly
 on:
+  push:  # TEMPORARY (verification only; removed before merge): a new workflow cannot be dispatched until it is on main
+    branches: [ci/zephyr-main-weekly]
   schedule:
     - cron: "17 3 * * 1"   # Mondays 03:17 UTC, off-peak, off the hour (the driver's job: Wed 04:43)
   workflow_dispatch:
@@ -116,7 +118,7 @@ jobs:
   # a manual dispatch only prints what it would do.
   report:
     needs: main
-    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
