@@ -35,14 +35,18 @@ on:
         default: main
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash   # = bash -eo pipefail: a failing `check-results.py | tee` must fail the step
 env:
   ZREV: ${{ inputs.zephyr_rev || 'main' }}
   OUT: ${{ github.workspace }}/ci-out
   # 14 builds/tests in builds.tsv + the deprecation sweep. Update together with builds.tsv.
   EXPECT_ROWS: "15"
-  # Zephyr modules the builds need: STM32 HAL + CMSIS (nucleo_h753zi), MCUboot (safeboot_ecu), the
+  # Zephyr modules the builds need (NOT named ZEPHYR_MODULES: Zephyr's CMake reads that variable
+  # and a non-path value there silently disables module discovery): STM32 HAL + CMSIS (nucleo_h753zi), MCUboot (safeboot_ecu), the
   # Xen public headers (xenvm).
-  ZEPHYR_MODULES: "hal_stm32 cmsis cmsis_6 mcuboot zephyr-xenlib"
+  EDS_WEEKLY_MODULES: "hal_stm32 cmsis cmsis_6 mcuboot zephyr-xenlib"
 jobs:
   main:
     # 26.04 for its host GCC 15: ardep_ecu's -Wunterminated-string-initialization (EDS#519)
@@ -71,7 +75,7 @@ jobs:
         run: |
           python3 -m venv .venv && . .venv/bin/activate
           pip install -q west pyyaml
-          python3 EDS/.github/zephyr-main/west-manifest.py EDS/west.yml "$ZREV" EDS/west-main.yml $ZEPHYR_MODULES
+          python3 EDS/.github/zephyr-main/west-manifest.py EDS/west.yml "$ZREV" EDS/west-main.yml $EDS_WEEKLY_MODULES
           west init -l --mf west-main.yml EDS
           west update --narrow -o=--depth=1
           cp EDS/west-main.yml "$OUT/"
