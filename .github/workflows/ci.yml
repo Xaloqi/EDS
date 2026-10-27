@@ -1754,6 +1754,78 @@ jobs:
           [ "$count" -ge 1 ] || (echo "FAIL: no per-DID test files" && exit 1)
           echo "PASS: all test files present"
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job: example-robot-runtime
+  #
+  # EDS#528. The Zephyr Build matrix (zephyr-examples-native) compiles this
+  # example on native_sim with can_loopback0, which no tester can reach. This
+  # job builds the host-reachable variant (boards/native_sim/
+  # native_sim_socketcan.{conf,overlay}), runs it against a vcan interface and
+  # checks, over raw CAN single frames: DID 0xA000 is non-zero, and once the
+  # simulated motor temperature passes 85 degC, 0x19 0x02 lists DTC 0xA00101.
+  # Takes about a minute of wall-clock for the temperature ramp.
+  #
+  # New job, not a rename: no existing check name changed. It is not a required
+  # status check; promote it with a ruleset edit once it has a track record.
+  # ──────────────────────────────────────────────────────────────────────────
+  example-robot-runtime:
+    name: "Robot Joint Controller ECU — native_sim runtime smoke (SocketCAN)"
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget
+
+      - name: Install west
+        run: pip install west
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: West build — native_sim, SocketCAN variant
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          EX="${GITHUB_WORKSPACE}/EDS/examples/robot_joint_controller_ecu"
+          west build \
+            --pristine \
+            -b native_sim \
+            EDS/examples/robot_joint_controller_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${EX}/boards/native_sim/native_sim_socketcan.conf" \
+            "-DDTC_OVERLAY_FILE=${EX}/boards/native_sim/native_sim_socketcan.overlay"
+          test -f build/zephyr/zephyr.exe
+
+      - name: Load vcan
+        run: |
+          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" || true
+          sudo modprobe vcan
+          sudo modprobe can_raw
+
+      - name: Runtime smoke — read 0xA000, wait for the ramp, 0x19 reports 0xA00101
+        run: |
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set up zcan0
+          python3 EDS/scripts/smoke_robot_joint_ecu.py build/zephyr/zephyr.exe zcan0
+
   example-safeboot:
     name: "SafeBoot ECU — generated file validation (5 DIDs)"
     runs-on: ubuntu-22.04

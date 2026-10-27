@@ -23,14 +23,18 @@
  *     - Motor torque (Nm)
  *     - Motor temperature (°C)
  *
- *   You wire these into the DID handlers in generated/did_handlers.c.
- *   The UDS session management, security access, DTC persistence, and
- *   ISO-TP framing are handled entirely by Xaloqi EDS.
+ *   The five live DIDs (0xA000-0xA004) are "source: app" in
+ *   diagnostics_config.yaml: codegen emits no body for them and the
+ *   application defines did_read_<name>(). Here src/joint_sim.c defines them
+ *   over a simulated joint; on a real controller you replace that file with
+ *   reads of your motor API. Nothing in generated/ is edited by hand. The
+ *   UDS session management, security access, DTC persistence and ISO-TP
+ *   framing are handled by Xaloqi EDS.
  *
  * SUPPORTED INTERFACES:
  *   Zephyr: motor driver API (CONFIG_MOTOR=y), ADC for temperature,
  *           encoder via QDEC driver, or custom CAN-based servo driver
- *   FreeRTOS: replace Zephyr APIs in did_handlers.c with your vendor HAL.
+ *   FreeRTOS: replace the Zephyr APIs in joint_sim.c with your vendor HAL.
  *             See examples/basic_ecu_freertos/ for FreeRTOS platform wiring.
  *
  * THREAD MODEL (same as basic_ecu):
@@ -55,6 +59,7 @@
 #include "uds_init.h"
 #include "uds_security_algo.h"
 #include "generated_config.h"
+#include "joint_sim.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
@@ -229,6 +234,9 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
 
         on_tick(&tick_ctx);
 
+        /* Same thread as the UDS dispatch above, so joint_sim needs no lock. */
+        joint_sim_step(k_uptime_get_32());
+
         {
             static uds_msg_buf_t s_periodic_frame;
             while (uds_periodic_pop_due(&s_periodic_frame) == UDS_STATUS_OK) {
@@ -273,7 +281,9 @@ int main(void)
     LOG_INF("Xaloqi EDS  v" GEN_ECU_VERSION "  —  RobotJointController");
     LOG_INF("  DIDs: %u   DTCs: %u",
             (unsigned)GEN_DID_COUNT, (unsigned)GEN_DTC_COUNT);
-    LOG_INF("  Axis 0: position 0xA000 · velocity 0xA001 · torque 0xA002");
+    LOG_INF("  Axis 0 (simulated): position 0xA000 · velocity 0xA001 · torque 0xA002");
+    LOG_INF("  Motor temperature 0xA003 exceeds 85 degC %u s after boot -> DTC 0xA00101",
+            (unsigned)(JOINT_SIM_TEMP_FAULT_AT_MS / 1000U));
     LOG_INF("  Faults: 0x19 subfunction 0x02 to read active DTCs");
     LOG_INF("=============================================================");
 

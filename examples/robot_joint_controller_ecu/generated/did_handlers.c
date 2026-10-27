@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-08-30T13:15:31Z
+ * Generated : 2026-10-27T13:40:58Z
  *
  * PURPOSE: DID read/write handler stubs and static DID registration table.
  *          Each handler returns deterministic stub data (zeros) until the
@@ -53,31 +53,11 @@
 
 /** Stub backing store for DID 0xF190 — RobotSerialNumber (17 byte(s)). */
 /* TODO [APPLICATION]: Replace with real data source for 'RobotSerialNumber'. */
-static uint8_t s_mock_robotserialnumber[17U] = { 0U };
+static uint8_t s_mock_robotserialnumber[17U] = { 0x58U, 0x41U, 0x4CU, 0x4FU, 0x51U, 0x49U, 0x52U, 0x4FU, 0x42U, 0x4FU, 0x54U, 0x30U, 0x30U, 0x30U, 0x30U, 0x30U, 0x31U };
 
 /** Stub backing store for DID 0xF18C — ControllerSerialNumber (8 byte(s)). */
 /* TODO [APPLICATION]: Replace with real data source for 'ControllerSerialNumber'. */
-static uint8_t s_mock_controllerserialnumber[8U] = { 0U };
-
-/** Stub backing store for DID 0xA000 — Axis0Position (4 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'Axis0Position'. */
-static uint8_t s_mock_axis0position[4U] = { 0U };
-
-/** Stub backing store for DID 0xA001 — Axis0Velocity (2 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'Axis0Velocity'. */
-static uint8_t s_mock_axis0velocity[2U] = { 0U };
-
-/** Stub backing store for DID 0xA002 — Axis0Torque (2 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'Axis0Torque'. */
-static uint8_t s_mock_axis0torque[2U] = { 0U };
-
-/** Stub backing store for DID 0xA003 — Axis0MotorTemperature (1 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'Axis0MotorTemperature'. */
-static uint8_t s_mock_axis0motortemperature[1U] = { 0U };
-
-/** Stub backing store for DID 0xA004 — Axis0StatusBitmask (1 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'Axis0StatusBitmask'. */
-static uint8_t s_mock_axis0statusbitmask[1U] = { 0U };
+static uint8_t s_mock_controllerserialnumber[8U] = { 0x4AU, 0x43U, 0x2DU, 0x30U, 0x30U, 0x30U, 0x30U, 0x31U };
 
 /** Stub backing store for DID 0xA010 — Axis0PositionOffset (4 byte(s)). */
 /* TODO [APPLICATION]: Replace with real data source for 'Axis0PositionOffset'. */
@@ -85,11 +65,25 @@ static uint8_t s_mock_axis0positionoffset[4U] = { 0U };
 
 /** Stub backing store for DID 0xA011 — Axis0SoftLimitPositive (4 byte(s)). */
 /* TODO [APPLICATION]: Replace with real data source for 'Axis0SoftLimitPositive'. */
-static uint8_t s_mock_axis0softlimitpositive[4U] = { 0U };
+static uint8_t s_mock_axis0softlimitpositive[4U] = { 0x00U, 0x02U, 0x98U, 0x10U };
 
 /** Stub backing store for DID 0xA012 — Axis0SoftLimitNegative (4 byte(s)). */
 /* TODO [APPLICATION]: Replace with real data source for 'Axis0SoftLimitNegative'. */
-static uint8_t s_mock_axis0softlimitnegative[4U] = { 0U };
+static uint8_t s_mock_axis0softlimitnegative[4U] = { 0xFFU, 0xFDU, 0x67U, 0xF0U };
+
+/* =============================================================================
+ * Application-owned DIDs (source: app, EDS-toolchain#201)
+ *
+ * No backing store and no handler body is generated for these. The
+ * application defines the functions declared in did_handlers.h; a missing
+ * definition is a link error. The registration table and the safety wrappers
+ * below still reference them, so session and security gating is unchanged.
+ * ============================================================================= */
+/*   DID 0xA000 — Axis0Position: did_read_axis0position() */
+/*   DID 0xA001 — Axis0Velocity: did_read_axis0velocity() */
+/*   DID 0xA002 — Axis0Torque: did_read_axis0torque() */
+/*   DID 0xA003 — Axis0MotorTemperature: did_read_axis0motortemperature() */
+/*   DID 0xA004 — Axis0StatusBitmask: did_read_axis0statusbitmask() */
 
 
 /* =============================================================================
@@ -181,211 +175,6 @@ uds_status_t did_read_controllerserialnumber(
     /* TODO [APPLICATION]: Replace with real sensor/NVM access for ControllerSerialNumber. */
     (void)memcpy(buf, s_mock_controllerserialnumber, (size_t)8U);
     *out_len = (uint16_t)8U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xA000 — Axis0Position.
- *
- * Stub: copies 4 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_DEFAULT
- * SEC LEVEL    : 0
- * DATA LENGTH  : 4 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_axis0position, 4U);
- *     *out_len = 4U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 4.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 4.
- */
-uds_status_t did_read_axis0position(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)4U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for Axis0Position. */
-    (void)memcpy(buf, s_mock_axis0position, (size_t)4U);
-    *out_len = (uint16_t)4U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xA001 — Axis0Velocity.
- *
- * Stub: copies 2 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_DEFAULT
- * SEC LEVEL    : 0
- * DATA LENGTH  : 2 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_axis0velocity, 2U);
- *     *out_len = 2U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 2.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 2.
- */
-uds_status_t did_read_axis0velocity(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)2U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for Axis0Velocity. */
-    (void)memcpy(buf, s_mock_axis0velocity, (size_t)2U);
-    *out_len = (uint16_t)2U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xA002 — Axis0Torque.
- *
- * Stub: copies 2 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_DEFAULT
- * SEC LEVEL    : 0
- * DATA LENGTH  : 2 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_axis0torque, 2U);
- *     *out_len = 2U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 2.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 2.
- */
-uds_status_t did_read_axis0torque(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)2U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for Axis0Torque. */
-    (void)memcpy(buf, s_mock_axis0torque, (size_t)2U);
-    *out_len = (uint16_t)2U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xA003 — Axis0MotorTemperature.
- *
- * Stub: copies 1 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_DEFAULT
- * SEC LEVEL    : 0
- * DATA LENGTH  : 1 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_axis0motortemperature, 1U);
- *     *out_len = 1U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 1.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
- */
-uds_status_t did_read_axis0motortemperature(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)1U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for Axis0MotorTemperature. */
-    (void)memcpy(buf, s_mock_axis0motortemperature, (size_t)1U);
-    *out_len = (uint16_t)1U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xA004 — Axis0StatusBitmask.
- *
- * Stub: copies 1 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_DEFAULT
- * SEC LEVEL    : 0
- * DATA LENGTH  : 1 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_axis0statusbitmask, 1U);
- *     *out_len = 1U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 1.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
- */
-uds_status_t did_read_axis0statusbitmask(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)1U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for Axis0StatusBitmask. */
-    (void)memcpy(buf, s_mock_axis0statusbitmask, (size_t)1U);
-    *out_len = (uint16_t)1U;
 
     return UDS_STATUS_OK;
 }
