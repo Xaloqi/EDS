@@ -8,6 +8,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Codegen
+
+- **`source: app` on a DID: the application implements its handlers** (EDS-toolchain#201).
+  `tools/codegen.py` and `tools/config_parser.py` accept `source: stub | app` (default `stub`)
+  and pass `app_owned` to the templates, which then emit no backing store and no handler body
+  for that DID; the application defines `did_read_<name>()` (and `did_write_<name>()` if
+  writable). The registration row and the safety wrappers are unchanged, so session, security
+  and length are checked before the application's function runs. Before this, a live read-only
+  value could be set from app code only by making the DID writable over UDS or hand-editing
+  `generated/`. An unknown `source` and `source: app` with `default_value` exit 1. Needs the
+  matching EDS-toolchain templates. No change for existing configs: every example regenerates
+  byte-identically (timestamps aside). `docs/AI_CONTEXT.md` Pattern 1 and `docs/llms.txt` used
+  to describe a handler-name field codegen never read; both now show `source: app`.
+
 ### CI
 
 - **Weekly, report-only build against Zephyr `main` with warnings as errors**

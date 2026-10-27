@@ -120,6 +120,10 @@ SESSION_ORDINAL: Dict[str, int] = {
     "safety_system": 4,
 }
 
+# Who owns a DID's value (dids[].source, EDS-toolchain#201): generated stub
+# backing store, or the application's own did_read_*/did_write_* functions.
+DID_SOURCES = ("stub", "app")
+
 # =============================================================================
 # SOVD CDA — static service list (all 14 EDS services)
 # =============================================================================
@@ -703,6 +707,26 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                     f"but data_length is {data_len}."
                 )
 
+        # source (optional) — who owns the DID's value (EDS-toolchain#201).
+        # 'stub' (default): codegen emits a backing store and handler bodies.
+        # 'app': the application implements did_read_<name>() (and
+        # did_write_<name>() if writable); codegen emits only the prototypes,
+        # the did_entry_t row and the safety wrappers, so UDS gating is
+        # unchanged and a missing implementation is a link error.
+        source = did.get("source", "stub")
+        if source not in DID_SOURCES:
+            _fatal(
+                f"{pfx}: invalid 'source' value {source!r}. "
+                f"Valid values: {list(DID_SOURCES)}"
+            )
+        if source == "app" and "default_value" in did:
+            _fatal(
+                f"{pfx}: 'default_value' with 'source: app': an app-owned DID has "
+                "no generated backing store, so the value would be dropped. "
+                "FIX: remove default_value and initialise the value in the "
+                "application's did_read_* implementation."
+            )
+
     # ── dtcs ─────────────────────────────────────────────────────────────────
     dtcs: List[Any] = cfg.get("dtcs", [])
 
@@ -921,7 +945,8 @@ def _build_did_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
       min_session (C constant string), min_session_ordinal,
       read_security_level,  read_security_level_label,
       write_security_level, write_security_level_label,
-      data_length.
+      data_length, default_value_c_init,
+      app_owned (source: app — the application implements the handlers).
 
     The *_label fields are pre-computed human-readable strings used by
     did_safety_wrappers.h.j2 to emit unambiguous security level annotations
@@ -961,6 +986,7 @@ def _build_did_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
                 _hex_bytes_to_c_init(did["default_value"])
                 if "default_value" in did else "0U"
             ),
+            "app_owned":                  did.get("source", "stub") == "app",
         })
     return result
 

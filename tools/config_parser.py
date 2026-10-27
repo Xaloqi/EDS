@@ -98,6 +98,17 @@ DID_ENTRY_SCHEMA = {
                 "hex byte string (e.g. '0xFF0000'). Byte count must match "
                 "data_length. Optional — defaults to all-zero when absent."
             )
+        },
+        "source": {
+            "enum": ["stub", "app"],
+            "default": "stub",
+            "description": (
+                "Who owns the DID's value. 'stub': codegen emits a backing "
+                "store and handler bodies. 'app': the application implements "
+                "did_read_<name>()/did_write_<name>(); codegen emits only the "
+                "prototypes, registration row and safety wrappers. "
+                "Not combinable with default_value (EDS-toolchain#201)."
+            )
         }
     },
     "additionalProperties": False
@@ -386,6 +397,11 @@ def validate_config(config: dict) -> list:
                         f"{dv_bytes} byte(s) but data_length is "
                         f"{did['data_length']}."
                     )
+            if did.get("source") == "app" and "default_value" in did:
+                errors.append(
+                    f"dids[{idx}] ({did_id}): 'default_value' cannot be combined "
+                    f"with 'source: app' (no generated backing store)."
+                )
 
     for idx, dtc in enumerate(config.get("dtcs", [])):
         dtc_code = dtc.get("code", "")
