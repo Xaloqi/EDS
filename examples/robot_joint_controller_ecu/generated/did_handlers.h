@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-08-30T13:15:31Z
+ * Generated : 2026-10-27T13:40:58Z
  *
  * PURPOSE: Declarations for all generated DID read/write handler functions
  *          and the generated DID registration entry point.
@@ -97,7 +97,9 @@ uds_status_t did_read_controllerserialnumber(
  * Security level: 0
  * Data length  : 4 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for Axis0Position.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_axis0position() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 4).
@@ -116,7 +118,9 @@ uds_status_t did_read_axis0position(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for Axis0Velocity.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_axis0velocity() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -135,7 +139,9 @@ uds_status_t did_read_axis0velocity(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for Axis0Torque.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_axis0torque() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -154,7 +160,9 @@ uds_status_t did_read_axis0torque(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for Axis0MotorTemperature.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_axis0motortemperature() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -173,7 +181,9 @@ uds_status_t did_read_axis0motortemperature(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for Axis0StatusBitmask.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_axis0statusbitmask() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).

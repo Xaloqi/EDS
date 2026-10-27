@@ -23,7 +23,8 @@
 #
 # TARGET:
 #   Any Zephyr-supported MCU with CAN, controlling 1–4 servo axes.
-#   Tested: native_sim (loopback), STM32H7 (FDCAN)
+#   Built and exercised on native_sim only (simulated joint, see src/joint_sim.c).
+#   No physical joint, motor, encoder or MCU board has been validated.
 #   FreeRTOS: same YAML — replace DID handler bodies with your vendor HAL.
 #
 # DID ADDRESS MAP:
@@ -81,6 +82,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 17
+    default_value: "0x58414C4F5149524F424F54303030303031"
 
   - id:   "0xF18C"
     name: "ControllerSerialNumber"
@@ -91,11 +93,13 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 8
+    default_value: "0x4A432D3030303031"
 
   # ── Axis 0: live state ──────────────────────────────────────────────────────
 
   - id:   "0xA000"
     name: "Axis0Position"
+    source: app   # simulated joint: src/joint_sim.c (EDS-toolchain#201)
     description: >
       Current joint position in millidegrees (0.001°).
       int32 big-endian. Range: ±2,147,483 mdeg = ±2147°.
@@ -109,6 +113,7 @@ dids:
 
   - id:   "0xA001"
     name: "Axis0Velocity"
+    source: app   # simulated joint: src/joint_sim.c (EDS-toolchain#201)
     description: >
       Current joint velocity in 0.01 rpm units.
       int16 big-endian. Range: ±32767 → ±327.67 rpm.
@@ -121,6 +126,7 @@ dids:
 
   - id:   "0xA002"
     name: "Axis0Torque"
+    source: app   # simulated joint: src/joint_sim.c (EDS-toolchain#201)
     description: >
       Current joint torque in 0.01 Nm units.
       int16 big-endian. Range: ±32767 → ±327.67 Nm.
@@ -133,6 +139,7 @@ dids:
 
   - id:   "0xA003"
     name: "Axis0MotorTemperature"
+    source: app   # simulated joint: src/joint_sim.c (EDS-toolchain#201)
     description: >
       Motor winding temperature. int8 offset-encoded: raw = T_°C + 40.
       Fault threshold: 85 °C (DTC 0xA00101 activates above this).
@@ -145,6 +152,7 @@ dids:
 
   - id:   "0xA004"
     name: "Axis0StatusBitmask"
+    source: app   # simulated joint: src/joint_sim.c (EDS-toolchain#201)
     description: >
       Axis 0 health flags (uint8):
         Bit 0: ENABLED       — axis is enabled and accepting commands
@@ -188,6 +196,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 4
+    default_value: "0x00029810"
 
   - id:   "0xA012"
     name: "Axis0SoftLimitNegative"
@@ -201,6 +210,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 4
+    default_value: "0xFFFD67F0"
 
 # =============================================================================
 # DTCs

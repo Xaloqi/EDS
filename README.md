@@ -494,7 +494,7 @@ inspect without a license.
 | `sensor_ecu_freertos` | 7 | 4 | 2 | QEMU Cortex-M4, STM32F4, Nucleo-H743ZI2 | **compile-verified** (QEMU Cortex-M4) |
 | `safeboot_ecu` | 5 | 3 | 2 | NUCLEO-H753ZI, Nucleo-H743ZI2 (MCUboot required) | **hardware-validated** (NUCLEO-H753ZI, CAN) |
 | `safeboot_freertos_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (FreeRTOS, no MCUboot) | **compile-verified** (QEMU Cortex-M4) |
-| `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim, any Zephyr CAN board | **compile-verified** (native\_sim) |
+| `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim (simulated joint; loopback and SocketCAN variants) | **compile-verified** (native\_sim); runtime smoke over vcan in CI; no hardware |
 | `bms_ecu` | 24 | 10 | 5 | native\_sim | **compile-verified** (native\_sim) |
 | `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | **compile-verified** (native\_sim) |
 | `ardep_ecu` | 35 | 19 | 6 | ardep (custom board, ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim) |

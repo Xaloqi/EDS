@@ -63,6 +63,7 @@ target_include_directories(app PRIVATE
     ${DIAG_ROOT}/platform
     ${DIAG_ROOT}/platform/zephyr
     ${DIAG_GENERATED_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 # UDS service source list — set EDS_SERVICE_SRCS.
@@ -70,6 +71,7 @@ include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
 
 target_sources(app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/joint_sim.c
 
     # UDS core
     ${DIAG_ROOT}/core/uds_server.c

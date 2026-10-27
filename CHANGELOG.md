@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Examples
+
+- **`robot_joint_controller_ecu` is now queryable from the host and returns live values** (EDS#528).
+  The five Axis 0 read DIDs (0xA000-0xA004) are `source: app` and are implemented by
+  `src/joint_sim.c`, a deterministic simulated joint: position sweeps +/-90 degrees, velocity and
+  torque follow it, motor temperature rises 1 degC/s from 30 degC and exceeds 85 degC 56 s after
+  boot, which sets DTC 0xA00101 (status `0x2B`) and bit 4 of 0xA004. Before, every one of them
+  returned zeros (0xA003 decoded to -40 degC). The two serial-number DIDs and the soft limits
+  (+/-170 degrees) now have fixed values instead of zeros; `generated/` was regenerated and nothing
+  in it is edited by hand. New `boards/native_sim/native_sim_socketcan.{conf,overlay}` bind `can0`
+  to the host interface `zcan0`, which the loopback variant cannot do; the loopback variant is
+  unchanged. The README now matches the YAML (it listed 8 DIDs, 4 DTCs and routines that were not
+  in it), states the licence terms (free to build and run; regenerating needs a Developer licence)
+  and the test boundary (`native_sim` only; no physical joint, motor or encoder validated). The
+  YAML header no longer claims STM32H7 was tested.
+
 ### Codegen
 
 - **`source: app` on a DID: the application implements its handlers** (EDS-toolchain#201).
@@ -23,6 +39,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   to describe a handler-name field codegen never read; both now show `source: app`.
 
 ### CI
+
+- **New job `example-robot-runtime`: runtime smoke of `robot_joint_controller_ecu`** (EDS#528). Builds
+  the SocketCAN variant on `native_sim`, runs it on a `vcan` interface and checks over raw CAN
+  frames (`scripts/smoke_robot_joint_ecu.py`) that 0xA000 is non-zero and that, once the simulated
+  motor temperature passes 85 degC (about 56 s), `0x19 0x02` lists DTC 0xA00101. The loopback
+  build of this example was already in the Zephyr examples matrix. No existing job is renamed, so
+  no required status check changes; the new job is not required.
 
 - **Weekly, report-only build against Zephyr `main` with warnings as errors**
   (`.github/workflows/zephyr-main-weekly.yml`). `ci.yml` stays the gate on Zephyr 3.7; this job

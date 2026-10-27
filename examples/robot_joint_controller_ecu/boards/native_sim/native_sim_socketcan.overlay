@@ -1,0 +1,26 @@
+/*
+ * Xaloqi EDS — robot_joint_controller_ecu
+ * boards/native_sim/native_sim_socketcan.overlay
+ *
+ * Host-reachable variant of native_sim.overlay: the `can0` alias points at the
+ * board's own `can0` node (compatible "zephyr,native-linux-can"), which opens
+ * a Linux SocketCAN interface, instead of the in-process can_loopback0 that no
+ * tester can reach. Use with native_sim_socketcan.conf (README, "Run it and
+ * query it from the host").
+ *
+ * The node's host interface is "zcan0" (Zephyr's boards/native/native_sim/
+ * native_sim.dts). Create that interface, or give an existing one the
+ * alternate name zcan0:
+ *
+ *   ip link add dev zcan0 type vcan && ip link set zcan0 up
+ *   ip link property add dev vcan0 altname zcan0       # existing vcan0
+ */
+/ {
+    aliases {
+        can0 = &can0;
+    };
+};
+
+&can0 {
+    status = "okay";
+};
