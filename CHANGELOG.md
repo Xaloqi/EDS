@@ -26,6 +26,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Codegen
 
+- **A YAML with a null `dtcs:` or `dids:` section now gets a validation error instead of a traceback**
+  (EDS#532). A section holding only comments is null; `main()` called `len()` on it before
+  `validate_config()` ran. It now exits 1 with "'dtcs' must be a list (can be empty)". The schema types
+  these as arrays, so null is not treated as empty: write `dtcs: []`. `routines:` already reached that message.
 - **`source: app` on a DID: the application implements its handlers** (EDS-toolchain#201).
   `tools/codegen.py` and `tools/config_parser.py` accept `source: stub | app` (default `stub`)
   and pass `app_owned` to the templates, which then emit no backing store and no handler body
