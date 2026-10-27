@@ -254,7 +254,9 @@ python3 eds/tools/codegen.py \
 
 This produces under `your_ecu/generated/`:
 - `generated_config.h` — CAN IDs, timing constants, DID/DTC counts
-- `did_handlers.h/.c` — one handler stub per DID (fill with your sensor reads)
+- `did_handlers.h/.c` — one handler stub per DID, except DIDs with `source: app`, whose
+  `did_read_<name>()` / `did_write_<name>()` your application defines (see `docs/AI_CONTEXT.md`
+  Pattern 1). Do not edit the stubs in `generated/`; declare `source: app` instead.
 - `did_safety_wrappers.h/.c` — ASIL-B 5-step validation before every DID access
 - `uds_init.h/.c` — full stack wiring: databases → session → security → server → ISO-TP
 - `safety_config.h` — compile-time ASIL-B assertions

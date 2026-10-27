@@ -673,7 +673,7 @@ code --install-extension eds-diagnostics-*.vsix
 
 ## Common Patterns
 
-### Pattern 1: Add a read-only DID
+### Pattern 1: Add a read-only DID whose value the application owns
 
 ```yaml
 dids:
@@ -683,18 +683,37 @@ dids:
     min_session: "default"
     read_security_level: 0
     data_length: 4
+    source: app          # the application implements did_read_odometer()
 ```
 
+With `source: app` codegen generates no backing store and no handler body for
+the DID: `did_handlers.h` declares `did_read_odometer()` and your code defines
+it. The registration row and the 5-step safety wrapper still call it, so the
+stack checks session, security and length before your function runs. A
+missing definition is a link error. Without `source` (or with `source: stub`)
+the DID gets a generated stub that returns its `default_value` or zeros; the
+only way to change that value from app code is a UDS-writable DID, so use
+`source: app` for live measurements instead of adding `write`
+(EDS-toolchain#201). `source: app` cannot be combined with `default_value`.
+
 ```c
-uds_status_t odometer_read(uint8_t *data, uint16_t *length, uint16_t max_length)
+#include "did_handlers.h"
+
+uds_status_t did_read_odometer(uint8_t *buf, uint16_t buf_len, uint16_t *out_len)
 {
-    uint32_t km = app_get_odometer_km();
-    data[0] = (uint8_t)(km >> 24); data[1] = (uint8_t)(km >> 16);
-    data[2] = (uint8_t)(km >> 8);  data[3] = (uint8_t)(km);
-    *length = 4U;
+    if ((buf == NULL) || (out_len == NULL)) { return UDS_STATUS_ERR_NULL_PTR; }
+    if (buf_len < 4U) { return UDS_STATUS_ERR_BUFFER_OVERFLOW; }
+    uint32_t km = app_get_odometer_km();   /* the app's own state, under its own lock */
+    buf[0] = (uint8_t)(km >> 24); buf[1] = (uint8_t)(km >> 16);
+    buf[2] = (uint8_t)(km >> 8);  buf[3] = (uint8_t)(km);
+    *out_len = 4U;
     return UDS_STATUS_OK;
 }
 ```
+
+A writable DID with `source: app` works the same way: you also define
+`did_write_<name>(const uint8_t *buf, uint16_t len)`, called only after the
+0x2E gate and the safety wrapper pass.
 
 ---
 

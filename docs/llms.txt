@@ -112,7 +112,8 @@ Existing configs without an ecu: block continue to build unchanged (transport de
 
 DID fields: id, name, access ([read] / [write] / [read, write]), min_session,
 read_security_level (0=none), write_security_level (>=1 required for ASIL-B),
-data_length, read_handler, write_handler, description
+data_length, default_value, source (stub | app: the application
+implements did_read_<name>/did_write_<name>), description
 
 DTC fields: code (6-digit hex), description, severity
   severity values: "maintenance_only" | "check_at_next_halt" | "check_immediately"
