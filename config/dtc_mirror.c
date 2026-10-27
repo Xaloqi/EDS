@@ -186,6 +186,80 @@ static uds_status_t mirror_serialize(size_t *out_len)
     return mirror_serialize_internal(false, out_len);
 }
 
+/* [EDS#145] Wire order of the records (no cast to enum: MISRA 10.5). */
+static const dtc_record_t k_record_order[DTC_RECORD_COUNT] = {
+    DTC_RECORD_FIRST_TEST_FAILED,
+    DTC_RECORD_FIRST_CONFIRMED,
+    DTC_RECORD_MOST_RECENT_TEST_FAILED,
+    DTC_RECORD_MOST_RECENT_CONFIRMED
+};
+
+/* [EDS#145] Write the first/most recent records to NVM_KEY_DTC_RECORDS. */
+static uds_status_t records_write(void)
+{
+    uint8_t      buf[DTC_RECORDS_BYTES];
+    size_t       pos = (size_t)0U;
+    uint32_t     r;
+    uint32_t     crc;
+    uint32_t     code;
+
+    buf[pos++] = DTC_RECORDS_MAGIC_0;
+    buf[pos++] = DTC_RECORDS_MAGIC_1;
+    buf[pos++] = DTC_RECORDS_FORMAT_VERSION;
+    for (r = 0U; r < (uint32_t)DTC_RECORD_COUNT; r++) {
+        code = 0U;
+        (void)dtc_database_get_record(k_record_order[r], &code);
+        buf[pos++] = (uint8_t)((code >> 16U) & 0xFFU);
+        buf[pos++] = (uint8_t)((code >>  8U) & 0xFFU);
+        buf[pos++] = (uint8_t)( code         & 0xFFU);
+    }
+    crc = mirror_crc32(&buf[2], pos - (size_t)2U);
+    buf[pos++] = (uint8_t)((crc >> 24U) & 0xFFU);
+    buf[pos++] = (uint8_t)((crc >> 16U) & 0xFFU);
+    buf[pos++] = (uint8_t)((crc >>  8U) & 0xFFU);
+    buf[pos++] = (uint8_t)( crc         & 0xFFU);
+
+    return nvm_store_write((uint16_t)NVM_KEY_DTC_RECORDS, buf, pos);
+}
+
+/* [EDS#145] Restore the first/most recent records, all or nothing. */
+static uds_status_t records_load(void)
+{
+    uint8_t      buf[DTC_RECORDS_BYTES + 1U];   /* +1: detect an overlong record */
+    size_t       bytes_read = (size_t)0U;
+    uint32_t     r;
+    uint32_t     crc_stored;
+    uds_status_t rc;
+
+    rc = nvm_store_read((uint16_t)NVM_KEY_DTC_RECORDS, buf, sizeof(buf), &bytes_read);
+    if (rc == UDS_STATUS_ERR_DID_NOT_FOUND) {
+        return UDS_STATUS_OK;   /* None yet: written by the first flush. */
+    }
+    if (rc != UDS_STATUS_OK) {
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+    if ((bytes_read != (size_t)DTC_RECORDS_BYTES)
+            || (buf[0] != DTC_RECORDS_MAGIC_0) || (buf[1] != DTC_RECORDS_MAGIC_1)
+            || (buf[2] != DTC_RECORDS_FORMAT_VERSION)) {
+        return UDS_STATUS_ERR_NVM_DATA_CORRUPT;
+    }
+    crc_stored = ((uint32_t)buf[15] << 24U) | ((uint32_t)buf[16] << 16U)
+               | ((uint32_t)buf[17] <<  8U) |  (uint32_t)buf[18];
+    if (mirror_crc32(&buf[2], (size_t)13U) != crc_stored) {
+        return UDS_STATUS_ERR_NVM_DATA_CORRUPT;
+    }
+
+    for (r = 0U; r < (uint32_t)DTC_RECORD_COUNT; r++) {
+        size_t   pos  = (size_t)3U + ((size_t)r * (size_t)3U);
+        uint32_t code = ((uint32_t)buf[pos] << 16U)
+                      | ((uint32_t)buf[pos + 1U] << 8U)
+                      |  (uint32_t)buf[pos + 2U];
+        /* A DTC removed by a firmware update leaves its record empty. */
+        (void)dtc_database_restore_record(k_record_order[r], code);
+    }
+    return UDS_STATUS_OK;
+}
+
 /* --------------------------------------------------------------------------
  * Public API implementations
  * -------------------------------------------------------------------------- */
@@ -315,7 +389,7 @@ uds_status_t dtc_mirror_load(void)
         (void)dtc_database_restore_status(dtc_code, status_byte);   /* [EDS#448] ungated restore */
     }
 
-    return UDS_STATUS_OK;
+    return records_load();   /* [EDS#145] */
 }
 
 uds_status_t dtc_mirror_flush_all(void)
@@ -336,7 +410,11 @@ uds_status_t dtc_mirror_flush_all(void)
         return rc;
     }
 
-    return nvm_store_write((uint16_t)NVM_KEY_DTC_MIRROR, s_mirror_buf, serial_len);
+    rc = nvm_store_write((uint16_t)NVM_KEY_DTC_MIRROR, s_mirror_buf, serial_len);
+    if (rc != UDS_STATUS_OK) {
+        return rc;
+    }
+    return records_write();   /* [EDS#145] */
 }
 
 uds_status_t dtc_mirror_save_one(uint32_t dtc_code, uint8_t status_byte)
@@ -376,7 +454,12 @@ uds_status_t dtc_mirror_clear_all(void)
         return rc;
     }
 
-    return nvm_store_write((uint16_t)NVM_KEY_DTC_MIRROR, s_mirror_buf, serial_len);
+    rc = nvm_store_write((uint16_t)NVM_KEY_DTC_MIRROR, s_mirror_buf, serial_len);
+    if (rc != UDS_STATUS_OK) {
+        return rc;
+    }
+    /* [EDS#145] The clear emptied the records in RAM; persist that. */
+    return records_write();
 }
 
 bool dtc_mirror_is_ready(void)

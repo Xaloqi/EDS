@@ -5,7 +5,7 @@
  *
  * ECU       : BMS_MainController
  * Version   : 1.0.0
- * Generated : 2026-09-04T13:51:28Z
+ * Generated : 2026-10-27T15:58:31Z
  *
  * PURPOSE: Per-example DTC table, exposed as an X-macro list so any
  *          translation unit that already links against this example's
@@ -50,19 +50,20 @@
 
 /*
  * X-macro list of this example's DTCs: (code, severity byte, description).
- * Severity encoding (SAE J2012-DA): 0x20 = check_at_next_halt, 0x40 = other.
+ * Severity byte: ISO 14229-1:2013 Annex D.3 (tools/codegen.py
+ * _DTC_SEVERITY_BYTES, EDS#145): e.g. 0x41 = check_at_next_halt.
  * Invoke as GEN_DTC_TABLE(X) with X(code, severity, desc) defined by the
  * caller; #undef X immediately after use.
  */
 #define GEN_DTC_TABLE(X) \
-    X((uint32_t)13697280UL, (uint8_t)0x20U, "Cell group overvoltage — at least one cell group exceeded OV threshold") \
-    X((uint32_t)13697536UL, (uint8_t)0x20U, "Cell group undervoltage — at least one cell group dropped below UV threshold") \
-    X((uint32_t)13697792UL, (uint8_t)0x20U, "Cell overtemperature during discharge — cell NTC exceeded OT_discharge threshold") \
-    X((uint32_t)13698048UL, (uint8_t)0x20U, "Cell overtemperature during charge — cell NTC exceeded OT_charge threshold") \
-    X((uint32_t)13698304UL, (uint8_t)0x20U, "Pack overcurrent — pack current exceeded continuous current limit") \
-    X((uint32_t)13698560UL, (uint8_t)0x20U, "Isolation fault — pack-to-chassis isolation resistance below 100 Ohm/V") \
-    X((uint32_t)13698816UL, (uint8_t)0x20U, "Contactor weld detected — contactor failed to open on command") \
-    X((uint32_t)13699072UL, (uint8_t)0x20U, "Current sensor fault — sensor output out of plausibility range or open circuit") \
-    X((uint32_t)12583168UL, (uint8_t)0x20U, "CAN communication loss — no frames received from VSC/BCM for > 500 ms") \
-    X((uint32_t)13699328UL, (uint8_t)0x20U, "BMS internal MCU fault — watchdog reset or RAM check failure on startup")
+    X((uint32_t)13697280UL, (uint8_t)0x41U, "Cell group overvoltage — at least one cell group exceeded OV threshold") \
+    X((uint32_t)13697536UL, (uint8_t)0x41U, "Cell group undervoltage — at least one cell group dropped below UV threshold") \
+    X((uint32_t)13697792UL, (uint8_t)0x41U, "Cell overtemperature during discharge — cell NTC exceeded OT_discharge threshold") \
+    X((uint32_t)13698048UL, (uint8_t)0x41U, "Cell overtemperature during charge — cell NTC exceeded OT_charge threshold") \
+    X((uint32_t)13698304UL, (uint8_t)0x41U, "Pack overcurrent — pack current exceeded continuous current limit") \
+    X((uint32_t)13698560UL, (uint8_t)0x41U, "Isolation fault — pack-to-chassis isolation resistance below 100 Ohm/V") \
+    X((uint32_t)13698816UL, (uint8_t)0x41U, "Contactor weld detected — contactor failed to open on command") \
+    X((uint32_t)13699072UL, (uint8_t)0x41U, "Current sensor fault — sensor output out of plausibility range or open circuit") \
+    X((uint32_t)12583168UL, (uint8_t)0x41U, "CAN communication loss — no frames received from VSC/BCM for > 500 ms") \
+    X((uint32_t)13699328UL, (uint8_t)0x41U, "BMS internal MCU fault — watchdog reset or RAM check failure on startup")
 #endif /* DTC_CONFIG_H */

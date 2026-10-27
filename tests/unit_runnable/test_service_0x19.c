@@ -47,6 +47,10 @@
  *   TC-0x19-020  Response header: 0x59, 0x0A, 0xFF (availabilityMask)
  *   TC-0x19-021  Response length = 3 + (3 × 4) = 15 bytes
  *
+ *   [EDS#145] 0x07/0x08/0x09 (severity) and 0x0B-0x0E (first/most recent)
+ *   TC-0x19-038..042  severity count/list/info, lengths (0x13), 0x31, 0x12
+ *   TC-0x19-043..049  record transitions, aging, clears, restore, suppress
+ *
  *   General
  *   TC-0x19-022  Unsupported sub-function 0x05 → ERR_SUBFUNCTION_NOT_SUP
  *   TC-0x19-023  suppressPosRspMsgIndicationBit (bit 7) stripped correctly
@@ -106,7 +110,7 @@ static uds_server_ctx_t   g_srv;
 #define DTC_B  (0xC00200UL)  /* status 0x04 — PENDING */
 #define DTC_C  (0xC00300UL)  /* status 0x08 — CONFIRMED only */
 
-static void setup(void)
+static void setup_sev(uint8_t sev_a, uint8_t sev_b, uint8_t sev_c)
 {
     dtc_database_test_reset();
     dtc_database_init();
@@ -135,12 +139,87 @@ static void setup(void)
     };
     uds_server_init(&g_srv, &svc);
 
-    dtc_database_register(DTC_A, 0x00U, "DTC_A");
-    dtc_database_register(DTC_B, 0x00U, "DTC_B");
-    dtc_database_register(DTC_C, 0x00U, "DTC_C");
+    dtc_database_register(DTC_A, sev_a, "DTC_A");
+    dtc_database_register(DTC_B, sev_b, "DTC_B");
+    dtc_database_register(DTC_C, sev_c, "DTC_C");
     dtc_database_set_status(DTC_A, 0x09U);
     dtc_database_set_status(DTC_B, 0x04U);
     dtc_database_set_status(DTC_C, 0x08U);
+}
+
+static void setup(void)
+{
+    setup_sev(0x00U, 0x00U, 0x00U);
+}
+
+/* [EDS#145] DTCSeverity bytes as codegen emits them (Annex D.3: severity bit
+ * | DTCClass_0): A checkAtNextHalt, B maintenanceOnly, C checkImmediately. */
+#define SEV_A  (0x41U)
+#define SEV_B  (0x21U)
+#define SEV_C  (0x81U)
+
+static void setup_severity(void)
+{
+    setup_sev(SEV_A, SEV_B, SEV_C);
+}
+
+/** Build [0x19, subFn, b2, b3] */
+static uds_msg_buf_t make_req_3(uint8_t sub_fn, uint8_t b2, uint8_t b3)
+{
+    uds_msg_buf_t r;
+    memset(&r, 0, sizeof(r));
+    r.data[0] = 0x19U;
+    r.data[1] = sub_fn;
+    r.data[2] = b2;
+    r.data[3] = b3;
+    r.length  = 4U;
+    return r;
+}
+
+/** Build [0x19, subFn] */
+static uds_msg_buf_t make_req_1(uint8_t sub_fn)
+{
+    uds_msg_buf_t r;
+    memset(&r, 0, sizeof(r));
+    r.data[0] = 0x19U;
+    r.data[1] = sub_fn;
+    r.length  = 2U;
+    return r;
+}
+
+/** SID 0x14 for groupOfDTC. */
+static uds_status_t clear_dtc(uint32_t group)
+{
+    uds_msg_buf_t req14;
+    uds_msg_buf_t resp14;
+    memset(&req14, 0, sizeof(req14));
+    memset(&resp14, 0, sizeof(resp14));
+    req14.data[0] = 0x14U;
+    req14.data[1] = (uint8_t)((group >> 16U) & 0xFFU);
+    req14.data[2] = (uint8_t)((group >>  8U) & 0xFFU);
+    req14.data[3] = (uint8_t)( group         & 0xFFU);
+    req14.length  = 4U;
+    return uds_service_0x14_handler(&g_srv, &req14, &resp14);
+}
+
+/** Expect [59 subFn FF] or [59 subFn FF dtc3 status] for 0x0B-0x0E. */
+static void expect_record(uint8_t sub_fn, uint32_t dtc, uint8_t status, const char *what)
+{
+    uds_msg_buf_t req  = make_req_1(sub_fn);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, what);
+    zassert_equal(resp.data[0], 0x59U, what);
+    zassert_equal(resp.data[1], sub_fn, what);
+    zassert_equal(resp.data[2], 0xFFU, what);
+    if (dtc == 0U) {
+        zassert_equal(resp.length, 3U, what);
+        return;
+    }
+    zassert_equal(resp.length, 7U, what);
+    zassert_equal(resp.data[3], (uint8_t)((dtc >> 16U) & 0xFFU), what);
+    zassert_equal(resp.data[4], (uint8_t)((dtc >>  8U) & 0xFFU), what);
+    zassert_equal(resp.data[5], (uint8_t)( dtc         & 0xFFU), what);
+    zassert_equal(resp.data[6], status, what);
 }
 
 /** Build [0x19, subFn, ...extra bytes] */
@@ -980,6 +1059,236 @@ ZTEST(test_service_0x19, tc037_exact_length_enforced)
         UDS_STATUS_ERR_INVALID_PARAM, "0x06 with a trailing byte must be 0x13");
 }
 
+
+/* ---- [EDS#145] 0x07 / 0x08 / 0x09: severity (ISO 14229-1:2013 §11.3.1.8-10) */
+
+/** TC-0x19-038: 0x07 counts DTCs matching severity AND status masks. */
+ZTEST(test_service_0x19, tc038_count_by_severity_mask)
+{
+    setup_severity();
+    uds_msg_buf_t resp = {0};
+
+    /* checkAtNextHalt, any status: A only. */
+    uds_msg_buf_t req = make_req_3(0x07U, 0x40U, 0xFFU);
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "0x07 OK");
+    zassert_equal(resp.length, 6U, "0x07 response is 6 bytes (Table 271)");
+    zassert_equal(resp.data[0], 0x59U, NULL);
+    zassert_equal(resp.data[1], 0x07U, NULL);
+    zassert_equal(resp.data[2], 0xFFU, "DTCStatusAvailabilityMask");
+    zassert_equal(resp.data[3], 0x01U, "DTCFormatIdentifier ISO 14229-1");
+    zassert_equal(resp.data[4], 0x00U, NULL);
+    zassert_equal(resp.data[5], 0x01U, "only DTC_A is checkAtNextHalt");
+
+    /* Any severity, pending only: B. Status mask filters too. */
+    req = make_req_3(0x07U, 0xE0U, 0x04U);
+    (void)uds_service_0x19_handler(&g_srv, &req, &resp);
+    zassert_equal(resp.data[5], 0x01U, "status mask must filter (B pending)");
+
+    /* DTCClass_0 matches all three; severity mask 0 matches none. */
+    req = make_req_3(0x07U, 0x01U, 0xFFU);
+    (void)uds_service_0x19_handler(&g_srv, &req, &resp);
+    zassert_equal(resp.data[5], 0x03U, "DTCClass_0 bit set on every DTC");
+    req = make_req_3(0x07U, 0x00U, 0xFFU);
+    (void)uds_service_0x19_handler(&g_srv, &req, &resp);
+    zassert_equal(resp.data[5], 0x00U, "severity mask 0 matches nothing");
+    zassert_equal(resp.length, 6U, "count 0 is still a positive response");
+}
+
+/** TC-0x19-039: 0x08 lists {severity, FU, DTC, status} for each match. */
+ZTEST(test_service_0x19, tc039_list_by_severity_mask)
+{
+    setup_severity();
+    uds_msg_buf_t resp = {0};
+
+    /* checkAtNextHalt|checkImmediately, confirmed: A (0x09) and C (0x08). */
+    uds_msg_buf_t req = make_req_3(0x08U, 0xC0U, 0x08U);
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "0x08 OK");
+    zassert_equal(resp.length, 15U, "3 + 2 x 6 bytes (Table 277)");
+    {
+        static const uint8_t exp[15] = {
+            0x59U, 0x08U, 0xFFU,
+            SEV_A, 0x00U, 0xC0U, 0x01U, 0x00U, 0x09U,
+            SEV_C, 0x00U, 0xC0U, 0x03U, 0x00U, 0x08U,
+        };
+        zassert_mem_equal(exp, resp.data, sizeof(exp), "0x08 records");
+    }
+
+    /* No match: availability mask only. */
+    req = make_req_3(0x08U, 0x20U, 0x08U);   /* maintenanceOnly + confirmed: none */
+    (void)uds_service_0x19_handler(&g_srv, &req, &resp);
+    zassert_equal(resp.length, 3U, "no match: [59 08 FF]");
+}
+
+/** TC-0x19-040: 0x09 reports one DTC's severity record; unknown DTC = 0x31. */
+ZTEST(test_service_0x19, tc040_severity_info_of_dtc)
+{
+    setup_severity();
+    uds_msg_buf_t resp = {0};
+
+    uds_msg_buf_t req = make_req_dtc(0x09U, DTC_B, 0x00U);
+    req.length = 5U;
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "0x09 OK");
+    {
+        static const uint8_t exp[9] = {
+            0x59U, 0x09U, 0xFFU, SEV_B, 0x00U, 0xC0U, 0x02U, 0x00U, 0x04U,
+        };
+        zassert_equal(resp.length, 9U, "0x09 response is 9 bytes");
+        zassert_mem_equal(exp, resp.data, sizeof(exp), "0x09 record");
+    }
+
+    req = make_req_dtc(0x09U, 0xC0FF00UL, 0x00U);
+    req.length = 5U;
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "unknown DTC must be NRC 0x31 (Table 286)");
+}
+
+/** TC-0x19-041: exact request length for 0x07/0x08/0x09/0x0B-0x0E (NRC 0x13). */
+ZTEST(test_service_0x19, tc041_new_subfns_exact_length)
+{
+    setup_severity();
+    uds_msg_buf_t resp = {0};
+    uds_msg_buf_t req;
+    uint8_t sf;
+
+    req = make_req_2(0x07U, 0xFFU);                    /* [19 07 sev], status mask missing */
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "0x07 short must be 0x13");
+    req = make_req_3(0x08U, 0xFFU, 0xFFU);
+    req.length = 5U;
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "0x08 long must be 0x13");
+    req = make_req_dtc(0x09U, DTC_A, 0x00U);           /* 6 bytes: one too many */
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "0x09 long must be 0x13");
+    req.length = 4U;
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "0x09 short must be 0x13");
+    for (sf = 0x0BU; sf <= 0x0EU; sf++) {
+        req = make_req_2(sf, 0x00U);                   /* [19 sf] + 1 */
+        zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+            UDS_STATUS_ERR_INVALID_PARAM, "0x0B-0x0E with a trailing byte must be 0x13");
+    }
+}
+
+/** TC-0x19-042: what stays unsupported is still NRC 0x12. */
+ZTEST(test_service_0x19, tc042_remaining_subfns_unsupported)
+{
+    static const uint8_t unsupported[] = {
+        0x05U, 0x0FU, 0x10U, 0x11U, 0x12U, 0x13U, 0x16U, 0x17U, 0x18U, 0x19U,
+        0x1AU, 0x42U, 0x55U, 0x56U,
+    };
+    uint32_t i;
+
+    setup();
+    for (i = 0U; i < (uint32_t)sizeof(unsupported); i++) {
+        uds_msg_buf_t req  = make_req_1(unsupported[i]);
+        uds_msg_buf_t resp = {0};
+        zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+            UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP, "unsupported sub-function must be 0x12");
+    }
+}
+
+/* ---- [EDS#145] 0x0B-0x0E: first / most recent (ISO 14229-1:2013 §11.3.1.12-13) */
+
+/**
+ * TC-0x19-043: setup() raises A to 0x09 (failed + confirmed), B to 0x04,
+ * C to 0x08, in that order. First failed = most recent failed = A (only one
+ * failed DTC: both report it); first confirmed = A, most recent = C.
+ */
+ZTEST(test_service_0x19, tc043_first_and_recent_after_transitions)
+{
+    setup();
+    expect_record(0x0BU, DTC_A, 0x09U, "first testFailed = A");
+    expect_record(0x0DU, DTC_A, 0x09U, "most recent testFailed = A (only one failed)");
+    expect_record(0x0CU, DTC_A, 0x09U, "first confirmed = A");
+    expect_record(0x0EU, DTC_C, 0x08U, "most recent confirmed = C");
+}
+
+/** TC-0x19-044: a new 0->1 edge moves "most recent" only; a level does not. */
+ZTEST(test_service_0x19, tc044_recent_moves_first_stays)
+{
+    setup();
+    (void)dtc_database_set_status(DTC_B, 0x05U);       /* B fails */
+    expect_record(0x0BU, DTC_A, 0x09U, "first testFailed stays A");
+    expect_record(0x0DU, DTC_B, 0x05U, "most recent testFailed = B");
+
+    (void)dtc_database_set_status(DTC_A, 0x09U);       /* A: no edge (still failed) */
+    expect_record(0x0DU, DTC_B, 0x05U, "no 0->1 edge: most recent unchanged");
+
+    (void)dtc_database_set_status(DTC_A, 0x08U);       /* A passes ... */
+    (void)dtc_database_set_status(DTC_A, 0x09U);       /* ... and fails again */
+    expect_record(0x0DU, DTC_A, 0x09U, "re-failed A is most recent again");
+    expect_record(0x0BU, DTC_A, 0x09U, "first testFailed still A");
+}
+
+/** TC-0x19-045: records do not age; the current status is reported. */
+ZTEST(test_service_0x19, tc045_record_independent_of_aging)
+{
+    setup();
+    (void)dtc_database_set_status(DTC_A, 0x00U);       /* aged out */
+    expect_record(0x0BU, DTC_A, 0x00U, "first testFailed kept after aging");
+    expect_record(0x0CU, DTC_A, 0x00U, "first confirmed kept after aging");
+}
+
+/** TC-0x19-046: ClearDiagnosticInformation (all groups) empties all four. */
+ZTEST(test_service_0x19, tc046_clear_all_empties_records)
+{
+    uint8_t sf;
+
+    setup();
+    dtc_database_set_permanent(DTC_A, true);          /* survives the clear */
+    zassert_equal(clear_dtc(0xFFFFFFUL), UDS_STATUS_OK, "0x14 all");
+    for (sf = 0x0BU; sf <= 0x0EU; sf++) {
+        expect_record(sf, 0U, 0U, "no record after ClearDiagnosticInformation");
+    }
+
+    (void)dtc_database_set_status(DTC_B, 0x09U);
+    expect_record(0x0BU, DTC_B, 0x09U, "first after clear = B");
+    expect_record(0x0CU, DTC_B, 0x09U, "first confirmed after clear = B");
+}
+
+/** TC-0x19-047: clearing one DTC empties only the records that name it. */
+ZTEST(test_service_0x19, tc047_clear_one_forgets_that_dtc)
+{
+    setup();
+    zassert_equal(clear_dtc(DTC_A), UDS_STATUS_OK, "0x14 one DTC");
+    expect_record(0x0BU, 0U, 0U, "first testFailed named A: emptied");
+    expect_record(0x0CU, 0U, 0U, "first confirmed named A: emptied");
+    expect_record(0x0EU, DTC_C, 0x08U, "most recent confirmed C: kept");
+
+    (void)dtc_database_set_status(DTC_B, 0x05U);
+    expect_record(0x0BU, DTC_B, 0x05U, "next failure fills the empty first record");
+}
+
+/** TC-0x19-048: only the monitor path records; a boot restore does not. */
+ZTEST(test_service_0x19, tc048_restore_does_not_record)
+{
+    setup();
+    zassert_equal(clear_dtc(0xFFFFFFUL), UDS_STATUS_OK, NULL);
+    (void)dtc_database_restore_status(DTC_B, 0x09U);
+    expect_record(0x0BU, 0U, 0U, "restore is not a transition");
+
+    zassert_equal(dtc_database_restore_record(DTC_RECORD_FIRST_TEST_FAILED, DTC_B),
+        UDS_STATUS_OK, NULL);
+    expect_record(0x0BU, DTC_B, 0x09U, "restored record is reported");
+    zassert_equal(dtc_database_restore_record(DTC_RECORD_FIRST_CONFIRMED, 0xC0FF00UL),
+        UDS_STATUS_ERR_DID_NOT_FOUND, "unregistered DTC refused");
+    expect_record(0x0CU, 0U, 0U, "refused restore leaves the record empty");
+}
+
+/** TC-0x19-049: the suppress bit is stripped for the new sub-functions too. */
+ZTEST(test_service_0x19, tc049_suppress_bit_new_subfns)
+{
+    setup_severity();
+    uds_msg_buf_t resp = {0};
+    uds_msg_buf_t req  = make_req_3(0x87U, 0x40U, 0xFFU);
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, NULL);
+    zassert_equal(resp.data[1], 0x07U, "0x87 handled as 0x07");
+    req = make_req_1(0x8EU);
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, NULL);
+    zassert_equal(resp.data[1], 0x0EU, "0x8E handled as 0x0E");
+}
+
 /* =========================================================================
  * run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
@@ -1021,6 +1330,18 @@ extern void test_service_0x19__tc034_permanent_response_header(void);
 extern void test_service_0x19__tc035_svc014_preserves_permanent_dtc(void);
 extern void test_service_0x19__tc036_svc014_clears_non_permanent_dtc(void);
 extern void test_service_0x19__tc037_exact_length_enforced(void);
+extern void test_service_0x19__tc038_count_by_severity_mask(void);
+extern void test_service_0x19__tc039_list_by_severity_mask(void);
+extern void test_service_0x19__tc040_severity_info_of_dtc(void);
+extern void test_service_0x19__tc041_new_subfns_exact_length(void);
+extern void test_service_0x19__tc042_remaining_subfns_unsupported(void);
+extern void test_service_0x19__tc043_first_and_recent_after_transitions(void);
+extern void test_service_0x19__tc044_recent_moves_first_stays(void);
+extern void test_service_0x19__tc045_record_independent_of_aging(void);
+extern void test_service_0x19__tc046_clear_all_empties_records(void);
+extern void test_service_0x19__tc047_clear_one_forgets_that_dtc(void);
+extern void test_service_0x19__tc048_restore_does_not_record(void);
+extern void test_service_0x19__tc049_suppress_bit_new_subfns(void);
 
 void run_all_tests(void)
 {
@@ -1061,4 +1382,16 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x19__tc035_svc014_preserves_permanent_dtc);
     RUN_TEST(test_service_0x19__tc036_svc014_clears_non_permanent_dtc);
     RUN_TEST(test_service_0x19__tc037_exact_length_enforced);
+    RUN_TEST(test_service_0x19__tc038_count_by_severity_mask);
+    RUN_TEST(test_service_0x19__tc039_list_by_severity_mask);
+    RUN_TEST(test_service_0x19__tc040_severity_info_of_dtc);
+    RUN_TEST(test_service_0x19__tc041_new_subfns_exact_length);
+    RUN_TEST(test_service_0x19__tc042_remaining_subfns_unsupported);
+    RUN_TEST(test_service_0x19__tc043_first_and_recent_after_transitions);
+    RUN_TEST(test_service_0x19__tc044_recent_moves_first_stays);
+    RUN_TEST(test_service_0x19__tc045_record_independent_of_aging);
+    RUN_TEST(test_service_0x19__tc046_clear_all_empties_records);
+    RUN_TEST(test_service_0x19__tc047_clear_one_forgets_that_dtc);
+    RUN_TEST(test_service_0x19__tc048_restore_does_not_record);
+    RUN_TEST(test_service_0x19__tc049_suppress_bit_new_subfns);
 }

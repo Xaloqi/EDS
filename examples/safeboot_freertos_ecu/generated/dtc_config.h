@@ -5,7 +5,7 @@
  *
  * ECU       : SafeBootFreeRTOSECU
  * Version   : 1.0.0
- * Generated : 2026-09-04T13:51:29Z
+ * Generated : 2026-10-27T15:58:32Z
  *
  * PURPOSE: Per-example DTC table, exposed as an X-macro list so any
  *          translation unit that already links against this example's
@@ -50,12 +50,13 @@
 
 /*
  * X-macro list of this example's DTCs: (code, severity byte, description).
- * Severity encoding (SAE J2012-DA): 0x20 = check_at_next_halt, 0x40 = other.
+ * Severity byte: ISO 14229-1:2013 Annex D.3 (tools/codegen.py
+ * _DTC_SEVERITY_BYTES, EDS#145): e.g. 0x41 = check_at_next_halt.
  * Invoke as GEN_DTC_TABLE(X) with X(code, severity, desc) defined by the
  * caller; #undef X immediately after use.
  */
 #define GEN_DTC_TABLE(X) \
-    X((uint32_t)15728641UL, (uint8_t)0x40U, "DFU transfer CRC mismatch — image rejected (REQ-FLASH-003)") \
-    X((uint32_t)15728642UL, (uint8_t)0x40U, "DFU flash erase failure") \
-    X((uint32_t)15728643UL, (uint8_t)0x40U, "DFU flash write failure")
+    X((uint32_t)15728641UL, (uint8_t)0x81U, "DFU transfer CRC mismatch — image rejected (REQ-FLASH-003)") \
+    X((uint32_t)15728642UL, (uint8_t)0x81U, "DFU flash erase failure") \
+    X((uint32_t)15728643UL, (uint8_t)0x81U, "DFU flash write failure")
 #endif /* DTC_CONFIG_H */

@@ -5,7 +5,7 @@
  *
  * ECU       : ARDEP_IOController
  * Version   : 1.0.0
- * Generated : 2026-10-16T06:24:37Z
+ * Generated : 2026-10-27T15:58:30Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -242,14 +242,15 @@ uds_status_t uds_generated_init(
      * Populates the DTC database with entries from diagnostics_config.yaml.
      * String literals are in ROM — pointer storage in dtc_entry_t is safe.
      *
-     * Severity encoding (SAE J2012-DA):
-     *   0x20 = check_at_next_halt
-     *   0x40 = maintenance_only
+     * Severity: the DTCSeverity byte, ISO 14229-1:2013 Annex D.3 (EDS#145):
+     *   bits 7-5 = 0x20 maintenance_only, 0x40 check_at_next_halt,
+     *   0x80 check_immediately; bit 0 = DTCClass_0 (unclassified).
+     *   Mapped by tools/codegen.py _DTC_SEVERITY_BYTES.
      */
     {
         status = dtc_database_register(
             (uint32_t)12583168UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "CAN bus communication loss — no frames received > 500ms"
         );
         if (status != UDS_STATUS_OK) {
@@ -258,7 +259,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12583424UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "CAN bus error passive — TX/RX error counters exceeded 127"
         );
         if (status != UDS_STATUS_OK) {
@@ -267,7 +268,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12583680UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "CAN bus off — transmitter disabled by bus-off recovery"
         );
         if (status != UDS_STATUS_OK) {
@@ -276,7 +277,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12587008UL,
-            (uint8_t)0x40U,
+            (uint8_t)0x21U,
             "LIN bus no response — no slave response within timeout"
         );
         if (status != UDS_STATUS_OK) {
@@ -285,7 +286,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12587264UL,
-            (uint8_t)0x40U,
+            (uint8_t)0x21U,
             "LIN bus framing error — break field or sync byte invalid"
         );
         if (status != UDS_STATUS_OK) {
@@ -294,7 +295,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)11534592UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Output 1 overcurrent — load current exceeded threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -303,7 +304,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)11534848UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Output 2 overcurrent — load current exceeded threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -312,7 +313,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)11535104UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Output 3 overcurrent — load current exceeded threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -321,7 +322,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)11535360UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Output 4 overcurrent — load current exceeded threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -330,7 +331,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)11535616UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Output 5 overcurrent — load current exceeded threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -339,7 +340,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)11535872UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Output 6 overcurrent — load current exceeded threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -348,7 +349,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)11538432UL,
-            (uint8_t)0x40U,
+            (uint8_t)0x21U,
             "PowerIO open load — output commanded ON but no current detected"
         );
         if (status != UDS_STATUS_OK) {
@@ -357,7 +358,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12648192UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Supply voltage low — below 9.0V for > 500ms"
         );
         if (status != UDS_STATUS_OK) {
@@ -366,7 +367,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12648208UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Supply voltage high — above 16.0V for > 100ms"
         );
         if (status != UDS_STATUS_OK) {
@@ -375,7 +376,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12648224UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "ECU overtemperature — internal junction > 125°C"
         );
         if (status != UDS_STATUS_OK) {
@@ -384,7 +385,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12648240UL,
-            (uint8_t)0x40U,
+            (uint8_t)0x21U,
             "Watchdog reset event — firmware failed to service watchdog"
         );
         if (status != UDS_STATUS_OK) {
@@ -393,7 +394,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12648256UL,
-            (uint8_t)0x40U,
+            (uint8_t)0x21U,
             "NVM write failure — diagnostic session statistics not persisted"
         );
         if (status != UDS_STATUS_OK) {
@@ -402,7 +403,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12647936UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Firmware image verification failed — CRC mismatch"
         );
         if (status != UDS_STATUS_OK) {
@@ -411,7 +412,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12647952UL,
-            (uint8_t)0x40U,
+            (uint8_t)0x21U,
             "Firmware download incomplete — transfer interrupted"
         );
         if (status != UDS_STATUS_OK) {

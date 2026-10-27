@@ -66,7 +66,7 @@ extern "C" {
 typedef struct dtc_entry {
     uint32_t    dtc_code;                 /**< 3-byte DTC code (e.g. 0xC00100). */
     uint8_t     status_byte;              /**< Current DTC status byte (ISO 14229-1 Table D.1). */
-    uint8_t     severity;                 /**< Severity class (0x00 = not available). */
+    uint8_t     severity;                 /**< DTCSeverity byte, ISO 14229-1:2013 Annex D.3 (bits 7-5 severity, 4-0 class). */
     uint8_t     fault_detection_counter;  /**< Debounce counter 0x00–0xFE; 0xFF = confirmed (excluded from 0x14). */
     bool        is_permanent;             /**< true = SID 0x19/0x15-eligible, NOT clearable by SID 0x14. */
     const char *description;              /**< Human-readable description (tooling/logging only). */
@@ -134,6 +134,9 @@ dtc_entry_t *dtc_database_find(uint32_t dtc_code);
  * D.2.1 ("DTC Status Update Condition") allows no status transition then,
  * except a ClearDiagnosticInformation reset. Core used to leave that check
  * to the application.
+ *
+ * [EDS#145] The only producer of the first/most recent records: a 0->1 edge
+ * of testFailed or confirmedDTC here updates them (see dtc_record_t).
  *
  * @param[in] dtc_code    24-bit DTC code to update.
  * @param[in] status_byte New status byte value (ISO 14229-1:2026 Annex D.2).
@@ -265,6 +268,53 @@ uds_status_t dtc_database_set_permanent(uint32_t dtc_code, bool permanent);
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if database not initialized.
  */
 uds_status_t dtc_database_clear_non_permanent(void);
+
+/* --------------------------------------------------------------------------
+ * [EDS#145] First / most recent failed and confirmed DTC records
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief The four records ReadDTCInformation 0x0B-0x0E report.
+ *
+ * ISO 14229-1:2013 §11.3.1.12 (0x0B/0x0D) and §11.3.1.13 (0x0C/0x0E). A
+ * record is set when dtc_database_set_status() raises a DTC's testFailed
+ * (bit 0) or confirmedDTC (bit 3) from 0 to 1; "first" is set only while
+ * empty, "most recent" every time. Records do not age: they keep naming the
+ * DTC whatever its current status. A successful ClearDiagnosticInformation
+ * of all groups empties all four; clearing one DTC empties the records that
+ * name it. Persisted with the status mirror (config/dtc_mirror.c).
+ */
+typedef enum {
+    DTC_RECORD_FIRST_TEST_FAILED       = 0,
+    DTC_RECORD_FIRST_CONFIRMED         = 1,
+    DTC_RECORD_MOST_RECENT_TEST_FAILED = 2,
+    DTC_RECORD_MOST_RECENT_CONFIRMED   = 3
+} dtc_record_t;
+
+/** Number of dtc_record_t values. */
+#define DTC_RECORD_COUNT  (4U)
+
+/**
+ * @brief Read one first/most recent record.
+ * @param[in]  which         Record to read.
+ * @param[out] out_dtc_code  Receives the DTC code, or 0 if the record is empty
+ *                           (0 is never a registered DTC).
+ * @return UDS_STATUS_OK, UDS_STATUS_ERR_NULL_PTR,
+ *         UDS_STATUS_ERR_INVALID_PARAM (which out of range) or
+ *         UDS_STATUS_ERR_NOT_INITIALIZED.
+ */
+uds_status_t dtc_database_get_record(dtc_record_t which, uint32_t *out_dtc_code);
+
+/**
+ * @brief Restore one record at boot (NVM mirror load). Not a status
+ *        transition. For dtc_mirror_load() only.
+ * @param[in] which     Record to restore.
+ * @param[in] dtc_code  A registered DTC, or 0 for empty.
+ * @return UDS_STATUS_OK, UDS_STATUS_ERR_INVALID_PARAM (which out of range),
+ *         UDS_STATUS_ERR_DID_NOT_FOUND (DTC no longer registered; record left
+ *         empty) or UDS_STATUS_ERR_NOT_INITIALIZED.
+ */
+uds_status_t dtc_database_restore_record(dtc_record_t which, uint32_t dtc_code);
 
 /* --------------------------------------------------------------------------
  * [EDS#354] Optional lock callbacks

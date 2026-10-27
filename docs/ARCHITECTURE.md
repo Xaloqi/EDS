@@ -269,6 +269,48 @@ looks up the SID in the dispatch table, and calls the corresponding service hand
 | 0x3E | TesterPresent |
 | 0x85 | ControlDTCSetting |
 
+### ReadDTCInformation (0x19) sub-functions
+
+`core/uds_services/service_0x19.c`. Every supported sub-function checks its
+exact request length (NRC 0x13); anything else is NRC 0x12.
+
+| Sub-function | Name | Notes |
+|---|---|---|
+| 0x01 | reportNumberOfDTCByStatusMask | |
+| 0x02 | reportDTCByStatusMask | |
+| 0x03 | reportDTCSnapshotIdentification | Always empty: no snapshot store (EDS#388) |
+| 0x04 | reportDTCSnapshotRecordByDTCNumber | Record 0xFF only, DTC + status; other records NRC 0x31 |
+| 0x06 | reportDTCExtDataRecordByDTCNumber | Record 0xFF only, DTC + status; other records NRC 0x31 |
+| 0x07 | reportNumberOfDTCBySeverityMaskRecord | EDS#145 |
+| 0x08 | reportDTCBySeverityMaskRecord | EDS#145. DTCFunctionalUnit is always 0x00 |
+| 0x09 | reportSeverityInformationOfDTC | EDS#145. Unknown DTC: NRC 0x31 |
+| 0x0A | reportSupportedDTC | |
+| 0x0B | reportFirstTestFailedDTC | EDS#145, see below |
+| 0x0C | reportFirstConfirmedDTC | EDS#145, see below |
+| 0x0D | reportMostRecentTestFailedDTC | EDS#145, see below |
+| 0x0E | reportMostRecentConfirmedDTC | EDS#145, see below |
+| 0x14 | reportDTCFaultDetectionCounter | |
+| 0x15 | reportDTCWithPermanentStatus | |
+
+Not supported (NRC 0x12): 0x05, 0x18, 0x19 (need a snapshot/stored-data
+store, EDS#388); 0x10, 0x16 (need extended data records); 0x0F, 0x11 (mirror
+memory); 0x12, 0x13, 0x42, 0x55, 0x56 (emissions OBD / WWH-OBD); 0x17, 0x1A
+(user-defined memory, DTC extended data record by record number).
+
+**Severity.** `severity` in `diagnostics_config.yaml` becomes the DTCSeverity
+byte (ISO 14229-1:2013 Annex D.3): 0x20 `maintenance_only`, 0x40
+`check_at_next_halt` (the default), 0x80 `check_immediately`, 0x00 `none`,
+each with bit 0 (DTCClass_0, unclassified) set. `tools/codegen.py`
+`_DTC_SEVERITY_BYTES` is the mapping.
+
+**First / most recent records (0x0B-0x0E).** `config/dtc_database.c` updates
+them when `dtc_database_set_status()` raises testFailed or confirmedDTC from 0
+to 1. They do not age. ClearDiagnosticInformation of all groups empties all
+four; clearing one DTC empties those that name it. They are persisted with the
+status mirror (`NVM_KEY_DTC_RECORDS`, 19 bytes, CRC-32), so they survive a power
+cycle exactly as far as the status bytes do: both are written by
+`dtc_mirror_flush_all()`, and a status change not yet flushed is lost for both.
+
 ### Session Manager (`core/uds_session.c`)
 
 Tracks the active diagnostic session. Handles session switching, P3 timeout management,

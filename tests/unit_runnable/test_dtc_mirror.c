@@ -844,6 +844,117 @@ ZTEST(dtc_mirror, test_old_full_table_sizing_would_have_exceeded_nvm_cap)
                   "mirror write once the live DTC table grew past 125 entries");
 }
 
+
+/* ==========================================================================
+ * [EDS#145] First / most recent records (NVM_KEY_DTC_RECORDS)
+ * ========================================================================== */
+
+static void register_three(void)
+{
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+    (void)dtc_database_register(DTC_2, 0x00U, "DTC_2");
+    (void)dtc_database_register(DTC_3, 0x00U, "DTC_3");
+}
+
+static uint32_t record_of(dtc_record_t which)
+{
+    uint32_t code = 0xFFFFFFFFUL;
+    (void)dtc_database_get_record(which, &code);
+    return code;
+}
+
+/* TC-MIRROR-030  Records survive flush -> power-cycle -> load */
+ZTEST(dtc_mirror, test_records_survive_power_cycle)
+{
+    (void)dtc_mirror_init();
+    register_three();
+    (void)dtc_database_set_status(DTC_1, 0x09U);   /* failed + confirmed */
+    (void)dtc_database_set_status(DTC_2, 0x01U);   /* failed */
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_flush_all(), "flush must succeed");
+
+    simulate_power_cycle();
+    register_three();
+    zassert_equal(0U, record_of(DTC_RECORD_FIRST_TEST_FAILED), "empty before load");
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_load(), "load must succeed");
+
+    zassert_equal(DTC_1, record_of(DTC_RECORD_FIRST_TEST_FAILED), "first failed");
+    zassert_equal(DTC_2, record_of(DTC_RECORD_MOST_RECENT_TEST_FAILED), "recent failed");
+    zassert_equal(DTC_1, record_of(DTC_RECORD_FIRST_CONFIRMED), "first confirmed");
+    zassert_equal(DTC_1, record_of(DTC_RECORD_MOST_RECENT_CONFIRMED), "recent confirmed");
+}
+
+/* TC-MIRROR-031  Status mirror without a records key (upgrade): OK, empty */
+ZTEST(dtc_mirror, test_records_absent_is_ok)
+{
+    (void)dtc_mirror_init();
+    register_three();
+    (void)dtc_database_set_status(DTC_1, 0x09U);
+    (void)dtc_mirror_flush_all();
+    zassert_equal(UDS_STATUS_OK, nvm_store_delete(NVM_KEY_DTC_RECORDS), "delete records");
+
+    simulate_power_cycle();
+    register_three();
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_load(), "missing records key is not an error");
+    zassert_equal(0x09U, dtc_database_find(DTC_1)->status_byte, "status still restored");
+    zassert_equal(0U, record_of(DTC_RECORD_FIRST_TEST_FAILED), "records empty");
+}
+
+/* TC-MIRROR-032  Corrupt records: reported, nothing applied, statuses kept */
+ZTEST(dtc_mirror, test_records_corrupt_reported)
+{
+    uint8_t raw[32];
+    size_t  raw_len = 0U;
+
+    (void)dtc_mirror_init();
+    register_three();
+    (void)dtc_database_set_status(DTC_1, 0x09U);
+    (void)dtc_mirror_flush_all();
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_read(NVM_KEY_DTC_RECORDS, raw, sizeof(raw), &raw_len), NULL);
+    zassert_equal((size_t)DTC_RECORDS_BYTES, raw_len, "records are 19 bytes");
+    raw[5] ^= 0xFFU;                               /* first-failed code, CRC untouched */
+    (void)nvm_store_write(NVM_KEY_DTC_RECORDS, raw, raw_len);
+
+    simulate_power_cycle();
+    register_three();
+    zassert_equal(UDS_STATUS_ERR_NVM_DATA_CORRUPT, dtc_mirror_load(),
+                  "CRC-mismatched records must be reported");
+    zassert_equal(0x09U, dtc_database_find(DTC_1)->status_byte, "status still restored");
+    zassert_equal(0U, record_of(DTC_RECORD_FIRST_TEST_FAILED), "no record applied");
+    zassert_equal(0U, record_of(DTC_RECORD_MOST_RECENT_CONFIRMED), "no record applied");
+}
+
+/* TC-MIRROR-033  clear_all persists the emptied records */
+ZTEST(dtc_mirror, test_records_cleared_persist)
+{
+    (void)dtc_mirror_init();
+    register_three();
+    (void)dtc_database_set_status(DTC_1, 0x09U);
+    (void)dtc_mirror_flush_all();
+    (void)dtc_database_clear_non_permanent();       /* what 0x14 FFFFFF does */
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_clear_all(), "clear_all must succeed");
+
+    simulate_power_cycle();
+    register_three();
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_load(), NULL);
+    zassert_equal(0U, record_of(DTC_RECORD_FIRST_TEST_FAILED), "clear survives reboot");
+    zassert_equal(0U, record_of(DTC_RECORD_FIRST_CONFIRMED), "clear survives reboot");
+}
+
+/* TC-MIRROR-034  A record naming a DTC removed by an update loads empty */
+ZTEST(dtc_mirror, test_records_unregistered_dtc_dropped)
+{
+    (void)dtc_mirror_init();
+    register_three();
+    (void)dtc_database_set_status(DTC_3, 0x09U);
+    (void)dtc_mirror_flush_all();
+
+    simulate_power_cycle();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");   /* DTC_3 gone */
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_load(), NULL);
+    zassert_equal(0U, record_of(DTC_RECORD_FIRST_TEST_FAILED), "removed DTC not reported");
+}
+
 /* ==========================================================================
  * run_all_tests
  * ========================================================================== */
@@ -894,4 +1005,11 @@ void run_all_tests(void)
     /* Mirror sizing vs. the NVM record cap (issue #123) */
     RUN_TEST(dtc_mirror__test_mirror_max_bytes_fits_nvm_cap);
     RUN_TEST(dtc_mirror__test_old_full_table_sizing_would_have_exceeded_nvm_cap);
+
+    /* First / most recent records (EDS#145) */
+    RUN_TEST(dtc_mirror__test_records_survive_power_cycle);
+    RUN_TEST(dtc_mirror__test_records_absent_is_ok);
+    RUN_TEST(dtc_mirror__test_records_corrupt_reported);
+    RUN_TEST(dtc_mirror__test_records_cleared_persist);
+    RUN_TEST(dtc_mirror__test_records_unregistered_dtc_dropped);
 }

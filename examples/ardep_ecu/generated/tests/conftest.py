@@ -4,7 +4,7 @@
 #
 # ECU       : ARDEP_IOController
 # Version   : 1.0.0
-# Generated : 2026-10-19T10:11:52Z
+# Generated : 2026-10-27T15:58:30Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -230,26 +230,27 @@ class _InlineEcuState:
         }
         # 0x50 = testNotCompletedSinceLastClear | testNotCompletedThisOperationCycle,
         # what EDS reports after registration since v1.20.0 (EDS#448).
+        # severity: the DTCSeverity byte codegen registers (EDS#145).
         self.dtcs: list = [
-            {"code": 12583168, "status": 0x50},
-            {"code": 12583424, "status": 0x50},
-            {"code": 12583680, "status": 0x50},
-            {"code": 12587008, "status": 0x50},
-            {"code": 12587264, "status": 0x50},
-            {"code": 11534592, "status": 0x50},
-            {"code": 11534848, "status": 0x50},
-            {"code": 11535104, "status": 0x50},
-            {"code": 11535360, "status": 0x50},
-            {"code": 11535616, "status": 0x50},
-            {"code": 11535872, "status": 0x50},
-            {"code": 11538432, "status": 0x50},
-            {"code": 12648192, "status": 0x50},
-            {"code": 12648208, "status": 0x50},
-            {"code": 12648224, "status": 0x50},
-            {"code": 12648240, "status": 0x50},
-            {"code": 12648256, "status": 0x50},
-            {"code": 12647936, "status": 0x50},
-            {"code": 12647952, "status": 0x50},
+            {"code": 12583168, "status": 0x50, "severity": 0x41},
+            {"code": 12583424, "status": 0x50, "severity": 0x41},
+            {"code": 12583680, "status": 0x50, "severity": 0x41},
+            {"code": 12587008, "status": 0x50, "severity": 0x21},
+            {"code": 12587264, "status": 0x50, "severity": 0x21},
+            {"code": 11534592, "status": 0x50, "severity": 0x41},
+            {"code": 11534848, "status": 0x50, "severity": 0x41},
+            {"code": 11535104, "status": 0x50, "severity": 0x41},
+            {"code": 11535360, "status": 0x50, "severity": 0x41},
+            {"code": 11535616, "status": 0x50, "severity": 0x41},
+            {"code": 11535872, "status": 0x50, "severity": 0x41},
+            {"code": 11538432, "status": 0x50, "severity": 0x21},
+            {"code": 12648192, "status": 0x50, "severity": 0x41},
+            {"code": 12648208, "status": 0x50, "severity": 0x41},
+            {"code": 12648224, "status": 0x50, "severity": 0x41},
+            {"code": 12648240, "status": 0x50, "severity": 0x21},
+            {"code": 12648256, "status": 0x50, "severity": 0x21},
+            {"code": 12647936, "status": 0x50, "severity": 0x41},
+            {"code": 12647952, "status": 0x50, "severity": 0x21},
         ]
 
     @property
@@ -702,6 +703,36 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
                     resp.extend([(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, d['status']])
             if suppress: return None
             return bytes(resp)
+        if sub in (0x07, 0x08):
+            # EDS#145, ISO 14229-1:2013 §11.3.1.8/9: match iff (status & statusMask)
+            # and (DTCSeverity & severityMask) are both non-zero.
+            if len(pdu) != 4: return nrc(0x19, 0x13)
+            sev_mask = pdu[2]; st_mask = pdu[3] & _DTC_AVAILABILITY_MASK
+            hits = [d for d in state.dtcs if (d['status'] & st_mask) and (d['severity'] & sev_mask)]
+            if suppress: return None
+            if sub == 0x07:
+                return bytes([0x59, 0x07, _DTC_AVAILABILITY_MASK, 0x01, (len(hits) >> 8) & 0xFF, len(hits) & 0xFF])
+            resp = bytearray([0x59, 0x08, _DTC_AVAILABILITY_MASK])
+            for d in hits:
+                c = d['code']
+                resp.extend([d['severity'], 0x00, (c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, d['status']])
+            return bytes(resp)
+        if sub == 0x09:
+            # EDS#145, §11.3.1.10: one DTC's severity record; unknown DTC -> 0x31.
+            if len(pdu) != 5: return nrc(0x19, 0x13)
+            code = (pdu[2] << 16) | (pdu[3] << 8) | pdu[4]
+            d = next((x for x in state.dtcs if x['code'] == code), None)
+            if d is None: return nrc(0x19, 0x31)
+            if suppress: return None
+            return bytes([0x59, 0x09, _DTC_AVAILABILITY_MASK, d['severity'], 0x00,
+                          pdu[2], pdu[3], pdu[4], d['status']])
+        if sub in (0x0B, 0x0C, 0x0D, 0x0E):
+            # EDS#145, §11.3.1.12/13: first/most recent failed/confirmed DTC.
+            # The model has no fault monitor, so no DTC ever fails or confirms
+            # and the record is always empty: [59 sub mask].
+            if len(pdu) != 2: return nrc(0x19, 0x13)
+            if suppress: return None
+            return bytes([0x59, sub, _DTC_AVAILABILITY_MASK])
         if sub == 0x0A:   # reportSupportedDTC: every DTC, whatever its status
             resp = bytearray([0x59, 0x0A, _DTC_AVAILABILITY_MASK])
             for d in state.dtcs:
