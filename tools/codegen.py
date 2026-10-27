@@ -390,6 +390,11 @@ def _parse_can_id(raw: str, field_name: str) -> int:
 # STEP 1 — Load
 # =============================================================================
 
+def _list_len(value: Any) -> int:
+    """len() of a list, 0 for anything else (validation reports non-lists)."""
+    return len(value) if isinstance(value, list) else 0
+
+
 def load_config(config_path: Path) -> Dict[str, Any]:
     """
     Load and parse a YAML configuration file.
@@ -2792,8 +2797,11 @@ def main() -> None:
 
     # ── Step 1: Load ─────────────────────────────────────────────────────────
     cfg = load_config(config_path)
-    did_count = len(cfg.get("dids", []))
-    dtc_count = len(cfg.get("dtcs", []))
+    # Counts only for the banner: a null/non-list section (e.g. `dtcs:` with
+    # only comments) is reported by validate_config() below, not by a
+    # TypeError here (EDS#532).
+    did_count = _list_len(cfg.get("dids"))
+    dtc_count = _list_len(cfg.get("dtcs"))
     print(f"[1/5] Config loaded  — {did_count} DID(s), {dtc_count} DTC(s).")
 
     # ── Step 2: Validate (Phase 2A) ──────────────────────────────────────────
