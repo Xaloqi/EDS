@@ -72,7 +72,7 @@ log = logging.getLogger("sim_tester_sensor")
 # Protocol constants — must match examples/sensor_ecu/diagnostics_config.yaml
 # ---------------------------------------------------------------------------
 
-TESTER_TX_ID = 0x7DF
+TESTER_TX_ID = 0x7E0   # physical request; 0x7DF is the functional ID
 ECU_TX_ID    = 0x7E8
 TIMEOUT_S    = 0.5
 

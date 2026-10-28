@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP_FreeRTOS
  * Version   : 1.6.0
- * Generated : 2026-08-30T13:14:20Z
+ * Generated : 2026-10-28T15:53:55Z
  *
  * PURPOSE: Compile-time constants derived from diagnostics_config.yaml.
  *          Provides all protocol timing parameters, CAN addressing, and
@@ -65,11 +65,20 @@
  * CAN transport addressing
  *
  * Derived from the 'can' section of diagnostics_config.yaml.
- * Defaults: 0x7DF (ISO 15765-4 functional RX), 0x7E8 (physical TX ECU #0).
+ * Defaults: 0x7E0 (physical RX, ECU #0), 0x7E8 (physical TX, ECU #0),
+ * 0x7DF (functional RX, ISO 15765-4).
  * -------------------------------------------------------------------------- */
 
-/** CAN ID on which the ECU listens for UDS diagnostic requests. */
+/** CAN ID on which the ECU listens for physically addressed UDS requests. */
 #define GEN_CAN_RX_ID             (2015U)   /* 0x7DF */
+
+/**
+ * CAN ID of functionally addressed requests (ISO 15765-4), or 0 for none.
+ * Set in isotp_cfg_t.functional_rx_can_id by uds_init.c. The application's
+ * ISO-TP rx callback passes isotp_get_rx_addressing() on to
+ * uds_server_process_request_ex(), and its CAN filter must accept this ID.
+ */
+#define GEN_CAN_FUNCTIONAL_RX_ID  (0U)   /* none */
 
 /** CAN ID on which the ECU transmits UDS diagnostic responses. */
 #define GEN_CAN_TX_ID             (2024U)   /* 0x7E8 */
@@ -102,6 +111,6 @@
 
 #define GEN_ECU_NAME            "BasicECU_DoIP_FreeRTOS"
 #define GEN_ECU_VERSION         "1.6.0"
-#define GEN_GENERATED_TIMESTAMP "2026-08-30T13:14:20Z"
+#define GEN_GENERATED_TIMESTAMP "2026-10-28T15:53:55Z"
 
 #endif /* GENERATED_CONFIG_H */

@@ -133,7 +133,11 @@ static void on_isotp_rx_complete(
     s_req.length  = (uint16_t)length;
     s_resp.length = 0U;
 
-    (void)uds_server_process_request(srv, &s_req, &s_resp);
+    /* [EDS-toolchain#165] A functional request (ISO 15765-4) must not draw
+     * the NRCs ISO 14229-1 Table 4 says to suppress. */
+    uds_addressing_t addressing = UDS_ADDRESSING_PHYSICAL;
+    (void)isotp_get_rx_addressing(tp, &addressing);
+    (void)uds_server_process_request_ex(srv, &s_req, &s_resp, addressing);
 
     if (s_resp.length > 0U) {
         (void)isotp_transmit(tp, s_resp.data, s_resp.length);
@@ -269,7 +273,8 @@ int main(void)
 
     {
         const zephyr_port_cfg_t port_cfg = {
-            .can_dev = DIAG_CAN_DEV,
+            .can_dev        = DIAG_CAN_DEV,
+            .physical_rx_id = DIAG_RX_CAN_ID,   /* alongside the 0x7DF functional filter */
         };
         status = zephyr_port_init(&port_cfg, &can);
         if (status != UDS_STATUS_OK) {

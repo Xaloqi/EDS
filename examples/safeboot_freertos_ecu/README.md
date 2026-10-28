@@ -212,7 +212,7 @@ testlab run campaigns/safeboot_freertos_dfu.yaml \
     --firmware path/to/new_app.bin
 ```
 
-### Manual UDS bytes (500 kbit/s, 0x7DF → 0x7E8)
+### Manual UDS bytes (500 kbit/s, 0x7E0 → 0x7E8)
 
 ```
 # 1. Programming session

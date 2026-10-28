@@ -8,6 +8,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **A functional request ID next to the physical one: `can.functional_rx_can_id`**
+  (EDS-toolchain#165, follows #463). `can.rx_can_id` is the *physical* request ID (default now
+  `0x7E0`, was `0x7DF`); `can.functional_rx_can_id` (default `0x7DF`, `"none"` turns it off)
+  becomes `GEN_CAN_FUNCTIONAL_RX_ID` and is set in `isotp_cfg_t.functional_rx_can_id` by the
+  generated `uds_init.c`. Two ECUs on one bus now both answer a functional request while a
+  physical one reaches only its own. `codegen.py` rejects a functional ID equal to `rx_can_id` or
+  `tx_can_id`.
+
+  **Existing configs.** `rx_can_id: "0x7DF"` without the new key behaves as before: that ID stays
+  the physical one and functional addressing stays off. A config with its own physical ID
+  (`0x7E0`, `0x7E1`, ...) now also gets `0x7DF` set in the ISO-TP config, which matters only if the
+  application's CAN filter passes it; add `functional_rx_can_id: "none"` to keep the old behaviour
+  exactly. A 29-bit `rx_can_id` keeps functional addressing off unless the key is set.
+
+  **Examples.** `bms_ecu`, `motor_controller_ecu`, `ardep_ecu`, `sensor_ecu`, `safeboot_ecu`,
+  `robot_joint_controller_ecu` (Zephyr) and `safeboot_freertos_ecu`, `sensor_ecu_freertos` moved to
+  `rx_can_id: "0x7E0"` + `functional_rx_can_id: "0x7DF"`. Their ISO-TP rx callbacks pass
+  `isotp_get_rx_addressing()` to `uds_server_process_request_ex()`, and the Zephyr ones set
+  `zephyr_port_cfg_t.physical_rx_id` (the 0x7DF filter is always installed). A tester that sent
+  these ECUs requests on `0x7DF` as if it were physical still gets answers to those it should,
+  but sends the physical ones to `0x7E0`. `scripts/smoke_robot_joint_ecu.py`,
+  `tools/sim_tester_sensor.py` and the READMEs follow. The `basic_ecu*` examples keep
+  `rx_can_id: "0x7DF"` (functional addressing off) for now.
+
 ### Fixed
 
 - **A permanent DTC keeps its status after ClearDiagnosticInformation and a power cycle**

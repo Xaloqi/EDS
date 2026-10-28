@@ -108,17 +108,18 @@ unshare -rn bash -c '
   ip link add zcan0 type vcan && ip link set zcan0 up
   ./build/zephyr/zephyr.exe &
   sleep 1
-  stdbuf -oL isotprecv -l -s 7DF -d 7E8 zcan0 &
+  stdbuf -oL isotprecv -l -s 7E0 -d 7E8 zcan0 &
   sleep 0.3
-  echo "22 A0 00" | isotpsend -s 7DF -d 7E8 zcan0    # position
-  echo "22 A0 03" | isotpsend -s 7DF -d 7E8 zcan0    # motor temperature
+  echo "22 A0 00" | isotpsend -s 7E0 -d 7E8 zcan0    # position
+  echo "22 A0 03" | isotpsend -s 7E0 -d 7E8 zcan0    # motor temperature
   sleep 1; kill %1 %2'
 ```
 
 With root, create the interface once (`ip link add zcan0 type vcan`) or give an existing
 one the alternate name: `ip link property add dev vcan0 altname zcan0`.
 
-Addressing is 0x7DF (request) → 0x7E8 (response). Any
+Addressing is 0x7E0 (physical request) → 0x7E8 (response); a functional request on 0x7DF
+reaches the ECU too. Any
 ISO-TP/UDS tool on SocketCAN works; the free `xaloqi-tester` package's SocketCAN transport
 is a Pro plugin, so the examples here use `can-utils` and Python's kernel ISO-TP sockets.
 

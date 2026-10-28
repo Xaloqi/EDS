@@ -108,7 +108,7 @@ LOG_MODULE_REGISTER(motor_controller_ecu, LOG_LEVEL_INF);
  * ============================================================================= */
 
 #define DIAG_CAN_DEV         DEVICE_DT_GET(DT_ALIAS(can0))
-#define DIAG_RX_CAN_ID       ((uint32_t)GEN_CAN_RX_ID)   /* 0x7DF: functional */
+#define DIAG_RX_CAN_ID       ((uint32_t)GEN_CAN_RX_ID)   /* 0x7E0, physical */
 #define DIAG_TX_CAN_ID       ((uint32_t)GEN_CAN_TX_ID)   /* 0x7E8: physical    */
 
 #ifndef CONFIG_DIAG_TASK_STACK_SIZE
@@ -156,7 +156,11 @@ static void on_isotp_rx_complete(const uint8_t *data, uint32_t length, void *arg
     s_req.length  = (uint16_t)length;
     s_resp.length = 0U;
 
-    (void)uds_server_process_request(srv, &s_req, &s_resp);
+    /* [EDS-toolchain#165] A functional request (ISO 15765-4) must not draw
+     * the NRCs ISO 14229-1 Table 4 says to suppress. */
+    uds_addressing_t addressing = UDS_ADDRESSING_PHYSICAL;
+    (void)isotp_get_rx_addressing(tp, &addressing);
+    (void)uds_server_process_request_ex(srv, &s_req, &s_resp, addressing);
 
     if (s_resp.length > 0U) {
         (void)isotp_transmit(tp, s_resp.data, s_resp.length);
@@ -190,6 +194,7 @@ static void diag_task_fn(void *p1, void *p2, void *p3)
 
     (void)memset(&port_cfg, 0, sizeof(port_cfg));
     port_cfg.can_dev = can_dev;
+    port_cfg.physical_rx_id = DIAG_RX_CAN_ID;   /* alongside the 0x7DF functional filter */
 
     status = zephyr_port_init(&port_cfg, &can);
     if (status != UDS_STATUS_OK) {

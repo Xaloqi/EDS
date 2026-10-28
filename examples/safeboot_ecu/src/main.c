@@ -103,7 +103,7 @@ LOG_MODULE_REGISTER(safeboot_ecu, LOG_LEVEL_INF);
  * ============================================================================= */
 
 #define DIAG_CAN_DEV         DEVICE_DT_GET(DT_ALIAS(can0))
-#define DIAG_RX_CAN_ID       ((uint32_t)GEN_CAN_RX_ID)   /* 0x7DF */
+#define DIAG_RX_CAN_ID       ((uint32_t)GEN_CAN_RX_ID)   /* 0x7E0, physical */
 #define DIAG_TX_CAN_ID       ((uint32_t)GEN_CAN_TX_ID)   /* 0x7E8 */
 
 #ifndef CONFIG_DIAG_TASK_STACK_SIZE
@@ -326,7 +326,11 @@ static void on_isotp_rx_complete(
     timing_t wcet_t0 = timing_counter_get();
 #endif
 
-    status = uds_server_process_request(srv, &s_req_buf, &s_resp_buf);
+    /* [EDS-toolchain#165] A functional request (ISO 15765-4) must not draw
+     * the NRCs ISO 14229-1 Table 4 says to suppress. */
+    uds_addressing_t addressing = UDS_ADDRESSING_PHYSICAL;
+    (void)isotp_get_rx_addressing(tp, &addressing);
+    status = uds_server_process_request_ex(srv, &s_req_buf, &s_resp_buf, addressing);
 
 #if defined(DIAG_WCET_MEASURE)
     timing_t wcet_t1 = timing_counter_get();
@@ -700,7 +704,10 @@ int main(void)
 
     /* ── Platform + CAN transport ────────────────────────────────────────── */
     {
-        const zephyr_port_cfg_t port_cfg = { .can_dev = DIAG_CAN_DEV };
+        const zephyr_port_cfg_t port_cfg = {
+        .can_dev        = DIAG_CAN_DEV,
+        .physical_rx_id = DIAG_RX_CAN_ID,   /* alongside the 0x7DF functional filter */
+    };
 
         status = zephyr_port_init(&port_cfg, &can);
         if (status != UDS_STATUS_OK) {

@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-REQ_ID = 0x7DF
+REQ_ID = 0x7E0   # physical request (0x7DF is the functional ID)
 RSP_ID = 0x7E8
 TEMP_FAULT_C = 85
 CAN_FMT = "=IB3x8s"
