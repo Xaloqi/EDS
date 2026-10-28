@@ -5,7 +5,7 @@
  *
  * ECU       : SensorECU
  * Version   : 1.0.0
- * Generated : 2026-09-04T13:51:29Z
+ * Generated : 2026-10-27T15:58:32Z
  *
  * PURPOSE: Per-example DTC table, exposed as an X-macro list so any
  *          translation unit that already links against this example's
@@ -50,13 +50,14 @@
 
 /*
  * X-macro list of this example's DTCs: (code, severity byte, description).
- * Severity encoding (SAE J2012-DA): 0x20 = check_at_next_halt, 0x40 = other.
+ * Severity byte: ISO 14229-1:2013 Annex D.3 (tools/codegen.py
+ * _DTC_SEVERITY_BYTES, EDS#145): e.g. 0x41 = check_at_next_halt.
  * Invoke as GEN_DTC_TABLE(X) with X(code, severity, desc) defined by the
  * caller; #undef X immediately after use.
  */
 #define GEN_DTC_TABLE(X) \
-    X((uint32_t)13631745UL, (uint8_t)0x20U, "Ambient temperature sensor — over-range (> threshold high)") \
-    X((uint32_t)13631746UL, (uint8_t)0x20U, "Ambient temperature sensor — under-range (< threshold low)") \
-    X((uint32_t)13632001UL, (uint8_t)0x40U, "Supply voltage — over-range (> 16.0 V)") \
-    X((uint32_t)13632002UL, (uint8_t)0x40U, "Supply voltage — under-range (< 9.0 V)")
+    X((uint32_t)13631745UL, (uint8_t)0x41U, "Ambient temperature sensor — over-range (> threshold high)") \
+    X((uint32_t)13631746UL, (uint8_t)0x41U, "Ambient temperature sensor — under-range (< threshold low)") \
+    X((uint32_t)13632001UL, (uint8_t)0x81U, "Supply voltage — over-range (> 16.0 V)") \
+    X((uint32_t)13632002UL, (uint8_t)0x81U, "Supply voltage — under-range (< 9.0 V)")
 #endif /* DTC_CONFIG_H */

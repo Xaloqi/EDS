@@ -5,7 +5,7 @@
  *
  * ECU       : BMS_MainController
  * Version   : 1.0.0
- * Generated : 2026-10-16T06:24:38Z
+ * Generated : 2026-10-27T15:58:31Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -242,14 +242,15 @@ uds_status_t uds_generated_init(
      * Populates the DTC database with entries from diagnostics_config.yaml.
      * String literals are in ROM — pointer storage in dtc_entry_t is safe.
      *
-     * Severity encoding (SAE J2012-DA):
-     *   0x20 = check_at_next_halt
-     *   0x40 = maintenance_only
+     * Severity: the DTCSeverity byte, ISO 14229-1:2013 Annex D.3 (EDS#145):
+     *   bits 7-5 = 0x20 maintenance_only, 0x40 check_at_next_halt,
+     *   0x80 check_immediately; bit 0 = DTCClass_0 (unclassified).
+     *   Mapped by tools/codegen.py _DTC_SEVERITY_BYTES.
      */
     {
         status = dtc_database_register(
             (uint32_t)13697280UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Cell group overvoltage — at least one cell group exceeded OV threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -258,7 +259,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13697536UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Cell group undervoltage — at least one cell group dropped below UV threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -267,7 +268,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13697792UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Cell overtemperature during discharge — cell NTC exceeded OT_discharge threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -276,7 +277,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13698048UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Cell overtemperature during charge — cell NTC exceeded OT_charge threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -285,7 +286,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13698304UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Pack overcurrent — pack current exceeded continuous current limit"
         );
         if (status != UDS_STATUS_OK) {
@@ -294,7 +295,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13698560UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Isolation fault — pack-to-chassis isolation resistance below 100 Ohm/V"
         );
         if (status != UDS_STATUS_OK) {
@@ -303,7 +304,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13698816UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Contactor weld detected — contactor failed to open on command"
         );
         if (status != UDS_STATUS_OK) {
@@ -312,7 +313,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13699072UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Current sensor fault — sensor output out of plausibility range or open circuit"
         );
         if (status != UDS_STATUS_OK) {
@@ -321,7 +322,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12583168UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "CAN communication loss — no frames received from VSC/BCM for > 500 ms"
         );
         if (status != UDS_STATUS_OK) {
@@ -330,7 +331,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13699328UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "BMS internal MCU fault — watchdog reset or RAM check failure on startup"
         );
         if (status != UDS_STATUS_OK) {

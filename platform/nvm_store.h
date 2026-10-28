@@ -19,6 +19,7 @@
  *            0x0004  NVM_KEY_SESSION_STATS     Session statistics block
  *            0x0005  NVM_KEY_LIFECYCLE_CNT     ECU lifecycle (reset) counter
  *            0x0006  NVM_KEY_SCHEMA_VERSION    NVM schema version (migration)
+ *            0x0007  NVM_KEY_DTC_RECORDS       First/most recent DTC records (EDS#145)
  *
  *          [EDS#211] 0x0002 (formerly NVM_KEY_SEC_LOCKOUT_MS) is
  *          deliberately retired, not reused: the failed-attempt counter
@@ -87,6 +88,13 @@ extern "C" {
 
 /** NVM schema version — used for migration checks (uint16_t, 2 bytes). */
 #define NVM_KEY_SCHEMA_VERSION     ((uint16_t)0x0006U)
+
+/** [EDS#145] First / most recent failed and confirmed DTC records (19 bytes,
+ *  CRC-32-checked; wire format in config/dtc_mirror.h). A new key, not a
+ *  layout change: firmware without it ignores the record, and firmware with
+ *  it treats a missing record as "no records", so NVM_SCHEMA_VERSION is not
+ *  bumped (a bump erases the whole store, DTC history included). */
+#define NVM_KEY_DTC_RECORDS        ((uint16_t)0x0007U)
 
 /** Current NVM schema version. Increment when layout changes.
  *  [EDS#211] Bumped 0x0003 -> 0x0004: NVM_KEY_SEC_ATTEMPT_CTR/

@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU
  * Version   : 0.1.0
- * Generated : 2026-09-04T13:51:27Z
+ * Generated : 2026-10-27T15:58:30Z
  *
  * PURPOSE: Per-example DTC table, exposed as an X-macro list so any
  *          translation unit that already links against this example's
@@ -50,11 +50,12 @@
 
 /*
  * X-macro list of this example's DTCs: (code, severity byte, description).
- * Severity encoding (SAE J2012-DA): 0x20 = check_at_next_halt, 0x40 = other.
+ * Severity byte: ISO 14229-1:2013 Annex D.3 (tools/codegen.py
+ * _DTC_SEVERITY_BYTES, EDS#145): e.g. 0x41 = check_at_next_halt.
  * Invoke as GEN_DTC_TABLE(X) with X(code, severity, desc) defined by the
  * caller; #undef X immediately after use.
  */
 #define GEN_DTC_TABLE(X) \
-    X((uint32_t)12583168UL, (uint8_t)0x20U, "CAN bus communication loss") \
-    X((uint32_t)12583424UL, (uint8_t)0x40U, "Diagnostic transport layer timeout")
+    X((uint32_t)12583168UL, (uint8_t)0x41U, "CAN bus communication loss") \
+    X((uint32_t)12583424UL, (uint8_t)0x21U, "Diagnostic transport layer timeout")
 #endif /* DTC_CONFIG_H */

@@ -5,7 +5,7 @@
  *
  * ECU       : MotorController_Inverter
  * Version   : 1.0.0
- * Generated : 2026-09-04T13:51:28Z
+ * Generated : 2026-10-27T15:58:32Z
  *
  * PURPOSE: Per-example DTC table, exposed as an X-macro list so any
  *          translation unit that already links against this example's
@@ -50,19 +50,20 @@
 
 /*
  * X-macro list of this example's DTCs: (code, severity byte, description).
- * Severity encoding (SAE J2012-DA): 0x20 = check_at_next_halt, 0x40 = other.
+ * Severity byte: ISO 14229-1:2013 Annex D.3 (tools/codegen.py
+ * _DTC_SEVERITY_BYTES, EDS#145): e.g. 0x41 = check_at_next_halt.
  * Invoke as GEN_DTC_TABLE(X) with X(code, severity, desc) defined by the
  * caller; #undef X immediately after use.
  */
 #define GEN_DTC_TABLE(X) \
-    X((uint32_t)13762816UL, (uint8_t)0x20U, "Phase overcurrent — at least one phase current exceeded peak current limit") \
-    X((uint32_t)13763072UL, (uint8_t)0x20U, "Gate driver desaturation — IGBT/SiC short-circuit detected by DESAT circuit") \
-    X((uint32_t)13763328UL, (uint8_t)0x20U, "DC-link overvoltage — bus voltage exceeded maximum continuous rating") \
-    X((uint32_t)13763584UL, (uint8_t)0x20U, "DC-link undervoltage — bus voltage dropped below minimum operating threshold") \
-    X((uint32_t)13763840UL, (uint8_t)0x20U, "IGBT overtemperature — estimated junction temperature exceeded protection threshold") \
-    X((uint32_t)13764096UL, (uint8_t)0x20U, "Motor stator overtemperature — winding NTC exceeded Class F insulation limit") \
-    X((uint32_t)13764352UL, (uint8_t)0x20U, "Resolver signal loss — sin/cos amplitude below minimum or plausibility check failed") \
-    X((uint32_t)13764608UL, (uint8_t)0x20U, "Current sensor fault — phase current out of plausibility range at zero torque") \
-    X((uint32_t)12583168UL, (uint8_t)0x20U, "CAN communication loss — no torque demand frames from VSC for > 100 ms") \
-    X((uint32_t)13764864UL, (uint8_t)0x20U, "MCU watchdog reset — firmware failed to service watchdog within timeout")
+    X((uint32_t)13762816UL, (uint8_t)0x41U, "Phase overcurrent — at least one phase current exceeded peak current limit") \
+    X((uint32_t)13763072UL, (uint8_t)0x41U, "Gate driver desaturation — IGBT/SiC short-circuit detected by DESAT circuit") \
+    X((uint32_t)13763328UL, (uint8_t)0x41U, "DC-link overvoltage — bus voltage exceeded maximum continuous rating") \
+    X((uint32_t)13763584UL, (uint8_t)0x41U, "DC-link undervoltage — bus voltage dropped below minimum operating threshold") \
+    X((uint32_t)13763840UL, (uint8_t)0x41U, "IGBT overtemperature — estimated junction temperature exceeded protection threshold") \
+    X((uint32_t)13764096UL, (uint8_t)0x41U, "Motor stator overtemperature — winding NTC exceeded Class F insulation limit") \
+    X((uint32_t)13764352UL, (uint8_t)0x41U, "Resolver signal loss — sin/cos amplitude below minimum or plausibility check failed") \
+    X((uint32_t)13764608UL, (uint8_t)0x41U, "Current sensor fault — phase current out of plausibility range at zero torque") \
+    X((uint32_t)12583168UL, (uint8_t)0x41U, "CAN communication loss — no torque demand frames from VSC for > 100 ms") \
+    X((uint32_t)13764864UL, (uint8_t)0x41U, "MCU watchdog reset — firmware failed to service watchdog within timeout")
 #endif /* DTC_CONFIG_H */

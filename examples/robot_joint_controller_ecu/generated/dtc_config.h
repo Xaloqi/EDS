@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-10-27T13:40:58Z
+ * Generated : 2026-10-27T15:58:32Z
  *
  * PURPOSE: Per-example DTC table, exposed as an X-macro list so any
  *          translation unit that already links against this example's
@@ -50,14 +50,15 @@
 
 /*
  * X-macro list of this example's DTCs: (code, severity byte, description).
- * Severity encoding (SAE J2012-DA): 0x20 = check_at_next_halt, 0x40 = other.
+ * Severity byte: ISO 14229-1:2013 Annex D.3 (tools/codegen.py
+ * _DTC_SEVERITY_BYTES, EDS#145): e.g. 0x41 = check_at_next_halt.
  * Invoke as GEN_DTC_TABLE(X) with X(code, severity, desc) defined by the
  * caller; #undef X immediately after use.
  */
 #define GEN_DTC_TABLE(X) \
-    X((uint32_t)10486017UL, (uint8_t)0x40U, "Axis 0 motor over-temperature (> 85 °C)") \
-    X((uint32_t)10486273UL, (uint8_t)0x40U, "Axis 0 drive over-current (> rated peak)") \
-    X((uint32_t)10486019UL, (uint8_t)0x40U, "Axis 0 encoder signal loss (no valid position update > 50 ms)") \
-    X((uint32_t)10486529UL, (uint8_t)0x20U, "Axis 0 positive soft limit exceeded") \
-    X((uint32_t)10486530UL, (uint8_t)0x20U, "Axis 0 negative soft limit exceeded")
+    X((uint32_t)10486017UL, (uint8_t)0x81U, "Axis 0 motor over-temperature (> 85 °C)") \
+    X((uint32_t)10486273UL, (uint8_t)0x81U, "Axis 0 drive over-current (> rated peak)") \
+    X((uint32_t)10486019UL, (uint8_t)0x81U, "Axis 0 encoder signal loss (no valid position update > 50 ms)") \
+    X((uint32_t)10486529UL, (uint8_t)0x41U, "Axis 0 positive soft limit exceeded") \
+    X((uint32_t)10486530UL, (uint8_t)0x41U, "Axis 0 negative soft limit exceeded")
 #endif /* DTC_CONFIG_H */

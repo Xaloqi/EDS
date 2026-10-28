@@ -40,10 +40,31 @@
  *               any other record number → NRC 0x31 (no extended data) [EDS#451]
  *     Minimal extended data: no extended data stored in this implementation.
  *
+ *   0x07 — reportNumberOfDTCBySeverityMaskRecord [EDS#145]
+ *     Request : [0x19, 0x07, DTCSeverityMask, DTCStatusMask]
+ *     Response: [0x59, 0x07, availabilityMask, fmtID, countHB, countLB]
+ *
+ *   0x08 — reportDTCBySeverityMaskRecord [EDS#145]
+ *     Request : [0x19, 0x08, DTCSeverityMask, DTCStatusMask]
+ *     Response: [0x59, 0x08, availabilityMask,
+ *                {severity, functionalUnit, dtc3B, statusByte}...]
+ *
+ *   0x09 — reportSeverityInformationOfDTC [EDS#145]
+ *     Request : [0x19, 0x09, dtcHB, dtcMB, dtcLB]
+ *     Response: [0x59, 0x09, availabilityMask,
+ *                severity, functionalUnit, dtc3B, statusByte]
+ *
  *   0x0A — reportSupportedDTCs
  *     Request : [0x19, 0x0A]
  *     Response: [0x59, 0x0A, availabilityMask, {dtc3B, statusByte}...]
  *     Returns all registered DTCs regardless of status.
+ *
+ *   0x0B/0x0C/0x0D/0x0E — reportFirstTestFailedDTC, reportFirstConfirmedDTC,
+ *     reportMostRecentTestFailedDTC, reportMostRecentConfirmedDTC [EDS#145]
+ *     Request : [0x19, subFn]
+ *     Response: [0x59, subFn, availabilityMask, {dtc3B, statusByte}?]
+ *     The record is kept by config/dtc_database.c (dtc_record_t) and
+ *     persisted to NVM with the status mirror.
  *
  *   0x14 — reportDTCFaultDetectionCounter (ISO 14229-1:2026 §11.3.1.14, Table 317)
  *     Request : [0x19, 0x14]
@@ -66,6 +87,10 @@
  *
  * DTC FORMAT IDENTIFIER:
  *   0x01 = ISO 14229-1 DTC format (used in reportNumberOfDTC response).
+ *
+ * CITATIONS FOR 0x07-0x0E [EDS#145]: checked against ISO 14229-1:2013, the
+ * edition available when they were written, and cited with that edition's
+ * clause and table numbers. Not yet checked against the 2026 text.
  *
  * SESSION REQUIREMENT (ISO 14229-1:2026 §9.2.1 Table 22):
  *   Available in all diagnostic sessions.
@@ -90,7 +115,14 @@
 #define SVC_0x19_SUBFN_REPORT_DTC_SNAPSHOT_ID        (0x03U)
 #define SVC_0x19_SUBFN_REPORT_DTC_SNAPSHOT_BY_DTC    (0x04U)
 #define SVC_0x19_SUBFN_REPORT_DTC_EXT_DATA_BY_DTC    (0x06U)
+#define SVC_0x19_SUBFN_REPORT_NUM_BY_SEVERITY_MASK   (0x07U)
+#define SVC_0x19_SUBFN_REPORT_DTC_BY_SEVERITY_MASK   (0x08U)
+#define SVC_0x19_SUBFN_REPORT_SEVERITY_INFO_OF_DTC   (0x09U)
 #define SVC_0x19_SUBFN_REPORT_SUPPORTED_DTCS         (0x0AU)
+#define SVC_0x19_SUBFN_REPORT_FIRST_TEST_FAILED      (0x0BU)
+#define SVC_0x19_SUBFN_REPORT_FIRST_CONFIRMED        (0x0CU)
+#define SVC_0x19_SUBFN_REPORT_MOST_RECENT_TEST_FAILED (0x0DU)
+#define SVC_0x19_SUBFN_REPORT_MOST_RECENT_CONFIRMED  (0x0EU)
 #define SVC_0x19_SUBFN_REPORT_FAULT_DETECTION_CTR    (0x14U)
 #define SVC_0x19_SUBFN_REPORT_DTC_PERMANENT_STATUS   (0x15U)
 
@@ -129,6 +161,14 @@
  *  is 1..126 (0x01..0x7E): ISO 14229-1:2026 Table 317 (0x14); +127 means
  *  "failed" and is not reported. */
 #define SVC_0x19_FDC_MAX_PREFAILED                    (126)
+
+/** [EDS#145] DTCFunctionalUnit: "implementation specific" (ISO 14229-1:2013
+ *  §11.3.3.2, DTCAndSeverityRecord). EDS has no per-DTC field for it yet, so
+ *  every DTC reports 0x00. */
+#define SVC_0x19_DTC_FUNCTIONAL_UNIT                  (0x00U)
+
+/** [EDS#145] Bytes per DTCAndSeverityRecord: severity, FU, dtc3B, status. */
+#define SVC_0x19_BYTES_PER_SEVERITY_RECORD            (6U)
 
 /** [EDS#451] "All records" DTCSnapshot / DTCExtendedData record numbers. */
 #define SVC_0x19_RECORD_ALL                           (0xFFU)
@@ -417,6 +457,184 @@ static uds_status_t handle_report_dtc_ext_data_by_dtc(
 }
 
 /**
+ * 0x07 — reportNumberOfDTCBySeverityMaskRecord [EDS#145]
+ * 0x08 — reportDTCBySeverityMaskRecord          [EDS#145]
+ *
+ * Request : [0x19, subFn, DTCSeverityMask, DTCStatusMask]   (Table 260)
+ * Response 0x07: [0x59, 0x07, availabilityMask, formatID, countHB, countLB]
+ *                (Table 271)
+ * Response 0x08: [0x59, 0x08, availabilityMask,
+ *                 {severity, functionalUnit, dtc3B, statusByte}...]  (Table 277)
+ *
+ * ISO 14229-1:2013 §11.3.1.8 (0x07) and §11.3.1.9 (0x08): a DTC matches if
+ * ((statusOfDTC & DTCStatusMask) != 0) && ((DTCSeverity & DTCSeverityMask)
+ * != 0), using only the status bits the server supports. No match: count 0
+ * (0x07) or no records after the availability mask (0x08).
+ */
+static uds_status_t handle_report_by_severity_mask(
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp,
+    uint8_t              sub_function)
+{
+    uds_status_t  status;
+    uint8_t       severity_mask;
+    uint8_t       status_mask;
+    uint16_t      total;
+    uint16_t      i;
+    uint16_t      count;
+    uint32_t      dtc_code;
+    uint8_t       dtc_status;
+    dtc_entry_t  *entry;
+
+    status = s_exact_len(req, (uint16_t)4U);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    severity_mask = req->data[2];
+    status_mask   = (uint8_t)(req->data[3] & SVC_0x19_STATUS_AVAILABILITY_MASK);
+
+    status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    resp->data[1] = sub_function;
+    resp->data[2] = (uint8_t)SVC_0x19_STATUS_AVAILABILITY_MASK;
+    resp->length  = (uint16_t)3U;
+
+    count = (uint16_t)0U;
+    (void)dtc_database_get_count(&total);
+
+    for (i = (uint16_t)0U; i < total; i++) {
+        status = dtc_database_get_by_index(i, &dtc_code, &dtc_status);
+        if (status != UDS_STATUS_OK) {
+            break;
+        }
+        entry = dtc_database_find(dtc_code);
+        if (entry == NULL) {
+            continue;
+        }
+        if (((dtc_status & status_mask) == (uint8_t)0U)
+                || ((entry->severity & severity_mask) == (uint8_t)0U)) {
+            continue;
+        }
+
+        if (sub_function == (uint8_t)SVC_0x19_SUBFN_REPORT_NUM_BY_SEVERITY_MASK) {
+            count++;
+        } else {
+            if (((uint32_t)resp->length + (uint32_t)SVC_0x19_BYTES_PER_SEVERITY_RECORD)
+                    > (uint32_t)UDS_MAX_PAYLOAD_LEN) {
+                return UDS_STATUS_ERR_BUFFER_OVERFLOW;
+            }
+            resp->data[resp->length] = entry->severity;
+            resp->data[resp->length + 1U] = (uint8_t)SVC_0x19_DTC_FUNCTIONAL_UNIT;
+            resp->length += (uint16_t)2U;
+            status = append_dtc_record(resp, dtc_code, dtc_status);
+            if (status != UDS_STATUS_OK) {
+                return status;
+            }
+        }
+    }
+
+    if (sub_function == (uint8_t)SVC_0x19_SUBFN_REPORT_NUM_BY_SEVERITY_MASK) {
+        resp->data[3] = (uint8_t)SVC_0x19_DTC_FORMAT_ISO14229;
+        resp->data[4] = (uint8_t)((count >> 8U) & 0xFFU);
+        resp->data[5] = (uint8_t)( count        & 0xFFU);
+        resp->length  = (uint16_t)6U;
+    }
+
+    return UDS_STATUS_OK;
+}
+
+/**
+ * 0x09 — reportSeverityInformationOfDTC [EDS#145]
+ *
+ * Request : [0x19, 0x09, dtcHB, dtcMB, dtcLB]                   (Table 261)
+ * Response: [0x59, 0x09, availabilityMask,
+ *            severity, functionalUnit, dtcHB, dtcMB, dtcLB, statusByte]
+ *                                                               (Table 277)
+ *
+ * ISO 14229-1:2013 §11.3.1.10: exact match on the DTC number. A DTC the
+ * server does not support is NRC 0x31 (Table 286: "a DTCMaskRecord that was
+ * not recognized"), as 0x04 and 0x06 already answer.
+ */
+static uds_status_t handle_report_severity_info_of_dtc(
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp)
+{
+    uds_status_t  status;
+    uint32_t      dtc_code;
+    dtc_entry_t  *entry;
+
+    status = s_exact_len(req, (uint16_t)5U);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    dtc_code = ((uint32_t)req->data[2] << 16U)
+             | ((uint32_t)req->data[3] <<  8U)
+             |  (uint32_t)req->data[4];
+
+    entry = dtc_database_find(dtc_code);
+    if (entry == NULL) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+    }
+
+    status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    resp->data[1] = (uint8_t)SVC_0x19_SUBFN_REPORT_SEVERITY_INFO_OF_DTC;
+    resp->data[2] = (uint8_t)SVC_0x19_STATUS_AVAILABILITY_MASK;
+    resp->data[3] = entry->severity;
+    resp->data[4] = (uint8_t)SVC_0x19_DTC_FUNCTIONAL_UNIT;
+    resp->length  = (uint16_t)5U;
+
+    return append_dtc_record(resp, dtc_code, entry->status_byte);
+}
+
+/**
+ * 0x0B — reportFirstTestFailedDTC        [EDS#145]
+ * 0x0C — reportFirstConfirmedDTC
+ * 0x0D — reportMostRecentTestFailedDTC
+ * 0x0E — reportMostRecentConfirmedDTC
+ *
+ * Request : [0x19, subFn]                                       (Table 262)
+ * Response: [0x59, subFn, availabilityMask, {dtc3B, statusByte}?] (Table 272)
+ *
+ * ISO 14229-1:2013 §11.3.1.12 (0x0B/0x0D) and §11.3.1.13 (0x0C/0x0E): the
+ * recorded DTC with its current status; nothing after the availability mask
+ * if no DTC has failed / been confirmed since the last clear. The record is
+ * independent of aging, so it is reported whatever the DTC's status now is.
+ */
+static uds_status_t handle_report_first_or_recent(
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp,
+    uint8_t              sub_function,
+    dtc_record_t         which)
+{
+    uds_status_t  status;
+    uint32_t      dtc_code;
+    dtc_entry_t  *entry;
+
+    status = s_exact_len(req, (uint16_t)2U);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    dtc_code = 0U;
+    status = dtc_database_get_record(which, &dtc_code);
+    if (status != UDS_STATUS_OK) {
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+    }
+
+    status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    resp->data[1] = sub_function;
+    resp->data[2] = (uint8_t)SVC_0x19_STATUS_AVAILABILITY_MASK;
+    resp->length  = (uint16_t)3U;
+
+    entry = (dtc_code == 0U) ? NULL : dtc_database_find(dtc_code);
+    if (entry == NULL) {
+        return UDS_STATUS_OK;
+    }
+    return append_dtc_record(resp, dtc_code, entry->status_byte);
+}
+
+/**
  * 0x0A — reportSupportedDTCs
  *
  * Request : [0x19, 0x0A]
@@ -640,8 +858,31 @@ uds_status_t uds_service_0x19_handler(
         case SVC_0x19_SUBFN_REPORT_DTC_EXT_DATA_BY_DTC:
             return handle_report_dtc_ext_data_by_dtc(req, resp);
 
+        case SVC_0x19_SUBFN_REPORT_NUM_BY_SEVERITY_MASK:
+        case SVC_0x19_SUBFN_REPORT_DTC_BY_SEVERITY_MASK:
+            return handle_report_by_severity_mask(req, resp, sub_function);
+
+        case SVC_0x19_SUBFN_REPORT_SEVERITY_INFO_OF_DTC:
+            return handle_report_severity_info_of_dtc(req, resp);
+
         case SVC_0x19_SUBFN_REPORT_SUPPORTED_DTCS:
             return handle_report_supported_dtcs(req, resp);
+
+        case SVC_0x19_SUBFN_REPORT_FIRST_TEST_FAILED:
+            return handle_report_first_or_recent(req, resp, sub_function,
+                                                 DTC_RECORD_FIRST_TEST_FAILED);
+
+        case SVC_0x19_SUBFN_REPORT_FIRST_CONFIRMED:
+            return handle_report_first_or_recent(req, resp, sub_function,
+                                                 DTC_RECORD_FIRST_CONFIRMED);
+
+        case SVC_0x19_SUBFN_REPORT_MOST_RECENT_TEST_FAILED:
+            return handle_report_first_or_recent(req, resp, sub_function,
+                                                 DTC_RECORD_MOST_RECENT_TEST_FAILED);
+
+        case SVC_0x19_SUBFN_REPORT_MOST_RECENT_CONFIRMED:
+            return handle_report_first_or_recent(req, resp, sub_function,
+                                                 DTC_RECORD_MOST_RECENT_CONFIRMED);
 
         case SVC_0x19_SUBFN_REPORT_FAULT_DETECTION_CTR:
             return handle_report_fault_detection_counter(req, resp);

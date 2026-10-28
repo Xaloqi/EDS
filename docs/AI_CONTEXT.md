@@ -135,7 +135,7 @@ dids:
 dtcs:
   - code:        "0x123456"   # [required] 3-byte hex DTC code
     description: "Sensor reading out of range"
-    severity:    "check_at_next_halt"  # "immediate_display" | "check_at_next_halt" | "check_at_next_halt_ecu_reset"
+    severity:    "check_at_next_halt"  # none | maintenance_only | check_at_next_halt | check_immediately (ISO 14229-1 Annex D.3; immediate_display = check_immediately)
 
 # ─── Routines ────────────────────────────────────────────────────────────────
 routines:
@@ -838,7 +838,7 @@ active level, so codegen rejects `write_security_level` above 1.
 | DiagnosticSessionControl | 0x10 | ✅ | 0x01 default, 0x02 programming, 0x03 extended |
 | ECUReset | 0x11 | ✅ | Hard (0x01), soft (0x03) |
 | ClearDiagnosticInformation | 0x14 | ✅ | Clears DTC mirror + RAM |
-| ReadDTCInformation | 0x19 | ✅ | Sub-functions 0x01, 0x02, 0x03, 0x04, 0x06, 0x0A, 0x14, 0x15 |
+| ReadDTCInformation | 0x19 | ✅ | Sub-functions 0x01-0x04, 0x06-0x0E, 0x14, 0x15 (EDS#145) |
 | ReadDataByIdentifier | 0x22 | ✅ | Multi-DID read supported |
 | SecurityAccess | 0x27 | ✅ | AES-128-CMAC; odd=seed byte, even=key byte |
 | CommunicationControl | 0x28 | ✅ | Enable/disable Rx/Tx |

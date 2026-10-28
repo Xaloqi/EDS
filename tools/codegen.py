@@ -214,6 +214,38 @@ ASIL_B_REQUIRE_EXPLICIT_CAN_IDS: bool = True  # [#226 FIX] Hard error, not advis
 
 _DID_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{4}$")
 _DTC_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{6}$")
+
+# [EDS#145] DTC `severity` -> DTCSeverity byte (ISO 14229-1:2013 Annex D.3):
+# bits 7-5 the severity (Table D.12: 0x20 maintenanceOnly, 0x40
+# checkAtNextHalt, 0x80 checkImmediately), bits 4-0 the DTC class, which is
+# mandatory; EDS DTCs are not WWH-OBD classified, so DTCClass_0 (0x01,
+# Table D.13: "unclassified ... legacy DTCs"). Reported by 0x19 0x08/0x09
+# and matched by 0x07/0x08. Before EDS#145 the templates wrote 0x20 for
+# check_at_next_halt and 0x40 for anything else, which nothing read.
+_DTC_SEVERITY_BYTES: Dict[str, int] = {
+    "none":               0x01,
+    "maintenance_only":   0x21,
+    "check_at_next_halt": 0x41,
+    "check_immediately":  0x81,
+}
+# Synonyms earlier docs, example YAMLs and the VS Code extension used;
+# accepted as equivalent.
+_DTC_SEVERITY_ALIASES: Dict[str, str] = {
+    "immediate_display":            "check_immediately",
+    "check_at_next_halt_ecu_reset": "check_at_next_halt",
+    # The VS Code extension's former vocabulary, by its own descriptions.
+    "critical":                     "check_immediately",
+    "high":                         "check_at_next_halt",
+    "medium":                       "maintenance_only",
+    "low":                          "none",
+    "no_sub_function":              "none",
+}
+_DTC_SEVERITY_DEFAULT = "check_at_next_halt"
+
+
+def _dtc_severity_byte(severity: str) -> int:
+    """DTCSeverity byte for a validated `severity` value (aliases resolved)."""
+    return _DTC_SEVERITY_BYTES[_DTC_SEVERITY_ALIASES.get(severity, severity)]
 _RID_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{4}$")  # RID is 16-bit like DID
 _CAN_ID_PATTERN = re.compile(r"^0[xX][0-9A-Fa-f]{1,8}$")
 
@@ -768,6 +800,15 @@ def validate_config(cfg: Dict[str, Any]) -> None:
         if not dtc.get("description"):
             _warn(f"dtcs[{idx}] ({key}): no 'description' provided.")
 
+        # [EDS#145] severity: one of _DTC_SEVERITY_BYTES, or a legacy alias.
+        sev = dtc.get("severity", _DTC_SEVERITY_DEFAULT)
+        if (sev not in _DTC_SEVERITY_BYTES) and (sev not in _DTC_SEVERITY_ALIASES):
+            _fatal(
+                f"{pfx}: 'severity' must be one of "
+                f"{', '.join(sorted(_DTC_SEVERITY_BYTES) + sorted(_DTC_SEVERITY_ALIASES))}, "
+                f"got: {sev!r}"
+            )
+
 
     # ── routines (optional) ───────────────────────────────────────────────────
     routines: List[Any] = cfg.get("routines", [])
@@ -1008,7 +1049,10 @@ def _build_dtc_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "code":        norm,
             "code_int":    int(raw_code, 16),
             "description": _c_safe_text(dtc.get("description", "")),
-            "severity":    dtc.get("severity", "check_at_next_halt"),
+            "severity":    dtc.get("severity", _DTC_SEVERITY_DEFAULT),
+            # [EDS#145] C literal of the DTCSeverity byte, e.g. "0x41U".
+            "severity_byte": "0x{:02X}U".format(
+                _dtc_severity_byte(dtc.get("severity", _DTC_SEVERITY_DEFAULT))),
         })
     return result
 
@@ -1158,7 +1202,7 @@ def build_sovd_cda(cfg):
         dtc_entries.append({
             "code":        _normalise_hex(dtc["code"]),
             "description": dtc.get("description", ""),
-            "severity":    dtc.get("severity", "check_at_next_halt"),
+            "severity":    dtc.get("severity", _DTC_SEVERITY_DEFAULT),
         })
 
     routine_entries = []

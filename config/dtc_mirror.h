@@ -94,6 +94,15 @@ extern "C" {
 /** CRC-32 trailer appended after the last entry. */
 #define DTC_MIRROR_CRC_BYTES     (4U)
 
+/* [EDS#145] NVM_KEY_DTC_RECORDS: the first/most recent records
+ * (dtc_record_t order), written and loaded with the status mirror.
+ *   [magic:2 'D','R'][version:1][code:3 big-endian] x 4 [crc32:4]
+ * CRC-32 over [version..last code byte]. A code of 0 is an empty record. */
+#define DTC_RECORDS_MAGIC_0       ((uint8_t)0x44U) /* 'D' */
+#define DTC_RECORDS_MAGIC_1       ((uint8_t)0x52U) /* 'R' */
+#define DTC_RECORDS_FORMAT_VERSION ((uint8_t)1U)
+#define DTC_RECORDS_BYTES         (19U)
+
 /**
  * Maximum number of DTC status entries the mirror will ever persist to NVM
  * in a single record (issue #123).
@@ -188,6 +197,14 @@ uds_status_t dtc_mirror_init(void);
  *         fix that only treat OK/ERR_NOT_INITIALIZED/ERR_PLATFORM as
  *         non-fatal will treat this new status as a hard error — see
  *         issue #114 PR discussion.
+ *
+ * [EDS#145] After a valid status mirror is applied, the first/most recent
+ * records are restored from NVM_KEY_DTC_RECORDS. No record (first boot after
+ * upgrading) leaves them empty and returns OK. A record that fails its
+ * magic/version/length/CRC check applies nothing and returns
+ * UDS_STATUS_ERR_NVM_DATA_CORRUPT, with the status bytes already restored.
+ * The records are not restored without a valid status mirror: a record
+ * naming a DTC whose status was lost would contradict 0x19 0x02.
  */
 uds_status_t dtc_mirror_load(void);
 
@@ -195,7 +212,8 @@ uds_status_t dtc_mirror_load(void);
  * @brief Persist all current DTC status bytes to NVM.
  *
  * Serializes the entire dtc_database status array and writes it as a
- * single atomic record to NVM_KEY_DTC_MIRROR.
+ * single atomic record to NVM_KEY_DTC_MIRROR, then the first/most recent
+ * records to NVM_KEY_DTC_RECORDS [EDS#145]. Returns the first failure.
  *
  * Called from:
  *   - zephyr_port_nvm_flush() (before ECU reset)

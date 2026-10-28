@@ -31,9 +31,10 @@
  *             not call eds_platform_init() — it is only called from there.
  *
  *          NVM KEY SPACE:
- *             Keys are uint16_t. The EDS stack uses keys 0x0001–0x0006
- *             (see NVM_KEY_* in nvm_store.h). The customer's NVM backend
- *             must support at least these six keys with up to 512 bytes
+ *             Keys are uint16_t. The EDS stack uses keys 0x0001–0x0007
+ *             (see NVM_KEY_* in nvm_store.h; 0x0002 is retired, 0x0007
+ *             added by EDS#145). The customer's NVM backend must support
+ *             these keys with up to 512 bytes
  *             per record (NVM_MAX_RECORD_BYTES).
  *
  *          THREAD SAFETY:

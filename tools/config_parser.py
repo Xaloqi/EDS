@@ -130,8 +130,12 @@ DTC_ENTRY_SCHEMA = {
         },
         "severity": {
             "type": "string",
-            "enum": ["none", "maintenance_only", "check_at_next_halt", "check_immediately"],
-            "default": "none"
+            # [EDS#145] Same values as tools/codegen.py _DTC_SEVERITY_BYTES,
+            # plus the synonyms codegen accepts (_DTC_SEVERITY_ALIASES).
+            "enum": ["none", "maintenance_only", "check_at_next_halt", "check_immediately",
+                     "immediate_display", "check_at_next_halt_ecu_reset",
+                     "critical", "high", "medium", "low", "no_sub_function"],
+            "default": "check_at_next_halt"
         }
     },
     "additionalProperties": False

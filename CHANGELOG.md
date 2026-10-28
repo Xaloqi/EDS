@@ -8,6 +8,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Services
+
+- **ReadDTCInformation (0x19) serves 0x07, 0x08, 0x09 and 0x0B-0x0E** (EDS#145).
+  0x07/0x08 count and list DTCs by severity mask record, 0x09 reports one DTC's severity
+  (unknown DTC: NRC 0x31). 0x0B-0x0E report the first and most recent testFailed and
+  confirmedDTC DTC since the last clear. Wrong request length is NRC 0x13; the sub-functions
+  that remain unsupported are NRC 0x12 (list in `docs/ARCHITECTURE.md`). Checked against
+  ISO 14229-1:2013 §11.3.1.8-13; the 2026 text has not been checked for these.
+- **First / most recent records are kept in `config/dtc_database.c`** and set only by
+  `dtc_database_set_status()` (a 0->1 edge of bit 0 or bit 3), never by a boot restore. They do
+  not age. ClearDiagnosticInformation of all groups empties all four, including a record that
+  names a permanent DTC; clearing one DTC empties the records that name it. New API:
+  `dtc_database_get_record()`, `dtc_database_restore_record()`.
+- **They persist in NVM with the status bytes**: `dtc_mirror_flush_all()` and
+  `dtc_mirror_clear_all()` also write the new key `NVM_KEY_DTC_RECORDS` (0x0007, 19 bytes,
+  CRC-32), and `dtc_mirror_load()` restores it after a valid status mirror. A missing record
+  (first boot after upgrading) loads as empty; a corrupt one applies nothing and returns
+  `UDS_STATUS_ERR_NVM_DATA_CORRUPT`, which the generated init already treats as non-fatal.
+  `NVM_SCHEMA_VERSION` is unchanged, so upgrading does not erase the store.
+
 ### Examples
 
 - **`robot_joint_controller_ecu` is now queryable from the host and returns live values** (EDS#528).
@@ -30,6 +50,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   (EDS#532). A section holding only comments is null; `main()` called `len()` on it before
   `validate_config()` ran. It now exits 1 with "'dtcs' must be a list (can be empty)". The schema types
   these as arrays, so null is not treated as empty: write `dtcs: []`. `routines:` already reached that message.
+- **DTC `severity` is now the ISO DTCSeverity byte** (EDS#145, ISO 14229-1:2013 Annex D.3).
+  `none` 0x01, `maintenance_only` 0x21, `check_at_next_halt` 0x41 (default),
+  `check_immediately` 0x81; bit 0 is DTCClass_0 (unclassified). The templates used to write
+  0x20 for `check_at_next_halt` and 0x40 for every other value, which mislabelled each one;
+  nothing reported the byte until 0x19 0x08/0x09. Values that earlier docs, example YAMLs and
+  the VS Code extension used are accepted as synonyms: `immediate_display`, `critical`
+  (check_immediately); `check_at_next_halt_ecu_reset`, `high`; `medium` (maintenance_only);
+  `low`, `no_sub_function` (none). Any other value is now a validation error (exit 1) instead of silently becoming
+  0x40. `generated/` of every example is regenerated (`dtc_config.h`, `uds_init.c`,
+  `tests/conftest.py`).
+
 - **`source: app` on a DID: the application implements its handlers** (EDS-toolchain#201).
   `tools/codegen.py` and `tools/config_parser.py` accept `source: stub | app` (default `stub`)
   and pass `app_owned` to the templates, which then emit no backing store and no handler body
@@ -41,6 +72,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   matching EDS-toolchain templates. No change for existing configs: every example regenerates
   byte-identically (timestamps aside). `docs/AI_CONTEXT.md` Pattern 1 and `docs/llms.txt` used
   to describe a handler-name field codegen never read; both now show `source: app`.
+
+#### Migration (EDS#145)
+
+- **Regenerate** so the registered severity bytes are the ISO ones; nothing else in your
+  generated code changes.
+- **A DTC `severity` that is not one of the accepted values (four, plus synonyms) now fails codegen.**
+- **FreeRTOS, customer NVM backend**: the stack now also writes key 0x0007. A backend that
+  refuses it makes `dtc_mirror_flush_all()` return its error after the status mirror has been
+  written.
+- **Code that registers DTCs by hand** with `dtc_database_register()` and wants 0x07/0x08/0x09
+  to report a severity must pass the DTCSeverity byte (e.g. 0x41), not 0x00.
 
 ### CI
 

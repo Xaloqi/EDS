@@ -5,7 +5,7 @@
  *
  * ECU       : MotorController_Inverter
  * Version   : 1.0.0
- * Generated : 2026-10-16T06:24:38Z
+ * Generated : 2026-10-27T15:58:32Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -242,14 +242,15 @@ uds_status_t uds_generated_init(
      * Populates the DTC database with entries from diagnostics_config.yaml.
      * String literals are in ROM — pointer storage in dtc_entry_t is safe.
      *
-     * Severity encoding (SAE J2012-DA):
-     *   0x20 = check_at_next_halt
-     *   0x40 = maintenance_only
+     * Severity: the DTCSeverity byte, ISO 14229-1:2013 Annex D.3 (EDS#145):
+     *   bits 7-5 = 0x20 maintenance_only, 0x40 check_at_next_halt,
+     *   0x80 check_immediately; bit 0 = DTCClass_0 (unclassified).
+     *   Mapped by tools/codegen.py _DTC_SEVERITY_BYTES.
      */
     {
         status = dtc_database_register(
             (uint32_t)13762816UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Phase overcurrent — at least one phase current exceeded peak current limit"
         );
         if (status != UDS_STATUS_OK) {
@@ -258,7 +259,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13763072UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Gate driver desaturation — IGBT/SiC short-circuit detected by DESAT circuit"
         );
         if (status != UDS_STATUS_OK) {
@@ -267,7 +268,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13763328UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "DC-link overvoltage — bus voltage exceeded maximum continuous rating"
         );
         if (status != UDS_STATUS_OK) {
@@ -276,7 +277,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13763584UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "DC-link undervoltage — bus voltage dropped below minimum operating threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -285,7 +286,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13763840UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "IGBT overtemperature — estimated junction temperature exceeded protection threshold"
         );
         if (status != UDS_STATUS_OK) {
@@ -294,7 +295,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13764096UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Motor stator overtemperature — winding NTC exceeded Class F insulation limit"
         );
         if (status != UDS_STATUS_OK) {
@@ -303,7 +304,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13764352UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Resolver signal loss — sin/cos amplitude below minimum or plausibility check failed"
         );
         if (status != UDS_STATUS_OK) {
@@ -312,7 +313,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13764608UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Current sensor fault — phase current out of plausibility range at zero torque"
         );
         if (status != UDS_STATUS_OK) {
@@ -321,7 +322,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)12583168UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "CAN communication loss — no torque demand frames from VSC for > 100 ms"
         );
         if (status != UDS_STATUS_OK) {
@@ -330,7 +331,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)13764864UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "MCU watchdog reset — firmware failed to service watchdog within timeout"
         );
         if (status != UDS_STATUS_OK) {

@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-10-27T13:40:58Z
+ * Generated : 2026-10-27T15:58:32Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -242,14 +242,15 @@ uds_status_t uds_generated_init(
      * Populates the DTC database with entries from diagnostics_config.yaml.
      * String literals are in ROM — pointer storage in dtc_entry_t is safe.
      *
-     * Severity encoding (SAE J2012-DA):
-     *   0x20 = check_at_next_halt
-     *   0x40 = maintenance_only
+     * Severity: the DTCSeverity byte, ISO 14229-1:2013 Annex D.3 (EDS#145):
+     *   bits 7-5 = 0x20 maintenance_only, 0x40 check_at_next_halt,
+     *   0x80 check_immediately; bit 0 = DTCClass_0 (unclassified).
+     *   Mapped by tools/codegen.py _DTC_SEVERITY_BYTES.
      */
     {
         status = dtc_database_register(
             (uint32_t)10486017UL,
-            (uint8_t)0x40U,
+            (uint8_t)0x81U,
             "Axis 0 motor over-temperature (> 85 °C)"
         );
         if (status != UDS_STATUS_OK) {
@@ -258,7 +259,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)10486273UL,
-            (uint8_t)0x40U,
+            (uint8_t)0x81U,
             "Axis 0 drive over-current (> rated peak)"
         );
         if (status != UDS_STATUS_OK) {
@@ -267,7 +268,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)10486019UL,
-            (uint8_t)0x40U,
+            (uint8_t)0x81U,
             "Axis 0 encoder signal loss (no valid position update > 50 ms)"
         );
         if (status != UDS_STATUS_OK) {
@@ -276,7 +277,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)10486529UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Axis 0 positive soft limit exceeded"
         );
         if (status != UDS_STATUS_OK) {
@@ -285,7 +286,7 @@ uds_status_t uds_generated_init(
 
         status = dtc_database_register(
             (uint32_t)10486530UL,
-            (uint8_t)0x20U,
+            (uint8_t)0x41U,
             "Axis 0 negative soft limit exceeded"
         );
         if (status != UDS_STATUS_OK) {

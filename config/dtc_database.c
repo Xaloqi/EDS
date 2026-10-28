@@ -56,6 +56,9 @@ static uint16_t s_dtc_count = (uint16_t)0U;
 /** Initialization guard. */
 static bool s_initialized = false;
 
+/** [EDS#145] First / most recent records, indexed by dtc_record_t; 0 = empty. */
+static uint32_t s_records[DTC_RECORD_COUNT];
+
 /* [EDS#354] Optional lock callbacks — see dtc_database_set_lock_callbacks(). */
 static dtc_database_lock_cb_t   s_dtc_lock_cb   = NULL;
 static dtc_database_unlock_cb_t s_dtc_unlock_cb = NULL;
@@ -114,6 +117,7 @@ uds_status_t dtc_database_init(void)
     }
 
     (void)memset(s_dtc_table, 0, sizeof(s_dtc_table));
+    (void)memset(s_records, 0, sizeof(s_records));
     s_dtc_count   = (uint16_t)0U;
     s_initialized = true;
 
@@ -174,9 +178,46 @@ dtc_entry_t *dtc_database_find(uint32_t dtc_code)
     return entry;
 }
 
-/* Set a status byte without the ControlDTCSetting gate (restore/clear). */
+/* [EDS#145] Empty every record that names dtc_code. Caller holds the lock. */
+static void records_forget(uint32_t dtc_code)
+{
+    uint32_t r;
+
+    for (r = 0U; r < (uint32_t)DTC_RECORD_COUNT; r++) {
+        if (s_records[r] == dtc_code) {
+            s_records[r] = 0U;
+        }
+    }
+}
+
+/* [EDS#145] Record a monitor transition (ISO 14229-1:2013 §11.3.1.12/13):
+ * a 0->1 edge of testFailed or confirmedDTC sets "most recent" always and
+ * "first" only while it is empty. Caller holds the lock. */
+static void records_note_transition(uint32_t dtc_code, uint8_t old_status,
+                                    uint8_t new_status)
+{
+    uint8_t rising = (uint8_t)(new_status & (uint8_t)(~old_status));
+
+    if ((rising & (uint8_t)DTC_STATUS_TEST_FAILED) != (uint8_t)0U) {
+        if (s_records[DTC_RECORD_FIRST_TEST_FAILED] == 0U) {
+            s_records[DTC_RECORD_FIRST_TEST_FAILED] = dtc_code;
+        }
+        s_records[DTC_RECORD_MOST_RECENT_TEST_FAILED] = dtc_code;
+    }
+    if ((rising & (uint8_t)DTC_STATUS_CONFIRMED_DTC) != (uint8_t)0U) {
+        if (s_records[DTC_RECORD_FIRST_CONFIRMED] == 0U) {
+            s_records[DTC_RECORD_FIRST_CONFIRMED] = dtc_code;
+        }
+        s_records[DTC_RECORD_MOST_RECENT_CONFIRMED] = dtc_code;
+    }
+}
+
+/* Set a status byte without the ControlDTCSetting gate (restore/clear).
+ * [EDS#145] note_transition: true only for the monitor path, the one
+ * producer of first/most recent records; clear_fdc: true only for a clear,
+ * which also forgets the records naming this DTC. */
 static uds_status_t dtc_set_status_internal(uint32_t dtc_code, uint8_t status_byte,
-                                            bool clear_fdc)
+                                            bool clear_fdc, bool note_transition)
 {
     dtc_entry_t *entry;
 
@@ -187,9 +228,13 @@ static uds_status_t dtc_set_status_internal(uint32_t dtc_code, uint8_t status_by
     dtc_db_lock();
     entry = dtc_find_internal(dtc_code);
     if (entry != NULL) {
+        if (note_transition) {
+            records_note_transition(dtc_code, entry->status_byte, status_byte);
+        }
         entry->status_byte = status_byte;
         if (clear_fdc) {
             entry->fault_detection_counter = (uint8_t)0U;
+            records_forget(dtc_code);
         }
     }
     dtc_db_unlock();
@@ -205,17 +250,17 @@ uds_status_t dtc_database_set_status(uint32_t dtc_code, uint8_t status_byte)
     if (!uds_comm_control_dtc_setting_is_on()) {
         return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
-    return dtc_set_status_internal(dtc_code, status_byte, false);
+    return dtc_set_status_internal(dtc_code, status_byte, false, true);
 }
 
 uds_status_t dtc_database_restore_status(uint32_t dtc_code, uint8_t status_byte)
 {
-    return dtc_set_status_internal(dtc_code, status_byte, false);
+    return dtc_set_status_internal(dtc_code, status_byte, false, false);
 }
 
 uds_status_t dtc_database_clear_one(uint32_t dtc_code)
 {
-    return dtc_set_status_internal(dtc_code, (uint8_t)DTC_STATUS_INIT_AND_CLEARED, true);
+    return dtc_set_status_internal(dtc_code, (uint8_t)DTC_STATUS_INIT_AND_CLEARED, true, false);
 }
 
 uds_status_t dtc_database_clear_all(void)
@@ -231,6 +276,7 @@ uds_status_t dtc_database_clear_all(void)
         s_dtc_table[i].status_byte             = (uint8_t)DTC_STATUS_INIT_AND_CLEARED; /* [EDS#448] */
         s_dtc_table[i].fault_detection_counter = (uint8_t)0U;                          /* [EDS#451] */
     }
+    (void)memset(s_records, 0, sizeof(s_records));   /* [EDS#145] §11.3.1.12/13 */
     dtc_db_unlock();
 
     return UDS_STATUS_OK;
@@ -341,9 +387,57 @@ uds_status_t dtc_database_clear_non_permanent(void)
             s_dtc_table[i].fault_detection_counter = (uint8_t)0U;                          /* [EDS#451] */
         }
     }
+    /* [EDS#145] A successful ClearDiagnosticInformation empties all four
+     * records (ISO 14229-1:2013 §11.3.1.12/13), including one that names a
+     * permanent DTC this clear left standing. */
+    (void)memset(s_records, 0, sizeof(s_records));
     dtc_db_unlock();
 
     return UDS_STATUS_OK;
+}
+
+uds_status_t dtc_database_get_record(dtc_record_t which, uint32_t *out_dtc_code)
+{
+    if (out_dtc_code == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    if ((uint32_t)which >= (uint32_t)DTC_RECORD_COUNT) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
+    if (!s_initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    dtc_db_lock();
+    *out_dtc_code = s_records[which];
+    dtc_db_unlock();
+
+    return UDS_STATUS_OK;
+}
+
+uds_status_t dtc_database_restore_record(dtc_record_t which, uint32_t dtc_code)
+{
+    uds_status_t rc = UDS_STATUS_OK;
+
+    if ((uint32_t)which >= (uint32_t)DTC_RECORD_COUNT) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
+    if (!s_initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    dtc_db_lock();
+    s_records[which] = 0U;
+    if (dtc_code != 0U) {
+        if (dtc_find_internal(dtc_code) != NULL) {
+            s_records[which] = dtc_code;
+        } else {
+            rc = UDS_STATUS_ERR_DID_NOT_FOUND;   /* Removed by a firmware update. */
+        }
+    }
+    dtc_db_unlock();
+
+    return rc;
 }
 
 uds_status_t dtc_database_get_count(uint16_t *out_count)
@@ -380,6 +474,7 @@ void dtc_database_test_reset(void)
         s_dtc_table[i].is_permanent            = false;
         s_dtc_table[i].description             = NULL;
     }
+    (void)memset(s_records, 0, sizeof(s_records));
     s_dtc_count   = (uint16_t)0U;
     s_initialized = false;
 }
