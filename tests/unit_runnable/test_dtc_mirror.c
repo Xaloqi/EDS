@@ -46,8 +46,8 @@
  *
  *   dtc_mirror_clear_all():
  *     TC-MIRROR-018  clear_all() before init → ERR_NOT_INITIALIZED
- *     TC-MIRROR-019  clear_all() writes all-zero status bytes to NVM
- *     TC-MIRROR-020  clear_all() + load() restores status bytes as zero
+ *     TC-MIRROR-019  clear (RAM) + clear_all() persists 0x50 to NVM
+ *     TC-MIRROR-020  clear (RAM) + clear_all() wins over an earlier flush
  *
  *   H3 fix integration:
  *     TC-MIRROR-021  Correct call order: init → register → load → status OK
@@ -71,6 +71,7 @@
  *                    within NVM_MAX_RECORD_BYTES — the fix is internally
  *                    consistent (the _Static_assert in dtc_mirror.c is the
  *                    primary enforcement; this is a runtime cross-check).
+ *     TC-MIRROR-035  [EDS#534] clear_all() keeps a permanent DTC's status
  *     TC-MIRROR-029  Proves issue #123 was a real bug, independent of
  *                    TC-MIRROR-028: recomputes the OLD (pre-fix) sizing
  *                    formula — header + UDS_MAX_DTC_COUNT entries + CRC —
@@ -467,7 +468,9 @@ ZTEST(dtc_mirror, test_clear_all_before_init)
                   "clear_all before init must return NOT_INITIALIZED");
 }
 
-/* TC-MIRROR-019  clear_all() writes all-zero status bytes to NVM */
+/* TC-MIRROR-019  clear (RAM) + clear_all() persists the cleared value 0x50.
+ * [EDS#534] clear_all() persists RAM; it no longer forces 0x50 itself, so the
+ * test clears RAM first, as 0x14 FFFFFF does. */
 ZTEST(dtc_mirror, test_clear_all_writes_zeros_to_nvm)
 {
     (void)dtc_mirror_init();
@@ -477,6 +480,7 @@ ZTEST(dtc_mirror, test_clear_all_writes_zeros_to_nvm)
     (void)dtc_database_set_status(DTC_2, 0x04U);
     (void)dtc_mirror_flush_all();   /* write non-zero statuses first */
 
+    (void)dtc_database_clear_non_permanent();   /* what 0x14 FFFFFF does */
     zassert_equal(UDS_STATUS_OK, dtc_mirror_clear_all(),
                   "clear_all must return OK");
 
@@ -496,7 +500,7 @@ ZTEST(dtc_mirror, test_clear_all_writes_zeros_to_nvm)
                   "DTC_2 status must be 0x50 after clear_all (EDS#448)");
 }
 
-/* TC-MIRROR-020  clear_all() + load() in the same session: reloaded status is 0 */
+/* TC-MIRROR-020  clear (RAM) + clear_all() wins over an earlier flush */
 ZTEST(dtc_mirror, test_clear_all_then_load_in_same_session)
 {
     (void)dtc_mirror_init();
@@ -504,7 +508,8 @@ ZTEST(dtc_mirror, test_clear_all_then_load_in_same_session)
     (void)dtc_database_set_status(DTC_1, 0x09U);
     (void)dtc_mirror_flush_all();
 
-    /* Clear then immediately load in the same session. */
+    /* Clear (RAM, then NVM) then load. */
+    (void)dtc_database_clear_non_permanent();
     (void)dtc_mirror_clear_all();
 
     simulate_power_cycle();
@@ -955,6 +960,30 @@ ZTEST(dtc_mirror, test_records_unregistered_dtc_dropped)
     zassert_equal(0U, record_of(DTC_RECORD_FIRST_TEST_FAILED), "removed DTC not reported");
 }
 
+/* TC-MIRROR-035  [EDS#534] clear_all() persists a permanent DTC's status.
+ * 0x14 FFFFFF leaves a permanent DTC standing in RAM; clear_all() used to
+ * write it as 0x50 anyway, and the next boot restored that. */
+ZTEST(dtc_mirror, test_clear_all_keeps_permanent_status)
+{
+    (void)dtc_mirror_init();
+    register_three();
+    (void)dtc_database_set_status(DTC_1, 0x09U);
+    (void)dtc_database_set_status(DTC_2, 0x09U);
+    (void)dtc_database_set_permanent(DTC_2, true);
+    (void)dtc_mirror_flush_all();
+
+    (void)dtc_database_clear_non_permanent();       /* what 0x14 FFFFFF does */
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_clear_all(), "clear_all must succeed");
+
+    simulate_power_cycle();
+    register_three();
+    zassert_equal(UDS_STATUS_OK, dtc_mirror_load(), NULL);
+    zassert_equal(0x09U, dtc_database_find(DTC_2)->status_byte,
+                  "permanent DTC keeps its status across the reboot (EDS#534)");
+    zassert_equal((uint8_t)DTC_STATUS_INIT_AND_CLEARED, dtc_database_find(DTC_1)->status_byte,
+                  "non-permanent DTC stays cleared");
+}
+
 /* ==========================================================================
  * run_all_tests
  * ========================================================================== */
@@ -990,6 +1019,7 @@ void run_all_tests(void)
     RUN_TEST(dtc_mirror__test_clear_all_before_init);
     RUN_TEST(dtc_mirror__test_clear_all_writes_zeros_to_nvm);
     RUN_TEST(dtc_mirror__test_clear_all_then_load_in_same_session);
+    RUN_TEST(dtc_mirror__test_clear_all_keeps_permanent_status);
 
     /* H3 fix integration */
     RUN_TEST(dtc_mirror__test_h3_fix_correct_call_order);

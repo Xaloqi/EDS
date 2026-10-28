@@ -97,12 +97,13 @@ static uint32_t mirror_crc32(const uint8_t *data, size_t len)
  *
  * Format: [magic:2][version:1][count:2][code_b2][code_b1][code_b0][status] × n [crc32:4]
  *
- * @param[in]  force_status_zero  If true, every entry is written with a
- *                                 status byte of 0x00 regardless of the live
- *                                 database value (used by dtc_mirror_clear_all()).
- * @param[out] out_len            Number of bytes written into s_mirror_buf.
+ * Writes every status byte as the live database holds it. There is no
+ * "write 0x50 for all" mode: a clear changes RAM first and then persists RAM,
+ * so NVM never disagrees with RAM [EDS#534].
+ *
+ * @param[out] out_len  Number of bytes written into s_mirror_buf.
  */
-static uds_status_t mirror_serialize_internal(bool force_status_zero, size_t *out_len)
+static uds_status_t mirror_serialize(size_t *out_len)
 {
     size_t   pos;
     uint16_t count;
@@ -154,7 +155,7 @@ static uds_status_t mirror_serialize_internal(bool force_status_zero, size_t *ou
             s_mirror_buf[pos++] = (uint8_t)((dtc_code >> 16U) & 0xFFU);
             s_mirror_buf[pos++] = (uint8_t)((dtc_code >>  8U) & 0xFFU);
             s_mirror_buf[pos++] = (uint8_t)((dtc_code       ) & 0xFFU);
-            s_mirror_buf[pos++] = force_status_zero ? (uint8_t)DTC_STATUS_INIT_AND_CLEARED : status_byte;   /* [EDS#448] cleared = 0x50 */
+            s_mirror_buf[pos++] = status_byte;
             count++;
         }
     }
@@ -174,16 +175,6 @@ static uds_status_t mirror_serialize_internal(bool force_status_zero, size_t *ou
 
     *out_len = pos;
     return UDS_STATUS_OK;
-}
-
-/**
- * @brief Serialize the live DTC table into s_mirror_buf (status bytes as-is).
- *
- * @param[out] out_len  Number of bytes written into s_mirror_buf.
- */
-static uds_status_t mirror_serialize(size_t *out_len)
-{
-    return mirror_serialize_internal(false, out_len);
 }
 
 /* [EDS#145] Wire order of the records (no cast to enum: MISRA 10.5). */
@@ -435,31 +426,13 @@ uds_status_t dtc_mirror_save_one(uint32_t dtc_code, uint8_t status_byte)
 
 uds_status_t dtc_mirror_clear_all(void)
 {
-    size_t       serial_len;
-    uds_status_t rc;
-
-    if (!s_initialized) {
-        return UDS_STATUS_ERR_NOT_INITIALIZED;
-    }
-
-    if (!nvm_store_is_ready()) {
-        return UDS_STATUS_ERR_NOT_INITIALIZED;
-    }
-
-    /* Serialize with all status bytes forced to the cleared value 0x50 [EDS#448] (same v1 header/CRC
-     * writer as dtc_mirror_flush_all() — one code path for the on-disk
-     * format keeps the two writers from ever diverging). */
-    rc = mirror_serialize_internal(true, &serial_len);
-    if (rc != UDS_STATUS_OK) {
-        return rc;
-    }
-
-    rc = nvm_store_write((uint16_t)NVM_KEY_DTC_MIRROR, s_mirror_buf, serial_len);
-    if (rc != UDS_STATUS_OK) {
-        return rc;
-    }
-    /* [EDS#145] The clear emptied the records in RAM; persist that. */
-    return records_write();
+    /* [EDS#534] Persist the live table and the records, exactly as a flush
+     * does: the caller has already cleared RAM
+     * (dtc_database_clear_non_permanent(): non-permanent DTCs to 0x50
+     * [EDS#448], all four records emptied [EDS#145], permanent DTCs
+     * untouched). This used to force 0x50 for every entry, so a permanent
+     * DTC was written as cleared and the next boot restored that. */
+    return dtc_mirror_flush_all();
 }
 
 bool dtc_mirror_is_ready(void)

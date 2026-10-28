@@ -184,7 +184,8 @@ void test_save_one_triggers_full_flush(void)
     TEST_ASSERT_GREATER_THAN(0U, len);
 }
 
-/* 7. dtc_mirror_clear_all writes all-zero status bytes to NVM */
+/* 7. clear (RAM) + dtc_mirror_clear_all persists the cleared value 0x50.
+ *    [EDS#534] clear_all() persists RAM; 0x14 FFFFFF clears RAM first. */
 void test_clear_all_writes_zeros(void)
 {
     register_three_dtcs();
@@ -192,7 +193,8 @@ void test_clear_all_writes_zeros(void)
     dtc_database_set_status(DTC_B, 0xFFU);
     dtc_mirror_flush_all();
 
-    /* Clear */
+    /* Clear: RAM, then NVM (the 0x14 FFFFFF order) */
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, dtc_database_clear_non_permanent());
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, dtc_mirror_clear_all());
 
     /* Simulate power-cycle and reload */
