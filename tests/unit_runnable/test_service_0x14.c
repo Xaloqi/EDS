@@ -24,6 +24,8 @@
  *   TC-0x14-010  Empty DTC database, group 0xFFFFFF → positive (§11.2.1) [EDS#450]
  *   TC-0x14-016  Single DTC number → only that DTC cleared [EDS#450]
  *   TC-0x14-017  Unregistered DTC number → NRC 0x31, nothing cleared [EDS#450]
+ *   TC-0x14-018  Permanent DTC keeps its status across 14 FFFFFF + power cycle [EDS#534]
+ *   TC-0x14-019  0x0B-0x0E records stay empty across 14 FFFFFF + power cycle [EDS#534]
  *   TC-0x14-011  Multiple DTCs all cleared
  *   TC-0x14-012  NULL req  → ERR_NULL_PTR
  *   TC-0x14-013  NULL resp → ERR_NULL_PTR
@@ -508,6 +510,105 @@ ZTEST(test_service_0x14, tc015_clear_twice_idempotent)
  * run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
 
+/**
+ * Power cycle that keeps NVM: re-init every module, re-register the three
+ * DTCs with the given pre-load status, then load the mirror.
+ */
+static void power_cycle_and_load(uint8_t preload_status)
+{
+    extern void nvm_mock_deinit(void);
+
+    nvm_mock_deinit();
+    nvm_store_init(NULL);
+    dtc_database_test_reset();
+    dtc_database_init();
+    dtc_mirror_test_reset();
+    dtc_mirror_init();
+
+    dtc_database_register(DTC_P0001, 0x00U, "P0001");
+    dtc_database_register(DTC_P0002, 0x00U, "P0002");
+    dtc_database_register(DTC_P0003, 0x00U, "P0003");
+    (void)dtc_database_restore_status(DTC_P0001, preload_status);
+    (void)dtc_database_restore_status(DTC_P0002, preload_status);
+    (void)dtc_database_restore_status(DTC_P0003, preload_status);
+
+    zassert_equal(dtc_mirror_load(), UDS_STATUS_OK, "mirror load after power cycle");
+}
+
+static uint32_t record_of(dtc_record_t which)
+{
+    uint32_t code = 0xFFFFFFFFUL;
+    (void)dtc_database_get_record(which, &code);
+    return code;
+}
+
+/**
+ * TC-0x14-018: [EDS#534] 14 FF FF FF leaves a permanent DTC's status
+ * standing in RAM. NVM must agree, so the status is still there after the
+ * next power cycle. It used to be persisted as 0x50.
+ */
+ZTEST(test_service_0x14, tc018_permanent_status_survives_clear_and_power_cycle)
+{
+    setup();
+    register_three_faulted_dtcs();
+    zassert_equal(dtc_database_set_permanent(DTC_P0003, true), UDS_STATUS_OK, "");
+    zassert_equal(dtc_mirror_flush_all(), UDS_STATUS_OK, "");
+
+    uds_msg_buf_t req  = make_clear_req(0xFFFFFFUL);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x14_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "");
+    zassert_equal(dtc_database_find(DTC_P0003)->status_byte, 0x08U,
+        "RAM: 14 FFFFFF must not clear the permanent DTC");
+
+    power_cycle_and_load(0xFFU);
+
+    zassert_equal(dtc_database_find(DTC_P0003)->status_byte, 0x08U,
+        "permanent DTC status must survive 14 FFFFFF + power cycle (EDS#534)");
+    zassert_equal(dtc_database_find(DTC_P0001)->status_byte,
+        (uint8_t)DTC_STATUS_INIT_AND_CLEARED, "non-permanent DTC stays cleared");
+    zassert_equal(dtc_database_find(DTC_P0002)->status_byte,
+        (uint8_t)DTC_STATUS_INIT_AND_CLEARED, "non-permanent DTC stays cleared");
+}
+
+/**
+ * TC-0x14-019: [EDS#534/#145] The first/most recent records (0x19 0x0B-0x0E)
+ * are stored next to the mirror. 14 FF FF FF empties all four, including
+ * the one naming the permanent DTC, and the next power cycle must not bring
+ * any of them back. The first half proves the records do persist.
+ */
+ZTEST(test_service_0x14, tc019_records_stay_empty_after_clear_and_power_cycle)
+{
+    setup();
+    register_three_faulted_dtcs();
+    zassert_equal(dtc_database_set_permanent(DTC_P0003, true), UDS_STATUS_OK, "");
+    zassert_equal(dtc_mirror_flush_all(), UDS_STATUS_OK, "");
+
+    power_cycle_and_load(0x00U);
+    zassert_equal(record_of(DTC_RECORD_FIRST_TEST_FAILED), DTC_P0001, "control: record persisted");
+    zassert_equal(record_of(DTC_RECORD_FIRST_CONFIRMED), DTC_P0001, "control: record persisted");
+    zassert_equal(record_of(DTC_RECORD_MOST_RECENT_TEST_FAILED), DTC_P0001, "control: record persisted");
+    zassert_equal(record_of(DTC_RECORD_MOST_RECENT_CONFIRMED), DTC_P0003,
+        "control: the most recent confirmed record names the permanent DTC");
+
+    /* The power cycle dropped the permanent flag (not persisted, by design:
+     * docs/INTEGRATION_GUIDE.md). The application sets it again at boot. */
+    zassert_equal(dtc_database_set_permanent(DTC_P0003, true), UDS_STATUS_OK, "");
+
+    uds_msg_buf_t req  = make_clear_req(0xFFFFFFUL);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x14_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "");
+    zassert_equal(record_of(DTC_RECORD_MOST_RECENT_CONFIRMED), 0U, "RAM: records emptied");
+
+    power_cycle_and_load(0x00U);
+    zassert_equal(record_of(DTC_RECORD_FIRST_TEST_FAILED), 0U, "record must stay empty");
+    zassert_equal(record_of(DTC_RECORD_FIRST_CONFIRMED), 0U, "record must stay empty");
+    zassert_equal(record_of(DTC_RECORD_MOST_RECENT_TEST_FAILED), 0U, "record must stay empty");
+    zassert_equal(record_of(DTC_RECORD_MOST_RECENT_CONFIRMED), 0U,
+        "record naming the permanent DTC must stay empty after power cycle");
+    zassert_equal(dtc_database_find(DTC_P0003)->status_byte, 0x08U,
+        "the permanent DTC itself keeps its status (EDS#534)");
+}
+
 extern void test_service_0x14__tc001_clear_all_group_ff(void);
 extern void test_service_0x14__tc002_response_length_is_one(void);
 extern void test_service_0x14__tc003_dtc_status_bytes_zeroed(void);
@@ -525,6 +626,8 @@ extern void test_service_0x14__tc014_mirror_persists_cleared_state(void);
 extern void test_service_0x14__tc015_clear_twice_idempotent(void);
 extern void test_service_0x14__tc016_single_dtc_clears_only_that_dtc(void);
 extern void test_service_0x14__tc017_unknown_dtc_rejected(void);
+extern void test_service_0x14__tc018_permanent_status_survives_clear_and_power_cycle(void);
+extern void test_service_0x14__tc019_records_stay_empty_after_clear_and_power_cycle(void);
 
 void run_all_tests(void)
 {
@@ -545,4 +648,6 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x14__tc015_clear_twice_idempotent);
     RUN_TEST(test_service_0x14__tc016_single_dtc_clears_only_that_dtc);
     RUN_TEST(test_service_0x14__tc017_unknown_dtc_rejected);
+    RUN_TEST(test_service_0x14__tc018_permanent_status_survives_clear_and_power_cycle);
+    RUN_TEST(test_service_0x14__tc019_records_stay_empty_after_clear_and_power_cycle);
 }

@@ -247,10 +247,15 @@ uds_status_t dtc_mirror_flush_all(void);
 uds_status_t dtc_mirror_save_one(uint32_t dtc_code, uint8_t status_byte);
 
 /**
- * @brief Mark all DTC status bytes as cleared in NVM.
+ * @brief Persist the result of a clear-all to NVM.
  *
- * Called after SID 0x14 (ClearDiagnosticInformation) completes.
- * Writes a mirror record with all status bytes set to 0x00.
+ * Called by SID 0x14 (ClearDiagnosticInformation, all groups) AFTER
+ * dtc_database_clear_non_permanent() has cleared RAM. Writes the live table
+ * and the (now empty) first/most recent records, so NVM matches RAM:
+ * cleared DTCs as 0x50, and a permanent DTC, which the clear leaves
+ * standing, with its status unchanged. [EDS#534] It used to write 0x50 for
+ * every entry, permanent ones included, so a permanent DTC lost its status at
+ * the next boot.
  *
  * @return UDS_STATUS_OK on success.
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if not initialized.

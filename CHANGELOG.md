@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **A permanent DTC keeps its status after ClearDiagnosticInformation and a power cycle**
+  (EDS#534). `14 FF FF FF` leaves a permanent DTC's status byte in RAM, but
+  `dtc_mirror_clear_all()` wrote every entry to NVM as 0x50, so the next boot restored 0x50 and
+  the permanent DTC was gone. `dtc_mirror_clear_all()` now persists the live table (it is
+  `dtc_mirror_flush_all()`), so it must follow the RAM clear
+  (`dtc_database_clear_non_permanent()`), as service 0x14 already does. The first / most recent
+  records (0x19 0x0B-0x0E) were not affected: they were already written from RAM, and a test now
+  pins that. The `is_permanent` flag itself is still not persisted (unchanged, documented in
+  `docs/INTEGRATION_GUIDE.md`). The application sets it again at boot, and with this fix the
+  status byte it derives that from survives.
+
 ### Services
 
 - **ReadDTCInformation (0x19) serves 0x07, 0x08, 0x09 and 0x0B-0x0E** (EDS#145).
