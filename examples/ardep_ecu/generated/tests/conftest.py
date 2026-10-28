@@ -4,7 +4,7 @@
 #
 # ECU       : ARDEP_IOController
 # Version   : 1.0.0
-# Generated : 2026-10-27T15:58:30Z
+# Generated : 2026-10-28T15:48:33Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -65,7 +65,7 @@ log = logging.getLogger("conftest.ardep_iocontroller")
 # Protocol constants
 # ---------------------------------------------------------------------------
 
-TESTER_TX_ID:   int   = 2015
+TESTER_TX_ID:   int   = 2016
 ECU_TX_ID:      int   = 2024
 CAN_EXTENDED:   bool  = False
 P2_SERVER_MAX_MS:      int = 25

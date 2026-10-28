@@ -179,7 +179,11 @@ static void on_isotp_rx_complete(const uint8_t *data, uint32_t length, void *arg
 
     (void)diag_mutex_lock(&s_session_lock);
     (void)diag_mutex_lock(&s_security_lock);
-    status = uds_server_process_request(srv, &s_req_buf, &s_resp_buf);
+    /* [EDS-toolchain#165] A functional request (ISO 15765-4) must not draw
+     * the NRCs ISO 14229-1 Table 4 says to suppress. */
+    uds_addressing_t addressing = UDS_ADDRESSING_PHYSICAL;
+    (void)isotp_get_rx_addressing(tp, &addressing);
+    status = uds_server_process_request_ex(srv, &s_req_buf, &s_resp_buf, addressing);
     (void)diag_mutex_unlock(&s_security_lock);
     (void)diag_mutex_unlock(&s_session_lock);
 
@@ -345,7 +349,10 @@ int main(void)
     }
 
     /* ── CAN transport ───────────────────────────────────────────────────── */
-    const zephyr_port_cfg_t port_cfg = { .can_dev = DIAG_CAN_DEV };
+    const zephyr_port_cfg_t port_cfg = {
+        .can_dev        = DIAG_CAN_DEV,
+        .physical_rx_id = DIAG_RX_CAN_ID,   /* alongside the 0x7DF functional filter */
+    };
     status = zephyr_port_init(&port_cfg, &can);
     if (status != UDS_STATUS_OK) {
         LOG_ERR("Platform init failed.");

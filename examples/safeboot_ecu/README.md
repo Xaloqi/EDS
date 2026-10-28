@@ -356,7 +356,7 @@ target:
   transport: can
   interface: can0
   bitrate: 500000
-  rx_id: 0x7DF
+  rx_id: 0x7E0
   tx_id: 0x7E8
 
 campaigns:
@@ -385,7 +385,7 @@ campaigns:
 testlab run campaigns/safeboot_dfu.yaml
 ```
 
-### Manual UDS bytes (500 kbit/s, 0x7DF → 0x7E8)
+### Manual UDS bytes (500 kbit/s, 0x7E0 → 0x7E8)
 
 Byte values below are a real capture from a NUCLEO-H753ZI (`fix/277-312-313-dfu-swap`)
 except where shown symbolic (`<...>`) because they depend on the image being sent.

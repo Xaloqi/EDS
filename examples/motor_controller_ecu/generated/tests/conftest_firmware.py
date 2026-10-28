@@ -4,7 +4,7 @@
 #
 # ECU       : MotorController_Inverter
 # Version   : 1.0.0
-# Generated : 2026-10-19T13:03:09Z
+# Generated : 2026-10-28T15:48:35Z
 #
 # PURPOSE: pytest conftest for firmware-backed integration tests.
 #
@@ -64,7 +64,7 @@ log = logging.getLogger("conftest_firmware.motorcontroller_inverter")
 # Protocol constants (must match diagnostics_config.yaml + generated_config.h)
 # ---------------------------------------------------------------------------
 
-TESTER_TX_ID:   int   = 2015   # Tester → ECU  (our TX)
+TESTER_TX_ID:   int   = 2016   # Tester → ECU  (our TX)
 ECU_TX_ID:      int   = 2024   # ECU    → Tester  (our RX)
 
 P2_SERVER_MAX_MS:      int   = 25

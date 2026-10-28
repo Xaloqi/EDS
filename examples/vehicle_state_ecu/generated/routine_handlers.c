@@ -1,60 +1,60 @@
 // File: generated/routine_handlers.c
-// GENERATED — do NOT edit manually, with ONE documented exception below.
-// ECU: VehicleStateECU  v0.1.0  Generated: 2026-10-04T10:24:58Z
-//
-// [APP HOOK] This file normally regenerates as pure TODO stubs (see every
-// other example's generated/routine_handlers.c). This one example departs
-// from that, intentionally: the four bodies below delegate to
-// src/vehicle_state.c instead of returning an empty stub result, so the
-// RoutineControl actuation path (RID 0xC100 / 0xC101) does something real.
-//
-// There is no other way to give a routine live behaviour in this codebase —
-// routine_database_find() returns a `const routine_entry_t *`, so
-// src/main.c cannot re-point a callback at runtime; the callback bodies
-// here are the only place application logic can run (see EDS#340 for the
-// cross-example survey that confirmed this). Each [APP HOOK] marker below
-// is exactly what to re-apply if this file is ever regenerated from the
-// YAML (examples/vehicle_state_ecu/CMakeLists.txt sets DIAG_SKIP_CODEGEN=ON
-// by default for exactly this reason, and a configure-time check fails
-// loudly if these markers go missing).
+// GENERATED — do NOT edit manually.
+// ECU: VehicleStateECU  v0.1.0  Generated: 2026-10-28T15:48:37Z
 
 #include "routine_handlers.h"
 #include "routine_database.h"
 #include "uds_types.h"
-#include "vehicle_state.h"
 
-/* [APP HOOK] RID 0xC100 — IndicatorOutputSelfTest : startRoutine */
+/* =============================================================
+ * Routine callback stubs
+ * Replace each stub body with your ECU application logic.
+ * ============================================================= */
+
+/* RID 0xC100 — IndicatorOutputSelfTest : startRoutine stub */
 uds_status_t routine_start_indicatoroutputselftest(
     const uint8_t *opt_buf, uint8_t opt_len,
     uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
 {
-    (void)opt_buf; (void)opt_len;
-    return vehicle_state_selftest_start(result_buf, result_buf_len, result_len);
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement routine logic */
+    return UDS_STATUS_OK;
 }
 
-/* [APP HOOK] RID 0xC100 — IndicatorOutputSelfTest : requestRoutineResults */
+/* RID 0xC100 — IndicatorOutputSelfTest : requestRoutineResults stub */
 uds_status_t routine_results_indicatoroutputselftest(
     uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
 {
-    return vehicle_state_selftest_results(result_buf, result_buf_len, result_len);
+    (void)result_buf; (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: return routine results */
+    return UDS_STATUS_OK;
 }
 
-/* [APP HOOK] RID 0xC101 — IndicatorLampCheck : startRoutine */
+/* RID 0xC101 — IndicatorLampCheck : startRoutine stub */
 uds_status_t routine_start_indicatorlampcheck(
     const uint8_t *opt_buf, uint8_t opt_len,
     uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
 {
-    (void)opt_buf; (void)opt_len;
-    return vehicle_state_lampcheck_start(result_buf, result_buf_len, result_len);
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement routine logic */
+    return UDS_STATUS_OK;
 }
 
-/* [APP HOOK] RID 0xC101 — IndicatorLampCheck : stopRoutine */
+/* RID 0xC101 — IndicatorLampCheck : stopRoutine stub */
 uds_status_t routine_stop_indicatorlampcheck(
     const uint8_t *opt_buf, uint8_t opt_len,
     uint8_t *result_buf, uint8_t result_buf_len, uint8_t *result_len)
 {
-    (void)opt_buf; (void)opt_len;
-    return vehicle_state_lampcheck_stop(result_buf, result_buf_len, result_len);
+    (void)opt_buf; (void)opt_len; (void)result_buf;
+    (void)result_buf_len;
+    *result_len = 0U;
+    /* TODO: implement stop logic */
+    return UDS_STATUS_OK;
 }
 
 /* Register all routines with routine_database */

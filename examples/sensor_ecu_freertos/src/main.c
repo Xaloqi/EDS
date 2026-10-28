@@ -150,7 +150,11 @@ static void on_isotp_rx_complete(
     s_req_buf.length  = (uint16_t)length;
     s_resp_buf.length = (uint16_t)0U;
 
-    status = uds_server_process_request(srv, &s_req_buf, &s_resp_buf);
+    /* [EDS-toolchain#165] A functional request (ISO 15765-4) must not draw
+     * the NRCs ISO 14229-1 Table 4 says to suppress. */
+    uds_addressing_t addressing = UDS_ADDRESSING_PHYSICAL;
+    (void)isotp_get_rx_addressing(tp, &addressing);
+    status = uds_server_process_request_ex(srv, &s_req_buf, &s_resp_buf, addressing);
 
     if ((status != UDS_STATUS_OK) && (s_resp_buf.length == (uint16_t)0U)) { return; }
 

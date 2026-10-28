@@ -107,7 +107,7 @@ LOG_MODULE_REGISTER(bms_ecu, LOG_LEVEL_INF);
  * ============================================================================= */
 
 #define DIAG_CAN_DEV         DEVICE_DT_GET(DT_ALIAS(can0))
-#define DIAG_RX_CAN_ID       ((uint32_t)GEN_CAN_RX_ID)   /* 0x7DF: functional */
+#define DIAG_RX_CAN_ID       ((uint32_t)GEN_CAN_RX_ID)   /* 0x7E0, physical */
 #define DIAG_TX_CAN_ID       ((uint32_t)GEN_CAN_TX_ID)   /* 0x7E8: physical    */
 
 #ifndef CONFIG_DIAG_TASK_STACK_SIZE
@@ -823,7 +823,11 @@ static void on_isotp_rx_complete(
 
     (void)diag_mutex_lock(&s_session_lock);
     (void)diag_mutex_lock(&s_security_lock);
-    status = uds_server_process_request(srv, &s_req_buf, &s_resp_buf);
+    /* [EDS-toolchain#165] A functional request (ISO 15765-4) must not draw
+     * the NRCs ISO 14229-1 Table 4 says to suppress. */
+    uds_addressing_t addressing = UDS_ADDRESSING_PHYSICAL;
+    (void)isotp_get_rx_addressing(tp, &addressing);
+    status = uds_server_process_request_ex(srv, &s_req_buf, &s_resp_buf, addressing);
     (void)diag_mutex_unlock(&s_security_lock);
     (void)diag_mutex_unlock(&s_session_lock);
 
@@ -1067,8 +1071,8 @@ int main(void)
 
     (void)memset(&port_cfg, 0, sizeof(port_cfg));
     port_cfg.can_dev        = can_dev;
-    port_cfg.physical_rx_id = 0U;  /* functional-only (0x7DF); set 0x7E0U for
-                                     * physical addressing if required by OEM tool */
+    port_cfg.physical_rx_id = DIAG_RX_CAN_ID;  /* physical request ID; the
+                                     * 0x7DF functional filter is always installed */
 
     st = zephyr_port_init(&port_cfg, &can);
     if (st != UDS_STATUS_OK) {

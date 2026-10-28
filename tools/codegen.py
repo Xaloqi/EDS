@@ -256,6 +256,10 @@ MAX_DID_COUNT     = 64
 MAX_DTC_COUNT     = 128
 MAX_ROUTINE_COUNT = 32
 CAN_ID_11BIT_MAX = 0x7FF
+
+#: ISO 15765-4 functional request ID. Default for can.functional_rx_can_id
+#: (EDS-toolchain#165).
+FUNCTIONAL_RX_CAN_ID_DEFAULT = 0x7DF
 CAN_ID_29BIT_MAX = 0x1FFFFFFF
 
 
@@ -548,8 +552,10 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     if can_cfg:
         if not isinstance(can_cfg, dict):
             _fatal("VALIDATION: 'can' must be a YAML mapping.")
-        for field in ("rx_can_id", "tx_can_id"):
+        for field in ("rx_can_id", "tx_can_id", "functional_rx_can_id"):
             raw = can_cfg.get(field)
+            if field == "functional_rx_can_id" and str(raw).lower() == "none":
+                continue
             if raw is not None:
                 val = _parse_can_id(raw, f"can.{field}")
                 if val > CAN_ID_11BIT_MAX:
@@ -564,6 +570,15 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                 f"VALIDATION: can.rx_can_id and can.tx_can_id must be different "
                 f"(both are {rx})."
             )
+        fn = can_cfg.get("functional_rx_can_id")
+        if fn is not None and str(fn).lower() != "none":
+            for other, name in ((rx, "rx_can_id"), (tx, "tx_can_id")):
+                if other is not None and int(fn, 16) == int(other, 16):
+                    _fatal(
+                        f"VALIDATION: can.functional_rx_can_id must differ from "
+                        f"can.{name} (both are {fn}). Use \"none\" to turn "
+                        f"functional addressing off."
+                    )
 
     # ── dids ─────────────────────────────────────────────────────────────────
     dids: List[Any] = cfg.get("dids", [])
@@ -1120,14 +1135,31 @@ def _build_can_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     Extract CAN addressing from config, applying defaults if not present.
 
     Defaults:
-        rx_can_id: 0x7DF  (ISO 15765-4 functional addressing)
-        tx_can_id: 0x7E8  (ISO 15765-4 physical response ECU address 0)
+        rx_can_id: 0x7E0  (ISO 15765-4 physical request, ECU address 0)
+        tx_can_id: 0x7E8  (ISO 15765-4 physical response, ECU address 0)
+        functional_rx_can_id: 0x7DF  (ISO 15765-4 functional request)
+
+    functional_rx_can_id (EDS-toolchain#165) becomes
+    isotp_cfg_t.functional_rx_can_id. The string "none" turns functional
+    addressing off (value 0). It is also off when the key is absent and
+    rx_can_id is 29-bit (0x7DF is an 11-bit ID, no partner for a 29-bit
+    physical ID) or is still 0x7DF (an older config, where that ID was the
+    physical request ID; it stays so).
     """
     can_cfg = cfg.get("can", {}) or {}
-    rx_raw  = can_cfg.get("rx_can_id", "0x7DF")
+    rx_raw  = can_cfg.get("rx_can_id", "0x7E0")
     tx_raw  = can_cfg.get("tx_can_id", "0x7E8")
     rx_val  = int(rx_raw, 16)
     tx_val  = int(tx_raw, 16)
+
+    if "functional_rx_can_id" in can_cfg:
+        fn_raw = can_cfg["functional_rx_can_id"]
+        fn_val = 0 if str(fn_raw).lower() == "none" else int(fn_raw, 16)
+    elif rx_val > CAN_ID_11BIT_MAX or rx_val == FUNCTIONAL_RX_CAN_ID_DEFAULT:
+        fn_val = 0
+    else:
+        fn_val = FUNCTIONAL_RX_CAN_ID_DEFAULT
+
     return {
         "rx_can_id":       _normalise_hex(rx_raw),
         "tx_can_id":       _normalise_hex(tx_raw),
@@ -1135,6 +1167,8 @@ def _build_can_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "tx_can_id_int":   tx_val,
         "rx_is_extended":  rx_val > CAN_ID_11BIT_MAX,
         "tx_is_extended":  tx_val > CAN_ID_11BIT_MAX,
+        "functional_rx_can_id":     "none" if fn_val == 0 else f"0x{fn_val:03X}",
+        "functional_rx_can_id_int": fn_val,
     }
 
 
@@ -1280,6 +1314,8 @@ def build_generated_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "can_tx_id_int":         can["tx_can_id_int"],
         "can_rx_is_extended":    can["rx_is_extended"],
         "can_tx_is_extended":    can["tx_is_extended"],
+        "can_functional_rx_id":     can["functional_rx_can_id"],
+        "can_functional_rx_id_int": can["functional_rx_can_id_int"],
     }
 
 

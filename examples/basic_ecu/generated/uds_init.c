@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU
  * Version   : 0.1.0
- * Generated : 2026-10-27T15:58:30Z
+ * Generated : 2026-10-28T15:53:55Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -536,6 +536,8 @@ uds_status_t uds_generated_init(
      * Binds the ISO 15765-2 framing layer to the CAN transport.
      * block_size = 0: no block size limit (tester decides segmentation pace).
      * stmin_ms   = 0: no minimum separation time enforced by this ECU.
+     * functional_rx_can_id: GEN_CAN_FUNCTIONAL_RX_ID, 0 when the YAML turns
+     *              functional addressing off.
      */
 #ifndef EDS_DOIP_ONLY_BUILD
     if (can != NULL) {
@@ -544,6 +546,8 @@ uds_status_t uds_generated_init(
 
         isotp_cfg.rx_can_id  = rx_can_id;
         isotp_cfg.tx_can_id  = tx_can_id;
+        /* Functional requests (ISO 15765-4): 0 = none. [EDS-toolchain#165] */
+        isotp_cfg.functional_rx_can_id = (uint32_t)GEN_CAN_FUNCTIONAL_RX_ID;
         isotp_cfg.block_size = (uint8_t)ISOTP_DEFAULT_BLOCK_SIZE;
         isotp_cfg.stmin_ms   = (uint8_t)ISOTP_DEFAULT_STMIN_MS;
         isotp_cfg.can        = can;

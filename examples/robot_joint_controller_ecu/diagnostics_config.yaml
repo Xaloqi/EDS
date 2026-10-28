@@ -57,7 +57,8 @@ metadata:
 
 
 can:
-  rx_can_id: "0x7DF"  # ISO 15765-4 functional addressing (request)
+  rx_can_id: "0x7E0"  # ISO 15765-4 physical request (ECU address 0)
+  functional_rx_can_id: "0x7DF"  # ISO 15765-4 functional request (all ECUs); "none" turns it off
   tx_can_id: "0x7E8"  # ISO 15765-4 physical response (ECU address 0)
 
 timing:
