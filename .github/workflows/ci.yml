@@ -1771,6 +1771,7 @@ jobs:
   example-robot-runtime:
     name: "Robot Joint Controller ECU — native_sim runtime smoke (SocketCAN)"
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
@@ -1814,11 +1815,22 @@ jobs:
             "-DDTC_OVERLAY_FILE=${EX}/boards/native_sim/native_sim_socketcan.overlay"
           test -f build/zephyr/zephyr.exe
 
+      # EDS#536: this step used to apt-get install with no `apt-get update`
+      # and no timeout (8-26 min on bad runs). The module is usually already
+      # there, so try modprobe first; install only if that fails, bounded, and
+      # fail loudly if vcan still cannot be loaded.
       - name: Load vcan
+        timeout-minutes: 6
         run: |
-          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" || true
-          sudo modprobe vcan
-          sudo modprobe can_raw
+          set -euo pipefail
+          if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
+            echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
+            sudo timeout 120 apt-get update -qq
+            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            sudo modprobe vcan
+            sudo modprobe can_raw
+          fi
+          lsmod | grep -E '^(vcan|can_raw) '
 
       - name: Runtime smoke — read 0xA000, wait for the ramp, 0x19 reports 0xA00101
         run: |
