@@ -250,7 +250,7 @@ typedef enum isotp_state {
     ISOTP_STATE_RX_WAIT_CF  = 1U, /**< Awaiting consecutive frames (RX). */
     ISOTP_STATE_TX_WAIT_FC  = 2U, /**< Awaiting flow control (TX). */
     ISOTP_STATE_TX_SEND_CF  = 3U, /**< Sending consecutive frames (TX). */
-    ISOTP_STATE_ERROR       = 4U  /**< Error state — requires reset. */
+    ISOTP_STATE_ERROR       = 4U  /**< Error state — cleared by isotp_reset_*(); a TX-side error also by the next isotp_transmit() [EDS#541]. */
 } isotp_state_t;
 
 /* --------------------------------------------------------------------------
@@ -410,6 +410,14 @@ uds_status_t isotp_process_rx_frame(
  *
  * Triggers SF or FF+CF segmented transmission depending on PDU length.
  * The pointed data must remain valid until transmission completes.
+ *
+ * [EDS#541] A TX channel left in ISOTP_STATE_ERROR (N_Bs or N_As timeout, a
+ * Flow Control that aborted the message, a frame the data link refused) has
+ * already reported that error and its message is lost, so this call starts the
+ * new message from a cleared TX channel; it does not return ERR_BUSY. Calling
+ * isotp_reset_tx() first is still allowed and does the same. A transmit that
+ * is still in progress (TX_WAIT_FC, TX_SEND_CF) is never interrupted: that is
+ * ERR_BUSY.
  *
  * @param[in] ctx     Initialized ISO-TP context.
  * @param[in] data    Pointer to PDU data to transmit (caller-owned).
