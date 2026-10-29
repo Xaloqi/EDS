@@ -4,7 +4,7 @@
 #
 # ECU       : ARDEP_IOController
 # Version   : 1.0.0
-# Generated : 2026-10-28T15:48:33Z
+# Generated : 2026-10-29T05:47:03Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -35,7 +35,7 @@
 # =============================================================================
 
 from __future__ import annotations
-import asyncio, os, logging
+import asyncio, os, logging, zlib
 from typing import Optional
 import pytest
 
@@ -106,6 +106,21 @@ _LEVEL_KEYS: dict = {
               0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F]),
 }
 _SESSION_ORDINALS: dict = {0x01: 1, 0x02: 2, 0x03: 3}
+
+#: EDS-toolchain#187. The memory services answer for the firmware the harness
+#: builds: platform/zephyr/harness_flash_mock.c, one 4 KiB region that is
+#: readable and writable, an erase, write and verify callback but NO read
+#: callback (so 0x23 and 0x35 are NRC 0x22), blocks of up to 256 bytes, and no
+#: image policy. A customer firmware with another memory map or a read
+#: callback answers differently; run those tests against the firmware.
+_MEM_BASE: int = 0x08020000
+_MEM_SIZE: int = 4096
+_MEM_BLOCK: int = 256
+#: core/uds_access_table.c, default table: (programming session only, security level).
+_ACL: dict = {0x2A: (False, 0), 0x2F: (False, 1), 0x23: (True, 1), 0x3D: (True, 1),
+              0x34: (True, 1), 0x35: (True, 1), 0x36: (True, 1), 0x37: (True, 1)}
+#: UDS_PERIODIC_MAX_SUBSCRIPTIONS (core/uds_periodic.h).
+_PERIODIC_MAX: int = 8
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +206,11 @@ class _InlineEcuState:
         self.routine_active: dict = {}
         self.pending_seed: Optional[bytes] = None
         self.pending_level: Optional[int] = None
+        # EDS-toolchain#187: 0x34/0x36/0x37 download in progress (None = idle),
+        # 0x3D writes, and 0x2A subscriptions; see _MEM_* below.
+        self.xfer: Optional[dict] = None
+        self.flash: bytearray = bytearray(b"\xFF" * _MEM_SIZE)
+        self.periodic: set = set()
         self.did_store: dict = {
             61840: bytearray([0xAA] * 17),
             61836: bytearray([0xAA] * 8),
@@ -588,6 +608,8 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if state.session == 0x02 and sub not in (0x01, 0x02): return nrc(0x10, 0x22)
         state.session = sub; state.sec_unlocked.clear()
         state.pending_seed = state.pending_level = None
+        state.xfer = None                       # service_0x10.c, EDS#442
+        if sub == 0x01: state.periodic.clear()
         if pdu[1] & 0x80: return None
         p2_hi=0; p2_lo=25; p2s_hi=1; p2s_lo=244
         return bytes([0x50, sub, p2_hi, p2_lo, p2s_hi, p2s_lo])
@@ -602,6 +624,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if sub not in (0x01, 0x02, 0x03): return nrc(0x11, 0x12)
         state.session = 0x01; state.sec_unlocked.clear()
         state.pending_seed = state.pending_level = None
+        state.xfer = None; state.periodic.clear()
         if pdu[1] & 0x80: return None
         return bytes([0x51, sub])
     if sid == 0x27:
@@ -733,6 +756,27 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
             if len(pdu) != 2: return nrc(0x19, 0x13)
             if suppress: return None
             return bytes([0x59, sub, _DTC_AVAILABILITY_MASK])
+        if sub == 0x03:   # reportDTCSnapshotIdentification: no snapshots are stored
+            if len(pdu) != 2: return nrc(0x19, 0x13)
+            if suppress: return None
+            return bytes([0x59, 0x03])
+        if sub in (0x04, 0x06):
+            # Snapshot / extended data by DTC: only record 0xFF, answered with the
+            # DTCAndStatusRecord alone; any other record, or an unknown DTC, is 0x31.
+            if len(pdu) != 6: return nrc(0x19, 0x13)
+            code = (pdu[2] << 16) | (pdu[3] << 8) | pdu[4]
+            d = next((x for x in state.dtcs if x['code'] == code), None)
+            if d is None or pdu[5] != 0xFF: return nrc(0x19, 0x31)
+            if suppress: return None
+            return bytes([0x59, sub, pdu[2], pdu[3], pdu[4], d['status']])
+        if sub == 0x14:   # reportDTCFaultDetectionCounter: no fault monitor, so none in 1..126
+            if len(pdu) != 2: return nrc(0x19, 0x13)
+            if suppress: return None
+            return bytes([0x59, 0x14])
+        if sub == 0x15:   # reportDTCWithPermanentStatus: the model has no permanent DTC
+            if len(pdu) != 2: return nrc(0x19, 0x13)
+            if suppress: return None
+            return bytes([0x59, 0x15, _DTC_AVAILABILITY_MASK])
         if sub == 0x0A:   # reportSupportedDTC: every DTC, whatever its status
             resp = bytearray([0x59, 0x0A, _DTC_AVAILABILITY_MASK])
             for d in state.dtcs:
@@ -789,7 +833,121 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if sub not in (0x01, 0x02): return nrc(0x85, 0x12)
         if pdu[1] & 0x80: return None
         return bytes([0xC5, sub])
+    if sid in _ACL:
+        return _inline_acl_services(pdu, sid, state, nrc)
     return bytes([0x7F, sid, 0x11])
+
+
+def _inline_alfid(pdu: bytes, off: int):
+    """addressAndLengthFormatIdentifier at pdu[off] -> (addr_len, size_len), or None."""
+    al, sl = pdu[off] & 0x0F, (pdu[off] >> 4) & 0x0F
+    return (al, sl) if 1 <= al <= 4 and 1 <= sl <= 4 else None
+
+
+def _inline_in_region(address: int, size: int) -> bool:
+    """uds_transfer_validate_memory_range() against the one harness region."""
+    return size != 0 and _MEM_BASE <= address and address + size <= _MEM_BASE + _MEM_SIZE
+
+
+def _inline_acl_services(pdu: bytes, sid: int, state: _InlineEcuState, nrc) -> Optional[bytes]:
+    """0x23, 0x2A, 0x2F, 0x34, 0x35, 0x36, 0x37, 0x3D (EDS-toolchain#187)."""
+    programming_only, sec_level = _ACL[sid]
+    # core/uds_server.c: the access table runs before the handler.
+    if programming_only and state.session != 0x02: return nrc(sid, 0x7F)
+    if not programming_only and state.session == 0x01: return nrc(sid, 0x7F)
+    if sec_level and not state.sec_unlocked.get(sec_level): return nrc(sid, 0x33)
+    n = len(pdu)
+
+    if sid == 0x2F:
+        # No generated DID has an IO-control callback, so every well-formed
+        # request is "DID not supported for IO control".
+        return nrc(0x2F, 0x13) if n < 4 else nrc(0x2F, 0x31)
+
+    if sid == 0x2A:
+        if n < 2: return nrc(0x2A, 0x13)
+        mode = pdu[1]
+        if mode < 0x01 or mode > 0x04: return nrc(0x2A, 0x31)
+        if mode == 0x04:                       # stopSending: all, or the listed pDIDs
+            if n == 2: state.periodic.clear()
+            else: state.periodic.difference_update(pdu[2:])
+            return bytes([0x6A])
+        if n < 3: return nrc(0x2A, 0x13)
+        supported = []
+        for pid in dict.fromkeys(pdu[2:]):     # each pDID once, in order
+            entry = state._dids_meta.get(0xF200 | pid)
+            if entry is None or not entry['access_read']: continue
+            if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: continue
+            if entry['read_sec'] > 0 and not state.sec_unlocked.get(entry['read_sec']):
+                return nrc(0x2A, 0x33)
+            supported.append(pid)
+        if not supported: return nrc(0x2A, 0x31)
+        if len(set(supported) - state.periodic) > _PERIODIC_MAX - len(state.periodic):
+            return nrc(0x2A, 0x31)
+        state.periodic.update(supported)
+        return bytes([0x6A])
+
+    if sid in (0x23, 0x35):                    # no read callback: see _MEM_BASE
+        if n < (2 if sid == 0x23 else 3): return nrc(sid, 0x13)
+        return nrc(sid, 0x22)
+
+    if sid == 0x3D:
+        if n < 2: return nrc(0x3D, 0x13)
+        fmt = _inline_alfid(pdu, 1)
+        if fmt is None or n < 2 + fmt[0] + fmt[1]: return nrc(0x3D, 0x13)
+        al, sl = fmt
+        address = int.from_bytes(pdu[2:2 + al], "big")
+        size = int.from_bytes(pdu[2 + al:2 + al + sl], "big")
+        if n != 2 + al + sl + size: return nrc(0x3D, 0x13)
+        if not _inline_in_region(address, size): return nrc(0x3D, 0x31)
+        off = address - _MEM_BASE
+        state.flash[off:off + size] = pdu[2 + al + sl:]
+        return bytes([0x7D]) + pdu[1:2 + al + sl]
+
+    if sid == 0x34:
+        if n < 3: return nrc(0x34, 0x13)
+        if pdu[1] != 0x00: return nrc(0x34, 0x31)
+        fmt = _inline_alfid(pdu, 2)
+        if fmt is None or n != 3 + fmt[0] + fmt[1]: return nrc(0x34, 0x13)
+        al, sl = fmt
+        address = int.from_bytes(pdu[3:3 + al], "big")
+        size = int.from_bytes(pdu[3 + al:3 + al + sl], "big")
+        if not _inline_in_region(address, size): return nrc(0x34, 0x31)
+        if state.xfer is not None: return nrc(0x34, 0x22)
+        off = address - _MEM_BASE
+        state.flash[off:off + size] = b"\xFF" * size           # erase_cb
+        state.xfer = {"address": address, "total": size, "remaining": size,
+                      "next": 1, "last": None, "crc": 0}
+        return bytes([0x74, 0x20, (_MEM_BLOCK + 2) >> 8, (_MEM_BLOCK + 2) & 0xFF])
+
+    if sid == 0x36:
+        if n < 3: return nrc(0x36, 0x13)
+        x = state.xfer
+        if x is None: return nrc(0x36, 0x24)
+        if n > _MEM_BLOCK + 2: return nrc(0x36, 0x13)
+        seq, payload = pdu[1], pdu[2:]
+        if x["last"] == seq: return bytes([0x76, seq])          # repeated block
+        if x["remaining"] == 0: return nrc(0x36, 0x24)
+        if len(payload) > x["remaining"]:
+            state.xfer = None; return nrc(0x36, 0x71)
+        if seq != x["next"]: return nrc(0x36, 0x73)
+        done = x["total"] - x["remaining"]
+        off = x["address"] - _MEM_BASE + done
+        state.flash[off:off + len(payload)] = payload
+        x["crc"] = zlib.crc32(payload, x["crc"])
+        x["remaining"] -= len(payload)
+        x["last"] = seq
+        x["next"] = 0 if x["next"] == 0xFF else x["next"] + 1
+        return bytes([0x76, seq])
+
+    # 0x37: optional 4-byte CRC-32 of the image (no image policy is registered).
+    x = state.xfer
+    if x is None: return nrc(0x37, 0x24)
+    if n not in (1, 5): return nrc(0x37, 0x13)
+    if x["remaining"] != 0:
+        state.xfer = None; return nrc(0x37, 0x24)
+    state.xfer = None
+    if n == 5 and int.from_bytes(pdu[1:5], "big") != x["crc"]: return nrc(0x37, 0x72)
+    return bytes([0x77])
 
 
 # ---------------------------------------------------------------------------

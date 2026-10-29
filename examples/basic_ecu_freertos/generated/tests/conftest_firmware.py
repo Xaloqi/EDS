@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU
 # Version   : 0.1.0
-# Generated : 2026-10-19T13:03:08Z
+# Generated : 2026-10-29T05:47:04Z
 #
 # PURPOSE: pytest conftest for firmware-backed integration tests.
 #
@@ -138,7 +138,7 @@ def _isotp_encode(payload: bytes) -> list:
     while rest:
         chunk, rest = rest[:7], rest[7:]
         frames.append(bytes([0x20 | (sn & 0x0F)]) + chunk + bytes([ISO_TP_PADDING] * (7 - len(chunk))))
-        sn = (sn % 15) + 1
+        sn = (sn + 1) % 16   # SN runs 1..15, then 0 (ISO 15765-2); 1..15,1 aborted any request over 111 bytes
     return frames
 
 
