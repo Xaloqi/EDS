@@ -8,6 +8,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **One lost Flow Control no longer mutes the ECU** (#541). After an N_Bs/N_As timeout, an aborting
+  Flow Control or a refused frame, the ISO-TP TX channel sat in `ISOTP_STATE_ERROR` and
+  `isotp_transmit()` answered `ERR_BUSY` until `isotp_reset_tx()`, which no example calls. A tester
+  that stopped answering a multi-frame reply (on `safeboot_ecu`, the 10-byte SecurityAccess seed) left
+  every later response dropped (`ISO-TP TX error 0x08`) until the board was reset. `isotp_transmit()`
+  now starts the next message from a TX channel in ERROR; the error was already reported through
+  the tick's or the frame handler's return value. A transmit still waiting for Flow Control or
+  sending consecutive frames is unchanged (`ERR_BUSY`), and `isotp_reset_tx()` still works. The RX
+  side already recovered by itself (a new SF or FF starts afresh). Found on a NUCLEO-H753ZI.
+
 ### Changed
 
 - **A functional request ID next to the physical one: `can.functional_rx_can_id`**

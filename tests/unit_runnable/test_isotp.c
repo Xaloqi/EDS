@@ -1271,6 +1271,98 @@ ZTEST(test_isotp_transmit, test_tx_busy)
                   "Transmit while TX in progress must return ERR_BUSY");
 }
 
+static uds_can_frame_t make_fc(uint8_t flow_status);   /* defined with the FC tests below */
+
+/**
+ * TC-ISTP-TX-008 [EDS#541]: an N_Bs timeout leaves TX in ERROR, and the next
+ * isotp_transmit() must start a new message instead of answering ERR_BUSY for
+ * the rest of the uptime. Found on hardware: one Flow Control that never came
+ * muted the ECU until reset.
+ */
+ZTEST(test_isotp_transmit, test_tx_after_bs_timeout_starts_a_new_message)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t data[20];
+    memset(data, 0xBBU, sizeof(data));
+    zassert_equal(isotp_transmit(&ctx, data, 20U), UDS_STATUS_OK, "FF must go out");
+
+    /* No Flow Control arrives: tick N_Bs out. */
+    uds_status_t rc = UDS_STATUS_OK;
+    for (uint32_t i = 0U; (i < (ISOTP_TIMEOUT_BS_MS + 5U)) && (rc == UDS_STATUS_OK); i++) {
+        rc = isotp_tick_1ms(&ctx);
+    }
+    zassert_equal(rc, UDS_STATUS_ERR_TP_TIMEOUT_BS, "N_Bs must expire and be reported");
+    isotp_state_t st;
+    zassert_equal(isotp_get_tx_state(&ctx, &st), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(st, ISOTP_STATE_ERROR, "TX is in ERROR until the next message");
+
+    /* The response to the next request must go out. */
+    uint8_t rsp[2] = { 0x7EU, 0x00U };
+    mock_can_reset();
+    zassert_equal(isotp_transmit(&ctx, rsp, 2U), UDS_STATUS_OK,
+                  "A transmit after a reported TX error must not be ERR_BUSY");
+    zassert_equal(isotp_get_tx_state(&ctx, &st), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(st, ISOTP_STATE_IDLE, "A single frame completes at once");
+    zassert_equal(g_mock_tx_count, 1U, "exactly the new SF went out");
+}
+
+/**
+ * TC-ISTP-TX-009 [EDS#541]: the same for a Flow Control OVERFLOW abort, and the
+ * aborted message is not resumed: the new one is a fresh First Frame.
+ */
+ZTEST(test_isotp_transmit, test_tx_after_fc_overflow_starts_a_new_message)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t first[20];
+    uint8_t second[30];
+    memset(first, 0x11U, sizeof(first));
+    memset(second, 0x22U, sizeof(second));
+    zassert_equal(isotp_transmit(&ctx, first, 20U), UDS_STATUS_OK, "FF must go out");
+
+    uds_can_frame_t fc = make_fc((uint8_t)ISOTP_FC_STATUS_OVERFLOW);
+    zassert_equal(isotp_process_rx_frame(&ctx, &fc, rx_complete_cb, NULL),
+                  UDS_STATUS_ERR_TP_OVERFLOW, "FC OVERFLOW aborts the TX");
+
+    mock_can_reset();
+    zassert_equal(isotp_transmit(&ctx, second, 30U), UDS_STATUS_OK,
+                  "A transmit after an aborted one must start");
+    isotp_state_t st;
+    zassert_equal(isotp_get_tx_state(&ctx, &st), UDS_STATUS_OK, "get_tx_state failed");
+    zassert_equal(st, ISOTP_STATE_TX_WAIT_FC, "the new message waits for its own Flow Control");
+    zassert_equal(g_mock_tx_count, 1U, "one First Frame went out");
+    zassert_equal(g_mock_tx_frames[0].data[0], 0x10U, "it is a First Frame for 30 bytes");
+    zassert_equal(g_mock_tx_frames[0].data[1], 30U, "FF_DL is the new length");
+}
+
+/**
+ * TC-ISTP-TX-010 [EDS#541]: only ERROR is cleared. A transmit that is waiting
+ * for Flow Control or sending consecutive frames is still BUSY.
+ */
+ZTEST(test_isotp_transmit, test_tx_in_progress_stays_busy)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init failed");
+
+    uint8_t data[20];
+    memset(data, 0x33U, sizeof(data));
+    zassert_equal(isotp_transmit(&ctx, data, 20U), UDS_STATUS_OK, "FF must go out");
+    for (uint32_t i = 0U; i < 10U; i++) {
+        zassert_equal(isotp_tick_1ms(&ctx), UDS_STATUS_OK, "well inside N_Bs");
+    }
+    zassert_equal(isotp_transmit(&ctx, data, 20U), UDS_STATUS_ERR_BUSY,
+                  "A transmit waiting for Flow Control is not interrupted");
+}
+
 /* =========================================================================
  * Test suite: isotp_tick_1ms
  * ========================================================================= */
@@ -2462,6 +2554,9 @@ extern void test_isotp_transmit__test_overflow_length(void);
 extern void test_isotp_transmit__test_single_frame_transmit(void);
 extern void test_isotp_transmit__test_multi_frame_ff(void);
 extern void test_isotp_transmit__test_tx_busy(void);
+extern void test_isotp_transmit__test_tx_after_bs_timeout_starts_a_new_message(void);
+extern void test_isotp_transmit__test_tx_after_fc_overflow_starts_a_new_message(void);
+extern void test_isotp_transmit__test_tx_in_progress_stays_busy(void);
 extern void test_isotp_tick__test_null_ctx(void);
 extern void test_isotp_tick__test_cr_timeout(void);
 extern void test_isotp_tick__test_tick_idle(void);
@@ -2552,6 +2647,9 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_transmit__test_single_frame_transmit);
     RUN_TEST(test_isotp_transmit__test_multi_frame_ff);
     RUN_TEST(test_isotp_transmit__test_tx_busy);
+    RUN_TEST(test_isotp_transmit__test_tx_after_bs_timeout_starts_a_new_message);
+    RUN_TEST(test_isotp_transmit__test_tx_after_fc_overflow_starts_a_new_message);
+    RUN_TEST(test_isotp_transmit__test_tx_in_progress_stays_busy);
     RUN_TEST(test_isotp_tick__test_null_ctx);
     RUN_TEST(test_isotp_tick__test_cr_timeout);
     RUN_TEST(test_isotp_tick__test_tick_idle);

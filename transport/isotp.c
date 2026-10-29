@@ -604,6 +604,18 @@ uds_status_t isotp_transmit(
         return UDS_STATUS_ERR_BUFFER_OVERFLOW;
     }
 
+    /* [EDS#541] A TX channel in ERROR (Bs/As timeout, FC overflow, a frame the
+     * data link refused) has already reported that to its caller, through the
+     * tick's or the frame handler's return value, and holds nothing worth
+     * keeping: the message it was sending is lost. Starting the next message
+     * from there is the recovery. Without this, one Flow Control that never
+     * arrived left every later response BUSY, because no example (nor, by the
+     * look of it, an integration written from them) calls isotp_reset_tx().
+     * A transmit that is still progressing is not touched. */
+    if (ctx->tx_state == ISOTP_STATE_ERROR) {
+        isotp_clear_tx(ctx);
+    }
+
     if (ctx->tx_state != ISOTP_STATE_IDLE) {
         return UDS_STATUS_ERR_BUSY;
     }
