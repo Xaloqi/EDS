@@ -5,7 +5,7 @@
 > repo. Community users cloning the public repo can ignore this file.
 
 **Product:** Xaloqi EDS (Xaloqi Embedded Diagnostic Suite)  
-**Version:** v1.25.0  
+**Version:** v1.26.0  
 **Support:** contact@xaloqi.com
 
 ---
@@ -53,7 +53,7 @@ cd EDS
 Verify you are on the correct version:
 
 ```bash
-git checkout v1.25.0
+git checkout v1.26.0
 ```
 
 ---
@@ -62,10 +62,10 @@ git checkout v1.25.0
 
 ```bash
 # From the EDS repo root:
-unzip -o /path/to/xaloqi-eds-developer-v1.25.0.zip
+unzip -o /path/to/xaloqi-eds-developer-v1.26.0.zip
 
 # Or for Professional:
-unzip -o /path/to/xaloqi-eds-professional-v1.25.0.zip
+unzip -o /path/to/xaloqi-eds-professional-v1.26.0.zip
 ```
 
 The `-o` flag overwrites existing files without prompting — required when updating an existing installation.
@@ -78,7 +78,7 @@ The `-o` flag overwrites existing files without prompting — required when upda
 >
 > ```bash
 > rm -f tools/templates tools/testgen.py tools/_license.py harness
-> unzip -o /path/to/xaloqi-eds-developer-v1.25.0.zip
+> unzip -o /path/to/xaloqi-eds-developer-v1.26.0.zip
 > ```
 
 This extracts the toolchain files directly into the repo tree. No separate directory. After extraction you will have:
@@ -213,7 +213,7 @@ Expected output:
 
 ```
 ========================================================================
-  Xaloqi EDS — Code Generator v1.25.0
+  Xaloqi EDS — Code Generator v1.26.0
 ========================================================================
   Config   : examples/bms_ecu/diagnostics_config.yaml
   ...
@@ -464,7 +464,7 @@ python3 tools/eds_ai.py status
 Expected output:
 
 ```
-Xaloqi EDS AI Assistant v1.25.0
+Xaloqi EDS AI Assistant v1.26.0
 
   License:      ✓ Valid (Developer tier, expires 2027-04-21)
   API key:      ✓ Set (ANTHROPIC_API_KEY)

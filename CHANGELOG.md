@@ -8,6 +8,46 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.26.0] — 2026-10-30
+
+### Behaviour changes
+
+Read before upgrading from 1.25.x. Each item is something a tester or integrator can observe;
+the full entry is further down.
+
+- **0x2A periodic messages follow ISO 14229-1:2026 §10.5 and ISO 14229-3:2022 §8.5 on classic CAN**
+  (#548, #549, re-landed as #550; EDS-toolchain#221, #222, re-landed as #223). A message is
+  `[pDID, data]` with no `0x6A`, unsegmented (UUDT) on its own CAN ID, and the first one goes out at
+  the next tick. **Integrator action:** set `can.periodic_tx_can_id`; there is **no default**, and
+  unset means a 0x2A subscription is answered NRC 0x22 (stopSending still works). Custom drains call
+  `isotp_transmit_uudt()` instead of `isotp_transmit()`, and your CAN filter must pass the periodic
+  ID. `2A 00` and `2A 05` are now NRC 0x13, not 0x31. Not covered: DoIP and CAN FD periodic
+  messages (#546 stays open for them).
+- **DTC severity bytes are the ISO DTCSeverity values** (#535): `0x41`, `0x21`, `0x81`, `0x01`
+  (was `0x20` / `0x40`). An unknown `severity` value now fails codegen (exit 1). Regenerate.
+- **Functional request ID next to the physical one** (#538; EDS-toolchain#215). `can.rx_can_id` is
+  the physical ID (default now `0x7E0`, was `0x7DF`) and `can.functional_rx_can_id` defaults to
+  `0x7DF`; the harness sends physically. **Migration:** a config that used `0x7DF` as its physical
+  ID and has no `functional_rx_can_id` behaves as before; a config with its own physical ID now
+  also listens on `0x7DF`, so add `functional_rx_can_id: "none"` to keep the old behaviour.
+- **0x34 flash-erase failure answers NRC 0x70 on both paths** (#545): `7F 34 72` becomes
+  `7F 34 70` where only `erase_cb` is registered.
+- **A null `dtcs:` or `dids:` section is a validation error** (#533), not a traceback. Write
+  `dtcs: []`.
+- **0x37 no longer exceeds P2 on the NUCLEO safeboot path** (#544; EDS-Safety#45). Each block is
+  read back during 0x36, so a chunk that reads back differently is refused at the 0x36 that wrote
+  it (NRC 0x72) rather than at 0x37. Without `verify_step_cb` nothing changes.
+
+### New
+
+- `dids[].source: app`: the application implements the DID's handlers (#530; EDS-toolchain#203).
+- ReadDTCInformation 0x19 sub-functions 0x07, 0x08, 0x09 and 0x0B-0x0E (#535).
+- `robot_joint_controller_ecu` answers a tester over SocketCAN with live values (#531) and a
+  periodic DID 0xF200 with a runtime check of 0x2A (#547).
+- ISO-TP: a TX channel in ERROR no longer blocks the next message (#542).
+- MCP server fixes (EDS-toolchain#206, #208, #219) and the Professional harness mode works again
+  (EDS-toolchain#218).
+
 ### Added
 
 - **A periodic DID in an example, and a runtime check of SID 0x2A against the stack** (R4).
@@ -18,7 +58,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   checks the positive response, the slow/medium/fast rates (measured median 1000.5 / 100.0 /
   10.0 ms), the frame as sent (`06 6A 00 <int32>` on 0x7E8), stopSending for one pDID and for all,
   a re-subscribe, the default-session refusal and the cancel on leaving extended. It found that
-  the periodic message format may not match ISO 14229-1 (UUDT, no SID, its own CAN ID): #546.
+  the periodic message format did not match ISO 14229-1 (UUDT, no SID, its own CAN ID); fixed in
+  this release (see Behaviour changes, #546).
   Only the example's YAML and `src/joint_sim.c` changed; nothing in `core/`.
 
 ### Fixed
