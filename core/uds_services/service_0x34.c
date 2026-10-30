@@ -402,8 +402,10 @@ uds_status_t uds_service_0x34_handler(
          * never saw an active download to abort, and no abort_cb call was
          * reachable from any path until the next process restart. */
         uds_image_policy_notify_abort();
-        /* NRC 0x70 — uploadDownloadNotAccepted (erase failure). */
-        return UDS_STATUS_ERR_PLATFORM;
+        /* NRC 0x70 — uploadDownloadNotAccepted (erase failure; ISO 14229-1:2026 Table 444). Not
+         * UDS_STATUS_ERR_PLATFORM: srv_status_to_nrc() maps that to 0x72,
+         * which is not in RequestDownload's NRC list [EDS#529]. */
+        return UDS_STATUS_ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED;
     }
 
     /* --- Initialise transfer state machine --- */
@@ -567,8 +569,8 @@ static bool s_pending_step(uds_msg_buf_t *out_frame)
         (erased > s_erase_pending.remaining)) {
         uds_image_policy_notify_abort();
         s_erase_pending_abort();
-        /* Same NRC the synchronous erase_cb failure path above uses
-         * (UDS_STATUS_ERR_PLATFORM -> NRC 0x70 uploadDownloadNotAccepted). */
+        /* Same NRC the synchronous erase_cb failure path above answers
+         * (UDS_STATUS_ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED -> NRC 0x70). */
         (void)uds_server_build_negative_response(
             (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
             UDS_NRC_UPLOAD_DOWNLOAD_NOT_ACCEPTED,

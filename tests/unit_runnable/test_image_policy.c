@@ -1159,7 +1159,7 @@ ZTEST(image_policy, test_0x34_erase_failure_after_begin_accepted_notifies_abort)
     s_erase_fail = true;
 
     build_0x34_req(MOCK_FLASH_BASE, 0x100U);
-    zassert_equal(UDS_STATUS_ERR_PLATFORM,
+    zassert_equal(UDS_STATUS_ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED,
                   uds_service_0x34_handler(&s_srv, &s_req, &s_resp),
                   "erase failure must still surface as NRC 0x70 (unchanged)");
     zassert_equal(1U, s_begin_calls, "begin_cb ran and accepted before erase was attempted");

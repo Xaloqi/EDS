@@ -21,7 +21,7 @@
  *   TC-0x34-010  Address outside registered region     → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
  *   TC-0x34-011  Size of 0                             → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
  *   TC-0x34-012  Address + size arithmetic overflow    → ERR_REQUEST_OUT_OF_RANGE (NRC 0x31)
- *   TC-0x34-013  Erase callback failure                → ERR_PLATFORM (NRC 0x70)
+ *   TC-0x34-013  Erase callback failure                → ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED (NRC 0x70)
  *   TC-0x34-014  Valid 4-byte address, 4-byte size     → UDS_STATUS_OK, positive response
  *   TC-0x34-015  Positive response format: [0x74, LFI, mxblHi, mxblLo]
  *   TC-0x34-016  maxNumberOfBlockLength includes block counter byte
@@ -339,14 +339,52 @@ ZTEST(svc_0x34, test_address_size_overflow)
                   uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
 }
 
-/* TC-0x34-013  Erase callback failure → ERR_PLATFORM (NRC 0x70) */
+/* TC-0x34-013  Erase callback failure → ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED (NRC 0x70) */
 ZTEST(svc_0x34, test_erase_callback_failure)
 {
     (void)uds_flash_ops_register(&k_mock_ops);
     s_erase_fail = true;
     build_valid_req(MOCK_FLASH_BASE, 0x100U);
-    zassert_equal(UDS_STATUS_ERR_PLATFORM,
+    zassert_equal(UDS_STATUS_ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED,
                   uds_service_0x34_handler(&s_srv, &s_req, &s_resp), "");
+}
+
+/* EDS#529: what the tester sees. An erase failure answers NRC 0x70
+ * (uploadDownloadNotAccepted), the NRC RequestDownload lists for it, not
+ * 0x72 -- asserted from uds_server_process_request(), not the handler's
+ * status, because srv_status_to_nrc() is where the two used to diverge. */
+ZTEST(svc_0x34, test_erase_failure_nrc_on_the_wire)
+{
+    static const uds_service_entry_t k_table[] = {
+        { 0x34U, uds_service_0x34_handler, false },
+    };
+    static const uds_access_entry_t k_acl[] = {
+        { 0x34U, UDS_ACL_SESSION_ALL, 0U, false },
+    };
+    uds_server_ctx_t srv;
+    const uds_server_cfg_t cfg = {
+        .p2_server_max_ms      = 25U,
+        .p2_star_server_max_ms = 5000U,
+        .session_ctx           = &s_sess,
+        .security_ctx          = &s_sec,
+        .service_table         = k_table,
+        .service_table_count   = (uint8_t)1U,
+        .access_table          = k_acl,
+        .access_table_count    = (uint8_t)1U,
+    };
+
+    memset(&srv, 0, sizeof(srv));
+    zassert_equal(UDS_STATUS_OK, uds_server_init(&srv, &cfg), "");
+    (void)uds_flash_ops_register(&k_mock_ops);
+    s_erase_fail = true;
+    build_valid_req(MOCK_FLASH_BASE, 0x100U);
+
+    zassert_equal(UDS_STATUS_OK,
+                  uds_server_process_request(&srv, &s_req, &s_resp), "");
+    zassert_equal(3U, s_resp.length, "");
+    zassert_equal(0x7FU, s_resp.data[0], "");
+    zassert_equal(0x34U, s_resp.data[1], "");
+    zassert_equal(0x70U, s_resp.data[2], "erase failure must be NRC 0x70, not 0x72");
 }
 
 /* TC-0x34-014  Valid 4-byte address + 4-byte size → UDS_STATUS_OK */
@@ -568,6 +606,7 @@ void run_all_tests(void)
     RUN_TEST(svc_0x34__test_size_zero_rejected);
     RUN_TEST(svc_0x34__test_address_size_overflow);
     RUN_TEST(svc_0x34__test_erase_callback_failure);
+    RUN_TEST(svc_0x34__test_erase_failure_nrc_on_the_wire);
     RUN_TEST(svc_0x34__test_valid_request_4byte_fields);
     RUN_TEST(svc_0x34__test_trailing_byte_rejected);
     RUN_TEST(svc_0x34__test_positive_response_format);

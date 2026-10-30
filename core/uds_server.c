@@ -480,8 +480,8 @@ static uds_nrc_t srv_status_to_nrc(uds_status_t status)
 
         /*
          * UDS_STATUS_ERR_PLATFORM is reused for flash write/verify failures
-         * and erase failures in the download services:
-         *   service_0x34: erase failure        → NRC 0x70
+         * in the download services (0x34 erase failure does NOT use it: it
+         * returns ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED, NRC 0x70 [EDS#529]):
          *   service_0x36: write failure         → NRC 0x72
          *   service_0x37: write/verify failure  → NRC 0x72
          *
