@@ -1706,7 +1706,7 @@ jobs:
           echo "PASS: all test files present"
 
   example-robot:
-    name: "Robot Joint Controller ECU — generated file validation (10 DIDs)"
+    name: "Robot Joint Controller ECU — generated file validation (11 DIDs)"
     runs-on: ubuntu-22.04
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     steps:
@@ -1779,6 +1779,8 @@ jobs:
   # native_sim_socketcan.{conf,overlay}), runs it against a vcan interface and
   # checks, over raw CAN single frames: DID 0xA000 is non-zero, and once the
   # simulated motor temperature passes 85 degC, 0x19 0x02 lists DTC 0xA00101.
+  # A second step checks SID 0x2A against DID 0xF200 (the only periodic DID in
+  # any example): rates, frame format, stop and the session gate.
   # Takes about a minute of wall-clock for the temperature ramp.
   #
   # New job, not a rename: no existing check name changed. It is not a required
@@ -1853,6 +1855,13 @@ jobs:
           sudo ip link add dev zcan0 type vcan
           sudo ip link set up zcan0
           python3 EDS/scripts/smoke_robot_joint_ecu.py build/zephyr/zephyr.exe zcan0
+
+      - name: Runtime check — 0x2A periodic DID 0xF200 (rates, frame format, stop, session gate)
+        run: |
+          sudo ip link del zcan0 || true
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set up zcan0
+          python3 EDS/scripts/smoke_robot_periodic_2a.py build/zephyr/zephyr.exe zcan0
 
   example-safeboot:
     name: "SafeBoot ECU — generated file validation (5 DIDs)"

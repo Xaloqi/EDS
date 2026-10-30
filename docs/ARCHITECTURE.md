@@ -685,7 +685,7 @@ on a pull request:
 | `example-motor` | Motor Controller ECU — generated file validation (27 DIDs) |
 | `example-sensor` | Sensor ECU — generated file validation (7 DIDs) |
 | `example-sensor-frtos` | Sensor ECU FreeRTOS — generated file validation (7 DIDs) |
-| `example-robot` | Robot Joint Controller ECU — generated file validation (10 DIDs) |
+| `example-robot` | Robot Joint Controller ECU — generated file validation (11 DIDs) |
 | `example-safeboot` | SafeBoot ECU — generated file validation (5 DIDs) |
 | `freertos-qemu` | FreeRTOS Build — QEMU ARM Cortex-M4 |
 | `freertos-safeboot` | FreeRTOS Safeboot Build — QEMU Cortex-M4 (RAM stub flash) |

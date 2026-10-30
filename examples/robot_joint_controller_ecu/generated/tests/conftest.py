@@ -4,7 +4,7 @@
 #
 # ECU       : RobotJointController
 # Version   : 1.0.0
-# Generated : 2026-10-29T05:47:05Z
+# Generated : 2026-10-30T09:54:23Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -219,6 +219,7 @@ class _InlineEcuState:
             40962: bytearray([0xAA] * 2),
             40963: bytearray([0xAA] * 1),
             40964: bytearray([0xAA] * 1),
+            61952: bytearray([0xAA] * 4),
             40976: bytearray([0xAA] * 4),
             40977: bytearray([0xAA] * 4),
             40978: bytearray([0xAA] * 4),
@@ -290,6 +291,14 @@ class _InlineEcuState:
                 "access_read":  True,
                 "access_write": False,
                 "min_session":  1,
+                "read_sec":     0,
+                "write_sec":    0,
+            },
+            61952: {
+                "data_length":  4,
+                "access_read":  True,
+                "access_write": False,
+                "min_session":  3,
                 "read_sec":     0,
                 "write_sec":    0,
             },

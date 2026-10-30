@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-10-27T13:40:58Z
+ * Generated : 2026-10-30T09:54:23Z
  *
  * PURPOSE: DID read/write handler stubs and static DID registration table.
  *          Each handler returns deterministic stub data (zeros) until the
@@ -84,6 +84,7 @@ static uint8_t s_mock_axis0softlimitnegative[4U] = { 0xFFU, 0xFDU, 0x67U, 0xF0U 
 /*   DID 0xA002 — Axis0Torque: did_read_axis0torque() */
 /*   DID 0xA003 — Axis0MotorTemperature: did_read_axis0motortemperature() */
 /*   DID 0xA004 — Axis0StatusBitmask: did_read_axis0statusbitmask() */
+/*   DID 0xF200 — Axis0PeriodicPosition: did_read_axis0periodicposition() */
 
 
 /* =============================================================================
@@ -540,6 +541,20 @@ static const did_entry_t s_generated_did_table[GEN_DID_HANDLER_COUNT] = {
         .write_cb           = NULL,
         .description        = "Axis0StatusBitmask"
     },
+    /* ── DID 0xF200 — Axis0PeriodicPosition ─────────────────────────────────────────── */
+    {
+        .did_id             = (uint16_t)61952U,
+        .access_flags       = (uint8_t)(
+                                  DID_ACCESS_READ
+                              ),
+        .min_session        = (uint8_t)UDS_SESSION_EXTENDED,
+        .read_access_level  = (uint8_t)0U,
+        .write_access_level = (uint8_t)0U,
+        .data_length        = (uint16_t)4U,
+        .read_cb            = did_read_axis0periodicposition,
+        .write_cb           = NULL,
+        .description        = "Axis0PeriodicPosition"
+    },
     /* ── DID 0xA010 — Axis0PositionOffset ─────────────────────────────────────────── */
     {
         .did_id             = (uint16_t)40976U,
@@ -595,7 +610,7 @@ static const did_entry_t s_generated_did_table[GEN_DID_HANDLER_COUNT] = {
  * each entry. Must be called from uds_generated_init() after did_database_init()
  * and before any UDS request processing.
  *
- * @return UDS_STATUS_OK if all 10 DID(s) registered successfully.
+ * @return UDS_STATUS_OK if all 11 DID(s) registered successfully.
  * @return UDS_STATUS_ERR_ALREADY_INITIALIZED if database already contains this DID.
  * @return UDS_STATUS_ERR_* on other registration failure.
  */

@@ -164,6 +164,13 @@ uds_status_t did_read_axis0position(uint8_t *buf, uint16_t buf_len,
     return UDS_STATUS_OK;
 }
 
+uds_status_t did_read_axis0periodicposition(uint8_t *buf, uint16_t buf_len,
+                                            uint16_t *out_len)
+{
+    /* 0xF200: the 0x2A-subscribable alias of 0xA000. */
+    return did_read_axis0position(buf, buf_len, out_len);
+}
+
 uds_status_t did_read_axis0velocity(uint8_t *buf, uint16_t buf_len,
                                     uint16_t *out_len)
 {

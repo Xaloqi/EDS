@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-10-27T13:40:58Z
+ * Generated : 2026-10-30T09:54:23Z
  * ASIL Level: B
  *
  * PURPOSE: Per-DID safe accessor implementations (ASIL-B).
@@ -262,6 +262,38 @@ uds_status_t did_safe_read_axis0statusbitmask(
 
     /* Step 5 — Invoke DID read callback */
     return did_read_axis0statusbitmask(buf, buf_len, out_len);
+}
+
+/* --------------------------------------------------------------------------
+ * Safe read: DID 0xF200 — Axis0PeriodicPosition
+ * -------------------------------------------------------------------------- */
+uds_status_t did_safe_read_axis0periodicposition(
+    const uds_session_ctx_t  *session_ctx,
+    const uds_security_ctx_t *security_ctx,
+    uint8_t                  *buf,
+    uint16_t                  buf_len,
+    uint16_t                 *out_len)
+{
+    const did_entry_t *entry = NULL;
+
+    /* Step 1 — NULL checks (REQ-SAFE-004) */
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_null_ptr(session_ctx,  "session_ctx"));
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_null_ptr(security_ctx, "security_ctx"));
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_null_ptr(buf,          "buf"));
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_null_ptr(out_len,      "out_len"));
+
+    /* Step 2 — DID lookup (REQ-SAFE-001) */
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_find_did((uint16_t)61952U, &entry));
+
+    /* Step 3 — Session + security access validation (REQ-SAFE-002/003) */
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_validate_did_access(
+        entry, session_ctx, security_ctx, UDS_SAFETY_ACCESS_READ));
+
+    /* Step 4 — Buffer bounds check (REQ-SAFE-006) */
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_did_data_length(entry, buf_len));
+
+    /* Step 5 — Invoke DID read callback */
+    return did_read_axis0periodicposition(buf, buf_len, out_len);
 }
 
 /* --------------------------------------------------------------------------
