@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **RequestTransferExit (0x37) answers inside P2 for the largest image** (#543). On
+  `safeboot_ecu` (NUCLEO-H753ZI) 0x37 read the whole download region back to check its CRC-32 and
+  answered after 74.5 ms for a 512 KiB image, past the advertised P2server_max of 50 ms, with no
+  0x78 first. `uds_flash_ops_t` has a new optional `verify_step_cb`: each chunk is read back right
+  after it is written during 0x36, and 0x37 compares the CRC-32 of the read-back region with that of
+  the received data instead of reading the region again. A chunk that reads back differently is now
+  refused at the 0x36 that wrote it (NRC 0x72, transfer aborted) rather than at 0x37. The guarantee
+  is the same: no `77` unless the written region reads back with the received CRC-32. The Zephyr
+  flash ops register it. Without `verify_step_cb` (the FreeRTOS flash ops, custom integrations)
+  `verify_cb` still runs at 0x37, unchanged.
+  Measured on the NUCLEO, same method and image as before (512 KiB, n=5): 0x37 **1.57 ms median,
+  1.96 ms max** (was 74.5 ms); every one of the 10,240 0x36 requests under 50 ms, **worst 3.91 ms**
+  (median 1.74 ms, against 1.67 ms before the change). New tests: `test_service_0x36_block_verify.c`
+  and `tests/zephyr_flash_verify` (native_sim flash simulator), both with a fault-injected flash write.
 - **One lost Flow Control no longer mutes the ECU** (#541). After an N_Bs/N_As timeout, an aborting
   Flow Control or a refused frame, the ISO-TP TX channel sat in `ISOTP_STATE_ERROR` and
   `isotp_transmit()` answered `ERR_BUSY` until `isotp_reset_tx()`, which no example calls. A tester

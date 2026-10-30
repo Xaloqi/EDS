@@ -418,6 +418,8 @@ uds_status_t uds_service_0x34_handler(
     tctx->next_write_address      = mem_address;
     tctx->next_expected_block_seq = (uint8_t)0x01U; /* REQ-DL-001 */
     tctx->crc_accumulator         = (uint32_t)0xFFFFFFFFUL; /* CRC init */
+    tctx->flushed_crc_accumulator  = (uint32_t)0xFFFFFFFFUL; /* [EDS#543] */
+    tctx->readback_crc_accumulator = (uint32_t)0xFFFFFFFFUL; /* [EDS#543] */
     tctx->write_buf_fill          = (uint16_t)0U;
 
     /* ----------------------------------------------------------------------
@@ -616,6 +618,8 @@ static bool s_pending_step(uds_msg_buf_t *out_frame)
         tctx->next_write_address      = done_target_address;
         tctx->next_expected_block_seq = (uint8_t)0x01U; /* REQ-DL-001 */
         tctx->crc_accumulator         = (uint32_t)0xFFFFFFFFUL; /* CRC init */
+        tctx->flushed_crc_accumulator  = (uint32_t)0xFFFFFFFFUL; /* [EDS#543] */
+        tctx->readback_crc_accumulator = (uint32_t)0xFFFFFFFFUL; /* [EDS#543] */
         tctx->write_buf_fill          = (uint16_t)0U;
         tctx->crc_check_requested     = done_crc_requested;
         tctx->write_buf_capacity      = done_write_buf_cap;

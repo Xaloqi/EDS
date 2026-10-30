@@ -1,0 +1,29 @@
+/* zephyr_flash_ops.c opens EDS_PARTITION_ID(image_1), which resolves by node
+ * label; native_sim's board DTS calls the same partition slot1_partition.
+ * Same layout as the board, with image_1 added as a second label. */
+&flash0 {
+	/delete-node/ partitions;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 0x0000C000>;
+		};
+		slot0_partition: partition@c000 {
+			label = "image-0";
+			reg = <0x0000C000 0x00069000>;
+		};
+		slot1_partition: image_1: partition@75000 {
+			label = "image-1";
+			reg = <0x00075000 0x00069000>;
+		};
+		storage_partition: partition@fc000 {
+			label = "storage";
+			reg = <0x000fc000 0x00004000>;
+		};
+	};
+};

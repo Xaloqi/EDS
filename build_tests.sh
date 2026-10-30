@@ -374,6 +374,7 @@ TESTS=(
     test_service_0x34_chunked_erase  # [#312] chunked erase + NRC 0x78 responsePending
     test_service_0x35
     test_service_0x36
+    test_service_0x36_block_verify  # [EDS#543] per-block readback, 0x37 only compares
     test_service_0x37
     test_service_0x3E
     test_service_0x85

@@ -430,6 +430,7 @@ Professional safety repository was retired (EDS-Safety#34).
 | 2026-10-15 | All 30 rows checked against the shipped code. 8 corrected (REQ-DL-001, REQ-FLASH-003, REQ-TP-001, REQ-SESS-001, REQ-TIMING-001/002, REQ-WDT-001, stale paths). REQ-TIMING-001 set to PARTIAL. |
 | 2026-10-15 | Standard citations verified against the licensed ISO 14229-1:2026 and ISO 15765-2:2024 texts and corrected (the TP rows previously cited the 2016 edition; several clause numbers pointed at other services). REQ-DL-002 restated to ISO's NRC 0x24 and set to OPEN until the implementation follows. REQ-SESS-002 reattributes the 5000 ms S3server value to ISO 14229-2. REQ-TP-002 widened beyond Classic CAN. Six requirements already used in the source added: REQ-IMGPOL-001..004, REQ-DL-SEQ, REQ-TP-PAD-001. ISO 14229-2 and ISO 26262-6 references are not reviewed against licensed text and say so where relevant. |
 | 2026-10-15 | REQ-DL-002 OPEN → COVERED: EDS now answers NRC 0x24 for an incomplete transfer (EDS PR #460), verified by test and on hardware. REQ-DL-003 extended: every session transition aborts any transfer, the counterpart of refusing a RequestDownload during a download (ISO 14229-1:2026 Table 444). |
+| 2026-10-30 | REQ-FLASH-003 restated: the readback may happen per block during TransferData (flash ops `verify_step_cb`), with a mismatching block refused there and the read-back region's CRC-32 compared at RequestTransferExit; otherwise `flash_verify_cb` at RequestTransferExit as before (EDS#543). Test references extended. |
 
 ---
 
@@ -449,6 +450,7 @@ The following test modules specifically target safety-critical paths:
 | `test_dtc_mirror.c` | NVM init/load/save/flush; TC-MIRROR-021/022/023 power-cycle integration |
 | `test_service_0x27.c` | SecurityAccess protocol; defence-in-depth double-check |
 | `test_service_0x34/36/37.c` | DFU session gate; block counter wrap; CRC-32 verify |
+| `test_service_0x36_block_verify.c` | Per-block readback: a corrupted flash write refused at its 0x36; read-back region CRC-32 at 0x37 (REQ-FLASH-003) |
 
 ### Integration and Firmware Tests
 
