@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-10-27T13:40:58Z
+ * Generated : 2026-10-30T09:54:23Z
  * ASIL Level: B
  *
  * PURPOSE: Compile-time ASIL safety configuration constants.
@@ -118,7 +118,7 @@
 #define GEN_SAFETY_DTC_SUPPORT_MASK   (0xFFU)
 
 /** Number of DIDs declared in diagnostics_config.yaml. */
-#define GEN_SAFETY_DID_COUNT          (10U)
+#define GEN_SAFETY_DID_COUNT          (11U)
 
 /* =============================================================================
  * Override uds_safety.h compile-time gates with generated values.

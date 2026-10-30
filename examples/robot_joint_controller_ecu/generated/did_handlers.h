@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-10-27T13:40:58Z
+ * Generated : 2026-10-30T09:54:23Z
  *
  * PURPOSE: Declarations for all generated DID read/write handler functions
  *          and the generated DID registration entry point.
@@ -43,7 +43,7 @@ extern "C" {
  * Generated DID count for this ECU configuration.
  * Must match GEN_DID_COUNT in generated_config.h.
  */
-#define GEN_DID_HANDLER_COUNT (10U)
+#define GEN_DID_HANDLER_COUNT (11U)
 
 /* --------------------------------------------------------------------------
  * Generated DID read handler declarations
@@ -191,6 +191,27 @@ uds_status_t did_read_axis0motortemperature(
  * @return UDS_STATUS_OK on success.
  */
 uds_status_t did_read_axis0statusbitmask(
+    uint8_t  *buf,
+    uint16_t  buf_len,
+    uint16_t *out_len);
+
+/**
+ * @brief Read handler for DID 0xF200 — Axis0PeriodicPosition.
+ *
+ * Min session  : UDS_SESSION_EXTENDED
+ * Security level: 0
+ * Data length  : 4 byte(s)
+ *
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_axis0periodicposition() has checked session and security.
+ *
+ * @param[out] buf      Output buffer for DID data.
+ * @param[in]  buf_len  Size of buf in bytes (must be >= 4).
+ * @param[out] out_len  Set to number of bytes written.
+ * @return UDS_STATUS_OK on success.
+ */
+uds_status_t did_read_axis0periodicposition(
     uint8_t  *buf,
     uint16_t  buf_len,
     uint16_t *out_len);

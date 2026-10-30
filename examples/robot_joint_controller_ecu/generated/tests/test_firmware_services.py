@@ -4,7 +4,7 @@
 #
 # ECU       : RobotJointController
 # Version   : 1.0.0
-# Generated : 2026-10-19T10:30:11Z
+# Generated : 2026-10-30T09:54:23Z
 #
 # PURPOSE: Integration tests running against REAL COMPILED FIRMWARE.
 #
@@ -157,6 +157,19 @@ DID_CATALOGUE = [
         "write_sec":    0,
         "id_hi":        160,
         "id_lo":        4,
+    },
+    {
+        "id":           61952,
+        "id_hex":       "0xF200",
+        "name":         "Axis0PeriodicPosition",
+        "data_length":  4,
+        "access_read":  True,
+        "access_write": False,
+        "min_session":  3,
+        "read_sec":     0,
+        "write_sec":    0,
+        "id_hi":        242,
+        "id_lo":        0,
     },
     {
         "id":           40976,
@@ -703,6 +716,50 @@ class TestFirmwareReadDID:
 
 
 
+    def test_read_axis0periodicposition_happy_path(
+        self, firmware_bus: FirmwareIsoTpTransport
+    ) -> None:
+        """
+        DID 0xF200 (Axis0PeriodicPosition) — firmware read happy path.
+        Expected: RSID=0x62 DID=0xF20x00 + 4 data byte(s)
+        Verifies: did_safe_read_axis0periodicposition() safety wrapper + C handler
+        """
+        _setup_for_did(firmware_bus, DID_CATALOGUE[7])
+        pdu = firmware_bus.request(bytes([SID_READ_DATA_BY_ID, 242, 0]))
+        assert pdu is not None, "No response from firmware for DID 0xF200"
+        assert pdu[0] == (SID_READ_DATA_BY_ID + POSITIVE_RESPONSE_OFFSET), (
+            f"Expected positive response, got: {pdu.hex(' ')}"
+        )
+        assert pdu[1] == 242, f"DID hi byte echo wrong: 0x{pdu[1]:02X}"
+        assert pdu[2] == 0, f"DID lo byte echo wrong: 0x{pdu[2]:02X}"
+        expected_len = 3 + 4
+        assert len(pdu) == expected_len, (
+            f"Firmware DID 0xF200 length: expected {expected_len} "
+            f"(RSID=1 + DID=2 + data=4), got {len(pdu)}"
+        )
+
+    def test_read_axis0periodicposition_session_gate_firmware(
+        self, firmware_bus: FirmwareIsoTpTransport
+    ) -> None:
+        """
+        DID 0xF200 in Default Session → NRC from firmware ASIL-B safety wrapper.
+        Verifies uds_safety.c session validation (step 2 of 5-step chain).
+        """
+        firmware_bus.request(
+            bytes([SID_DIAGNOSTIC_SESSION_CONTROL, SESSION_DEFAULT]), timeout=0.1
+        )
+        pdu = firmware_bus.request(bytes([SID_READ_DATA_BY_ID, 242, 0]))
+        assert pdu is not None, "Expected NRC, got no response"
+        assert pdu[0] == SID_NEGATIVE_RESPONSE, (
+            f"DID 0xF200 must be rejected in Default Session by firmware safety wrapper"
+        )
+        assert pdu[2] in (
+            NRC_REQUEST_OUT_OF_RANGE,
+            NRC_SERVICE_NOT_SUPPORTED_IN_SESSION,
+            NRC_CONDITIONS_NOT_CORRECT,
+        ), f"Unexpected NRC 0x{pdu[2]:02X}"
+
+
     def test_read_axis0positionoffset_happy_path(
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
@@ -711,7 +768,7 @@ class TestFirmwareReadDID:
         Expected: RSID=0x62 DID=0xA00x10 + 4 data byte(s)
         Verifies: did_safe_read_axis0positionoffset() safety wrapper + C handler
         """
-        _setup_for_did(firmware_bus, DID_CATALOGUE[7])
+        _setup_for_did(firmware_bus, DID_CATALOGUE[8])
         pdu = firmware_bus.request(bytes([SID_READ_DATA_BY_ID, 160, 16]))
         assert pdu is not None, "No response from firmware for DID 0xA010"
         assert pdu[0] == (SID_READ_DATA_BY_ID + POSITIVE_RESPONSE_OFFSET), (
@@ -755,7 +812,7 @@ class TestFirmwareReadDID:
         Expected: RSID=0x62 DID=0xA00x11 + 4 data byte(s)
         Verifies: did_safe_read_axis0softlimitpositive() safety wrapper + C handler
         """
-        _setup_for_did(firmware_bus, DID_CATALOGUE[8])
+        _setup_for_did(firmware_bus, DID_CATALOGUE[9])
         pdu = firmware_bus.request(bytes([SID_READ_DATA_BY_ID, 160, 17]))
         assert pdu is not None, "No response from firmware for DID 0xA011"
         assert pdu[0] == (SID_READ_DATA_BY_ID + POSITIVE_RESPONSE_OFFSET), (
@@ -799,7 +856,7 @@ class TestFirmwareReadDID:
         Expected: RSID=0x62 DID=0xA00x12 + 4 data byte(s)
         Verifies: did_safe_read_axis0softlimitnegative() safety wrapper + C handler
         """
-        _setup_for_did(firmware_bus, DID_CATALOGUE[9])
+        _setup_for_did(firmware_bus, DID_CATALOGUE[10])
         pdu = firmware_bus.request(bytes([SID_READ_DATA_BY_ID, 160, 18]))
         assert pdu is not None, "No response from firmware for DID 0xA012"
         assert pdu[0] == (SID_READ_DATA_BY_ID + POSITIVE_RESPONSE_OFFSET), (
@@ -871,7 +928,7 @@ class TestFirmwareWriteDID:
         Write sentinel to DID 0xA010 then read it back from firmware.
         Proves C handler persists the value across request/response boundary.
         """
-        _setup_for_did(firmware_bus, DID_CATALOGUE[7], for_write=True)
+        _setup_for_did(firmware_bus, DID_CATALOGUE[8], for_write=True)
         sentinel = bytes([(0x41 + i) & 0xFF for i in range(4)])
         pdu_w = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 160, 16]) + sentinel
@@ -909,7 +966,7 @@ class TestFirmwareWriteDID:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """Wrong data length → NRC 0x13 from firmware bounds checker."""
-        _setup_for_did(firmware_bus, DID_CATALOGUE[7], for_write=True)
+        _setup_for_did(firmware_bus, DID_CATALOGUE[8], for_write=True)
         wrong = bytes([0xBB] * (4 + 1))
         pdu = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 160, 16]) + wrong
@@ -926,7 +983,7 @@ class TestFirmwareWriteDID:
         Write sentinel to DID 0xA011 then read it back from firmware.
         Proves C handler persists the value across request/response boundary.
         """
-        _setup_for_did(firmware_bus, DID_CATALOGUE[8], for_write=True)
+        _setup_for_did(firmware_bus, DID_CATALOGUE[9], for_write=True)
         sentinel = bytes([(0x41 + i) & 0xFF for i in range(4)])
         pdu_w = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 160, 17]) + sentinel
@@ -964,7 +1021,7 @@ class TestFirmwareWriteDID:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """Wrong data length → NRC 0x13 from firmware bounds checker."""
-        _setup_for_did(firmware_bus, DID_CATALOGUE[8], for_write=True)
+        _setup_for_did(firmware_bus, DID_CATALOGUE[9], for_write=True)
         wrong = bytes([0xBB] * (4 + 1))
         pdu = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 160, 17]) + wrong
@@ -981,7 +1038,7 @@ class TestFirmwareWriteDID:
         Write sentinel to DID 0xA012 then read it back from firmware.
         Proves C handler persists the value across request/response boundary.
         """
-        _setup_for_did(firmware_bus, DID_CATALOGUE[9], for_write=True)
+        _setup_for_did(firmware_bus, DID_CATALOGUE[10], for_write=True)
         sentinel = bytes([(0x41 + i) & 0xFF for i in range(4)])
         pdu_w = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 160, 18]) + sentinel
@@ -1019,7 +1076,7 @@ class TestFirmwareWriteDID:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """Wrong data length → NRC 0x13 from firmware bounds checker."""
-        _setup_for_did(firmware_bus, DID_CATALOGUE[9], for_write=True)
+        _setup_for_did(firmware_bus, DID_CATALOGUE[10], for_write=True)
         wrong = bytes([0xBB] * (4 + 1))
         pdu = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 160, 18]) + wrong
@@ -1124,8 +1181,8 @@ class TestFirmwareSafetyWrappers:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """Step 5 (write path): Length mismatch → NRC 0x13 from safety wrapper."""
-        _setup_for_did(firmware_bus, DID_CATALOGUE[7], for_write=True)
-        short_data = bytes([0xAA] * max(0, DID_CATALOGUE[7]["data_length"] - 1))
+        _setup_for_did(firmware_bus, DID_CATALOGUE[8], for_write=True)
+        short_data = bytes([0xAA] * max(0, DID_CATALOGUE[8]["data_length"] - 1))
         pdu = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 160, 16]) + short_data
         )

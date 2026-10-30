@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-10-27T13:40:58Z
+ * Generated : 2026-10-30T09:54:23Z
  * ASIL Level: B
  *
  * PURPOSE: Declarations for per-DID safe accessor wrapper functions.
@@ -232,6 +232,32 @@ uds_status_t did_safe_read_axis0motortemperature(
  * @return UDS_STATUS_ERR_* on any check failure.
  */
 uds_status_t did_safe_read_axis0statusbitmask(
+    const uds_session_ctx_t  *session_ctx,
+    const uds_security_ctx_t *security_ctx,
+    uint8_t                  *buf,
+    uint16_t                  buf_len,
+    uint16_t                 *out_len
+);
+
+/**
+ * @brief Safe read accessor for DID 0xF200 — Axis0PeriodicPosition.
+ *
+ * Enforces:
+ *   - NULL checks on all pointer arguments       (REQ-SAFE-004)
+ *   - DID 0xF200 exists in the database    (REQ-SAFE-001)
+ *   - Session >= UDS_SESSION_EXTENDED            (REQ-SAFE-002)
+ *   - Security level >= 0  (REQ-SAFE-003)
+ *   - buf_len >= 4 bytes      (REQ-SAFE-006)
+ *
+ * @param[in]  session_ctx   Active UDS session context.
+ * @param[in]  security_ctx  Active UDS security context.
+ * @param[out] buf           Buffer to receive DID data.
+ * @param[in]  buf_len       Capacity of buf in bytes (must be >= 4).
+ * @param[out] out_len       Set to number of bytes written on success.
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_* on any check failure.
+ */
+uds_status_t did_safe_read_axis0periodicposition(
     const uds_session_ctx_t  *session_ctx,
     const uds_security_ctx_t *security_ctx,
     uint8_t                  *buf,

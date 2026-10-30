@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **A periodic DID in an example, and a runtime check of SID 0x2A against the stack** (R4).
+  `robot_joint_controller_ecu` now defines 0xF200 (`Axis0PeriodicPosition`, `source: app`,
+  read-only, extended session): the position, as periodic data. No example had a 0xF2xx DID, so
+  the 0x2A positive path was only ever checked by unit tests with mock DIDs and the simulator model.
+  `scripts/smoke_robot_periodic_2a.py` (CI job `example-robot-runtime`, on native_sim over vcan)
+  checks the positive response, the slow/medium/fast rates (measured median 1000.5 / 100.0 /
+  10.0 ms), the frame as sent (`06 6A 00 <int32>` on 0x7E8), stopSending for one pDID and for all,
+  a re-subscribe, the default-session refusal and the cancel on leaving extended. It found that
+  the periodic message format may not match ISO 14229-1 (UUDT, no SID, its own CAN ID): #546.
+  Only the example's YAML and `src/joint_sim.c` changed; nothing in `core/`.
+
 ### Fixed
 
 - **RequestTransferExit (0x37) answers inside P2 for the largest image** (#543). On

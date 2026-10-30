@@ -4,7 +4,7 @@
 #
 # ECU       : RobotJointController
 # Version   : 1.0.0
-# Generated : 2026-10-19T10:24:30Z
+# Generated : 2026-10-30T09:54:23Z
 #
 # PURPOSE: UDS service-level and ISO-TP transport tests derived from
 #          diagnostics_config.yaml.
@@ -905,6 +905,16 @@ class TestRoutineControl:
         assert pdu[2] == NRC_INCORRECT_MSG_LEN
 
 
+    def test_did_axis0periodicposition_rejected_in_default(self, uds_bus: IsoTpTransport) -> None:
+        """DID 0xF200 (Axis0PeriodicPosition) must be rejected in Default Session."""
+        uds_bus.request(bytes([SID_DIAGNOSTIC_SESSION_CONTROL, SESSION_DEFAULT]), timeout=0.1)
+        pdu = uds_bus.request(bytes([SID_READ_DATA_BY_ID,
+                                      0xF2,
+                                      0x00]))
+        assert pdu is not None
+        assert pdu[0] == SID_NEGATIVE_RESPONSE, (
+            f"DID 0xF200 must be rejected in Default Session, got: {pdu.hex(' ')}"
+        )
     def test_did_axis0positionoffset_rejected_in_default(self, uds_bus: IsoTpTransport) -> None:
         """DID 0xA010 (Axis0PositionOffset) must be rejected in Default Session."""
         uds_bus.request(bytes([SID_DIAGNOSTIC_SESSION_CONTROL, SESSION_DEFAULT]), timeout=0.1)

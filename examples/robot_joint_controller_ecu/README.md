@@ -1,6 +1,6 @@
 # Robot Joint Controller Example — Xaloqi EDS
 
-**UDS diagnostics for a robot joint — 10 DIDs · 5 DTCs · 3 routines · Zephyr, `native_sim`**
+**UDS diagnostics for a robot joint — 11 DIDs · 5 DTCs · 3 routines · Zephyr, `native_sim`**
 
 This example is a **robot joint controller ECU**: one servo axis exposing position,
 velocity, torque, motor temperature and a status bitmask over ISO 14229 UDS on CAN, with
@@ -22,15 +22,15 @@ joint, motor or encoder has been validated.
 
 ```
 robot_joint_controller_ecu/
-├── diagnostics_config.yaml      10 DIDs, 5 DTCs, 3 routines
+├── diagnostics_config.yaml      11 DIDs, 5 DTCs, 3 routines
 ├── src/main.c                   application entry point
-├── src/joint_sim.c              simulated joint behind DIDs 0xA000-0xA004
+├── src/joint_sim.c              simulated joint behind DIDs 0xA000-0xA004 and 0xF200
 ├── boards/native_sim/           loopback and host-reachable (SocketCAN) variants
 ├── CMakeLists.txt
 └── generated/                   committed codegen output (nothing edited by hand)
 ```
 
-**DIDs (10)**
+**DIDs (11)**
 
 | DID | Name | Encoding | Source |
 |---|---|---|---|
@@ -41,6 +41,7 @@ robot_joint_controller_ecu/
 | 0xA002 | Axis0Torque | int16 BE, 0.01 Nm | **live**, `joint_sim.c` |
 | 0xA003 | Axis0MotorTemperature | uint8, raw = °C + 40 | **live**, `joint_sim.c` |
 | 0xA004 | Axis0StatusBitmask | uint8 bitmask | **live**, `joint_sim.c` |
+| 0xF200 | Axis0PeriodicPosition | int32 BE, 0.001 °, same value as 0xA000 | **live**, `joint_sim.c`; the periodic DID (`2A <mode> 00`, extended session) |
 | 0xA010 | Axis0PositionOffset | int32 BE, mdeg, read/write | generated store, extended session + security level 1 to write |
 | 0xA011 | Axis0SoftLimitPositive | int32 BE, mdeg, read/write | generated store, +170 000 mdeg at boot |
 | 0xA012 | Axis0SoftLimitNegative | int32 BE, mdeg, read/write | generated store, −170 000 mdeg at boot |
@@ -55,7 +56,7 @@ level 1 are required.
 
 ### The simulated joint
 
-The five live DIDs are `source: app` in the YAML: codegen emits no body for them and
+The six live DIDs (0xA000-0xA004 and the periodic 0xF200) are `source: app` in the YAML: codegen emits no body for them and
 `src/joint_sim.c` defines `did_read_<name>()`. To use real hardware, replace that file.
 Everything is a pure function of the time since boot (integer maths, no heap, no
 recursion), so a run is reproducible.
@@ -133,18 +134,27 @@ Things to try, in order:
 | `2E A0 10 …` in the default session | negative response `7F 2E 7F` |
 | `10 03`, then `2E A0 10 00 00 00 64` | `7F 2E 33`, security access denied |
 | `27 01`, `27 02 <key>`, then the `2E` again | `6E A0 10`; `22 A0 10` reads back `00 00 00 64` |
+| `2A 02 00` in the default session | `7F 2A 7F` |
+| `10 03`, then `2A 02 00` | `6A`, then `06 6A 00 <position>` on 0x7E8 every 100 ms (`2A 01 00` 1 s, `2A 03 00` 10 ms) |
+| `2A 04 00`, or `2A 04` for all | `6A`; the frames stop. Back to the default session also stops them |
 
 The key for `27 02` is the AES-128-CMAC of the seed under the **placeholder** key every
 example ships with (`xaloqi.tester` derives it); the ECU logs
 "Placeholder AES keys active". Production firmware must inject real keys.
 
-`scripts/smoke_robot_joint_ecu.py` automates the first three rows; CI runs it
-(`example-robot-runtime`):
+`scripts/smoke_robot_joint_ecu.py` automates the first three rows and
+`scripts/smoke_robot_periodic_2a.py` the periodic rows (rates, frame format, stop, session
+gate); CI runs both (`example-robot-runtime`):
 
 ```bash
 unshare -rn bash -c 'ip link add zcan0 type vcan && ip link set zcan0 up &&
-  python3 scripts/smoke_robot_joint_ecu.py build/zephyr/zephyr.exe zcan0'
+  python3 scripts/smoke_robot_joint_ecu.py build/zephyr/zephyr.exe zcan0 &&
+  python3 scripts/smoke_robot_periodic_2a.py build/zephyr/zephyr.exe zcan0'
 ```
+
+**Periodic frame format.** The ECU sends each periodic message as an ISO-TP single frame
+`06 6A <pDID> <data>` on the response ID, a format the ISO 14229-1 periodic message may not
+share (an unsegmented message without the SID, on its own CAN ID). Under review: EDS#546.
 
 ## Regenerating
 
@@ -157,7 +167,7 @@ python3 tools/codegen.py --config examples/robot_joint_controller_ecu/diagnostic
                          --safety-wrappers --asil-level B --no-manifest
 ```
 
-`src/joint_sim.c` is not touched by codegen (the five live DIDs are `source: app`).
+`src/joint_sim.c` is not touched by codegen (the six live DIDs are `source: app`).
 
 ---
 
@@ -166,8 +176,9 @@ python3 tools/codegen.py --config examples/robot_joint_controller_ecu/diagnostic
 - **Verified:** builds on `native_sim` (loopback and SocketCAN variants); over `vcan`
   the live DIDs return the simulated values above, the over-temperature DTC appears in
   `0x19` after the ramp, and `0x2E` to 0xA010 is refused until an extended session and
-  security access. CI compiles the loopback variant and runs the runtime smoke on the
-  SocketCAN variant.
+  security access; 0x2A subscriptions for 0xF200 push frames at the slow, medium and fast
+  rate and stop on request. CI compiles the loopback variant and runs both runtime
+  smokes on the SocketCAN variant.
 - **Not verified:** any hardware. No physical joint, motor, encoder or temperature sensor
   has been connected, and no MCU board has run this example. Position, velocity, torque
   and temperature are a model, not measurements.

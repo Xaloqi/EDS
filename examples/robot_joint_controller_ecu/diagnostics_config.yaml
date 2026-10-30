@@ -32,6 +32,7 @@
 #   0xA1xx  — A1 = "Axis 1" : second joint axis (optional)
 #   0xB0xx  — B0 = "Bus"    : CAN bus and controller health
 #   0xF1xx  — ISO 14229-1 Annex F : ECU identity
+#   0xF2xx  — periodic DIDs for SID 0x2A (0xF200 = Axis 0 position)
 #
 # PHYSICAL ENCODING:
 #   Position  : int32 big-endian, LSB = 0.001 degree (millidegrees)
@@ -168,6 +169,22 @@ dids:
     read_security_level:  0
     write_security_level: 0
     data_length: 1
+
+  # ── Axis 0: periodic (ReadDataByPeriodicIdentifier, SID 0x2A) ───────────────
+  # A periodic DID must sit in 0xF200-0xF2FF; the low byte is the
+  # periodicDataIdentifier the tester subscribes with (0xF200 -> 0x00).
+  - id:   "0xF200"
+    name: "Axis0PeriodicPosition"
+    source: app   # simulated joint: src/joint_sim.c (same value as 0xA000)
+    description: >
+      Axis 0 position for periodic push: int32 big-endian, millidegrees,
+      identical to 0xA000. Subscribe with 2A <mode> 00 in an extended session.
+    access:
+      - read
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 4
 
   # ── Axis 0: calibration (writable, extended session + security) ─────────────
 
