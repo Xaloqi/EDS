@@ -8,8 +8,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
-## [1.26.1] — 2026-10-30
-
 ### Fixed
 
 - **The `ardep_ecu` CANoe/CAPL suite names the physical request ID `0x7E0`** (#552). v1.26.0 moved
