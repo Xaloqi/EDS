@@ -275,6 +275,18 @@ uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame)
     return UDS_STATUS_ERR_NOT_FOUND;
 }
 
+static uint32_t s_tx_can_id;   /* [EDS#546] deliberately not cleared by uds_periodic_init() */
+
+void uds_periodic_set_tx_can_id(uint32_t can_id)
+{
+    s_tx_can_id = can_id;
+}
+
+bool uds_periodic_tx_can_id_is_set(void)
+{
+    return (s_tx_can_id != (uint32_t)0U);
+}
+
 uint8_t uds_periodic_free_slots(void)
 {
     return (uint8_t)((uint8_t)UDS_PERIODIC_MAX_SUBSCRIPTIONS - s_count);

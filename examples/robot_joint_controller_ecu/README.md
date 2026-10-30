@@ -135,7 +135,7 @@ Things to try, in order:
 | `10 03`, then `2E A0 10 00 00 00 64` | `7F 2E 33`, security access denied |
 | `27 01`, `27 02 <key>`, then the `2E` again | `6E A0 10`; `22 A0 10` reads back `00 00 00 64` |
 | `2A 02 00` in the default session | `7F 2A 7F` |
-| `10 03`, then `2A 02 00` | `6A`, then `05 00 <position>` on 0x7E8 at once and every 100 ms (`2A 01 00` 1 s, `2A 03 00` 10 ms) |
+| `10 03`, then `2A 02 00` | `6A` on 0x7E8, then `00 <position>` on **0x5E8** at once and every 100 ms (`2A 01 00` 1 s, `2A 03 00` 10 ms) |
 | `2A 04 00`, or `2A 04` for all | `6A`; the frames stop. Back to the default session also stops them |
 
 The key for `27 02` is the AES-128-CMAC of the seed under the **placeholder** key every
@@ -143,8 +143,8 @@ example ships with (`xaloqi.tester` derives it); the ECU logs
 "Placeholder AES keys active". Production firmware must inject real keys.
 
 `scripts/smoke_robot_joint_ecu.py` automates the first three rows and
-`scripts/smoke_robot_periodic_2a.py` the periodic rows (rates, frame format, stop, session
-gate); CI runs both (`example-robot-runtime`):
+`scripts/smoke_robot_periodic_2a.py` the periodic rows (rates, the 0x5E8 frame format, stop,
+session gate, independence from ISO-TP); CI runs both (`example-robot-runtime`):
 
 ```bash
 unshare -rn bash -c 'ip link add zcan0 type vcan && ip link set zcan0 up &&
@@ -152,10 +152,11 @@ unshare -rn bash -c 'ip link add zcan0 type vcan && ip link set zcan0 up &&
   python3 scripts/smoke_robot_periodic_2a.py build/zephyr/zephyr.exe zcan0'
 ```
 
-**Periodic message format.** Each periodic message is `[pDID, data]` (ISO 14229-1 Table 221,
-no `6A`), and the first one follows the `6A` at the next tick. It still travels as an ISO-TP
-single frame `05 00 <position>` on the response ID 0x7E8; the standard gives periodic messages
-their own response IDs, which is open work (EDS#546).
+**Periodic messages.** Each is a UUDT frame `[pDID, data]` on its own CAN ID, `0x5E8`
+(`can.periodic_tx_can_id`; there is no default): `00 <position>` with DLC 5, no PCI byte and no
+`6A` (ISO 14229-1 Table 221, ISO 14229-3 §8.5). They bypass ISO-TP, so they keep their rate while a
+multi-frame response waits for Flow Control, and the first one follows the `6A` at the next tick.
+A listener needs `0x5E8` on its CAN filter as well as `0x7E8`.
 
 ## Regenerating
 

@@ -38,7 +38,7 @@ Zephyr Kernel
 │           ├─ isotp_tick_1ms()         — N_Cr / N_As / N_Bs timers
 │           ├─ uds_server_tick_1ms()    — S3server + lockout timers
 │           ├─ uds_periodic_tick_1ms()  — SID 0x2A periodic push timers
-│           ├─ uds_periodic_pop_due()   — drain periodic frames (loop until NOT_FOUND)
+│           ├─ uds_periodic_pop_due()   — drain periodic messages (loop until NOT_FOUND), send each with isotp_transmit_uudt()
 │           └─ diag_wdt_feed()          — kick IWDG
 │
 ├── CAN ISR (priority 0, triggered by FDCAN1)

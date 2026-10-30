@@ -146,6 +146,7 @@ uds_status_t isotp_init(isotp_ctx_t *ctx, const isotp_cfg_t *cfg)
     ctx->rx_can_id        = cfg->rx_can_id;
     ctx->tx_can_id        = cfg->tx_can_id;
     ctx->functional_rx_can_id = cfg->functional_rx_can_id;
+    ctx->periodic_tx_can_id   = cfg->periodic_tx_can_id;
     ctx->rx_addressing    = UDS_ADDRESSING_PHYSICAL;
     ctx->local_block_size = cfg->block_size;
     ctx->local_stmin_ms   = cfg->stmin_ms;
@@ -576,6 +577,38 @@ uds_status_t isotp_process_rx_frame(
         default:
             return UDS_STATUS_ERR_TP_FRAME_INVALID;
     }
+}
+
+uds_status_t isotp_transmit_uudt(
+    isotp_ctx_t    *ctx,
+    const uint8_t  *data,
+    uint32_t        length)
+{
+    uds_can_frame_t frame;
+
+    if ((ctx == NULL) || (data == NULL)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    if (!ctx->initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+    if ((length == (uint32_t)0U) || (ctx->periodic_tx_can_id == (uint32_t)0U)) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
+    if (length > (uint32_t)8U) {
+        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
+    }
+
+    (void)memset(&frame, 0, sizeof(frame));
+    frame.id             = ctx->periodic_tx_can_id;
+    frame.is_extended_id = (ctx->periodic_tx_can_id > (uint32_t)ISOTP_CAN_STD_ID_MAX);
+    frame.dlc            = (uint8_t)length;
+    (void)memcpy(frame.data, data, (size_t)length);
+
+    if (can_transport_transmit(ctx->can, &frame) != UDS_STATUS_OK) {
+        return UDS_STATUS_ERR_TP_TX_FAILED;
+    }
+    return UDS_STATUS_OK;
 }
 
 uds_status_t isotp_transmit(

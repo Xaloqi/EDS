@@ -23,16 +23,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **0x2A periodic messages follow ISO 14229-1:2026 §10.5** (#546; Tables 218-223, 221, C.10,
-  Figures 24-26). Tester-visible, three changes: (1) a periodic message is `[pDID, dataRecord]`,
-  it no longer starts with the service ID `0x6A` (only the initial positive response does; a
-  pDID 0x00 push with a 4-byte record was `06 6A 00 xx xx xx xx` in an ISO-TP single frame, now
-  `05 00 xx xx xx xx`); (2) the first message is sent at the next tick after the positive response
-  instead of one full period later, the rate applies from then on; (3) a request shorter than 3
-  bytes with a transmissionMode other than stopSending (`2A 00`, `2A 05`) is NRC 0x13, not 0x31,
-  because the length is checked before the mode (Figure 24). Not done, needs ISO 14229-3: the
-  periodic messages still use the diagnostic response ID and ISO-TP; ISO allocates them their own
-  response IDs. The authentication branch (NRC 0x34) of Figure 24 does not exist (no 0x29).
+- **0x2A periodic messages follow ISO 14229-1:2026 §10.5 and ISO 14229-3:2022 §8.5** (#546;
+  14229-1 Tables 218-223, 221, C.10, Figures 24-26; 14229-3 Table 3, Table 4, REQ 7.5-7.16).
+  Tester-visible, four changes: (1) a periodic message is `[pDID, dataRecord]`; it no longer starts
+  with the service ID `0x6A` (only the initial positive response does); (2) it is an **unsegmented
+  UUDT frame on its own CAN ID, no longer an ISO-TP single frame on the diagnostic response ID**
+  (a pDID 0x00 push with a 4-byte record was `06 6A 00 xx xx xx xx` on 0x7E8, now `00 xx xx xx xx`,
+  DLC 5, on `can.periodic_tx_can_id`); it is written to the CAN driver without the ISO-TP channel
+  (`isotp_transmit_uudt()`), so it no longer waits behind a multi-frame response and does not touch
+  the server's S3 timer; (3) the first message is sent at the next tick after the positive response
+  instead of one full period later; (4) a request shorter than 3 bytes with a transmissionMode other
+  than stopSending (`2A 00`, `2A 05`) is NRC 0x13, not 0x31 (length before mode, Figure 24).
+  **There is no default periodic CAN ID.** `can.periodic_tx_can_id` is a new optional key (must
+  differ from the physical, response and functional IDs; "none" = unset). `codegen.py` refuses a
+  config with a 0xF2xx DID and no ID, and a periodic DID longer than 7 bytes (one classic CAN frame
+  with the pDID byte). With the ID unset at runtime (`uds_periodic_set_tx_can_id()` never called,
+  generated `uds_init.c` does it from `GEN_CAN_PERIODIC_TX_ID`) SID 0x2A answers NRC 0x22 to a
+  subscription instead of sending on the response ID; stopSending still works. **Integrators with
+  their own main loop:** replace `isotp_transmit()` with `isotp_transmit_uudt()` in the
+  `uds_periodic_pop_due()` drain (all bundled examples are changed) and let your CAN filter pass the
+  periodic ID. Not changed: DoIP (ISO 14229-5 not available); CAN FD periodic messages (classic
+  CAN, 8 bytes); the authentication branch (NRC 0x34) of Figure 24 does not exist (no 0x29).
+  `robot_joint_controller_ecu` sets `periodic_tx_can_id: "0x5E8"`.
 - **RequestTransferExit (0x37) answers inside P2 for the largest image** (#543). On
   `safeboot_ecu` (NUCLEO-H753ZI) 0x37 read the whole download region back to check its CRC-32 and
   answered after 74.5 ms for a 512 KiB image, past the advertised P2server_max of 50 ms, with no
