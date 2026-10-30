@@ -9,7 +9,7 @@
  *
  *          Manages a static subscription table for periodic DID push.
  *          The tester registers subscriptions via SID 0x2A; the ECU
- *          autonomously pushes [0x6A, periodicId, data...] frames at the
+ *          autonomously pushes [periodicId, data...] messages at the
  *          configured rate without waiting for further tester requests.
  *
  *          Integration (every example):
@@ -149,7 +149,8 @@ uds_status_t uds_periodic_tick_1ms(void);
  * Returns at most one frame per call. The caller loops until ERR_NOT_FOUND
  * to drain all subscriptions that fired in the same tick.
  *
- * Frame format: [0x6A, periodicDataIdentifier, dataRecord...]
+ * Frame format: [periodicDataIdentifier, dataRecord...] (ISO 14229-1:2026
+ * Table 221; no 0x6A: only the initial positive response carries the SID).
  *
  * @param[out] out_frame  Caller-allocated buffer to receive the frame.
  *

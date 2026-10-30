@@ -444,6 +444,25 @@ ZTEST(test_service_0x2A, tc015_scheduler_full_schedules_none)
                   "none of the request may be scheduled (EDS#466)");
 }
 
+/** TC-0x2A-020: Figure 24 checks the length before the transmissionMode, so a
+ *  two-byte request with a mode other than stopSending is NRC 0x13 whether or
+ *  not the mode is valid (`2A 00`, `2A 01`, `2A 05`); stopSending stays valid [EDS#546]. */
+ZTEST(test_service_0x2A, tc020_length_checked_before_mode)
+{
+    setup();
+    static const uint8_t modes[] = { 0x00U, 0x01U, 0x05U, 0xFFU };
+    uint8_t i;
+    for (i = 0U; i < (uint8_t)sizeof(modes); i++) {
+        uds_msg_buf_t req  = {0};
+        uds_msg_buf_t resp = {0};
+        req.data[0] = (uint8_t)0x2AU;
+        req.data[1] = modes[i];
+        req.length  = (uint16_t)2U;
+        zassert_equal(uds_service_0x2A_handler(&g_srv, &req, &resp),
+                      UDS_STATUS_ERR_INVALID_PARAM, "2A %02X must be 0x13", modes[i]);
+    }
+}
+
 /** TC-0x2A-016: a repeated pDID is scheduled once (§10.5.1). */
 ZTEST(test_service_0x2A, tc016_repeated_pdid_once)
 {
@@ -493,9 +512,9 @@ ZTEST(test_service_0x2A, tc019_pdid_zero_streams)
     static uds_msg_buf_t frame;
     static const uint8_t ids[] = { 0x00U };
     zassert_equal(send(UDS_PERIODIC_MODE_FAST, ids, 1U), UDS_STATUS_OK, "accepted");
-    for (uint16_t t = 0U; t < (uint16_t)UDS_PERIODIC_FAST_MS; t++) { (void)uds_periodic_tick_1ms(); }
+    (void)uds_periodic_tick_1ms();     /* first message at the next tick [EDS#546] */
     zassert_equal(uds_periodic_pop_due(&frame), UDS_STATUS_OK, "pDID 0x00 must stream");
-    zassert_equal(frame.data[1], 0x00U, "pDID echoed");
+    zassert_equal(frame.data[0], 0x00U, "pDID is byte 1 of the periodic message");
 }
 
 /* =========================================================================
@@ -521,6 +540,7 @@ extern void test_service_0x2A__tc016_repeated_pdid_once(void);
 extern void test_service_0x2A__tc017_secured_pdid_denied(void);
 extern void test_service_0x2A__tc018_relock_stops_secured_stream(void);
 extern void test_service_0x2A__tc019_pdid_zero_streams(void);
+extern void test_service_0x2A__tc020_length_checked_before_mode(void);
 
 void run_all_tests(void)
 {
@@ -543,4 +563,5 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x2A__tc017_secured_pdid_denied);
     RUN_TEST(test_service_0x2A__tc018_relock_stops_secured_stream);
     RUN_TEST(test_service_0x2A__tc019_pdid_zero_streams);
+    RUN_TEST(test_service_0x2A__tc020_length_checked_before_mode);
 }

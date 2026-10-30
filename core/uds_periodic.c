@@ -124,7 +124,7 @@ uds_status_t uds_periodic_subscribe(uint8_t periodic_id, uint8_t mode)
     if (slot != NULL) {
         slot->mode        = mode;
         slot->interval_ms = interval;
-        slot->counter_ms  = interval;
+        slot->counter_ms  = (uint16_t)1U;   /* first message at the next tick */
         slot->due         = false;
         return UDS_STATUS_OK;
     }
@@ -143,7 +143,10 @@ uds_status_t uds_periodic_subscribe(uint8_t periodic_id, uint8_t mode)
     slot->periodic_id = periodic_id;
     slot->mode        = mode;
     slot->interval_ms = interval;
-    slot->counter_ms  = interval;
+    /* ISO 14229-1:2026 §10.5.5 (Figures 25/26): the first periodic message
+     * follows the initial positive response at the scheduler's next run, not
+     * a full period later; the interval applies from then on [EDS#546]. */
+    slot->counter_ms  = (uint16_t)1U;
     slot->due         = false;
     s_count++;
 
@@ -246,18 +249,20 @@ uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame)
             continue;
         }
 
-        /* Build [0x6A, periodicDataIdentifier, dataRecord...] */
-        out_frame->data[0U] = (uint8_t)0x6AU;
-        out_frame->data[1U] = s_subs[i].periodic_id;
+        /* Build [periodicDataIdentifier, dataRecord...]: ISO 14229-1:2026
+         * Table 221 / §10.5.1 — the periodic messages carry the pDID and the
+         * data "but not the positive response message service identifier"
+         * [EDS#546]. */
+        out_frame->data[0U] = s_subs[i].periodic_id;
 
         {
             uint16_t j;
             for (j = (uint16_t)0U; j < out_len; j++) {
-                out_frame->data[(uint16_t)2U + j] = data_buf[j];
+                out_frame->data[(uint16_t)1U + j] = data_buf[j];
             }
         }
 
-        out_frame->length = (uint16_t)2U + out_len;
+        out_frame->length = (uint16_t)1U + out_len;
 
         /* [EDS#194] Record what was just popped so a failed transmit can
          * ask for it back via uds_periodic_requeue_last(). */

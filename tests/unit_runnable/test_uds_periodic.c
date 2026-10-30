@@ -31,7 +31,7 @@
  *   TC-PERIODIC-011  FAST (10 ms): after 9 ticks  → pop_due returns ERR_NOT_FOUND
  *   TC-PERIODIC-012  pop_due(NULL) → ERR_NULL_PTR
  *   TC-PERIODIC-013  pop_due with no subscriptions → ERR_NOT_FOUND
- *   TC-PERIODIC-014  frame format: data[0]=0x6A, data[1]=periodicId after FAST fires
+ *   TC-PERIODIC-014  frame format: data[0]=periodicId, then data; no 0x6A (EDS#546)
  *   TC-PERIODIC-015  [EDS#194] requeue_last() with nothing popped → ERR_NOT_FOUND
  *   TC-PERIODIC-016  [EDS#194] pop_due + requeue_last() re-arms; next pop_due → OK
  *   TC-PERIODIC-017  [EDS#194] requeue_last() twice in a row → 2nd is a no-op
@@ -245,7 +245,9 @@ ZTEST(test_uds_periodic, tc009_tick_always_ok)
 }
 
 /**
- * TC-PERIODIC-010: FAST mode (10 ms): after exactly 10 ticks pop_due returns OK.
+ * TC-PERIODIC-010: FAST mode (10 ms): the first message is due at the next tick
+ * (ISO 14229-1:2026 §10.5.5, Figures 25/26: it follows the initial positive
+ * response, not a full period later), the next exactly 10 ticks after it.
  * Requires test DID 0xF2AB to be registered (read_cb installed).
  */
 ZTEST(test_uds_periodic, tc010_fast_fires_at_10ms)
@@ -254,19 +256,23 @@ ZTEST(test_uds_periodic, tc010_fast_fires_at_10ms)
     (void)uds_periodic_subscribe((uint8_t)0xABU, UDS_PERIODIC_MODE_FAST);
 
     uint16_t t;
+    uds_msg_buf_t frame;
+    memset(&frame, 0, sizeof(frame));
+
+    (void)uds_periodic_tick_1ms();
+    zassert_equal(uds_periodic_pop_due(&frame), UDS_STATUS_OK,
+                  "first message must be due at the next tick [EDS#546]");
+
     for (t = (uint16_t)0U; t < (uint16_t)UDS_PERIODIC_FAST_MS; t++) {
         (void)uds_periodic_tick_1ms();
     }
-
-    uds_msg_buf_t frame;
-    memset(&frame, 0, sizeof(frame));
-    uds_status_t rc = uds_periodic_pop_due(&frame);
-    zassert_equal(rc, UDS_STATUS_OK,
-                  "pop_due must return OK after FAST interval (10 ticks)");
+    zassert_equal(uds_periodic_pop_due(&frame), UDS_STATUS_OK,
+                  "pop_due must return OK one FAST interval (10 ticks) after the first");
 }
 
 /**
- * TC-PERIODIC-011: FAST mode (10 ms): after only 9 ticks nothing is due.
+ * TC-PERIODIC-011: FAST mode (10 ms): after the first message, 9 ticks later
+ * nothing is due.
  */
 ZTEST(test_uds_periodic, tc011_fast_not_due_before_interval)
 {
@@ -274,12 +280,16 @@ ZTEST(test_uds_periodic, tc011_fast_not_due_before_interval)
     (void)uds_periodic_subscribe((uint8_t)0xABU, UDS_PERIODIC_MODE_FAST);
 
     uint16_t t;
+    uds_msg_buf_t frame;
+    memset(&frame, 0, sizeof(frame));
+
+    (void)uds_periodic_tick_1ms();
+    (void)uds_periodic_pop_due(&frame);          /* the first message */
+
     for (t = (uint16_t)0U; t < (uint16_t)(UDS_PERIODIC_FAST_MS - (uint16_t)1U); t++) {
         (void)uds_periodic_tick_1ms();
     }
 
-    uds_msg_buf_t frame;
-    memset(&frame, 0, sizeof(frame));
     uds_status_t rc = uds_periodic_pop_due(&frame);
     zassert_equal(rc, UDS_STATUS_ERR_NOT_FOUND,
                   "pop_due must return ERR_NOT_FOUND before FAST interval expires");
@@ -310,8 +320,9 @@ ZTEST(test_uds_periodic, tc013_pop_due_empty_table)
 }
 
 /**
- * TC-PERIODIC-014: frame format after FAST fires: data[0]=0x6A, data[1]=periodicId,
- *                  length == 2 + data_length (2 + 2 = 4 for test DID).
+ * TC-PERIODIC-014: frame format (ISO 14229-1:2026 Table 221, EDS#546): data[0]=
+ *                  periodicId, then the data record, NO 0x6A; length ==
+ *                  1 + data_length (1 + 2 = 3 for test DID).
  */
 ZTEST(test_uds_periodic, tc014_frame_format)
 {
@@ -327,12 +338,10 @@ ZTEST(test_uds_periodic, tc014_frame_format)
     memset(&frame, 0, sizeof(frame));
     (void)uds_periodic_pop_due(&frame);
 
-    zassert_equal(frame.data[0], (uint8_t)0x6AU,
-                  "frame[0] must be 0x6A (positive response for SID 0x2A)");
-    zassert_equal(frame.data[1], (uint8_t)0xABU,
-                  "frame[1] must be the periodicDataIdentifier (0xAB)");
-    zassert_equal(frame.length, (uint16_t)4U,
-                  "frame length must be 2 (header) + 2 (data) = 4");
+    zassert_equal(frame.data[0], (uint8_t)0xABU,
+                  "frame[0] must be the periodicDataIdentifier (0xAB), not the SID 0x6A");
+    zassert_equal(frame.length, (uint16_t)3U,
+                  "frame length must be 1 (pDID) + 2 (data) = 3");
 }
 
 /**
@@ -380,7 +389,7 @@ ZTEST(test_uds_periodic, tc016_requeue_rearms_subscription)
     zassert_equal(rc, UDS_STATUS_OK,
                   "pop_due() must return OK again immediately after requeue_last() "
                   "— the period must not be lost");
-    zassert_equal(frame.data[1], (uint8_t)0xABU,
+    zassert_equal(frame.data[0], (uint8_t)0xABU,
                   "re-armed frame must still be for the same periodicId");
 }
 
