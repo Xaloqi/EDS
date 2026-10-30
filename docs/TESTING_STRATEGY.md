@@ -1,7 +1,7 @@
 # Testing Strategy — Xaloqi EDS
 
 **Version:** v1.25.0  
-**Status:** 60/60 unit test modules passing. All CI jobs green — the count is
+**Status:** 61/61 unit test modules passing. All CI jobs green — the count is
 deliberately not restated here, because a hand-maintained one has now drifted
 twice (#97, then again while this line read "25"); `.github/workflows/ci.yml`'s
 `jobs:` block is the count. 68/68 harness tests passing — **Professional tier
@@ -219,7 +219,7 @@ bash build_tests.sh
 # Expected: 55 passed, 0 failed
 ```
 
-### Coverage — 60 unit test modules
+### Coverage — 61 unit test modules
 
 **UDS Core (4 modules)**
 
@@ -248,6 +248,7 @@ bash build_tests.sh
 | `test_service_0x34.c` | Download request in programming session, rejected in default |
 | `test_service_0x35.c` | Upload request: valid readback, read_cb=NULL → NRC 0x22, address range, direction set |
 | `test_service_0x36.c` | Valid block transfer (download + upload), wrong block sequence counter → NRC 0x73 |
+| `test_service_0x36_block_verify.c` | Per-block readback (EDS#543): corrupted flash write refused at its 0x36 (NRC 0x72); 0x37 compares the read-back region CRC-32 without a second readback; fallback to `verify_cb` |
 | `test_service_0x37.c` | Transfer exit, exit without prior download |
 | `test_service_0x3E.c` | Tester present with/without response, suppress positive response bit |
 | `test_service_0x85.c` | DTCSettingOn/Off in EXTENDED and PROGRAMMING sessions, echoed setting byte, DEFAULT session → NRC 0x7E |
@@ -680,7 +681,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 ```
 push / PR
    │
-   ├── unit-tests          60 Unity modules via build_tests.sh
+   ├── unit-tests          61 Unity modules via build_tests.sh
    │                       + ASIL-B assertion checks (self-test, key gate, write security)
    │
    ├── cmake-ctest-build   The same modules via cmake -S tests + ctest
