@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.26.0] — 2026-10-30
+
 ### Behaviour changes
 
 Read before upgrading from 1.25.x. Each item is something a tester or integrator can observe;
