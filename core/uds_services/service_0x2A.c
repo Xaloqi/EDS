@@ -100,6 +100,7 @@ static uds_status_t s_check_pdid(const uds_server_ctx_t *ctx, uint8_t periodic_i
  *   0x31 — transmissionMode not supported (no SubFunction, §10.5.2.2)
  *   stopSending: stop the listed pDIDs, or all of them if none is listed
  *   per pDID: not supported in the active session → skipped; 0x33 security
+ *   0x22 — no periodic CAN ID configured (uds_periodic_set_tx_can_id), nothing scheduled
  *   0x31 — none supported, or the scheduler can't take all supported pDIDs
  *          (then none is scheduled, §10.5.1)
  * A pDID repeated in one request is scheduled once (§10.5.1).
@@ -182,6 +183,14 @@ uds_status_t uds_service_0x2A_handler(
     }
     if (n_new > (uint16_t)uds_periodic_free_slots()) {
         return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;    /* none scheduled */
+    }
+
+    /* ISO 14229-3 Table 3: periodic messages need a CAN ID of their own, and
+     * there is no default. Without one, nothing is scheduled: NRC 0x22
+     * (conditionsNotCorrect, Table 223) rather than a periodic message on the
+     * diagnostic response ID [EDS#546]. */
+    if (!uds_periodic_tx_can_id_is_set()) {
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
 
     /* Pass 2: schedule, in request order. */

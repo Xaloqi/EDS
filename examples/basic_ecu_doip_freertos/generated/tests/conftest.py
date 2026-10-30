@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU_DoIP_FreeRTOS
 # Version   : 1.6.0
-# Generated : 2026-10-29T05:47:04Z
+# Generated : 2026-10-30T12:03:34Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -564,12 +564,14 @@ def _inline_acl_services(pdu: bytes, sid: int, state: _InlineEcuState, nrc) -> O
     if sid == 0x2A:
         if n < 2: return nrc(0x2A, 0x13)
         mode = pdu[1]
+        # Figure 24 (EDS#546): the length check (3 bytes unless stopSending) comes
+        # before the transmissionMode check.
+        if mode != 0x04 and n < 3: return nrc(0x2A, 0x13)
         if mode < 0x01 or mode > 0x04: return nrc(0x2A, 0x31)
         if mode == 0x04:                       # stopSending: all, or the listed pDIDs
             if n == 2: state.periodic.clear()
             else: state.periodic.difference_update(pdu[2:])
             return bytes([0x6A])
-        if n < 3: return nrc(0x2A, 0x13)
         supported = []
         for pid in dict.fromkeys(pdu[2:]):     # each pDID once, in order
             entry = state._dids_meta.get(0xF200 | pid)

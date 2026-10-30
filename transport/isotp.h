@@ -296,6 +296,7 @@ typedef struct isotp_ctx {
     uint32_t         rx_can_id;                         /**< CAN ID to receive on. */
     uint32_t         tx_can_id;                         /**< CAN ID to transmit on. */
     uint32_t         functional_rx_can_id;              /**< [EDS#444] Functional request CAN ID (0 = none). */
+    uint32_t         periodic_tx_can_id;                /**< [EDS#546] UUDT periodic response CAN ID (0 = none). */
     uint8_t          local_block_size;                  /**< Block size to advertise in FC. */
     uint8_t          local_stmin_ms;                    /**< STmin to advertise in FC (ms). */
 #if ISOTP_ENABLE_CAN_FD
@@ -326,6 +327,13 @@ typedef struct isotp_cfg {
      * and uds_server_process_request_ex().
      */
     uint32_t         functional_rx_can_id;
+    /**
+     * [EDS#546] CAN ID of the periodic data response messages of SID 0x2A
+     * (ISO 14229-3:2022 §8.5, Table 3: UUDT messages "use a different CAN
+     * identifier for periodic transmission"), or 0 for none. Used only by
+     * isotp_transmit_uudt(); there is no implicit default.
+     */
+    uint32_t         periodic_tx_can_id;
     uint8_t          block_size;        /**< Block size to advertise to sender (0 = unlimited). */
     uint8_t          stmin_ms;          /**< Minimum separation time to advertise (ms). */
 #if ISOTP_ENABLE_CAN_FD
@@ -434,6 +442,33 @@ uds_status_t isotp_process_rx_frame(
  * @note TIMING: Timing-critical — TX initiation must occur within P2server_max.
  */
 uds_status_t isotp_transmit(
+    isotp_ctx_t    *ctx,
+    const uint8_t  *data,
+    uint32_t        length
+);
+
+/**
+ * @brief [EDS#546] Send one UUDT message on isotp_cfg_t.periodic_tx_can_id.
+ *
+ * The periodic data response message of SID 0x2A (ISO 14229-1:2026 Table 221):
+ * [periodicDataIdentifier, dataRecord...]. ISO 14229-3:2022 §8.5 (Table 3,
+ * REQ 7.5/7.7/7.13): an unsegmented message on its own CAN ID, with neither a
+ * protocol control information byte nor a service ID, written directly to the
+ * CAN driver and bypassing the network layer. So this does not use, change or
+ * wait for the ISO-TP TX channel: it is allowed while a multi-frame response is
+ * being sent. The DLC is the length (no padding).
+ *
+ * @param[in] ctx     Initialized ISO-TP context.
+ * @param[in] data    pDID followed by the data record.
+ * @param[in] length  1..8 (classic CAN; the periodic DID's record is at most 7 bytes).
+ *
+ * @return UDS_STATUS_OK once the frame is confirmed transmitted.
+ * @return UDS_STATUS_ERR_NULL_PTR / ERR_NOT_INITIALIZED as isotp_transmit().
+ * @return UDS_STATUS_ERR_INVALID_PARAM if length is zero or no periodic CAN ID is configured.
+ * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if length exceeds 8.
+ * @return UDS_STATUS_ERR_TP_TX_FAILED if the CAN transport refused the frame.
+ */
+uds_status_t isotp_transmit_uudt(
     isotp_ctx_t    *ctx,
     const uint8_t  *data,
     uint32_t        length

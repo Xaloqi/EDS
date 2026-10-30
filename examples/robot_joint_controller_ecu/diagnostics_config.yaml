@@ -61,6 +61,7 @@ can:
   rx_can_id: "0x7E0"  # ISO 15765-4 physical request (ECU address 0)
   functional_rx_can_id: "0x7DF"  # ISO 15765-4 functional request (all ECUs); "none" turns it off
   tx_can_id: "0x7E8"  # ISO 15765-4 physical response (ECU address 0)
+  periodic_tx_can_id: "0x5E8"  # SID 0x2A periodic messages: UUDT on a CAN ID of their own (ISO 14229-3 Table 3); no default
 
 timing:
   p2_server_max_ms:       25

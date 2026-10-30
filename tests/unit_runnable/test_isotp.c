@@ -1346,6 +1346,81 @@ ZTEST(test_isotp_transmit, test_tx_after_fc_overflow_starts_a_new_message)
  * TC-ISTP-TX-010 [EDS#541]: only ERROR is cleared. A transmit that is waiting
  * for Flow Control or sending consecutive frames is still BUSY.
  */
+static isotp_state_t uudt_tx_state(const isotp_ctx_t *ctx)
+{
+    isotp_state_t st = ISOTP_STATE_ERROR;
+    (void)isotp_get_tx_state(ctx, &st);
+    return st;
+}
+
+/* [EDS#546] UUDT: [pDID, data] on the periodic CAN ID, no PCI, no SID,
+ * DLC = length, and the ISO-TP TX channel is neither used nor disturbed
+ * (ISO 14229-3:2022 §8.5, Table 3). */
+ZTEST(test_isotp_transmit, test_uudt_frame_has_no_pci_and_its_own_id)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    isotp_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.rx_can_id = 0x7E0U; cfg.tx_can_id = 0x7E8U; cfg.periodic_tx_can_id = 0x5E8U;
+    cfg.can = &g_mock_can;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(isotp_init(&ctx, &cfg), UDS_STATUS_OK, "init");
+
+    static const uint8_t msg[] = { 0x00U, 0x11U, 0x22U, 0x33U, 0x44U };   /* pDID 0, 4 data bytes */
+    zassert_equal(isotp_transmit_uudt(&ctx, msg, 5U), UDS_STATUS_OK, "send");
+    zassert_equal(g_mock_tx_count, 1U, "one frame");
+    zassert_equal(g_mock_tx_frames[0].id, 0x5E8U, "periodic ID, not the response ID");
+    zassert_equal(g_mock_tx_frames[0].dlc, 5U, "DLC = length, no padding");
+    zassert_mem_equal(g_mock_tx_frames[0].data, msg, 5U, "[pDID, data], no PCI byte, no 0x6A");
+    zassert_equal(uudt_tx_state(&ctx), ISOTP_STATE_IDLE, "ISO-TP TX channel untouched");
+}
+
+ZTEST(test_isotp_transmit, test_uudt_while_a_multiframe_is_in_flight)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    isotp_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.rx_can_id = 0x7E0U; cfg.tx_can_id = 0x7E8U; cfg.periodic_tx_can_id = 0x5E8U;
+    cfg.can = &g_mock_can;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(isotp_init(&ctx, &cfg), UDS_STATUS_OK, "init");
+
+    static const uint8_t big[20] = { 0x62U };
+    zassert_equal(isotp_transmit(&ctx, big, 20U), UDS_STATUS_OK, "multi-frame response started");
+    zassert_equal(uudt_tx_state(&ctx), ISOTP_STATE_TX_WAIT_FC, "waiting for Flow Control");
+    static const uint8_t msg[] = { 0x00U, 0x01U };
+    zassert_equal(isotp_transmit_uudt(&ctx, msg, 2U), UDS_STATUS_OK,
+                  "a periodic message goes out while the response waits for FC");
+    zassert_equal(uudt_tx_state(&ctx), ISOTP_STATE_TX_WAIT_FC, "response channel unchanged");
+}
+
+ZTEST(test_isotp_transmit, test_uudt_refusals)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    static const uint8_t msg[9] = { 0 };
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp(&ctx), UDS_STATUS_OK, "init (no periodic ID)");
+    zassert_equal(isotp_transmit_uudt(&ctx, msg, 2U), UDS_STATUS_ERR_INVALID_PARAM,
+                  "no periodic CAN ID configured: no implicit default");
+    zassert_equal(g_mock_tx_count, 0U, "nothing sent");
+    isotp_ctx_t c2;
+    isotp_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.rx_can_id = 0x7E0U; cfg.tx_can_id = 0x7E8U; cfg.periodic_tx_can_id = 0x5E8U;
+    cfg.can = &g_mock_can;
+    memset(&c2, 0, sizeof(c2));
+    zassert_equal(isotp_init(&c2, &cfg), UDS_STATUS_OK, "init");
+    zassert_equal(isotp_transmit_uudt(NULL, msg, 2U), UDS_STATUS_ERR_NULL_PTR, "NULL ctx");
+    zassert_equal(isotp_transmit_uudt(&c2, NULL, 2U), UDS_STATUS_ERR_NULL_PTR, "NULL data");
+    zassert_equal(isotp_transmit_uudt(&c2, msg, 0U), UDS_STATUS_ERR_INVALID_PARAM, "empty");
+    zassert_equal(isotp_transmit_uudt(&c2, msg, 9U), UDS_STATUS_ERR_BUFFER_OVERFLOW, "> 8 bytes");
+    g_mock_tx_return = UDS_STATUS_ERR_CAN_TX_FAILED;
+    zassert_equal(isotp_transmit_uudt(&c2, msg, 2U), UDS_STATUS_ERR_TP_TX_FAILED, "driver refuses");
+}
+
 ZTEST(test_isotp_transmit, test_tx_in_progress_stays_busy)
 {
     mock_can_reset();
@@ -2556,6 +2631,9 @@ extern void test_isotp_transmit__test_multi_frame_ff(void);
 extern void test_isotp_transmit__test_tx_busy(void);
 extern void test_isotp_transmit__test_tx_after_bs_timeout_starts_a_new_message(void);
 extern void test_isotp_transmit__test_tx_after_fc_overflow_starts_a_new_message(void);
+extern void test_isotp_transmit__test_uudt_frame_has_no_pci_and_its_own_id(void);
+extern void test_isotp_transmit__test_uudt_while_a_multiframe_is_in_flight(void);
+extern void test_isotp_transmit__test_uudt_refusals(void);
 extern void test_isotp_transmit__test_tx_in_progress_stays_busy(void);
 extern void test_isotp_tick__test_null_ctx(void);
 extern void test_isotp_tick__test_cr_timeout(void);
@@ -2649,6 +2727,9 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_transmit__test_tx_busy);
     RUN_TEST(test_isotp_transmit__test_tx_after_bs_timeout_starts_a_new_message);
     RUN_TEST(test_isotp_transmit__test_tx_after_fc_overflow_starts_a_new_message);
+    RUN_TEST(test_isotp_transmit__test_uudt_frame_has_no_pci_and_its_own_id);
+    RUN_TEST(test_isotp_transmit__test_uudt_while_a_multiframe_is_in_flight);
+    RUN_TEST(test_isotp_transmit__test_uudt_refusals);
     RUN_TEST(test_isotp_transmit__test_tx_in_progress_stays_busy);
     RUN_TEST(test_isotp_tick__test_null_ctx);
     RUN_TEST(test_isotp_tick__test_cr_timeout);
