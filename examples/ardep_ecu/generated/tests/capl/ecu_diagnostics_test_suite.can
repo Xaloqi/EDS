@@ -6,7 +6,7 @@
  *
  * ECU       : ARDEP_IOController
  * Version   : 1.0.0
- * Generated : 2026-05-19T13:51:10Z
+ * Generated : 2026-10-30T12:58:15Z
  *
  * FILE: ecu_diagnostics_test_suite.can
  *
@@ -20,7 +20,7 @@
  *   3. Run → Test
  *
  * TRANSPORT:
- *   ISO-TP (ISO 15765-2) over CAN 0x7DF / 0x7E8
+ *   ISO-TP (ISO 15765-2) over CAN 0x7E0 / 0x7E8
  *   P2server_max   = 25 ms
  *   P2*server_max  = 5000 ms
  *   S3server       = 5000 ms
@@ -81,7 +81,7 @@ includes
 variables
 {
   /* ── CAN / ISO-TP addressing ───────────────────────────────────────────── */
-  const dword kRxCanId          = 0x7DF;   /* Tester → ECU */
+  const dword kRxCanId          = 0x7E0;   /* Tester → ECU */
   const dword kTxCanId          = 0x7E8;   /* ECU → Tester */
   const int   kExtendedAddrMode = 0;                /* 11-bit CAN IDs */
 

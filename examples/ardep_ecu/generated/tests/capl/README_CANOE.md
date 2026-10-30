@@ -66,7 +66,7 @@ Or: F9 (Run All Tests)
 
 | Direction | CAN ID |
 |-----------|--------|
-| Tester → ECU (physical request) | 0x7DF |
+| Tester → ECU (physical request) | 0x7E0 |
 | ECU → Tester (response) | 0x7E8 |
 | Extended addressing | No (11-bit) |
 
@@ -170,5 +170,5 @@ as-is. This matches the `bridge.py` simulator and `uds_security_algo.c` stub.
 
 ---
 
-*Generated 2026-05-19T13:51:10Z by tools/testgen.py --capl*
+*Generated 2026-10-30T12:58:15Z by tools/testgen.py --capl*
 *EDS v1.0.0 — https://github.com/Xaloqi/EDS*
