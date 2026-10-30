@@ -24,6 +24,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   1.96 ms max** (was 74.5 ms); every one of the 10,240 0x36 requests under 50 ms, **worst 3.91 ms**
   (median 1.74 ms, against 1.67 ms before the change). New tests: `test_service_0x36_block_verify.c`
   and `tests/zephyr_flash_verify` (native_sim flash simulator), both with a fault-injected flash write.
+- **0x34 flash-erase failure answers NRC 0x70 on both paths** (#529). With `erase_step_cb` the ECU
+  answered 0x70 (uploadDownloadNotAccepted); with only `erase_cb` it returned
+  `UDS_STATUS_ERR_PLATFORM`, which `srv_status_to_nrc()` turned into 0x72 (generalProgrammingFailure),
+  contradicting its own comment. The synchronous path now returns
+  `UDS_STATUS_ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED`, so a tester sees 0x70 either way. Tester-visible
+  change on the synchronous path only: `7F 34 72` becomes `7F 34 70`. Tests now assert the NRC from
+  `uds_server_process_request()`, and the chunked test no longer claims a match that did not hold.
+  ISO 14229-1:2026 Table 444 lists 0x13, 0x22, 0x31, 0x33 and 0x70 for RequestDownload (Figure 32
+  adds 0x34); 0x72 is not among them.
 - **One lost Flow Control no longer mutes the ECU** (#541). After an N_Bs/N_As timeout, an aborting
   Flow Control or a refused frame, the ISO-TP TX channel sat in `ISOTP_STATE_ERROR` and
   `isotp_transmit()` answered `ERR_BUSY` until `isotp_reset_tx()`, which no example calls. A tester

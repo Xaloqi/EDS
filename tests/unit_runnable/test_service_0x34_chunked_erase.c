@@ -364,8 +364,9 @@ ZTEST(svc_0x34_chunked_erase, test_step_failure_mid_erase)
     zassert_equal(0x7FU, s_tick_frame.data[0], "");
     zassert_equal(0x34U, s_tick_frame.data[1], "");
     zassert_equal(0x70U, s_tick_frame.data[2],
-                  "NRC 0x70 uploadDownloadNotAccepted — same NRC the synchronous "
-                  "erase_cb failure path produces");
+                  "NRC 0x70 uploadDownloadNotAccepted — the NRC the synchronous "
+                  "erase_cb path answers on the wire (test_service_0x34.c, "
+                  "test_erase_failure_nrc_on_the_wire)");
 
     tctx = uds_transfer_ctx_get();
     zassert_not_equal((int)UDS_TRANSFER_ACTIVE, (int)tctx->state,
