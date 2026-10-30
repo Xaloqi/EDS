@@ -981,6 +981,22 @@ jobs:
           grep -q "PASS - test_handler_registered_and_sets_bus_off" state-change-test.log
           grep -q "PROJECT EXECUTION SUCCESSFUL" state-change-test.log
 
+      # [EDS#543] Per-block readback during TransferData, on the real Zephyr
+      # flash ops and native_sim's flash simulator, with a fault-injected flash
+      # write: the block is refused at its 0x36 and 0x37 does not read the
+      # region back again. Same pass rule as the #513 test.
+      - name: Zephyr flash per-block verify test (#543)
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          west build --pristine -d build-543 -b native_sim EDS/tests/zephyr_flash_verify
+          mkdir -p run-543 && cd run-543
+          ../build-543/zephyr/zephyr.exe | tee ../flash-verify-test.log
+          cd ..
+          grep -q "PASS - test_corrupted_write_refused_at_its_0x36" flash-verify-test.log
+          grep -q "PASS - test_clean_download_no_region_readback_at_exit" flash-verify-test.log
+          grep -q "PROJECT EXECUTION SUCCESSFUL" flash-verify-test.log
+
       - name: Upload native_sim binary
         uses: actions/upload-artifact@v4
         with:

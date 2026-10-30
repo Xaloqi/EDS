@@ -31,14 +31,18 @@
  *   the swap on next boot after the secondary slot is validated.
  *
  * CRC VERIFICATION:
- *   The verify callback reads back the written bytes from flash and computes
- *   the same CRC-32 that service_0x37.c accumulated over the received data.
- *   A mismatch returns UDS_STATUS_ERR_GENERIC which maps to NRC 0x72.
+ *   [EDS#543] z_flash_verify_step reads each block back right after it is
+ *   written, and 0x36 refuses a block that reads back wrong (NRC 0x72); 0x37
+ *   compares the read-back region's CRC-32 with the received one. The
+ *   whole-region verify callback below is the fallback (used when the
+ *   region was not fully read back block by block). A mismatch returns
+ *   UDS_STATUS_ERR_GENERIC which maps to NRC 0x72.
  *
  * SAFETY:
  *   REQ-FLASH-001: zephyr_flash_ops_init() must be called before stack init.
  *   REQ-FLASH-002: Memory map enforces writes only to the secondary slot.
- *   REQ-FLASH-003: Verify callback confirms CRC integrity post-transfer.
+ *   REQ-FLASH-003: Per-block readback (or the verify callback) confirms CRC
+ *                  integrity before the image is accepted.
  *
  * STANDARD: MISRA C:2012 alignment intended.
  * SPDX-License-Identifier: GPL-2.0-only
@@ -310,6 +314,55 @@ static uds_status_t z_flash_verify(uint32_t address,
     return UDS_STATUS_OK;
 }
 
+/* [EDS#543] Read back one just-written block. Bounded by max_block_length
+ * (256 B here), so it needs no watchdog bridge. */
+static uds_status_t z_flash_verify_step(uint32_t  address,
+                                         uint32_t  length,
+                                         uint32_t  crc_in,
+                                         uint32_t *crc_out)
+{
+    const struct flash_area *fa   = NULL;
+    uint8_t                  buf[128U];
+    uint32_t                 crc  = crc_in;
+    uint32_t                 offset = (uint32_t)0U;
+    uint32_t                 chunk;
+    int                      rc     = 0;
+
+    if (crc_out == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    rc = flash_area_open(ZEPHYR_FLASH_SECONDARY_SLOT, &fa);
+    if (rc != 0) {
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+
+    while ((offset < length) && (rc == 0)) {
+        chunk = ((length - offset) < (uint32_t)sizeof(buf))
+                    ? (length - offset)
+                    : (uint32_t)sizeof(buf);
+
+        rc = flash_area_read(fa,
+                             (off_t)((address - s_flash_region.base_address) + offset),
+                             buf,
+                             (size_t)chunk);
+        if (rc == 0) {
+            crc     = uds_transfer_crc32_update(crc, buf, chunk);
+            offset += chunk;
+        }
+    }
+
+    flash_area_close(fa);
+
+    if (rc != 0) {
+        LOG_ERR("z_flash_verify_step: read failed: %d (addr=0x%08X)", rc, address);
+        return UDS_STATUS_ERR_PLATFORM;
+    }
+
+    *crc_out = crc;
+    return UDS_STATUS_OK;
+}
+
 /* --------------------------------------------------------------------------
  * Flash ops table
  * -------------------------------------------------------------------------- */
@@ -319,6 +372,7 @@ static uds_flash_ops_t s_zephyr_flash_ops = {
     .write_cb        = z_flash_write,
     .verify_cb       = z_flash_verify,
     .erase_step_cb   = z_flash_erase_step,  /* [#312] chunked erase, preferred by service_0x34.c */
+    .verify_step_cb  = z_flash_verify_step, /* [EDS#543] per-block readback; 0x37 only compares */
     .memory_map      = &s_flash_region,
     .region_count    = (uint8_t)1U,
     .max_block_length = (uint16_t)256U,   /* 256 bytes payload per TransferData block */

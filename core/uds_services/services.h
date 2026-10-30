@@ -350,11 +350,31 @@ uds_status_t uds_service_0x36_handler(
     uds_msg_buf_t       *resp
 );
 
+struct uds_transfer_ctx;
+struct uds_flash_ops;
+
+/**
+ * @brief Write the accumulated download bytes to flash and read them back.
+ *
+ * Shared by 0x36 (full chunks) and 0x37 (the last, partial chunk) so both
+ * flushes take the same path [EDS#543]. Calls write_cb for write_buf; when
+ * the flash ops register verify_step_cb, reads the same range back and
+ * refuses it if the running CRC-32 of the readback no longer matches the
+ * running CRC-32 of the flushed bytes. Does nothing when write_buf is empty.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_PLATFORM on a write or readback failure, or a
+ *         readback mismatch (NRC 0x72 at the caller).
+ */
+uds_status_t uds_service_0x36_flush(struct uds_transfer_ctx    *tctx,
+                                    const struct uds_flash_ops *ops);
+
 /**
  * @brief Handler for SID 0x37 — RequestTransferExit.
  *
  * Terminates an active firmware download.  Flushes remaining write buffer,
- * optionally validates a CRC-32 record, calls flash_verify_cb, and resets
+ * optionally validates a CRC-32 record, checks the read-back CRC-32 (per
+ * block during 0x36, or flash_verify_cb here), and resets
  * the transfer state machine to IDLE.
  *
  * SESSION:  Programming session required (enforced by ACL table).

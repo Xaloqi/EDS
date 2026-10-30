@@ -37,7 +37,10 @@
  *                                                        transfer is aborted
  *                                                        [EDS#441, was 0x31]
  *   NRC 0x73 (wrongBlockSequenceCounter)              — counter mismatch
- *   NRC 0x72 (generalProgrammingFailure)              — flash write failed, or
+ *   NRC 0x72 (generalProgrammingFailure)              — flash write failed, the
+ *                                                        written block read
+ *                                                        back differently
+ *                                                        (EDS#543), or
  *                                                        the registered image
  *                                                        policy's update_cb
  *                                                        refused the block
@@ -73,7 +76,9 @@
  *               A block whose payload exceeds bytes_remaining is rejected
  *               (NRC 0x31) and the transfer context is aborted rather than
  *               being silently truncated to fit.
- *   REQ-FLASH-003: CRC accumulator updated for every payload byte.
+ *   REQ-FLASH-003: CRC accumulator updated for every payload byte. With
+ *               the flash ops' verify_step_cb, each flushed chunk is read
+ *               back and a mismatch is NRC 0x72 at this block [EDS#543].
  *
  * STANDARD: MISRA C:2012 alignment intended.
  * SPDX-License-Identifier: GPL-2.0-only
@@ -127,36 +132,70 @@ static uds_status_t s_handle_upload_block(
  * -------------------------------------------------------------------------- */
 
 /**
- * @brief Flush accumulated bytes from write_buf to flash.
+ * @brief Flush accumulated bytes from write_buf to flash, then read them back.
  *
- * Calls flash_write_cb for the filled portion of write_buf, advances
- * next_write_address, and resets write_buf_fill to zero.
+ * Calls flash_write_cb for the filled portion of write_buf. When the flash
+ * ops register verify_step_cb [EDS#543], reads the same range back and
+ * advances two running CRC-32s: one over the bytes written, one over the
+ * bytes flash returned. They start equal at 0x34 and cover the same bytes
+ * after every flush, so the first block whose readback differs makes them
+ * differ, and is refused here, at the 0x36 that wrote it. 0x37 then checks
+ * the read-back region's CRC-32 against the received data without reading
+ * the region again (P2server_max: EDS#543).
+ *
+ * Advances next_write_address and resets write_buf_fill to zero.
  *
  * @param[in,out] tctx  Active transfer context.
  * @param[in]     ops   Flash operations table.
  *
  * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_PLATFORM on flash write failure.
+ * @return UDS_STATUS_ERR_PLATFORM on flash write or readback failure, or
+ *         when the readback does not match what was written.
  */
-static uds_status_t s_flush_write_buf(uds_transfer_ctx_t    *tctx,
-                                       const uds_flash_ops_t *ops)
+uds_status_t uds_service_0x36_flush(uds_transfer_ctx_t    *tctx,
+                                    const uds_flash_ops_t *ops)
 {
     uds_status_t status;
+    uint32_t     length;
+    uint32_t     readback_crc;
+
+    if ((tctx == NULL) || (ops == NULL)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
 
     if (tctx->write_buf_fill == (uint16_t)0U) {
         return UDS_STATUS_OK;
     }
 
-    status = ops->write_cb(
-        tctx->next_write_address,
-        tctx->write_buf,
-        (uint32_t)tctx->write_buf_fill);
+    length = (uint32_t)tctx->write_buf_fill;
 
+    status = ops->write_cb(tctx->next_write_address, tctx->write_buf, length);
     if (status != UDS_STATUS_OK) {
         return UDS_STATUS_ERR_PLATFORM;
     }
 
-    tctx->next_write_address += (uint32_t)tctx->write_buf_fill;
+    /* [EDS#543] REQ-FLASH-003: read back what was just written. */
+    if (ops->verify_step_cb != NULL) {
+        readback_crc = tctx->readback_crc_accumulator;
+        status = ops->verify_step_cb(tctx->next_write_address, length,
+                                     tctx->readback_crc_accumulator,
+                                     &readback_crc);
+        if (status != UDS_STATUS_OK) {
+            return UDS_STATUS_ERR_PLATFORM;
+        }
+
+        tctx->flushed_crc_accumulator = uds_transfer_crc32_update(
+            tctx->flushed_crc_accumulator, tctx->write_buf, length);
+        tctx->readback_crc_accumulator = readback_crc;
+
+        if (tctx->readback_crc_accumulator != tctx->flushed_crc_accumulator) {
+            return UDS_STATUS_ERR_PLATFORM;   /* block reads back wrong */
+        }
+
+        tctx->readback_bytes += length;
+    }
+
+    tctx->next_write_address += length;
     tctx->write_buf_fill      = (uint16_t)0U;
 
     return UDS_STATUS_OK;
@@ -354,7 +393,7 @@ uds_status_t uds_service_0x36_handler(
 
         /* Flush when buffer is full. */
         if (tctx->write_buf_fill >= tctx->write_buf_capacity) {
-            status = s_flush_write_buf(tctx, ops);
+            status = uds_service_0x36_flush(tctx, ops);
             if (status != UDS_STATUS_OK) {
                 uds_image_policy_notify_abort();  /* [#232] drop partial state */
                 uds_transfer_ctx_reset(tctx); /* abort on failure */

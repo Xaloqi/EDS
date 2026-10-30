@@ -112,6 +112,15 @@ typedef struct uds_transfer_ctx {
 
     uint32_t  crc_accumulator;            /**< Running CRC-32 over payload data.*/
 
+    /* [EDS#543] Per-block readback (flash ops verify_step_cb). Both CRCs are
+     * initialised by 0x34 and advance only when a chunk is flushed, so
+     * after every flush they cover the same bytes: what was written, and
+     * what flash returned for it. readback_bytes == total_size_bytes at
+     * 0x37 means the whole region was read back block by block. */
+    uint32_t  flushed_crc_accumulator;    /**< Running CRC-32 over flushed bytes. */
+    uint32_t  readback_crc_accumulator;   /**< Running CRC-32 over their readback. */
+    uint32_t  readback_bytes;             /**< Bytes read back so far.          */
+
     /**
      * @brief Write accumulation buffer.
      *

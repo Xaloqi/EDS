@@ -571,6 +571,11 @@ add_diag_test(test_service_0x36
         "${TEST_UNIT_DIR}/test_service_0x36.c"
 )
 
+add_diag_test(test_service_0x36_block_verify
+    SOURCES
+        "${TEST_UNIT_DIR}/test_service_0x36_block_verify.c"
+)
+
 add_diag_test(test_service_0x37
     SOURCES
         "${TEST_UNIT_DIR}/test_service_0x37.c"

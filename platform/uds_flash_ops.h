@@ -35,8 +35,10 @@
  *                  0x22 (conditionsNotCorrect) if ops is NULL.
  *   REQ-FLASH-002: address + size must be validated against a platform-
  *                  provided memory map before any erase or write.
- *   REQ-FLASH-003: flash_verify_cb must be called after transfer exit to
- *                  confirm CRC integrity before the image is accepted.
+ *   REQ-FLASH-003: the written image is read back and its CRC-32 confirmed
+ *                  before the image is accepted: per block during 0x36 when
+ *                  verify_step_cb is registered [EDS#543], otherwise by
+ *                  flash_verify_cb at transfer exit.
  *
  * STANDARD: MISRA C:2012 alignment intended.
  * SPDX-License-Identifier: GPL-2.0-only
@@ -184,6 +186,39 @@ typedef uds_status_t (*uds_flash_erase_step_cb_fn)(uint32_t  address,
                                                     uint32_t *out_erased_bytes);
 
 /**
+ * @brief Callback: read back ONE just-written range and fold it into a CRC [EDS#543].
+ *
+ * Called by service_0x36 (and by 0x37 for the last, partial chunk) right
+ * after each write_cb, on exactly the range that write_cb wrote. Reads
+ * [address, address + length) back from flash and returns
+ * uds_transfer_crc32_update(crc_in, <those bytes>, length) in *crc_out
+ * (not finalised).
+ *
+ * WHY THIS EXISTS: without it, 0x37 reads the whole region back through
+ * verify_cb, which grows with the image: 73 ms for 512 KiB on the
+ * STM32H753 at 480 MHz, past P2server_max = 50 ms (EDS#543). Checking each
+ * block as it is written spreads that readback over the transfer, a few
+ * microseconds per block, and leaves 0x37 only the comparison of two
+ * CRC-32s it already holds. A block that reads back differently is refused
+ * at the 0x36 that wrote it (NRC 0x72), and the CRC of the whole read-back
+ * region must still match the received data at 0x37.
+ *
+ * length is at most max_block_length, so a call is bounded by one block.
+ *
+ * @param[in]  address  Start of the range just written.
+ * @param[in]  length   Bytes just written.
+ * @param[in]  crc_in   Running CRC-32 accumulator (not finalised).
+ * @param[out] crc_out  crc_in updated with the bytes read back.
+ *
+ * @return UDS_STATUS_OK when the range was read.
+ * @return UDS_STATUS_ERR_PLATFORM on driver read failure.
+ */
+typedef uds_status_t (*uds_flash_verify_step_cb_fn)(uint32_t  address,
+                                                     uint32_t  length,
+                                                     uint32_t  crc_in,
+                                                     uint32_t *crc_out);
+
+/**
  * @brief Flash operations table — registered at stack init.
  *
  * erase_cb, write_cb, and verify_cb must be non-NULL when the table is
@@ -209,6 +244,16 @@ typedef struct uds_flash_ops {
      * FreeRTOS targets not yet audited for this) is unaffected.
      */
     uds_flash_erase_step_cb_fn erase_step_cb;
+
+    /**
+     * @brief Optional [EDS#543]. When non-NULL, each block is read back and
+     * checked right after it is written, and 0x37 no longer calls
+     * verify_cb for a download: it compares the CRC-32 of the read-back
+     * region with the received one. NULL keeps the whole-region verify_cb
+     * readback at 0x37. verify_cb stays mandatory either way (uploads, and
+     * a transfer whose blocks were not all read back, still use it).
+     */
+    uds_flash_verify_step_cb_fn verify_step_cb;
 
     const uds_flash_region_t *memory_map;    /**< Array of permitted regions. */
     uint8_t                   region_count;  /**< Number of entries in memory_map[]. */

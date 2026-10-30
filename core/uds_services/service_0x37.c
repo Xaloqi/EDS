@@ -8,8 +8,10 @@
  * ISO 14229-1:2026 §14.5: RequestTransferExit terminates an active firmware
  * download initiated by RequestDownload (0x34).  It flushes any remaining
  * bytes from the write accumulation buffer, optionally validates a CRC-32
- * supplied in the transferRequestParameterRecord, and invokes flash_verify_cb
- * to confirm image integrity.
+ * supplied in the transferRequestParameterRecord, and confirms that the
+ * written region reads back with the received data's CRC-32: from the
+ * per-block readback done during 0x36 when the flash ops provide
+ * verify_step_cb (EDS#543), otherwise by invoking flash_verify_cb.
  *
  * REQUEST FORMAT (ISO 14229-1:2026 §14.5.2):
  *   [0x37 {, transferRequestParameterRecord...}]
@@ -58,7 +60,8 @@
  * SAFETY:
  *   REQ-DL-002: bytes_remaining must be 0 before accepting exit.
  *   REQ-DL-003: Transfer context reset to IDLE after successful or failed exit.
- *   REQ-FLASH-003: CRC verified before positive response is sent.
+ *   REQ-FLASH-003: CRC verified before positive response is sent; the
+ *                  read-back region's CRC-32 must equal the received one.
  *   REQ-IMGPOL-002: On a production build, reaching transfer exit with no
  *                  image policy registered refuses rather than answering
  *                  [0x77] — defence in depth behind the 0x34 gate (#232).
@@ -162,8 +165,8 @@ static uds_status_t s_verdict_to_status(uds_image_verdict_t verdict)
  * @brief SID 0x37 — RequestTransferExit handler.
  *
  * Flushes the remaining write buffer, validates the optional CRC record,
- * invokes flash_verify_cb, resets the transfer state machine, and returns
- * a positive response.
+ * checks the read-back CRC-32 (or invokes flash_verify_cb), resets the
+ * transfer state machine, and returns a positive response.
  */
 uds_status_t uds_service_0x37_handler(
     uds_server_ctx_t    *ctx,
@@ -282,21 +285,14 @@ uds_status_t uds_service_0x37_handler(
         return UDS_STATUS_ERR_SEC_SEED_UNAVAILABLE;   /* mapped → NRC 0x24 */
     }
 
-    /* --- Flush any remaining bytes in the write accumulation buffer --- */
-    if (tctx->write_buf_fill > (uint16_t)0U) {
-        status = ops->write_cb(
-            tctx->next_write_address,
-            tctx->write_buf,
-            (uint32_t)tctx->write_buf_fill);
-
-        if (status != UDS_STATUS_OK) {
-            uds_image_policy_notify_abort();   /* [#232] drop partial state */
-            uds_transfer_ctx_reset(tctx); /* REQ-DL-003 */
-            return UDS_STATUS_ERR_PLATFORM;
-        }
-
-        tctx->next_write_address += (uint32_t)tctx->write_buf_fill;
-        tctx->write_buf_fill      = (uint16_t)0U;
+    /* --- Flush any remaining bytes in the write accumulation buffer ---
+     * [EDS#543] Same path as a 0x36 flush, so the last chunk is read back
+     * too when the flash ops support it. */
+    status = uds_service_0x36_flush(tctx, ops);
+    if (status != UDS_STATUS_OK) {
+        uds_image_policy_notify_abort();   /* [#232] drop partial state */
+        uds_transfer_ctx_reset(tctx); /* REQ-DL-003 */
+        return UDS_STATUS_ERR_PLATFORM;
     }
 
     /* Finalise once and reuse.  uds_transfer_crc32_finalise() is pure, so
@@ -355,11 +351,28 @@ uds_status_t uds_service_0x37_handler(
         /* No CRC supplied and none required — pre-#232 behaviour. */
     }
 
-    /* --- REQ-FLASH-003: Platform verify callback --- */
-    status = ops->verify_cb(
-        tctx->target_address,
-        tctx->total_size_bytes,
-        computed_crc);
+    /* --- REQ-FLASH-003: the written region must read back as received ---
+     *
+     * [EDS#543] When every byte of a download was read back block by block
+     * during 0x36 (flash ops verify_step_cb), the CRC-32 of that readback is
+     * already in hand: compare it with the CRC-32 of the received data
+     * instead of reading the whole region again. That readback is what made
+     * this request take 73 ms for a 512 KiB image on the STM32H753, past
+     * P2server_max = 50 ms. Anything else (no verify_step_cb, flash ops
+     * swapped mid-transfer, an upload) keeps the whole-region verify_cb. */
+    if ((tctx->direction == UDS_TRANSFER_DIR_DOWNLOAD) &&
+        (tctx->readback_bytes == tctx->total_size_bytes)) {
+        if (uds_transfer_crc32_finalise(tctx->readback_crc_accumulator) != computed_crc) {
+            status = UDS_STATUS_ERR_GENERIC;
+        } else {
+            status = UDS_STATUS_OK;
+        }
+    } else {
+        status = ops->verify_cb(
+            tctx->target_address,
+            tctx->total_size_bytes,
+            computed_crc);
+    }
 
     if (status != UDS_STATUS_OK) {
         uds_image_policy_notify_abort();   /* [#232] drop partial state */
