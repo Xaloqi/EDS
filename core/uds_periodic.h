@@ -184,6 +184,20 @@ void uds_periodic_set_access_ctx(const uds_session_ctx_t  *session_ctx,
                                  const uds_security_ctx_t *security_ctx);
 
 /**
+ * @brief [EDS#546] Record the CAN ID the periodic messages are sent on.
+ *
+ * ISO 14229-3:2022 Table 3: periodic messages use a CAN ID of their own. There
+ * is no default: with 0 (never set) SID 0x2A answers NRC 0x22 to a request
+ * that would schedule a periodic DID, instead of sending it on the diagnostic
+ * response ID. Generated uds_init.c calls this with GEN_CAN_PERIODIC_TX_ID.
+ * Survives uds_periodic_init() and a return to the default session.
+ */
+void uds_periodic_set_tx_can_id(uint32_t can_id);
+
+/** @brief [EDS#546] True once a non-zero periodic CAN ID has been recorded. */
+bool uds_periodic_tx_can_id_is_set(void);
+
+/**
  * @brief [EDS#194] Re-queue the subscription most recently popped by
  *        uds_periodic_pop_due() for the next tick.
  *

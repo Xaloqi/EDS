@@ -179,6 +179,7 @@ static void setup(void)
     uds_session_transition(&g_sess, UDS_SESSION_EXTENDED);
     g_sec.active_level = 0U;
     (void)uds_periodic_init();
+    uds_periodic_set_tx_can_id((uint32_t)0x5E8U);   /* [EDS#546] no default: set per test */
     uds_periodic_set_access_ctx(NULL, NULL);
 }
 
@@ -463,6 +464,24 @@ ZTEST(test_service_0x2A, tc020_length_checked_before_mode)
     }
 }
 
+/** TC-0x2A-021: no periodic CAN ID configured → NRC 0x22 and nothing scheduled;
+ *  stopSending still works [EDS#546, ISO 14229-3 Table 3: no implicit default]. */
+ZTEST(test_service_0x2A, tc021_no_periodic_can_id_is_0x22)
+{
+    setup();
+    static const uint8_t ids[] = { 0xABU };
+    uds_periodic_set_tx_can_id((uint32_t)0U);
+    zassert_equal(send(UDS_PERIODIC_MODE_SLOW, ids, 1U),
+                  UDS_STATUS_ERR_CONDITIONS_NOT_MET, "no periodic CAN ID → 0x22");
+    zassert_false(uds_periodic_is_subscribed(0xABU), "nothing scheduled");
+    zassert_equal(send(UDS_PERIODIC_MODE_STOP, ids, 1U), UDS_STATUS_OK, "stop is fine");
+    /* an unsupported pDID is still 0x31: the 0x22 check comes after the pDID checks */
+    static const uint8_t bad[] = { 0x77U };
+    zassert_equal(send(UDS_PERIODIC_MODE_SLOW, bad, 1U),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "unsupported pDID stays 0x31");
+    uds_periodic_set_tx_can_id((uint32_t)0x5E8U);
+}
+
 /** TC-0x2A-016: a repeated pDID is scheduled once (§10.5.1). */
 ZTEST(test_service_0x2A, tc016_repeated_pdid_once)
 {
@@ -541,6 +560,7 @@ extern void test_service_0x2A__tc017_secured_pdid_denied(void);
 extern void test_service_0x2A__tc018_relock_stops_secured_stream(void);
 extern void test_service_0x2A__tc019_pdid_zero_streams(void);
 extern void test_service_0x2A__tc020_length_checked_before_mode(void);
+extern void test_service_0x2A__tc021_no_periodic_can_id_is_0x22(void);
 
 void run_all_tests(void)
 {
@@ -564,4 +584,5 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x2A__tc018_relock_stops_secured_stream);
     RUN_TEST(test_service_0x2A__tc019_pdid_zero_streams);
     RUN_TEST(test_service_0x2A__tc020_length_checked_before_mode);
+    RUN_TEST(test_service_0x2A__tc021_no_periodic_can_id_is_0x22);
 }

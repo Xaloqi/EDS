@@ -475,6 +475,11 @@ def _safety_session_enabled(cfg: Dict[str, Any]) -> bool:
     return sessions.get("safety_system", False) is True
 
 
+def _parse_did_id(raw: str) -> Optional[int]:
+    """DID id as an int, or None when it is not 0xNNNN (validated elsewhere)."""
+    return int(raw, 16) if _DID_PATTERN.match(raw) else None
+
+
 def validate_config(cfg: Dict[str, Any]) -> None:
     """
     Validate the loaded configuration against schema and constraint rules.
@@ -552,9 +557,9 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     if can_cfg:
         if not isinstance(can_cfg, dict):
             _fatal("VALIDATION: 'can' must be a YAML mapping.")
-        for field in ("rx_can_id", "tx_can_id", "functional_rx_can_id"):
+        for field in ("rx_can_id", "tx_can_id", "functional_rx_can_id", "periodic_tx_can_id"):
             raw = can_cfg.get(field)
-            if field == "functional_rx_can_id" and str(raw).lower() == "none":
+            if field in ("functional_rx_can_id", "periodic_tx_can_id") and str(raw).lower() == "none":
                 continue
             if raw is not None:
                 val = _parse_can_id(raw, f"can.{field}")
@@ -578,6 +583,23 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                         f"VALIDATION: can.functional_rx_can_id must differ from "
                         f"can.{name} (both are {fn}). Use \"none\" to turn "
                         f"functional addressing off."
+                    )
+
+        # [EDS#546] periodic_tx_can_id: the CAN ID of SID 0x2A's periodic
+        # messages (ISO 14229-3:2022 §8.5, Table 3: "a different CAN identifier
+        # for periodic transmission"). No default.
+        pt = can_cfg.get("periodic_tx_can_id")
+        if pt is not None and str(pt).lower() != "none":
+            for other, name in (
+                (rx, "rx_can_id"), (tx, "tx_can_id"),
+                (can_cfg.get("functional_rx_can_id"), "functional_rx_can_id"),
+            ):
+                if other is not None and str(other).lower() != "none" \
+                        and int(pt, 16) == int(other, 16):
+                    _fatal(
+                        f"VALIDATION: can.periodic_tx_can_id must differ from "
+                        f"can.{name} (both are {pt}): periodic messages use a CAN "
+                        f"ID of their own (ISO 14229-3 Table 3)."
                     )
 
     # ── dids ─────────────────────────────────────────────────────────────────
@@ -777,6 +799,31 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                 "no generated backing store, so the value would be dropped. "
                 "FIX: remove default_value and initialise the value in the "
                 "application's did_read_* implementation."
+            )
+
+    # [EDS#546] Periodic DIDs (0xF200-0xF2FF, SID 0x2A). A periodic message is an
+    # unsegmented UUDT frame, [pDID, data], on its own CAN ID (ISO 14229-3:2022
+    # §8.5, Table 3, REQ 7.5): the ID must be configured, and the record must
+    # fit one classic CAN frame with the pDID byte (<= 7 bytes).
+    can_for_periodic = cfg.get("can", {}) or {}
+    pt_raw = can_for_periodic.get("periodic_tx_can_id")
+    for idx, did in enumerate(dids):
+        did_id = _parse_did_id(did["id"]) if isinstance(did.get("id"), str) else None
+        if did_id is None or not (0xF200 <= did_id <= 0xF2FF):
+            continue
+        pfx = f"VALIDATION: dids[{idx}] ({did['id']})"
+        if pt_raw is None or str(pt_raw).lower() == "none":
+            _fatal(
+                f"{pfx}: a periodic DID (0xF200-0xF2FF) needs can.periodic_tx_can_id: "
+                "periodic messages are sent on a CAN ID of their own "
+                "(ISO 14229-3:2022 Table 3) and there is no default. "
+                "FIX: add e.g. `periodic_tx_can_id: \"0x5E8\"` under `can:`."
+            )
+        if did.get("data_length", 1) > 7:
+            _fatal(
+                f"{pfx}: data_length {did.get('data_length')} does not fit a periodic "
+                "message: [pDID, data] is one unsegmented CAN frame, so a periodic "
+                "DID's record is at most 7 bytes (ISO 14229-3:2022 REQ 7.5)."
             )
 
     # ── dtcs ─────────────────────────────────────────────────────────────────
@@ -1160,6 +1207,9 @@ def _build_can_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     else:
         fn_val = FUNCTIONAL_RX_CAN_ID_DEFAULT
 
+    pt_raw = can_cfg.get("periodic_tx_can_id")
+    pt_val = 0 if (pt_raw is None or str(pt_raw).lower() == "none") else int(pt_raw, 16)
+
     return {
         "rx_can_id":       _normalise_hex(rx_raw),
         "tx_can_id":       _normalise_hex(tx_raw),
@@ -1169,6 +1219,9 @@ def _build_can_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "tx_is_extended":  tx_val > CAN_ID_11BIT_MAX,
         "functional_rx_can_id":     "none" if fn_val == 0 else f"0x{fn_val:03X}",
         "functional_rx_can_id_int": fn_val,
+        # [EDS#546] No default: 0 = not configured (SID 0x2A then answers 0x22).
+        "periodic_tx_can_id":       "none" if pt_val == 0 else _normalise_hex(pt_raw),
+        "periodic_tx_can_id_int":   pt_val,
     }
 
 
@@ -1316,6 +1369,8 @@ def build_generated_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "can_tx_is_extended":    can["tx_is_extended"],
         "can_functional_rx_id":     can["functional_rx_can_id"],
         "can_functional_rx_id_int": can["functional_rx_can_id_int"],
+        "can_periodic_tx_id":       can["periodic_tx_can_id"],
+        "can_periodic_tx_id_int":   can["periodic_tx_can_id_int"],
     }
 
 

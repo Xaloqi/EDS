@@ -5,7 +5,7 @@
  *
  * ECU       : SensorECU
  * Version   : 1.0.0
- * Generated : 2026-10-28T15:48:36Z
+ * Generated : 2026-10-30T11:33:27Z
  *
  * PURPOSE: Compile-time constants derived from diagnostics_config.yaml.
  *          Provides all protocol timing parameters, CAN addressing, and
@@ -80,6 +80,16 @@
  */
 #define GEN_CAN_FUNCTIONAL_RX_ID  (2015U)   /* 0x7DF */
 
+/**
+ * CAN ID of the periodic data response messages of SID 0x2A, or 0 for none
+ * (EDS#546). ISO 14229-3:2022 Table 3: periodic messages use a CAN ID of their
+ * own (an unsegmented [pDID, data] frame, no PCI, no SID); there is no default.
+ * Set in isotp_cfg_t.periodic_tx_can_id and uds_periodic_set_tx_can_id() by
+ * uds_init.c; with 0, SID 0x2A answers NRC 0x22 to a subscription.
+ * codegen refuses a 0xF2xx DID in a config without it.
+ */
+#define GEN_CAN_PERIODIC_TX_ID    (0U)   /* none */
+
 /** CAN ID on which the ECU transmits UDS diagnostic responses. */
 #define GEN_CAN_TX_ID             (2024U)   /* 0x7E8 */
 
@@ -111,6 +121,6 @@
 
 #define GEN_ECU_NAME            "SensorECU"
 #define GEN_ECU_VERSION         "1.0.0"
-#define GEN_GENERATED_TIMESTAMP "2026-10-28T15:48:36Z"
+#define GEN_GENERATED_TIMESTAMP "2026-10-30T11:33:27Z"
 
 #endif /* GENERATED_CONFIG_H */
