@@ -23,6 +23,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **0x2A periodic messages follow ISO 14229-1:2026 §10.5** (#546; Tables 218-223, 221, C.10,
+  Figures 24-26). Tester-visible, three changes: (1) a periodic message is `[pDID, dataRecord]`,
+  it no longer starts with the service ID `0x6A` (only the initial positive response does; a
+  pDID 0x00 push with a 4-byte record was `06 6A 00 xx xx xx xx` in an ISO-TP single frame, now
+  `05 00 xx xx xx xx`); (2) the first message is sent at the next tick after the positive response
+  instead of one full period later, the rate applies from then on; (3) a request shorter than 3
+  bytes with a transmissionMode other than stopSending (`2A 00`, `2A 05`) is NRC 0x13, not 0x31,
+  because the length is checked before the mode (Figure 24). Not done, needs ISO 14229-3: the
+  periodic messages still use the diagnostic response ID and ISO-TP; ISO allocates them their own
+  response IDs. The authentication branch (NRC 0x34) of Figure 24 does not exist (no 0x29).
 - **RequestTransferExit (0x37) answers inside P2 for the largest image** (#543). On
   `safeboot_ecu` (NUCLEO-H753ZI) 0x37 read the whole download region back to check its CRC-32 and
   answered after 74.5 ms for a 512 KiB image, past the advertised P2server_max of 50 ms, with no

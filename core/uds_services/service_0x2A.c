@@ -13,7 +13,9 @@
  *          loop drain via uds_periodic_pop_due() / isotp_transmit().
  *
  *          Request  : [0x2A, transmissionMode, periodicId_1 {, periodicId_2 ...}]
- *          Response : [0x6A]  (positive response, 1 byte only)
+ *          Response : [0x6A]  (initial positive response, 1 byte only)
+ *          Periodic : [periodicId, dataRecord...] per pDID, sent by the main
+ *                     loop (ISO 14229-1:2026 Table 221; no 0x6A) [EDS#546]
  *
  * SAFETY  : Each pDID gets the full DID access check (readable, session,
  *           security) at subscription, and uds_periodic_pop_due() re-checks
@@ -94,7 +96,7 @@ static uds_status_t s_check_pdid(const uds_server_ctx_t *ctx, uint8_t periodic_i
 
 /**
  * ISO 14229-1:2026 §10.5, Table 223, Figure 24 [EDS#466]:
- *   0x13 — length < 2, or < 3 for a mode other than stopSending
+ *   0x13 — length < 2, or < 3 for a mode other than stopSending (checked first)
  *   0x31 — transmissionMode not supported (no SubFunction, §10.5.2.2)
  *   stopSending: stop the listed pDIDs, or all of them if none is listed
  *   per pDID: not supported in the active session → skipped; 0x33 security
@@ -127,6 +129,13 @@ uds_status_t uds_service_0x2A_handler(
 
     mode = req->data[SVC_0x2A_MODE_OFFSET];
 
+    /* Figure 24: the length check (3 bytes unless stopSending) comes before the
+     * transmissionMode check, so `2A 05` and `2A 00` are 0x13, not 0x31 [EDS#546]. */
+    if ((mode != (uint8_t)UDS_PERIODIC_MODE_STOP) &&
+        (req->length < (uint16_t)SVC_0x2A_MIN_START_LEN)) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
+
     /* transmissionMode (Annex C.4 Table C.10): 0x01-0x04; others reserved. */
     if ((mode < (uint8_t)UDS_PERIODIC_MODE_SLOW) ||
         (mode > (uint8_t)UDS_PERIODIC_MODE_MAX)) {
@@ -142,10 +151,6 @@ uds_status_t uds_service_0x2A_handler(
             }
         }
         return uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DATA_BY_PERIODIC_ID, resp);
-    }
-
-    if (req->length < (uint16_t)SVC_0x2A_MIN_START_LEN) {
-        return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
     /* Pass 1: check every pDID before scheduling any. */

@@ -11,16 +11,18 @@ Over raw CAN frames (standard library only) it checks:
   - default session refuses 0x2A (7F 2A 7F); unknown pDID is 7F 2A 31
   - 2A <mode> 00 answers 6A, then pushes frames at the slow / medium / fast
     rate (1000 / 100 / 10 ms, median interval within a tolerance)
-  - the periodic frame format, as the stack sends it today: an ISO-TP single
-    frame [06, 6A, 00, <int32 BE position>] (DLC 7) on the physical response ID 0x7E8
+  - the periodic message format: [periodicDataIdentifier, <int32 BE position>]
+    without the 0x6A SID (ISO 14229-1:2026 Table 221), today still carried in an
+    ISO-TP single frame [05, 00, <int32>] (DLC 6) on the physical response ID 0x7E8
+  - the first message follows the positive response at the next tick, not a full
+    period later (§10.5.5, Figures 25/26)
   - 2A 04 00 and 2A 04 (stop all) stop it; a re-subscribe changes the rate in
     place; returning to the default session cancels every subscription
 
-FORMAT: ISO 14229-1 sends periodic data as an unsegmented UUDT message,
-[periodicDataIdentifier, dataRecord...] without the 0x6A SID and not through
-ISO-TP, on a periodic response CAN ID of its own. The stack differs on all
-three counts (Xaloqi/EDS#546). FRAME_* below pin the current behaviour so the
-change is visible when that issue is fixed.
+LINK LAYER (open, Xaloqi/EDS#546): ISO 14229-1 gives the periodic messages their
+own allocated response IDs and leaves the CAN mapping to ISO 14229-3. The stack
+still sends them through ISO-TP on the diagnostic response ID. FRAME_* below pin
+that, so the change is visible when it is fixed.
 
 Usage: smoke_robot_periodic_2a.py <path/to/zephyr.exe> [interface]
 The interface must exist and be up (see scripts/smoke_robot_joint_ecu.py).
@@ -37,10 +39,10 @@ REQ_ID = 0x7E0
 RSP_ID = 0x7E8
 CAN_FMT = "=IB3x8s"
 
-# Current behaviour (differs from ISO 14229-1, Xaloqi/EDS#546).
+# Link layer as sent today (Xaloqi/EDS#546): ISO-TP SF on the response ID.
 FRAME_ID = RSP_ID
-FRAME_PREFIX = bytes([0x06, 0x6A, 0x00])   # ISO-TP SF len 6, SID 0x6A, pDID 0x00
-FRAME_LEN = 7                               # 3 + int32, DLC 7, no padding
+FRAME_PREFIX = bytes([0x05, 0x00])         # ISO-TP SF len 5, pDID 0x00 (no 0x6A)
+FRAME_LEN = 6                               # 2 + int32, DLC 6, no padding
 
 SWEEP_AMPL_MDEG = 90000                     # joint_sim.h
 
@@ -124,12 +126,15 @@ def main():
             gaps = [b[0] - a[0] for a, b in zip(frames, frames[1:])]
             assert len(frames) >= int(secs / period * 0.8) - 1, \
                 "%s: only %d frames in %.1f s" % (name, len(frames), secs)
+            first = frames[0][0] - fr[0][0]
+            assert first < 0.05, \
+                "%s: first message %.0f ms after the response, want the next tick" % (name, first * 1e3)
             med = statistics.median(gaps)
             assert 0.8 * period <= med <= 1.3 * period, \
                 "%s: median interval %.1f ms, want ~%.0f" % (name, med * 1e3, period * 1e3)
             for t, cid, d in frames:
                 assert cid == FRAME_ID
-                pos = int.from_bytes(d[3:7], "big", signed=True)
+                pos = int.from_bytes(d[2:6], "big", signed=True)
                 assert abs(pos) <= SWEEP_AMPL_MDEG, "position out of sweep: %d" % pos
             print("PASS %s: %d frames, median %.1f ms, frame %s" %
                   (name, len(frames), med * 1e3, frames[0][2].hex()))
