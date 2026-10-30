@@ -235,6 +235,7 @@ routines:
 | `s3_server_timeout_ms` | int | `timing.s3_server_timeout_ms` | |
 | `can_rx_id` | int | `can.rx_can_id` (default `0x7DF`) | |
 | `can_tx_id` | int | `can.tx_can_id` (default `0x7E8`) | |
+| `can_periodic_tx_id` / `can_periodic_tx_id_int` | str / int | `can.periodic_tx_can_id` (**no default**; 0 = unset) | SID 0x2A periodic messages, UUDT on this ID (EDS#546); a 0xF2xx DID requires it |
 | `dids` | list | `_build_did_list(cfg)` | |
 | `dtcs` | list | `_build_dtc_list(cfg)` | |
 | `routines` | list | `_build_routine_list(cfg)` | |

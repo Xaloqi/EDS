@@ -5,7 +5,7 @@
  *
  * ECU       : ARDEP_IOController
  * Version   : 1.0.0
- * Generated : 2026-10-28T15:48:33Z
+ * Generated : 2026-10-30T11:33:27Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -58,6 +58,7 @@
 #include "uds_security_nvm.h"
 #include "uds_safety.h"
 #include "uds_comm_control.h"
+#include "uds_periodic.h"
 #include "uds_types.h"
 #include "services.h"
 #include "did_handlers.h"
@@ -691,7 +692,11 @@ uds_status_t uds_generated_init(
      * stmin_ms   = 0: no minimum separation time enforced by this ECU.
      * functional_rx_can_id: GEN_CAN_FUNCTIONAL_RX_ID, 0 when the YAML turns
      *              functional addressing off.
+     * periodic_tx_can_id: GEN_CAN_PERIODIC_TX_ID, 0 when the YAML sets none
+     *              (SID 0x2A then answers 0x22). [EDS#546]
      */
+    uds_periodic_set_tx_can_id((uint32_t)GEN_CAN_PERIODIC_TX_ID);
+
 #ifndef EDS_DOIP_ONLY_BUILD
     if (can != NULL) {
         isotp_cfg_t isotp_cfg;
@@ -701,6 +706,8 @@ uds_status_t uds_generated_init(
         isotp_cfg.tx_can_id  = tx_can_id;
         /* Functional requests (ISO 15765-4): 0 = none. [EDS-toolchain#165] */
         isotp_cfg.functional_rx_can_id = (uint32_t)GEN_CAN_FUNCTIONAL_RX_ID;
+        /* SID 0x2A periodic messages: UUDT on their own ID, 0 = none. [EDS#546] */
+        isotp_cfg.periodic_tx_can_id   = (uint32_t)GEN_CAN_PERIODIC_TX_ID;
         isotp_cfg.block_size = (uint8_t)ISOTP_DEFAULT_BLOCK_SIZE;
         isotp_cfg.stmin_ms   = (uint8_t)ISOTP_DEFAULT_STMIN_MS;
         isotp_cfg.can        = can;
