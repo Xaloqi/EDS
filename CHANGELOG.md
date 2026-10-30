@@ -8,6 +8,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.26.1] — 2026-10-30
+
+### Fixed
+
+- **The `ardep_ecu` CANoe/CAPL suite names the physical request ID `0x7E0`** (#552). v1.26.0 moved
+  `ardep_ecu` to `rx_can_id: "0x7E0"` (#538), but its committed `tests/capl/README_CANOE.md` and
+  `ecu_diagnostics_test_suite.can` still said `0x7DF`, so the v1.26.0 tag did not match the delivery
+  ZIPs' regenerated copy. **v1.26.0 has no delivery ZIP; use v1.26.1.** Nothing else changed: the v1.26.0
+  entry below, including its Behaviour changes, applies unchanged.
+
 ## [1.26.0] — 2026-10-30
 
 ### Behaviour changes
