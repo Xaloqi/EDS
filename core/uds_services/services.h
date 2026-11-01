@@ -297,6 +297,11 @@ uds_status_t uds_service_0x34_handler(
  * @note [EDS#435] Restarts the S3server timer each time it returns true (every
  *       0x78 and the final response), so a long erase can't run the session
  *       out. Call it under the same lock as uds_server_process_request().
+ *
+ * @deprecated [EDS#282] Use uds_server_poll() and uds_server_frame_sent(),
+ *       which drive every response-pending job, keep an unsent frame for
+ *       you, and enforce the keepalive and the cap. This shim keeps its
+ *       one-frame-per-call behaviour for one release; do not call both.
  */
 bool uds_service_0x34_pending_tick(uds_msg_buf_t *out_frame);
 

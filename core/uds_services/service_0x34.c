@@ -95,14 +95,16 @@
  * stroke. See platform/uds_flash_ops.h's erase_step_cb doc and issue #312
  * for the full evidence trail.
  *
- * Instead the handler answers immediately with NRC 0x78
- * (requestCorrectlyReceived-ResponsePending) and records the erase job
- * here. uds_service_0x34_pending_tick() — called once per poll-loop
- * iteration by the application (see examples/safeboot_ecu/src/main.c) —
- * drives it forward one bounded increment per call, repeating 0x78 between
- * increments, until the whole region is erased, at which point it performs
- * exactly the transfer-state-machine setup and [0x74] response the
- * synchronous path below builds directly.
+ * Instead the handler defers the erase to the server (uds_server_defer(),
+ * EDS#282), which answers NRC 0x78 (requestCorrectlyReceived-
+ * ResponsePending) at once, and records the erase job here.
+ * uds_server_poll() — called once per poll-loop iteration by the
+ * application — drives it forward one bounded increment per call, with a
+ * 0x78 after every increment (s_erase_job.step_max_ms is above the
+ * keepalive interval), until the whole region is erased, at which point it
+ * performs exactly the transfer-state-machine setup and [0x74] response
+ * the synchronous path below builds directly. The deprecated
+ * uds_service_0x34_pending_tick() drives the same step without the server.
  *
  * Single static instance: only one erase can be pending at a time, exactly
  * like uds_transfer_ctx_t's single-transfer design that already governs
@@ -118,9 +120,28 @@ typedef struct {
                                        *   response and transfer_ctx setup.    */
     bool     crc_check_requested;    /**< Precomputed — see #279 note below.  */
     uds_session_ctx_t *session_ctx;  /**< [EDS#435] S3 restarted per frame.   */
+    uds_server_ctx_t  *server_ctx;   /**< [EDS#282] Holds the pending slot.   */
 } svc_0x34_erase_pending_t;
 
 static svc_0x34_erase_pending_t s_erase_pending;
+
+/* [EDS#282] ASSUMPTION: one erase_step_cb() call takes at most this long.
+ * STM32H7's devicetree max-erase-time is 4000 ms per 128 KB sector, below
+ * the reference P2*server_max of 5000 ms. Above the 2500 ms keepalive, so
+ * every increment is followed by a 0x78, as before EDS#282. */
+#ifndef SVC_0x34_ERASE_STEP_MAX_MS
+#define SVC_0x34_ERASE_STEP_MAX_MS (4000U)
+#endif
+
+static uds_step_result_t s_erase_step(uds_msg_buf_t *final_resp, uds_nrc_t *nrc);
+static void s_erase_job_abort(void);
+
+static const uds_pending_job_t s_erase_job = {
+    .sid         = (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
+    .step_max_ms = (uint32_t)SVC_0x34_ERASE_STEP_MAX_MS,
+    .step        = s_erase_step,
+    .abort       = s_erase_job_abort,
+};
 
 /**
  * @brief Drop any in-progress chunked erase without completing it.
@@ -135,6 +156,15 @@ static void s_erase_pending_abort(void)
     (void)memset(&s_erase_pending, 0, sizeof(s_erase_pending));
 }
 
+/* [EDS#282] The server gave up on the job (cap, S3, disconnect). */
+static void s_erase_job_abort(void)
+{
+    if (s_erase_pending.active) {
+        uds_image_policy_notify_abort();
+    }
+    s_erase_pending_abort();
+}
+
 /* [EDS#442] See services.h. */
 void uds_service_0x34_abort_transfer(void)
 {
@@ -142,6 +172,11 @@ void uds_service_0x34_abort_transfer(void)
 
     if ((tctx->state == UDS_TRANSFER_ACTIVE) || s_erase_pending.active) {
         uds_image_policy_notify_abort();
+    }
+    /* [EDS#282] Free the server's slot too, or every request would get
+     * 0x21 until the cap. */
+    if (s_erase_pending.active && (s_erase_pending.server_ctx != NULL)) {
+        uds_server_pending_release(s_erase_pending.server_ctx);
     }
     s_erase_pending_abort();
     uds_transfer_ctx_reset(tctx);
@@ -353,8 +388,18 @@ uds_status_t uds_service_0x34_handler(
      * s_erase_pending changes nothing about what they observe.
      * -------------------------------------------------------------------- */
     if (ops->erase_step_cb != NULL) {
+        /* [EDS#282] The server answers 7F 34 78 and drives s_erase_step(). */
+        status = uds_server_defer(ctx, &s_erase_job, resp);
+        if (status != UDS_STATUS_OK) {
+            /* Functional request, or a job already pending: close the
+             * policy state begin_cb opened, as on an erase failure. */
+            uds_image_policy_notify_abort();
+            return status;
+        }
+
         s_erase_pending.active           = true;
         s_erase_pending.session_ctx      = ctx->cfg.session_ctx;   /* [EDS#435] */
+        s_erase_pending.server_ctx       = ctx;                    /* [EDS#282] */
         s_erase_pending.address          = mem_address;
         s_erase_pending.remaining        = mem_size;
         s_erase_pending.target_address   = mem_address;
@@ -377,16 +422,7 @@ uds_status_t uds_service_0x34_handler(
             s_erase_pending.crc_check_requested = false;
         }
 
-        /* NRC 0x78 requestCorrectlyReceived-ResponsePending — answered as a
-         * positive return (UDS_STATUS_OK) with an NRC-shaped payload, so
-         * uds_server_process_request forwards it verbatim instead of
-         * re-wrapping it through srv_status_to_nrc(). The real [0x74] (or a
-         * failure NRC) follows asynchronously from
-         * uds_service_0x34_pending_tick() once the erase completes. */
-        return uds_server_build_negative_response(
-            (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
-            UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING,
-            resp);
+        return UDS_STATUS_OK;   /* resp = 7F 34 78 */
     }
 
     /* --- Erase the target flash region (synchronous fallback — unchanged
@@ -506,8 +542,6 @@ uds_status_t uds_service_0x34_handler(
  * [#312] Chunked-erase driver
  * -------------------------------------------------------------------------- */
 
-static bool s_pending_step(uds_msg_buf_t *out_frame);
-
 /* [EDS#435] S3 was restarted only when a request arrived, so it ran down
  * through the whole response-pending phase. Measured on NUCLEO-H753ZI: a
  * tester pausing 1.5 s after a 4.15 s erase's final 0x74 had lost the
@@ -515,26 +549,52 @@ static bool s_pending_step(uds_msg_buf_t *out_frame);
  * before the 0x74. ISO 14229-2 keeps S3 stopped while the server is busy and
  * restarts it at the final response. Restart it on every frame produced
  * here: each 0x78 (the server is busy, not idle) and the final response,
- * positive or negative.
+ * positive or negative. uds_server_poll() does the same for every job.
  * ASSUMPTION: one erase step is shorter than S3. True for STM32H7's 4000 ms
  * max-erase-time per 128 KB step against the reference 5000 ms S3; a slower
  * step or a shorter S3 breaks it. Deliberately not a "hold S3" flag: a hold
  * some abort path failed to release would keep a programming session, and
  * its unlock, alive forever. A restart has no state to leak; if nothing
- * drives this function, S3 simply runs out. */
+ * drives this function, S3 simply runs out.
+ *
+ * [EDS#282] Deprecated: one frame per call, exactly as before, but the
+ * job now lives in the server's pending slot, freed here when it ends. */
 bool uds_service_0x34_pending_tick(uds_msg_buf_t *out_frame)
 {
     /* Read before the step: completing or aborting clears s_erase_pending. */
     uds_session_ctx_t *session_ctx = s_erase_pending.session_ctx;
-    bool               produced    = s_pending_step(out_frame);
+    uds_server_ctx_t  *server_ctx  = s_erase_pending.server_ctx;
+    uds_nrc_t          nrc         = UDS_NRC_GENERAL_REJECT;
+    uds_step_result_t  step_rc;
 
-    if (produced && (session_ctx != NULL)) {
+    if (!s_erase_pending.active || (out_frame == NULL)) {
+        return false;
+    }
+
+    step_rc = s_erase_step(out_frame, &nrc);
+    if (step_rc == UDS_STEP_IN_PROGRESS) {
+        (void)uds_server_build_negative_response(
+            (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
+            UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING,
+            out_frame);
+    } else {
+        if (step_rc != UDS_STEP_DONE) {
+            (void)uds_server_build_negative_response(
+                (uint8_t)UDS_SID_REQUEST_DOWNLOAD, nrc, out_frame);
+        }
+        if (server_ctx != NULL) {
+            uds_server_pending_release(server_ctx);
+        }
+    }
+
+    if (session_ctx != NULL) {
         (void)uds_session_reset_s3_timer(session_ctx);
     }
-    return produced;
+    return true;
 }
 
-static bool s_pending_step(uds_msg_buf_t *out_frame)
+/* [EDS#282] One bounded erase increment: the pending job's step. */
+static uds_step_result_t s_erase_step(uds_msg_buf_t *final_resp, uds_nrc_t *nrc)
 {
     const uds_flash_ops_t *ops;
     uint32_t                erased = (uint32_t)0U;
@@ -542,10 +602,8 @@ static bool s_pending_step(uds_msg_buf_t *out_frame)
     uds_transfer_ctx_t     *tctx;
 
     if (!s_erase_pending.active) {
-        return false;
-    }
-    if (out_frame == NULL) {
-        return false;
+        *nrc = UDS_NRC_CONDITIONS_NOT_CORRECT;
+        return UDS_STEP_FAILED;
     }
 
     ops = uds_flash_ops_get();
@@ -555,11 +613,8 @@ static bool s_pending_step(uds_msg_buf_t *out_frame)
          * than spin forever answering nothing. */
         uds_image_policy_notify_abort();
         s_erase_pending_abort();
-        (void)uds_server_build_negative_response(
-            (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
-            UDS_NRC_CONDITIONS_NOT_CORRECT,
-            out_frame);
-        return true;
+        *nrc = UDS_NRC_CONDITIONS_NOT_CORRECT;
+        return UDS_STEP_FAILED;
     }
 
     status = ops->erase_step_cb(s_erase_pending.address,
@@ -571,27 +626,18 @@ static bool s_pending_step(uds_msg_buf_t *out_frame)
         s_erase_pending_abort();
         /* Same NRC the synchronous erase_cb failure path above answers
          * (UDS_STATUS_ERR_UPLOAD_DOWNLOAD_NOT_ACCEPTED -> NRC 0x70). */
-        (void)uds_server_build_negative_response(
-            (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
-            UDS_NRC_UPLOAD_DOWNLOAD_NOT_ACCEPTED,
-            out_frame);
-        return true;
+        *nrc = UDS_NRC_UPLOAD_DOWNLOAD_NOT_ACCEPTED;
+        return UDS_STEP_FAILED;
     }
 
     s_erase_pending.address   += erased;
     s_erase_pending.remaining -= erased;
 
     if (s_erase_pending.remaining > (uint32_t)0U) {
-        /* Still going — repeat NRC 0x78. Each chunk's own worst-case
-         * duration (STM32H7: <= 4000 ms/sector) is comfortably under
-         * P2*max (5000 ms on the reference configuration), so one 0x78 per
-         * completed chunk keeps the tester inside the timing contract
-         * without needing a separate keep-alive timer. */
-        (void)uds_server_build_negative_response(
-            (uint8_t)UDS_SID_REQUEST_DOWNLOAD,
-            UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING,
-            out_frame);
-        return true;
+        /* Still going. The caller repeats NRC 0x78: each chunk's own
+         * worst-case duration (STM32H7: <= 4000 ms/sector) is under
+         * P2*max (5000 ms on the reference configuration). */
+        return UDS_STEP_IN_PROGRESS;
     }
 
     /* --- Erase complete: finish exactly what the synchronous path does
@@ -628,14 +674,14 @@ static bool s_pending_step(uds_msg_buf_t *out_frame)
     }
 
     /* [0x74, lengthFormatIdentifier, maxNumberOfBlockLength_Hi/Lo] */
-    (void)uds_service_write_pos_sid((uint8_t)UDS_SID_REQUEST_DOWNLOAD, out_frame);
-    out_frame->data[1U] = (uint8_t)((uint8_t)SVC_0x34_MXBL_BYTE_COUNT << (uint8_t)4U);
+    (void)uds_service_write_pos_sid((uint8_t)UDS_SID_REQUEST_DOWNLOAD, final_resp);
+    final_resp->data[1U] = (uint8_t)((uint8_t)SVC_0x34_MXBL_BYTE_COUNT << (uint8_t)4U);
     {
         uint16_t max_block = (uint16_t)(tctx->write_buf_capacity + (uint16_t)2U);
-        out_frame->data[2U] = (uint8_t)((max_block >> (uint16_t)8U) & (uint16_t)0xFFU);
-        out_frame->data[3U] = (uint8_t)( max_block                  & (uint16_t)0xFFU);
+        final_resp->data[2U] = (uint8_t)((max_block >> (uint16_t)8U) & (uint16_t)0xFFU);
+        final_resp->data[3U] = (uint8_t)( max_block                  & (uint16_t)0xFFU);
     }
-    out_frame->length = (uint16_t)4U;
+    final_resp->length = (uint16_t)4U;
 
-    return true;
+    return UDS_STEP_DONE;
 }

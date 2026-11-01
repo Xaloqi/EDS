@@ -36,6 +36,34 @@ extern "C" {
 #define UDS_SERVER_MAX_HANDLERS (19U)
 #endif
 
+/**
+ * [EDS#282] Longest one response-pending job may run, in ms, counted from
+ * its deferral. When it is exceeded the server calls the job's abort once
+ * and answers NRC 0x10 (generalReject). The default is the DoIP server's
+ * DOIP_MAX_PENDING_MS, which stays as a backstop.
+ */
+#ifndef UDS_SERVER_MAX_PENDING_MS
+#define UDS_SERVER_MAX_PENDING_MS (120000U)
+#endif
+
+#if (UDS_SERVER_MAX_PENDING_MS == 0U)
+#error "UDS_SERVER_MAX_PENDING_MS must be non-zero (EDS#282)"
+#endif
+
+/**
+ * [EDS#282] Interval between repeated NRC 0x78 frames while a job is
+ * pending, in ms. 0 (the default) means P2*server_max / 2.
+ */
+#ifndef UDS_SERVER_PENDING_KEEPALIVE_MS
+#define UDS_SERVER_PENDING_KEEPALIVE_MS (0U)
+#endif
+
+/**
+ * [EDS#282] P2*server_max used for the keepalive when the configuration
+ * leaves p2_star_server_max_ms at 0 (ISO 14229-2 default).
+ */
+#define UDS_SERVER_DEFAULT_P2_STAR_MS (5000U)
+
 /* --------------------------------------------------------------------------
  * Forward declarations
  * -------------------------------------------------------------------------- */
@@ -77,6 +105,75 @@ typedef struct uds_service_entry {
     uds_service_handler_fn  handler;       /**< Pointer to service handler function. */
     bool                    suppress_pos_response_supported; /**< Whether suppressPosRspMsgIndicationBit is observed. */
 } uds_service_entry_t;
+
+/* --------------------------------------------------------------------------
+ * [EDS#282] Response-pending jobs (NRC 0x78)
+ *
+ * A handler that cannot answer within P2server_max validates the request
+ * synchronously (every NRC except 0x78 is decided first), then hands the
+ * remaining work to the server with uds_server_defer(). The server answers
+ * 7F sid 78 at once, then the integration drives the job with
+ * uds_server_poll() from the thread that owns the server, under the same
+ * lock as uds_server_process_request(). The job runs in bounded steps;
+ * every UDS state change happens inside step, on that thread.
+ * -------------------------------------------------------------------------- */
+
+/** Outcome of one pending-job step. */
+typedef enum {
+    UDS_STEP_IN_PROGRESS = 0, /**< More work left; call again.               */
+    UDS_STEP_DONE        = 1, /**< final_resp holds the final response.      */
+    UDS_STEP_FAILED      = 2  /**< *nrc holds the NRC to answer.             */
+} uds_step_result_t;
+
+/**
+ * @brief Run one bounded step of a pending job.
+ *
+ * Must not call uds_server_poll() or uds_server_process_request() (the
+ * server fails the job if it does). An asynchronous job (DMA, a crypto
+ * peripheral, flash with a completion IRQ) polls its completion flag here
+ * and returns UDS_STEP_IN_PROGRESS.
+ *
+ * @param[out] final_resp  On UDS_STEP_DONE: the positive response.
+ * @param[out] nrc         On UDS_STEP_FAILED: the NRC to send.
+ */
+typedef uds_step_result_t (*uds_pending_step_fn)(uds_msg_buf_t *final_resp,
+                                                 uds_nrc_t     *nrc);
+
+/** @brief Drop the job's state without finishing it (cap, S3, disconnect). */
+typedef void (*uds_pending_abort_fn)(void);
+
+/** A deferred job. Each service keeps its own job state, statically. */
+typedef struct uds_pending_job {
+    uint8_t              sid;          /**< Request SID; frames are 7F sid xx. */
+    uint32_t             step_max_ms;  /**< ASSUMPTION: worst-case duration of
+                                        *   one step. Credited to the keepalive
+                                        *   and cap clocks after every step, so
+                                        *   ticks lost while a step blocks the
+                                        *   loop cannot delay a 0x78. Must be
+                                        *   below P2*server_max. */
+    uds_pending_step_fn  step;         /**< Required. */
+    uds_pending_abort_fn abort;        /**< Required. */
+} uds_pending_job_t;
+
+/** Result of uds_server_poll(). */
+typedef enum {
+    UDS_POLL_IDLE        = 0, /**< No job pending.                           */
+    UDS_POLL_NOTHING_NOW = 1, /**< A job is pending; nothing to send now.    */
+    UDS_POLL_FRAME       = 2  /**< out_frame holds a frame to send.          */
+} uds_poll_result_t;
+
+/** [EDS#282] The one pending slot. Internal; use the API. */
+typedef struct uds_pending_slot {
+    bool              active;          /**< A job is deferred.                 */
+    bool              owed;            /**< tx_buf holds a frame not yet sent. */
+    bool              owed_is_final;   /**< The owed frame ends the job.       */
+    bool              in_step;         /**< Re-entrancy guard.                 */
+    bool              reentered;       /**< step called back into the server.  */
+    uds_pending_job_t job;             /**< Copy of the deferred job.          */
+    uint32_t          since_frame_ms;  /**< Since the last frame was sent.     */
+    uint32_t          total_ms;        /**< Since deferral (cap clock).        */
+    uint32_t          keepalive_count; /**< 0x78 frames sent, the first incl.  */
+} uds_pending_slot_t;
 
 /* --------------------------------------------------------------------------
  * Server configuration structure
@@ -125,11 +222,13 @@ typedef struct uds_server_cfg {
 struct uds_server_ctx {
     bool                initialized;                            /**< Initialization guard. */
     uds_server_cfg_t    cfg;                                    /**< Cached configuration copy. */
-    uds_msg_buf_t       tx_buf;                                 /**< Static TX response buffer. */
+    uds_msg_buf_t       tx_buf;                                 /**< [EDS#282] Pending job's owed frame. */
     uds_msg_buf_t       rx_buf;                                 /**< Static RX request buffer. */
     uint32_t            request_count;                          /**< Total processed request counter. */
     uint32_t            negative_response_count;                /**< Negative response counter. */
     uint8_t             pending_reset_type;                     /**< [P2-0x11-01] Non-zero after 0x11; deferred reset type. */
+    uds_addressing_t    rx_addressing;                          /**< [EDS#282] Addressing of the request being dispatched. */
+    uds_pending_slot_t  pending;                                /**< [EDS#282] Response-pending job. */
 };
 
 /* --------------------------------------------------------------------------
@@ -279,6 +378,83 @@ uds_status_t uds_server_get_counters(
  */
 uds_status_t uds_server_take_pending_reset(uds_server_ctx_t *ctx,
                                            uint8_t          *out_reset_type);
+
+/**
+ * @brief [EDS#282] Defer the rest of the current request to a pending job.
+ *
+ * Call from a service handler, after every check that can answer an NRC
+ * other than 0x78, and return its result. On success resp holds 7F sid 78
+ * and the call returns UDS_STATUS_OK, so the dispatcher sends that frame
+ * as the first response (never suppressed, whatever SPRMIB says).
+ *
+ * @param[in,out] ctx   The server context passed to the handler.
+ * @param[in]     job   The job; copied. step and abort are required.
+ * @param[out]    resp  The handler's response buffer.
+ *
+ * @return UDS_STATUS_OK, resp = 7F sid 78.
+ * @return UDS_STATUS_ERR_NULL_PTR if an argument or callback is NULL.
+ * @return UDS_STATUS_ERR_GENERIC (NRC 0x22) if job->step_max_ms is not
+ *         below P2*server_max.
+ * @return UDS_STATUS_ERR_CONDITIONS_NOT_MET (NRC 0x22) for a functionally
+ *         addressed request (no functional deferral in v1), or if a job is
+ *         already pending.
+ */
+uds_status_t uds_server_defer(uds_server_ctx_t        *ctx,
+                              const uds_pending_job_t *job,
+                              uds_msg_buf_t           *resp);
+
+/**
+ * @brief [EDS#282] Drive the pending job; get the next frame to send.
+ *
+ * Call often (every loop iteration, at least every few ms) on the thread
+ * that owns the server, under the same lock as
+ * uds_server_process_request() and uds_server_tick_1ms(). Runs at most one
+ * step per call. Returns UDS_POLL_FRAME for the final response, the
+ * failure NRC, a keepalive 7F sid 78 (every UDS_SERVER_PENDING_KEEPALIVE_MS,
+ * default P2*server_max / 2), or 7F sid 10 once UDS_SERVER_MAX_PENDING_MS
+ * is exceeded. The same frame is returned again until
+ * uds_server_frame_sent() is called, so a transport that is busy just
+ * retries next call. Restarts S3 on every frame it produces.
+ *
+ * While a job is pending, uds_server_process_request() answers every other
+ * physical request with NRC 0x21, drops functional ones, and accepts 3E 80.
+ *
+ * @param[in,out] ctx        Initialized server context.
+ * @param[out]    out_frame  Filled when UDS_POLL_FRAME is returned.
+ *
+ * @return UDS_POLL_IDLE, UDS_POLL_NOTHING_NOW or UDS_POLL_FRAME.
+ */
+uds_poll_result_t uds_server_poll(uds_server_ctx_t *ctx,
+                                  uds_msg_buf_t    *out_frame);
+
+/**
+ * @brief [EDS#282] Report that the frame from uds_server_poll() was sent.
+ *
+ * Releases the slot after the final frame. No-op when nothing is owed.
+ */
+void uds_server_frame_sent(uds_server_ctx_t *ctx);
+
+/** @brief [EDS#282] True while a job is pending (or its final frame owed). */
+bool uds_server_pending_active(const uds_server_ctx_t *ctx);
+
+/**
+ * @brief [EDS#282] Abort the pending job, if any: call its abort once and
+ *        free the slot without sending anything.
+ *
+ * For a session that ends underneath the job: a DoIP disconnect or
+ * alive-check failure. uds_server_tick_1ms() does it itself on S3 expiry.
+ */
+void uds_server_pending_abort(uds_server_ctx_t *ctx);
+
+/**
+ * @brief [EDS#282] Free the slot of a job the service finished on its own.
+ *
+ * Only for the deprecated uds_service_0x34_pending_tick() shim, which
+ * drives its job without uds_server_poll(). Does not call abort.
+ *
+ * @deprecated Goes with uds_service_0x34_pending_tick().
+ */
+void uds_server_pending_release(uds_server_ctx_t *ctx);
 
 #ifdef __cplusplus
 }

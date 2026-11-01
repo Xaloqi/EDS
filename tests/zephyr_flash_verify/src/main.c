@@ -48,6 +48,22 @@ uds_status_t uds_server_build_negative_response(uint8_t service_id, uds_nrc_t nr
 	return UDS_STATUS_OK;
 }
 
+/* [EDS#282] Referenced by 0x34's chunked-erase path, which this test turns
+ * off (erase_step_cb = NULL): link stubs only. */
+uds_status_t uds_server_defer(uds_server_ctx_t *ctx, const uds_pending_job_t *job,
+			      uds_msg_buf_t *resp)
+{
+	ARG_UNUSED(ctx);
+	ARG_UNUSED(job);
+	ARG_UNUSED(resp);
+	return UDS_STATUS_ERR_GENERIC;
+}
+
+void uds_server_pending_release(uds_server_ctx_t *ctx)
+{
+	ARG_UNUSED(ctx);
+}
+
 #define IMG_SIZE     (64U * 1024U + 100U)   /* ends in a partial chunk for 0x37 */
 #define PAYLOAD_LEN  (254U)                 /* max_block_length 256 - SID - counter */
 #define NO_FAULT     (0xFFFFFFFFU)

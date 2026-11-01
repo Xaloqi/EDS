@@ -87,7 +87,7 @@
 #include "zephyr_wdt.h"
 #if defined(DIAG_DOIP_FLASH_BENCH)
 #include "zephyr_flash_ops.h" /* [EDS#423] bench flash download */
-#include "services.h"         /* uds_service_0x34_pending_tick() */
+#include "services.h"
 #endif
 #include "nvm_store.h"
 #if defined(DIAG_WCET_MEASURE)
@@ -306,15 +306,14 @@ int main(void)
 #if defined(DIAG_DOIP_FLASH_BENCH)
     /* [EDS#423] Bench only: RequestDownload writes to real flash (bank 2,
      * partition image_1, see nucleo_h753zi_flash_bench.overlay). The erase
-     * runs in steps after a 0x78; the pending callback lets the DoIP server
-     * drive those steps and send the final response. Registered before
-     * uds_generated_init(), as zephyr_flash_ops.h requires. */
+     * runs in steps after a 0x78; the DoIP server drives those steps with
+     * uds_server_poll() and sends the final response [EDS#282]. Registered
+     * before uds_generated_init(), as zephyr_flash_ops.h requires. */
     LOG_WRN("[BENCH] Flash-download build: 0x34/0x36/0x37 write flash bank 2.");
     if (zephyr_flash_ops_init() != UDS_STATUS_OK) {
         LOG_ERR("Flash ops init failed.");
         return -1;
     }
-    eds_doip_set_pending_callback(uds_service_0x34_pending_tick);
 #endif
 
     status = uds_generated_init(NULL, 0U, 0U);

@@ -378,6 +378,7 @@ TESTS=(
     test_service_0x37
     test_service_0x3E
     test_service_0x85
+    test_uds_server_pending  # [EDS#282] response-pending jobs (defer/poll)
     # [EDS#374] Independent ISO 14229-1 UDS SID framing conformance vectors
     # ported from pylessard/python-udsoncan (MIT) — the third and last leg
     # of EDS#361's conformance-vector set (PR 2 = ISO-TP #366, PR 3 = DoIP

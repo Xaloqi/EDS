@@ -262,6 +262,12 @@ static void zephyr_doip_ecu_reset(uint8_t reset_type)
     (void)eds_platform_ecu_reset(reset_type);
 }
 
+/* [EDS#282] Wait between polls of a pending job. */
+static void zephyr_doip_sleep_ms(uint32_t ms)
+{
+    k_msleep((int32_t)ms);
+}
+
 static const eds_doip_platform_ops_t s_zephyr_doip_ops = {
     .tcp_listen        = zephyr_tcp_listen,
     .tcp_accept        = zephyr_tcp_accept,
@@ -271,6 +277,7 @@ static const eds_doip_platform_ops_t s_zephyr_doip_ops = {
     .tcp_server_close  = zephyr_tcp_server_close,
     .uptime_ms         = eds_platform_uptime_ms,  /* [EDS#412] */
     .ecu_reset         = zephyr_doip_ecu_reset,   /* [EDS#434] */
+    .sleep_ms          = zephyr_doip_sleep_ms, /* [EDS#282] */
 };
 
 /* ---------------------------------------------------------------------------
