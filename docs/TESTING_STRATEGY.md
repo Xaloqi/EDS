@@ -181,7 +181,7 @@ Integration Tests (Python ISO-TP/UDS simulation)
 Harness Tests (68 — GCC build + run on host)
               │
               ▼
-Unit Tests (45 modules — Unity on host)
+Unit Tests (61 modules — Unity on host)
 ```
 
 Each layer depends on the layer below it passing. CI runs all layers in sequence.
