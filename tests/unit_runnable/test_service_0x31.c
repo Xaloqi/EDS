@@ -182,6 +182,69 @@ static void start_full(void)
 }
 
 /* ==========================================================================
+ * [EDS#282] Deferred startRoutine (routine_database_set_deferral)
+ * ========================================================================== */
+#define RID_DEFER   (0xF0F0U)
+
+static uint32_t  s_defer_steps_left;
+static uint32_t  s_defer_step_calls;
+static uint32_t  s_defer_abort_calls;
+static bool      s_defer_step_fail;
+
+static uds_step_result_t cb_defer_step(uint8_t *res, uint8_t res_max,
+                                       uint8_t *res_out, uds_nrc_t *nrc)
+{
+    s_defer_step_calls++;
+    if (s_defer_step_fail) {
+        *nrc = UDS_NRC_GENERAL_PROG_FAILURE;
+        return UDS_STEP_FAILED;
+    }
+    if (s_defer_steps_left > 0U) {
+        s_defer_steps_left--;
+        return UDS_STEP_IN_PROGRESS;
+    }
+    if (res_max >= 1U) {
+        res[0] = 0xAAU;
+        *res_out = 1U;
+    }
+    return UDS_STEP_DONE;
+}
+
+static void cb_defer_abort(void)
+{
+    s_defer_abort_calls++;
+}
+
+static const routine_deferral_t k_deferral = {
+    .step_cb = cb_defer_step, .abort_cb = cb_defer_abort, .step_max_ms = 3000U,
+};
+
+/* Register RID_DEFER (once: the database is never re-initialised between
+ * tests) and opt it in; clear the job counters. */
+static void defer_setup(void)
+{
+    routine_entry_t e;
+    memset(&e, 0, sizeof(e));
+    e.rid           = RID_DEFER;
+    e.support_flags = (uint8_t)ROUTINE_SUPPORT_START;
+    e.min_session   = (uint8_t)UDS_SESSION_EXTENDED;
+    e.start_cb      = cb_start;
+    e.description   = "defer";
+    (void)routine_database_register(&e);
+    zassert_equal(UDS_STATUS_OK, routine_database_set_deferral(RID_DEFER, &k_deferral), "");
+    s_defer_steps_left  = 0U;
+    s_defer_step_calls  = 0U;
+    s_defer_abort_calls = 0U;
+    s_defer_step_fail   = false;
+}
+
+static void defer_teardown(void)
+{
+    uds_server_pending_abort(&s_srv);
+    (void)routine_database_set_deferral(RID_DEFER, NULL);
+}
+
+/* ==========================================================================
  * Suite
  * ========================================================================== */
 
@@ -376,6 +439,115 @@ ZTEST(svc_0x31, test_option_record_no_crash)
                   uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
 }
 
+/* [EDS#282] TC-0x31-DEF-001: 7F 31 78, a 0x78 after each 3 s step, then
+ * 71 01 F0 F0 AA, and the routine counts as started. */
+ZTEST(svc_0x31, test_deferred_start_completes)
+{
+    uds_msg_buf_t frame;
+    uint8_t       state = 0U;
+
+    defer_setup();
+    s_defer_steps_left = 2U;
+    build_req(0x01U, RID_DEFER);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_equal(0x7FU, s_resp.data[0], "");
+    zassert_equal(0x78U, s_resp.data[2], "deferred start must answer 7F 31 78");
+    zassert_equal(0U, s_defer_step_calls, "");
+
+    for (int i = 0; i < 2; i++) {
+        zassert_equal((int)UDS_POLL_FRAME, (int)uds_server_poll(&s_srv, &frame), "");
+        zassert_equal(0x78U, frame.data[2], "0x78 after each long step");
+        uds_server_frame_sent(&s_srv);
+    }
+    zassert_equal((int)UDS_POLL_FRAME, (int)uds_server_poll(&s_srv, &frame), "");
+    zassert_equal(5U, frame.length, "");
+    zassert_equal(0x71U, frame.data[0], "");
+    zassert_equal(0x01U, frame.data[1], "");
+    zassert_equal(0xF0U, frame.data[2], "");
+    zassert_equal(0xF0U, frame.data[3], "");
+    zassert_equal(0xAAU, frame.data[4], "routineStatusRecord from step_cb");
+    uds_server_frame_sent(&s_srv);
+
+    (void)routine_database_get_state(RID_DEFER, &state);
+    zassert_true((state & ROUTINE_STATE_STARTED) != 0U, "a completed deferred start is started");
+    zassert_equal(0U, s_defer_abort_calls, "");
+    defer_teardown();
+}
+
+/* [EDS#282] TC-0x31-DEF-002: start_cb decides every NRC but 0x78. */
+ZTEST(svc_0x31, test_deferred_start_cb_failure_not_deferred)
+{
+    defer_setup();
+    s_start_fail = true;
+    build_req(0x01U, RID_DEFER);
+    zassert_equal(UDS_STATUS_ERR_ROUTINE_FAILED,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_false(uds_server_pending_active(&s_srv), "a refused start is not deferred");
+    zassert_equal(0U, s_defer_abort_calls, "");
+    defer_teardown();
+}
+
+/* [EDS#282] TC-0x31-DEF-003: a failing step answers its NRC, routine not started. */
+ZTEST(svc_0x31, test_deferred_step_failure)
+{
+    uds_msg_buf_t frame;
+    uint8_t       state = 0xFFU;
+
+    defer_setup();
+    s_defer_step_fail = true;
+    build_req(0x01U, RID_DEFER);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_equal((int)UDS_POLL_FRAME, (int)uds_server_poll(&s_srv, &frame), "");
+    zassert_equal(0x7FU, frame.data[0], "");
+    zassert_equal(0x72U, frame.data[2], "step_cb's NRC");
+    uds_server_frame_sent(&s_srv);
+    (void)routine_database_get_state(RID_DEFER, &state);
+    zassert_equal(0U, state, "a failed deferred start is not started");
+    zassert_equal(0U, s_defer_abort_calls, "");
+    defer_teardown();
+}
+
+/* [EDS#282] TC-0x31-DEF-004: functional -> NRC 0x22 (no functional
+ * deferral in v1), and the work start_cb began is aborted. */
+ZTEST(svc_0x31, test_deferred_functional_refused_and_aborted)
+{
+    defer_setup();
+    s_srv.rx_addressing = UDS_ADDRESSING_FUNCTIONAL;
+    build_req(0x01U, RID_DEFER);
+    zassert_equal(UDS_STATUS_ERR_CONDITIONS_NOT_MET,
+                  uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_equal(1U, s_defer_abort_calls, "start_cb's work must be stopped");
+    zassert_false(uds_server_pending_active(&s_srv), "");
+    s_srv.rx_addressing = UDS_ADDRESSING_PHYSICAL;
+    defer_teardown();
+}
+
+/* [EDS#282] TC-0x31-DEF-005: cap / S3 / disconnect reach abort_cb. */
+ZTEST(svc_0x31, test_deferred_server_abort_calls_abort_cb)
+{
+    defer_setup();
+    s_defer_steps_left = 100U;
+    build_req(0x01U, RID_DEFER);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
+    uds_server_pending_abort(&s_srv);
+    zassert_equal(1U, s_defer_abort_calls, "");
+    defer_teardown();
+}
+
+/* [EDS#282] TC-0x31-DEF-006: clearing the deferral makes the start synchronous. */
+ZTEST(svc_0x31, test_deferral_cleared_is_synchronous)
+{
+    defer_setup();
+    zassert_equal(UDS_STATUS_OK, routine_database_set_deferral(RID_DEFER, NULL), "");
+    zassert_true(routine_database_get_deferral(RID_DEFER) == NULL, "");
+    build_req(0x01U, RID_DEFER);
+    zassert_equal(UDS_STATUS_OK, uds_service_0x31_handler(&s_srv, &s_req, &s_resp), "");
+    zassert_equal(0x71U, s_resp.data[0], "synchronous positive response");
+    zassert_equal(UDS_STATUS_ERR_ROUTINE_NOT_FOUND,
+                  routine_database_set_deferral(0x1234U, &k_deferral), "unknown RID");
+    defer_teardown();
+}
+
 /* ==========================================================================
  * run_all_tests
  * ========================================================================== */
@@ -401,4 +573,10 @@ void run_all_tests(void)
     RUN_TEST(svc_0x31__test_after_stop_results_ok_second_stop_sequence_error);
     RUN_TEST(svc_0x31__test_failed_start_does_not_count_as_started);
     RUN_TEST(svc_0x31__test_option_record_no_crash);
+    RUN_TEST(svc_0x31__test_deferred_start_completes);
+    RUN_TEST(svc_0x31__test_deferred_start_cb_failure_not_deferred);
+    RUN_TEST(svc_0x31__test_deferred_step_failure);
+    RUN_TEST(svc_0x31__test_deferred_functional_refused_and_aborted);
+    RUN_TEST(svc_0x31__test_deferred_server_abort_calls_abort_cb);
+    RUN_TEST(svc_0x31__test_deferral_cleared_is_synchronous);
 }
