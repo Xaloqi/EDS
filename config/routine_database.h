@@ -156,6 +156,44 @@ typedef uds_status_t (*routine_results_cb_fn)(
     uint8_t  *result_len
 );
 
+/**
+ * @brief [EDS#282] One bounded step of a startRoutine answered with NRC 0x78.
+ *
+ * Runs on the thread that owns the UDS server, under its lock, from
+ * uds_server_poll(). Must not block longer than the step_max_ms declared in
+ * routine_deferral_t, and must not call back into the server.
+ *
+ * @param[out] result_buf      On UDS_STEP_DONE: the routineStatusRecord.
+ * @param[in]  result_buf_len  Size of result_buf.
+ * @param[out] result_len      On UDS_STEP_DONE: bytes written.
+ * @param[out] nrc             On UDS_STEP_FAILED: the NRC to answer.
+ */
+typedef uds_step_result_t (*routine_step_cb_fn)(
+    uint8_t   *result_buf,
+    uint8_t    result_buf_len,
+    uint8_t   *result_len,
+    uds_nrc_t *nrc
+);
+
+/** @brief [EDS#282] Stop a deferred routine's work without finishing it. */
+typedef void (*routine_abort_cb_fn)(void);
+
+/**
+ * @brief [EDS#282] Opt-in: answer this routine's startRoutine with NRC 0x78.
+ *
+ * For OEM flash sequences that expect a synchronous answer from a long
+ * routine (eraseMemory 0xFF00, checkProgrammingDependencies 0xFF01).
+ * start_cb still runs first and decides every NRC but 0x78; on success the
+ * service defers and step_cb runs until it is done. Prefer the
+ * start + requestRoutineResults pattern where the tester supports it.
+ */
+typedef struct routine_deferral {
+    routine_step_cb_fn  step_cb;     /**< Required. */
+    routine_abort_cb_fn abort_cb;    /**< Optional: cap, S3 expiry, disconnect. */
+    uint32_t            step_max_ms; /**< ASSUMPTION: worst case of one step_cb
+                                       *   call; below P2*server_max. */
+} routine_deferral_t;
+
 /* --------------------------------------------------------------------------
  * Routine descriptor record
  * -------------------------------------------------------------------------- */
@@ -256,6 +294,28 @@ uds_status_t routine_database_get_state(uint16_t rid, uint8_t *out_state);
  * @return UDS_STATUS_ERR_ROUTINE_NOT_FOUND if rid is not registered.
  */
 uds_status_t routine_database_set_state(uint16_t rid, uint8_t state);
+
+/**
+ * @brief [EDS#282] Make a registered routine's startRoutine deferrable.
+ *
+ * A separate call, not a routine_entry_t field, so registration code
+ * generated before EDS#282 (which fills routine_entry_t field by field)
+ * stays valid. Call after routine_database_register().
+ *
+ * @param[in] rid       A registered routine.
+ * @param[in] deferral  Copied. NULL makes the routine synchronous again.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_ROUTINE_NOT_FOUND if rid is not registered.
+ * @return UDS_STATUS_ERR_NULL_PTR if deferral->step_cb is NULL.
+ */
+uds_status_t routine_database_set_deferral(uint16_t rid,
+                                           const routine_deferral_t *deferral);
+
+/**
+ * @brief [EDS#282] The routine's deferral, or NULL if it is synchronous.
+ */
+const routine_deferral_t *routine_database_get_deferral(uint16_t rid);
 
 /**
  * @brief Return every routine to its power-on state (never started) [EDS#484].

@@ -46,7 +46,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | 0x2A | ReadDataByPeriodicIdentifier | **Implemented** | transmissionMode 0x01 SLOW (1000 ms), 0x02 MEDIUM (100 ms), 0x03 FAST (10 ms), 0x04 stopSending. One-time subscription; the ECU autonomously pushes `[0x6A, periodicId, dataRecord...]` without repeated tester requests. Subscriptions are bulk-cancelled on return to Default Session. Up to 8 simultaneous subscriptions (configurable via `UDS_PERIODIC_MAX_SUBSCRIPTIONS`). DID access validated at subscription time via the 5-step safety chain. Requires `uds_periodic_tick_1ms()` and `uds_periodic_pop_due()` drain loop in the application poll loop — see §3.4. |
 | 0x2E | WriteDataByIdentifier | **Implemented** | ASIL-B 5-step safety wrapper enforced per DID. Data length validated against DID definition. |
 | 0x2F | InputOutputControlByIdentifier | **Implemented** | Non-default session + Level 1 security required. Four `inputOutputControlParameter` values: `returnControlToECU` (0x00), `resetToDefault` (0x01), `freezeCurrentState` (0x02), `shortTermAdjustment` (0x03). DID must set `DID_ACCESS_IO_CONTROL` flag and provide `io_control_cb`. `io_control_cb == NULL` returns NRC 0x31. |
-| 0x31 | RoutineControl | **Implemented** | Sub-fn 0x01 startRoutine, 0x02 stopRoutine (optional per routine descriptor), 0x03 requestRoutineResults (optional). Session and security level enforced per-routine via `routine_entry_t.min_session` and `.security_level`. Routine option record forwarded to callback. Status record (0–64 bytes) appended to positive response. requestRoutineResults before any start, or stopRoutine while not running, is NRC 0x24 (ISO 14229-1:2026 Table 430, #484). The RID is checked before the sub-function (Figure 31, #492). suppressPosRspMsgIndicationBit (bit 7) honoured (#486; earlier versions answered 0x12 despite this table). |
+| 0x31 | RoutineControl | **Implemented** | Sub-fn 0x01 startRoutine, 0x02 stopRoutine (optional per routine descriptor), 0x03 requestRoutineResults (optional). Session and security level enforced per-routine via `routine_entry_t.min_session` and `.security_level`. Routine option record forwarded to callback. Status record (0–64 bytes) appended to positive response. requestRoutineResults before any start, or stopRoutine while not running, is NRC 0x24 (ISO 14229-1:2026 Table 430, #484). The RID is checked before the sub-function (Figure 31, #492). suppressPosRspMsgIndicationBit (bit 7) honoured (#486; earlier versions answered 0x12 despite this table). A long startRoutine can opt in to NRC 0x78 with `routine_database_set_deferral()` (#282, see [Response pending](#response-pending)). |
 | 0x34 | RequestDownload | **Implemented** | Programming session + Level 1 security required (enforced by ACL table). Validates `dataFormatIdentifier` (0x00 only — no compression/encryption), parses `addressAndLengthFormatIdentifier` (1–4 byte address and size fields), validates target address range against the registered flash memory map (`uds_flash_ops_t`), erases flash, and initialises the block-transfer state machine. Returns `maxNumberOfBlockLength`. **Requires** `uds_flash_ops_register()` before the first 0x34 request (see Step 5 integration note). |
 | 0x35 | RequestUpload | **Implemented** | Programming session + Level 1 security required (same gates as 0x34). ECU-to-tester data readback. Validates address range, requires `read_cb` registered in `uds_flash_ops_t` (NRC 0x22 if NULL — backward-compatible). Initialises the transfer state machine in upload direction. No flash erase. Block data returned in 0x36 responses. |
 | 0x36 | TransferData | **Implemented** | Programming session required. Direction-aware: in download mode accumulates payload into flash via `flash_write_cb`; in upload mode reads memory via `read_cb` and returns data in the response. Validates block sequence counter (starts at 0x01, rolls over 0xFF → 0x00 per ISO 14229-1 and REQ-DL-001). Maintains a running CRC-32 accumulator (download only). When `uds_flash_ops_t.verify_step_cb` is registered (the Zephyr flash ops do), each chunk is read back right after it is written and a block that reads back wrong is NRC 0x72 (EDS#543). |
@@ -482,6 +482,49 @@ uds_status_t your_ecu_read_coolanttemperature(uint8_t *buf)
 ```
 
 The ASIL-B safety wrappers in `generated/did_safety_wrappers.c` call your handler only after passing the 5-step validation chain (DID exists → session valid → security level met → access permission → length matches). You do not need to add your own guards.
+
+**Response pending (NRC 0x78) — drive `uds_server_poll()` from your loop:** {#response-pending}
+
+A service that cannot answer within P2server_max defers the rest of the request to the server (`uds_server_defer()`, #282): the server answers `7F sid 78` at once and runs the job in bounded steps when you poll it. Today that is RequestDownload's chunked erase (when the flash ops provide `erase_step_cb`) and any routine you opt in. Poll once per loop iteration, under the same lock as `uds_server_process_request()`, and report each frame you managed to send:
+
+```c
+static uds_msg_buf_t s_pending_frame;          /* static: never a stack uds_msg_buf_t */
+
+diag_mutex_lock(&s_session_lock);
+if (uds_server_poll(srv, &s_pending_frame) == UDS_POLL_FRAME) {
+    if (isotp_transmit(tp, s_pending_frame.data, s_pending_frame.length) == UDS_STATUS_OK) {
+        uds_server_frame_sent(srv);            /* busy? the next poll returns the same frame */
+    }
+}
+diag_mutex_unlock(&s_session_lock);
+```
+
+Over DoIP there is nothing to add: the DoIP server polls the job itself after it sends the 0x78. What the tester sees while a job is pending:
+
+| Situation | Answer |
+|---|---|
+| The request that defers | `7F sid 78` within P2, then the final response (sent even with SPRMIB set) |
+| No frame for `UDS_SERVER_PENDING_KEEPALIVE_MS` (default P2\*server_max / 2, clamped to S3 / 2) | another `7F sid 78` |
+| Any other physically addressed request, 0x10 and 0x11 included | `7F xx 21` busyRepeatRequest, nothing changes |
+| A functionally addressed request | nothing (dropped) |
+| `3E 80` | nothing; S3 restarted |
+| Job still running after `UDS_SERVER_MAX_PENDING_MS` (default 120 s) | job aborted, `7F sid 10` |
+| A functionally addressed request that would defer | `7F sid 22` (no functional deferral) |
+
+Each job declares `step_max_ms`, the worst case of one step, below P2\*server_max. A frame cannot go out during a step, so a keepalive can be up to `keepalive + step_max_ms` after the previous frame. With the defaults (2500 ms + at most 2000 ms for the bench routine, 4000 ms for an STM32H7 sector erase that also triggers a 0x78 after every step) that stays under 5000 ms. The server credits `step_max_ms` after each step, so ticks your loop missed while a step blocked it cannot delay a keepalive. If nothing polls, no frame restarts S3: the session runs out and the job is aborted.
+
+To make a routine answer 0x78, register it as usual, then:
+
+```c
+static const routine_deferral_t erase_deferral = {
+    .step_cb     = erase_memory_step,   /* one bounded step; UDS_STEP_IN_PROGRESS / DONE / FAILED */
+    .abort_cb    = erase_memory_abort,  /* cap, S3 expiry, DoIP disconnect */
+    .step_max_ms = 1000U,               /* ASSUMPTION: worst case of one step */
+};
+(void)routine_database_set_deferral(0xFF00U, &erase_deferral);
+```
+
+`start_cb` still runs first and decides every NRC except 0x78. Then `step_cb` runs from `uds_server_poll()` until it is done, and its routineStatusRecord goes into `71 01 <RID> ...`. Where your tester supports it, start plus `requestRoutineResults` (0x03) is still the better pattern. Deferral is for OEM flash sequences that expect one synchronous answer. Deprecated, and removed in the next minor release: `uds_service_0x34_pending_tick()` and `eds_doip_set_pending_callback()`.
 
 **Firmware download (SID 0x34/0x36/0x37) — SafeBoot:**
 

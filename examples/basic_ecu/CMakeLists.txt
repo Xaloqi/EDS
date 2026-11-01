@@ -346,3 +346,11 @@ endif()
 # No uds_msg_buf_t is allocated on the task stack in this build — all instances
 # are static members of their respective state structs (doip_server_state_t etc.).
 target_compile_definitions(app PRIVATE EDS_MSG_BUF_MAX_STACK_BYTES=8192)
+
+# [EDS#282] Bench only: a RoutineControl (RID 0xF0F0) that answers NRC 0x78
+# and busy-waits in bounded steps, to measure the response-pending path.
+option(DIAG_BENCH_SLOW_ROUTINE "Bench only: slow 0x31 routine for the response-pending path" OFF)
+if(DIAG_BENCH_SLOW_ROUTINE)
+    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/bench_slow_routine.c)
+    target_compile_definitions(app PRIVATE DIAG_BENCH_SLOW_ROUTINE=1)
+endif()

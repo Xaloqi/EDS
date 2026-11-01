@@ -89,6 +89,9 @@
 #include "zephyr_flash_ops.h" /* [EDS#423] bench flash download */
 #include "services.h"
 #endif
+#if defined(DIAG_BENCH_SLOW_ROUTINE)
+#include "bench_slow_routine.h"   /* [EDS#282] bench slow routine */
+#endif
 #include "nvm_store.h"
 #if defined(DIAG_WCET_MEASURE)
 #include "zephyr_wcet.h"     /* [#31] see header comment */
@@ -321,6 +324,16 @@ int main(void)
         LOG_ERR("UDS stack init failed: 0x%02X", (unsigned)status);
         return -1;
     }
+
+#if defined(DIAG_BENCH_SLOW_ROUTINE)
+    /* [EDS#282] Bench only: RID 0xF0F0 answers 0x78 (bench_slow_routine.h);
+     * the DoIP server drives it with uds_server_poll(). */
+    LOG_WRN("[BENCH] Slow routine 0xF0F0 registered (response-pending bench).");
+    if (bench_slow_routine_register() != UDS_STATUS_OK) {
+        LOG_ERR("Bench slow routine registration failed.");
+        return -1;
+    }
+#endif
 
     srv = uds_generated_get_server();
     if (srv == NULL) {
