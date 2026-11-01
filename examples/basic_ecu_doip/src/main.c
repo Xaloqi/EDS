@@ -88,9 +88,9 @@
 #if defined(DIAG_DOIP_FLASH_BENCH)
 #include "zephyr_flash_ops.h" /* [EDS#423] bench flash download */
 #include "services.h"
-#if defined(DIAG_BENCH_SLOW_ROUTINE)
-#include "bench_slow_routine.h"
 #endif
+#if defined(DIAG_BENCH_SLOW_ROUTINE)
+#include "bench_slow_routine.h"   /* [EDS#282] bench slow routine */
 #endif
 #include "nvm_store.h"
 #if defined(DIAG_WCET_MEASURE)
