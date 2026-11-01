@@ -89,6 +89,10 @@ static uds_status_t doip_send_uds_response(doip_server_state_t *s,
                                            uint8_t original_sid,
                                            uds_msg_buf_t *resp_buf);
 static bool doip_is_response_pending(const uds_msg_buf_t *resp_buf);
+static uds_status_t doip_run_pending_poll(doip_server_state_t *s,
+                                          uds_server_ctx_t    *uds_ctx,
+                                          uint8_t              original_sid,
+                                          uds_msg_buf_t       *resp_buf);
 static uds_status_t doip_run_pending(doip_server_state_t *s,
                                      uint8_t original_sid,
                                      uds_msg_buf_t *resp_buf);
@@ -433,9 +437,13 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
             resp_send_rc = doip_send_uds_response(s, original_sid, resp_buf);
             /* [EDS#423] A 7F xx 78 answer is not the end of the exchange:
              * finish it here if the application registered a continuation. */
-            if ((resp_send_rc == UDS_STATUS_OK) && (s_doip_pending_cb != NULL) &&
-                doip_is_response_pending(resp_buf)) {
-                resp_send_rc = doip_run_pending(s, original_sid, resp_buf);
+            if ((resp_send_rc == UDS_STATUS_OK) && doip_is_response_pending(resp_buf)) {
+                if (s_doip_pending_cb != NULL) {
+                    resp_send_rc = doip_run_pending(s, original_sid, resp_buf);
+                } else {
+                    /* [EDS#282] The server's own pending job. */
+                    resp_send_rc = doip_run_pending_poll(s, uds_ctx, original_sid, resp_buf);
+                }
             }
         }
         /* Suppress-positive-response: if dispatch returned suppress status,
@@ -590,6 +598,75 @@ static uds_status_t doip_run_pending(doip_server_state_t *s,
             if (rc != UDS_STATUS_OK) {
                 break;
             }
+        }
+    }
+    return rc;
+}
+
+/* ---------------------------------------------------------------------------
+ * Internal: doip_run_pending_poll  [EDS#282]
+ *
+ * Drive the server's pending job (uds_server_defer()) to its final
+ * response: poll inside the lock pair, send each frame, report it sent.
+ * Bounded by DOIP_MAX_PENDING_MS as the callback path is, as a backstop to
+ * UDS_SERVER_MAX_PENDING_MS. A failed send or the bound returns an error,
+ * and the caller closes the connection, which aborts the job.
+ * ------------------------------------------------------------------------ */
+
+static uds_status_t doip_run_pending_poll(doip_server_state_t *s,
+                                          uds_server_ctx_t    *uds_ctx,
+                                          uint8_t              original_sid,
+                                          uds_msg_buf_t       *resp_buf)
+{
+    uds_status_t      rc   = UDS_STATUS_OK;
+    bool              done = false;
+    uds_poll_result_t poll_rc;
+    eds_elapsed_t     pending_age;
+
+    eds_elapsed_init(&pending_age, s_ops->uptime_ms());
+
+    while (!done) {
+        if (eds_elapsed_since(&pending_age, s_ops->uptime_ms()) >=
+            (uint32_t)DOIP_MAX_PENDING_MS) {
+            rc = UDS_STATUS_ERR_TIMEOUT;
+            break;
+        }
+        doip_checkin();
+        if (s_doip_lock_cb != NULL) {
+            s_doip_lock_cb();
+        }
+        poll_rc = uds_server_poll(uds_ctx, resp_buf);
+        if (s_doip_unlock_cb != NULL) {
+            s_doip_unlock_cb();
+        }
+
+        switch (poll_rc) {
+            case UDS_POLL_FRAME:
+                rc = doip_send_uds_response(s, original_sid, resp_buf);
+                if (rc != UDS_STATUS_OK) {
+                    done = true;
+                } else {
+                    done = !doip_is_response_pending(resp_buf);
+                    if (s_doip_lock_cb != NULL) {
+                        s_doip_lock_cb();
+                    }
+                    uds_server_frame_sent(uds_ctx);
+                    if (s_doip_unlock_cb != NULL) {
+                        s_doip_unlock_cb();
+                    }
+                }
+                break;
+
+            case UDS_POLL_NOTHING_NOW:
+                if (s_ops->sleep_ms != NULL) {
+                    s_ops->sleep_ms(1U);
+                }
+                break;
+
+            case UDS_POLL_IDLE:
+            default:
+                done = true;
+                break;
         }
     }
     return rc;
@@ -962,6 +1039,8 @@ connection_closed:
          * ControlDTCSetting here too, or a dropped tester leaves the ECU
          * silent with DTC recording off. */
         (void)uds_comm_control_restore_defaults();
+        /* [EDS#282] Session ended: drop a pending job. */
+        uds_server_pending_abort(uds_ctx);
         /* [EDS#442] Session ended: abort any transfer. */
         uds_service_0x34_abort_transfer();
     }

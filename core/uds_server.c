@@ -68,6 +68,16 @@ static uds_status_t srv_check_access_rights(
     const uds_service_entry_t *entry,
     const uds_msg_buf_t       *req);
 
+/* [EDS#282] Response-pending helpers. */
+static uds_status_t srv_reject_while_pending(uds_server_ctx_t    *ctx,
+                                             const uds_msg_buf_t *req,
+                                             uds_msg_buf_t       *resp);
+static uint32_t srv_p2_star_ms(const uds_server_ctx_t *ctx);
+static bool srv_keepalive_due(const uds_server_ctx_t *ctx);
+static void srv_clock_add(uint32_t *clock_ms, uint32_t add_ms);
+static void srv_pending_owe_nrc(uds_server_ctx_t *ctx, uds_nrc_t nrc, bool is_final);
+static void srv_pending_run_step(uds_server_ctx_t *ctx);
+
 /* --------------------------------------------------------------------------
  * Sub-function suppress-bit mask (ISO 14229-1:2026 §7.7.3, Tables 3–4)
  * -------------------------------------------------------------------------- */
@@ -110,8 +120,11 @@ uds_status_t uds_server_init(
     (void)memset(&ctx->tx_buf, 0, sizeof(uds_msg_buf_t));
     (void)memset(&ctx->rx_buf, 0, sizeof(uds_msg_buf_t));
 
+    (void)memset(&ctx->pending, 0, sizeof(uds_pending_slot_t));
+
     ctx->request_count           = 0U;
     ctx->negative_response_count = 0U;
+    ctx->rx_addressing           = UDS_ADDRESSING_PHYSICAL;
     ctx->initialized             = true;
 
     return UDS_STATUS_OK;
@@ -131,7 +144,12 @@ uds_status_t uds_server_process_request_ex(
     uds_msg_buf_t       *resp,
     uds_addressing_t     addressing)
 {
-    uds_status_t status = srv_process(ctx, req, resp);
+    uds_status_t status;
+
+    if (ctx != NULL) {
+        ctx->rx_addressing = addressing;  /* [EDS#282] read by uds_server_defer() */
+    }
+    status = srv_process(ctx, req, resp);
 
     /* [EDS#444] ISO 14229-1:2026 §7.7.1, Table 4: with functional
      * addressing, NRC 0x11, 0x12, 0x31, 0x7E and 0x7F are never sent,
@@ -170,9 +188,20 @@ static uds_status_t srv_process(
         return status;
     }
 
+    /* [EDS#282] A step calling back into the server fails its job. */
+    if (ctx->pending.in_step) {
+        ctx->pending.reentered = true;
+        return UDS_STATUS_ERR_BUSY;
+    }
+
     ctx->request_count++;
 
     service_id = req->data[0];
+
+    /* [EDS#282] One job at a time: nothing else runs while one is pending. */
+    if (ctx->pending.active) {
+        return srv_reject_while_pending(ctx, req, resp);
+    }
 
     /* Locate registered handler. */
     entry = srv_find_handler(ctx, service_id);
@@ -209,6 +238,12 @@ static uds_status_t srv_process(
         return uds_server_build_negative_response(service_id, nrc, resp);
     }
 
+    /* [EDS#282] The handler deferred: resp is 7F sid 78. ISO 14229-1 never
+     * suppresses a negative response, and the final response follows. */
+    if (ctx->pending.active) {
+        return UDS_STATUS_OK;
+    }
+
     /*
      * [P2-SRV-03] Suppress positive response if bit 7 was set.
      * Signal to caller by setting resp->length to 0 — caller must
@@ -231,6 +266,12 @@ uds_status_t uds_server_tick_1ms(uds_server_ctx_t *ctx)
 
     if (!ctx->initialized) {
         return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    /* [EDS#282] Keepalive and cap clocks of a pending job. */
+    if (ctx->pending.active) {
+        srv_clock_add(&ctx->pending.since_frame_ms, 1U);
+        srv_clock_add(&ctx->pending.total_ms, 1U);
     }
 
     status = uds_session_tick_1ms(ctx->cfg.session_ctx);
@@ -257,6 +298,9 @@ uds_status_t uds_server_tick_1ms(uds_server_ctx_t *ctx)
             /* [SEC-SESS-COMMRESTORE-01] Same return to DEFAULT as an
              * explicit 10 01, so the same ISO 14229-1:2026 §9.2.1 d) reset. */
             (void)uds_comm_control_restore_defaults();
+            /* [EDS#282] Session ended: drop a pending job. Only reachable
+             * when nothing polls it, since every frame restarts S3. */
+            uds_server_pending_abort(ctx);
             /* [EDS#442] Session ended: abort any transfer. */
             uds_service_0x34_abort_transfer();
         }
@@ -326,8 +370,255 @@ uds_status_t uds_server_take_pending_reset(uds_server_ctx_t *ctx,
 }
 
 /* --------------------------------------------------------------------------
+ * [EDS#282] Response-pending jobs
+ * -------------------------------------------------------------------------- */
+
+uds_status_t uds_server_defer(uds_server_ctx_t        *ctx,
+                              const uds_pending_job_t *job,
+                              uds_msg_buf_t           *resp)
+{
+    if ((ctx == NULL) || (job == NULL) || (resp == NULL) ||
+        (job->step == NULL) || (job->abort == NULL)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    /* A frame cannot go out in the middle of a step, so one step has to
+     * fit inside P2*server_max. */
+    if (job->step_max_ms >= srv_p2_star_ms(ctx)) {
+        return UDS_STATUS_ERR_GENERIC;   /* NRC 0x22, not 0x13: a server fault */
+    }
+
+    /* No functional deferral in v1: N ECUs answering 0x78 to a broadcast. */
+    if (ctx->rx_addressing == UDS_ADDRESSING_FUNCTIONAL) {
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+    }
+
+    if (ctx->pending.active) {
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+    }
+
+    (void)memset(&ctx->pending, 0, sizeof(uds_pending_slot_t));
+    ctx->pending.job             = *job;
+    ctx->pending.keepalive_count = 1U;   /* the one in resp */
+    ctx->pending.active          = true;
+
+    return uds_server_build_negative_response(
+        job->sid, UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING, resp);
+}
+
+uds_poll_result_t uds_server_poll(uds_server_ctx_t *ctx,
+                                  uds_msg_buf_t    *out_frame)
+{
+    uds_poll_result_t result = UDS_POLL_IDLE;
+
+    if ((ctx == NULL) || (out_frame == NULL) || !ctx->pending.active) {
+        return UDS_POLL_IDLE;
+    }
+
+    if (ctx->pending.in_step) {
+        ctx->pending.reentered = true;
+        return UDS_POLL_NOTHING_NOW;
+    }
+
+    if (!ctx->pending.owed) {
+        if (ctx->pending.total_ms >= (uint32_t)UDS_SERVER_MAX_PENDING_MS) {
+            /* Cap: abort once, answer generalReject. */
+            ctx->pending.job.abort();
+            srv_pending_owe_nrc(ctx, UDS_NRC_GENERAL_REJECT, true);
+        } else if (srv_keepalive_due(ctx)) {
+            srv_pending_owe_nrc(ctx, UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING, false);
+        } else {
+            srv_pending_run_step(ctx);
+        }
+
+        /* [EDS#435] S3 restarted per frame, never held. */
+        if (ctx->pending.owed && (ctx->cfg.session_ctx != NULL)) {
+            (void)uds_session_reset_s3_timer(ctx->cfg.session_ctx);
+        }
+    }
+
+    if (ctx->pending.owed) {
+        if (out_frame != &ctx->tx_buf) {
+            (void)memcpy(out_frame->data, ctx->tx_buf.data, (size_t)ctx->tx_buf.length);
+            out_frame->length = ctx->tx_buf.length;
+        }
+        result = UDS_POLL_FRAME;
+    } else {
+        result = UDS_POLL_NOTHING_NOW;
+    }
+
+    return result;
+}
+
+void uds_server_frame_sent(uds_server_ctx_t *ctx)
+{
+    if ((ctx == NULL) || !ctx->pending.active || !ctx->pending.owed) {
+        return;
+    }
+
+    if (ctx->pending.owed_is_final) {
+        (void)memset(&ctx->pending, 0, sizeof(uds_pending_slot_t));
+    } else {
+        ctx->pending.owed           = false;
+        ctx->pending.since_frame_ms = 0U;
+    }
+}
+
+bool uds_server_pending_active(const uds_server_ctx_t *ctx)
+{
+    return (ctx != NULL) && ctx->pending.active;
+}
+
+void uds_server_pending_abort(uds_server_ctx_t *ctx)
+{
+    if ((ctx == NULL) || !ctx->pending.active) {
+        return;
+    }
+
+    /* A final frame owed means the job already ended: nothing to abort. */
+    if (!ctx->pending.owed_is_final) {
+        ctx->pending.job.abort();
+    }
+    (void)memset(&ctx->pending, 0, sizeof(uds_pending_slot_t));
+}
+
+void uds_server_pending_release(uds_server_ctx_t *ctx)
+{
+    if (ctx != NULL) {
+        (void)memset(&ctx->pending, 0, sizeof(uds_pending_slot_t));
+    }
+}
+
+/* --------------------------------------------------------------------------
  * Internal helper implementations
  * -------------------------------------------------------------------------- */
+
+/* [EDS#282] While a job is pending (AUTOSAR Dcm's default): 3E 80 is
+ * accepted silently in any addressing, a functional request is dropped,
+ * and any other physical request, 0x10 and 0x11 included, gets NRC 0x21
+ * with no state touched. */
+static uds_status_t srv_reject_while_pending(uds_server_ctx_t    *ctx,
+                                             const uds_msg_buf_t *req,
+                                             uds_msg_buf_t       *resp)
+{
+    if ((req->length == (uint16_t)2U) &&
+        (req->data[0] == (uint8_t)UDS_SID_TESTER_PRESENT) &&
+        (req->data[1] == (uint8_t)0x80U)) {
+        (void)uds_session_reset_s3_timer(ctx->cfg.session_ctx);
+        resp->length = (uint16_t)0U;
+        return UDS_STATUS_OK;
+    }
+
+    if (ctx->rx_addressing == UDS_ADDRESSING_FUNCTIONAL) {
+        resp->length = (uint16_t)0U;
+        return UDS_STATUS_OK;
+    }
+
+    ctx->negative_response_count++;
+    return uds_server_build_negative_response(
+        req->data[0], UDS_NRC_BUSY_REPEAT_REQUEST, resp);
+}
+
+static uint32_t srv_p2_star_ms(const uds_server_ctx_t *ctx)
+{
+    uint32_t p2_star = ctx->cfg.p2_star_server_max_ms;
+
+    if (p2_star == 0U) {
+        p2_star = (uint32_t)UDS_SERVER_DEFAULT_P2_STAR_MS;
+    }
+    return p2_star;
+}
+
+static bool srv_keepalive_due(const uds_server_ctx_t *ctx)
+{
+    uint32_t interval_ms = (uint32_t)UDS_SERVER_PENDING_KEEPALIVE_MS;
+
+    if (interval_ms == 0U) {
+        interval_ms = srv_p2_star_ms(ctx) / 2U;
+    }
+    /* Each 0x78 restarts S3, so the keepalive must also beat S3. Clamped
+     * rather than refused at init: a short S3 is a valid configuration. */
+    if ((ctx->cfg.session_ctx != NULL) &&
+        (ctx->cfg.session_ctx->s3_timeout_cfg_ms > 0U) &&
+        (interval_ms > (ctx->cfg.session_ctx->s3_timeout_cfg_ms / 2U))) {
+        interval_ms = ctx->cfg.session_ctx->s3_timeout_cfg_ms / 2U;
+    }
+    return ctx->pending.since_frame_ms >= interval_ms;
+}
+
+static void srv_clock_add(uint32_t *clock_ms, uint32_t add_ms)
+{
+    if (*clock_ms > (UINT32_MAX - add_ms)) {
+        *clock_ms = UINT32_MAX;
+    } else {
+        *clock_ms += add_ms;
+    }
+}
+
+/* Put 7F sid nrc in tx_buf and owe it. */
+static void srv_pending_owe_nrc(uds_server_ctx_t *ctx, uds_nrc_t nrc, bool is_final)
+{
+    (void)uds_server_build_negative_response(ctx->pending.job.sid, nrc, &ctx->tx_buf);
+    ctx->pending.owed          = true;
+    ctx->pending.owed_is_final = is_final;
+    if (!is_final) {
+        ctx->pending.keepalive_count++;
+    }
+}
+
+static void srv_pending_run_step(uds_server_ctx_t *ctx)
+{
+    uds_step_result_t step_rc;
+    uds_nrc_t         nrc = UDS_NRC_GENERAL_REJECT;
+
+    ctx->tx_buf.length    = (uint16_t)0U;
+    ctx->pending.in_step  = true;
+    step_rc = ctx->pending.job.step(&ctx->tx_buf, &nrc);
+    ctx->pending.in_step  = false;
+
+    /* The tick may not have run while the step blocked the loop: credit
+     * the step's declared worst case to both clocks. */
+    srv_clock_add(&ctx->pending.since_frame_ms, ctx->pending.job.step_max_ms);
+    srv_clock_add(&ctx->pending.total_ms, ctx->pending.job.step_max_ms);
+
+    if (ctx->pending.reentered) {
+        ctx->pending.job.abort();
+        srv_pending_owe_nrc(ctx, UDS_NRC_GENERAL_REJECT, true);
+        return;
+    }
+
+    switch (step_rc) {
+        case UDS_STEP_IN_PROGRESS:
+            if (srv_keepalive_due(ctx)) {
+                srv_pending_owe_nrc(ctx, UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING, false);
+            }
+            break;
+
+        case UDS_STEP_DONE:
+            /* Sent even if SPRMIB was set: a 0x78 went out already. */
+            if ((ctx->tx_buf.length == (uint16_t)0U) ||
+                (ctx->tx_buf.length > (uint16_t)UDS_MAX_PAYLOAD_LEN)) {
+                srv_pending_owe_nrc(ctx, UDS_NRC_GENERAL_REJECT, true);
+            } else {
+                ctx->pending.owed          = true;
+                ctx->pending.owed_is_final = true;
+            }
+            break;
+
+        case UDS_STEP_FAILED:
+            if (nrc == UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING) {
+                nrc = UDS_NRC_GENERAL_REJECT;
+            }
+            ctx->negative_response_count++;
+            srv_pending_owe_nrc(ctx, nrc, true);
+            break;
+
+        default:
+            ctx->pending.job.abort();
+            srv_pending_owe_nrc(ctx, UDS_NRC_GENERAL_REJECT, true);
+            break;
+    }
+}
 
 static const uds_service_entry_t *srv_find_handler(
     const uds_server_ctx_t *ctx,

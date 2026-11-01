@@ -8,6 +8,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Behaviour changes
+
+- **A generic response-pending path in the server (NRC 0x78)** (#282). A handler validates the
+  request, then calls `uds_server_defer()`; the server answers `7F sid 78` at once and the
+  integration drives the job with `uds_server_poll()` / `uds_server_frame_sent()` on the thread
+  that owns the server. Observable on the wire while a job is pending:
+  - any other physically addressed request, 0x10 and 0x11 included, gets **NRC 0x21**
+    busyRepeatRequest; a functionally addressed one is dropped; `3E 80` is accepted silently.
+    Before, a `22 F1 90` in the middle of a 0x34 erase was answered between two 0x78s, and a second
+    0x34 over the server got NRC 0x22 (it now gets 0x21; a direct handler call still gets 0x22);
+  - 0x78 repeats every P2*server_max / 2 (`UDS_SERVER_PENDING_KEEPALIVE_MS`, clamped to S3 / 2),
+    and after any step whose declared worst case is longer. 0x34's chunked erase declares 4000 ms,
+    so it still sends one 0x78 per erase step;
+  - a job is capped at `UDS_SERVER_MAX_PENDING_MS` (default 120 s): the server aborts it and
+    answers **NRC 0x10** generalReject;
+  - after a 0x78 the final response is sent even when SPRMIB was set;
+  - **a functionally addressed 0x34 on a chunked-erase platform now gets NRC 0x22** (no
+    functional deferral in v1).
+
+  **Migration:** replace `uds_service_0x34_pending_tick()` in a CAN loop with `uds_server_poll()`
+  plus `uds_server_frame_sent()` after a successful transmit (see `examples/safeboot_ecu`), under
+  the lock you hold for `uds_server_process_request()`. Over DoIP, drop
+  `eds_doip_set_pending_callback()`: the server now polls the job itself, and the new optional
+  `sleep_ms` platform op (set in both in-tree bindings) paces it. Both old APIs still work in this
+  release and are deprecated; they go in the next minor release. Do not call both.
+
 ## [1.26.1] — 2026-10-30
 
 ### Fixed

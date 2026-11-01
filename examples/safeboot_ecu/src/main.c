@@ -61,7 +61,7 @@
 #include "uds_types.h"
 #include "uds_server.h"
 #include "uds_periodic.h"
-#include "services.h"         /* uds_service_0x34_pending_tick() [#518] */
+#include "services.h"
 #include "uds_session.h"
 #include "isotp.h"
 #include "can_transport.h"
@@ -542,38 +542,44 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
             }
         }
 
-        /* ── [3b] Chunked DFU erase driver [#312] ────────────────────────── */
+        /* ── [3b] Response-pending driver [#312, EDS#282] ──────────────────── */
         /*
-         * Drives one bounded erase increment forward per tick when a
-         * RequestDownload erase is pending (platform's erase_step_cb is
-         * non-NULL — see platform/zephyr/zephyr_flash_ops.c). No-op when
+         * Drives the server's response-pending job (today: RequestDownload's
+         * chunked erase, when the platform's erase_step_cb is non-NULL — see
+         * platform/zephyr/zephyr_flash_ops.c) one bounded step per tick, and
+         * hands back the 0x78 keepalives and the final response. No-op when
          * nothing is pending. The erase_step_cb() call itself may block for
          * up to this platform's worst-case per-increment erase time; the
          * watchdog stays fed across that one bounded call via
          * zephyr_flash_ops_set_wdt() (set up above, before
          * uds_generated_init()), not via this loop's own per-iteration feed
          * below, which cannot run while this call is still blocking.
+         *
+         * The server keeps a built-but-untransmitted frame itself: on a
+         * transient ISO-TP busy the next poll returns the same frame, so the
+         * final [0x74] (or failure NRC) is never lost. Same lock pair as
+         * uds_server_process_request().
          */
         {
-            static uds_msg_buf_t s_erase_frame;
-            static bool          s_erase_frame_pending = false;
+            static uds_msg_buf_t s_pending_frame;
+            uds_poll_result_t    poll_rc;
 
-            /* A built-but-untransmitted frame must be retried AS-IS, not
-             * rebuilt: once uds_service_0x34_pending_tick() has returned the
-             * FINAL [0x74] (or a failure NRC), s_erase_pending.active is
-             * already false, so calling it again would just return false
-             * and that last frame — the tester's only notification that a
-             * real, already-completed erase succeeded — would be silently
-             * lost on a transient ISO-TP busy. */
-            if (!s_erase_frame_pending) {
-                s_erase_frame_pending = uds_service_0x34_pending_tick(&s_erase_frame);
-            }
-            if (s_erase_frame_pending) {
-                if (isotp_transmit(tp, s_erase_frame.data,
-                                   (uint32_t)s_erase_frame.length) == UDS_STATUS_OK) {
-                    s_erase_frame_pending = false;
+            (void)diag_mutex_lock(&s_session_lock);
+            (void)diag_mutex_lock(&s_security_lock);
+            poll_rc = uds_server_poll(srv, &s_pending_frame);
+            (void)diag_mutex_unlock(&s_security_lock);
+            (void)diag_mutex_unlock(&s_session_lock);
+
+            if (poll_rc == UDS_POLL_FRAME) {
+                if (isotp_transmit(tp, s_pending_frame.data,
+                                   (uint32_t)s_pending_frame.length) == UDS_STATUS_OK) {
+                    (void)diag_mutex_lock(&s_session_lock);
+                    (void)diag_mutex_lock(&s_security_lock);
+                    uds_server_frame_sent(srv);
+                    (void)diag_mutex_unlock(&s_security_lock);
+                    (void)diag_mutex_unlock(&s_session_lock);
                 } else {
-                    LOG_WRN("[DFU] Failed to transmit erase-progress frame "
+                    LOG_WRN("[DFU] Failed to transmit response-pending frame "
                             "(ISO-TP busy) — will retry the same frame next "
                             "tick.");
                 }

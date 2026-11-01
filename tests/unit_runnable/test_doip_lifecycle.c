@@ -406,6 +406,57 @@ static bool pending_cb(uds_msg_buf_t *out)
     return true;
 }
 
+/* [EDS#282] A server-side pending job behind 31 01 F0 00: g_job_left steps
+ * in progress, then 71 01 F0 00; or forever. Each step advances the
+ * simulated clock by g_job_step_ms and declares a 4000 ms worst case. */
+static uint32_t g_job_left;
+static bool     g_job_forever;
+static uint32_t g_job_step_ms;
+static uint32_t g_job_steps;
+static uint32_t g_job_steps_unlocked;
+static uint32_t g_job_aborts;
+
+static uds_step_result_t job_step(uds_msg_buf_t *final_resp, uds_nrc_t *nrc)
+{
+    (void)nrc;
+    g_job_steps++;
+    if (!g_locked) {
+        g_job_steps_unlocked++;
+    }
+    g_sim_now_ms += g_job_step_ms;
+    if (g_job_steps > 1000U) {
+        longjmp(g_server_exit, 1);   /* fail on counts, not a hang */
+    }
+    if (g_job_forever || (g_job_left > 0U)) {
+        if (g_job_left > 0U) {
+            g_job_left--;
+        }
+        return UDS_STEP_IN_PROGRESS;
+    }
+    final_resp->data[0] = 0x71U;
+    final_resp->data[1] = 0x01U;
+    final_resp->data[2] = 0xF0U;
+    final_resp->data[3] = 0x00U;
+    final_resp->length  = 4U;
+    return UDS_STEP_DONE;
+}
+
+static void job_abort(void)
+{
+    g_job_aborts++;
+}
+
+static uds_status_t handler_deferring_0x31(uds_server_ctx_t *ctx,
+                                            const uds_msg_buf_t *req,
+                                            uds_msg_buf_t *resp)
+{
+    static const uds_pending_job_t job = {
+        .sid = 0x31U, .step_max_ms = 4000U, .step = job_step, .abort = job_abort,
+    };
+    (void)req;
+    return uds_server_defer(ctx, &job, resp);
+}
+
 static uds_server_ctx_t *uds_ctx(void)
 {
     static bool done;
@@ -414,6 +465,7 @@ static uds_server_ctx_t *uds_ctx(void)
             { 0x3EU, handler_tester_present, false },
             { 0x22U, handler_pending_0x22, false },
             { 0x11U, uds_service_0x11_handler, true },   /* [EDS#434] */
+            { 0x31U, handler_deferring_0x31, true },     /* [EDS#282] */
         };
         static const uds_security_cfg_t sec_cfg = {
             .max_attempts     = 3U,
@@ -427,7 +479,7 @@ static uds_server_ctx_t *uds_ctx(void)
             .session_ctx           = &g_session_ctx,
             .security_ctx          = &g_security_ctx,
             .service_table         = table,
-            .service_table_count   = 3U,
+            .service_table_count   = 4U,
             .access_table          = NULL,
             .access_table_count    = 0U,
         };
@@ -455,6 +507,15 @@ static const uint8_t k_rdbi_pending[] = {
     (uint8_t)(TEST_TESTER_ADDR >> 8U), (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
     (uint8_t)(TEST_ECU_ADDR >> 8U),    (uint8_t)(TEST_ECU_ADDR & 0xFFU),
     0x22U, 0xF1U, 0x90U,
+};
+
+/* [EDS#282] RoutineControl start F000, answered through the deferring
+ * handler above. */
+static const uint8_t k_routine_pending[] = {
+    0x02U, 0xFDU, 0x80U, 0x01U, 0x00U, 0x00U, 0x00U, 0x08U,
+    (uint8_t)(TEST_TESTER_ADDR >> 8U), (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
+    (uint8_t)(TEST_ECU_ADDR >> 8U),    (uint8_t)(TEST_ECU_ADDR & 0xFFU),
+    0x31U, 0x01U, 0xF0U, 0x00U,
 };
 
 /* [EDS#434] ECUReset hardReset, and the same with the suppress bit. */
@@ -526,6 +587,14 @@ static void reset_observations(void)
     g_reset_type             = 0U;
     g_resp_count_at_reset    = 0U;
     g_locked_at_reset        = false;
+    g_job_left               = 0U;
+    g_job_forever            = false;
+    g_job_step_ms            = 0U;
+    g_job_steps              = 0U;
+    g_job_steps_unlocked     = 0U;
+    g_job_aborts             = 0U;
+    uds_server_pending_abort(uds_ctx());
+    g_job_aborts             = 0U;
     TEST_ASSERT_EQUAL(UDS_STATUS_OK, eds_doip_server_init(&g_doip, TEST_ECU_ADDR));
 
     /* Every scenario starts in the extended session so a test can see
@@ -820,6 +889,51 @@ ZTEST(doip_lifecycle_suite, test_doip_pending_phase_is_time_bounded)
         "pending phase not bounded at DOIP_MAX_PENDING_MS");
 }
 
+/* [EDS#282] No callback registered and a job deferred in the server: the
+ * DoIP server polls it inside the lock pair, sends a 0x78 after each 4 s
+ * step and then the final response, and serves the connection after. */
+ZTEST(doip_lifecycle_suite, test_doip_server_job_polled_to_final)
+{
+    reset_observations();
+    eds_doip_set_lock_callbacks(lock_cb, unlock_cb);
+    g_job_left    = 2U;
+    g_job_step_ms = 4000U;
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_routine_pending, sizeof(k_routine_pending));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(3U, g_job_steps, "job not driven to the final response");
+    EXPECT_EQ_MSG(5U, g_resp_count, "wrong number of responses sent");
+    EXPECT_EQ_MSG(0x78U, g_resp[0][2], "response 1 is not 0x78");
+    EXPECT_EQ_MSG(0x78U, g_resp[1][2], "response 2 is not 0x78");
+    EXPECT_EQ_MSG(0x78U, g_resp[2][2], "response 3 is not 0x78");
+    EXPECT_EQ_MSG(0x71U, g_resp[3][0], "final response missing (EDS#282)");
+    EXPECT_EQ_MSG(0x7EU, g_resp[4][0], "connection not served after the job");
+    EXPECT_EQ_MSG(0U, g_job_steps_unlocked, "step run outside the EDS#353 lock pair");
+    EXPECT_EQ_MSG(0U, g_job_aborts, "a completed job was aborted");
+}
+
+/* [EDS#282] A job that never ends hits UDS_SERVER_MAX_PENDING_MS (the step
+ * credit reaches it before DoIP's own bound): one abort, 7F 31 10, and the
+ * connection is served after. */
+ZTEST(doip_lifecycle_suite, test_doip_server_job_capped)
+{
+    reset_observations();
+    g_job_forever = true;
+    g_job_step_ms = 1000U;
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_routine_pending, sizeof(k_routine_pending));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_TRUE_MSG(g_resp_count >= 3U, "too few responses");
+    EXPECT_EQ_MSG(0x10U, g_resp[g_resp_count - 2U][2], "cap did not answer 7F 31 10");
+    EXPECT_EQ_MSG(0x7EU, g_resp[g_resp_count - 1U][0], "connection not served after the cap");
+    EXPECT_EQ_MSG(1U, g_job_aborts, "cap must abort the job exactly once");
+    EXPECT_EQ_MSG(UDS_SERVER_MAX_PENDING_MS / 4000U, g_job_steps, "steps until the cap");
+}
+
 /* =========================================================================
  * Supervision check-in (EDS#399)
  * ========================================================================= */
@@ -973,6 +1087,8 @@ void run_all_tests(void)
     RUN_TEST(doip_lifecycle_suite__test_doip_pending_without_callback_sends_only_0x78);
     RUN_TEST(doip_lifecycle_suite__test_doip_pending_callback_completes_exchange);
     RUN_TEST(doip_lifecycle_suite__test_doip_pending_phase_is_time_bounded);
+    RUN_TEST(doip_lifecycle_suite__test_doip_server_job_polled_to_final);
+    RUN_TEST(doip_lifecycle_suite__test_doip_server_job_capped);
     RUN_TEST(doip_lifecycle_suite__test_doip_ecu_reset_performed_after_response);
     RUN_TEST(doip_lifecycle_suite__test_doip_ecu_reset_suppressed_response_still_resets);
     RUN_TEST(doip_lifecycle_suite__test_doip_no_reset_without_ecu_reset_request);

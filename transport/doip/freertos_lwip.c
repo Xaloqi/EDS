@@ -223,6 +223,12 @@ static void freertos_doip_ecu_reset(uint8_t reset_type)
     (void)eds_platform_ecu_reset(reset_type);
 }
 
+/* [EDS#282] Wait between polls of a pending job. */
+static void freertos_doip_sleep_ms(uint32_t ms)
+{
+    vTaskDelay(pdMS_TO_TICKS(ms));
+}
+
 static const eds_doip_platform_ops_t s_freertos_doip_ops = {
     .tcp_listen        = freertos_tcp_listen,
     .tcp_accept        = freertos_tcp_accept,
@@ -232,6 +238,7 @@ static const eds_doip_platform_ops_t s_freertos_doip_ops = {
     .tcp_server_close  = freertos_tcp_server_close,
     .uptime_ms         = eds_platform_uptime_ms,  /* [EDS#412] */
     .ecu_reset         = freertos_doip_ecu_reset, /* [EDS#434] */
+    .sleep_ms          = freertos_doip_sleep_ms, /* [EDS#282] */
 };
 
 /* ---------------------------------------------------------------------------

@@ -419,6 +419,17 @@ typedef struct eds_doip_platform_ops {
      * @param[in] reset_type  ECUReset sub-function, bit 7 cleared (0x01-0x7F).
      */
     void (*ecu_reset)(uint8_t reset_type);
+
+    /**
+     * @brief Sleep for about ms milliseconds.  [EDS#282]
+     *
+     * Optional. While a response-pending job has nothing to send, the
+     * server waits with this between uds_server_poll() calls, so the tick
+     * task gets the lock. NULL: the server polls again at once.
+     *
+     * @param[in] ms  Time to sleep.
+     */
+    void (*sleep_ms)(uint32_t ms);
 } eds_doip_platform_ops_t;
 
 /**
@@ -587,6 +598,10 @@ void eds_doip_set_checkin_callback(eds_doip_checkin_cb_t cb);
 /**
  * @brief Produce the next frame of a response-pending (NRC 0x78) exchange.
  *
+ * @deprecated [EDS#282] The server now drives uds_server_poll() itself;
+ * this callback type and eds_doip_set_pending_callback() go in the next
+ * minor release.
+ *
  * @param[out] out_frame  The frame to send: another 7F xx 78, or the final
  *                        response.
  * @return true if out_frame holds a frame to send, false if nothing is pending.
@@ -596,12 +611,18 @@ typedef bool (*eds_doip_pending_cb_t)(uds_msg_buf_t *out_frame);
 /**
  * @brief Register the callback that completes response-pending requests.
  *
+ * @deprecated [EDS#282] Not needed any more: register nothing, and after a
+ * 7F xx 78 response the server calls uds_server_poll() inside the
+ * eds_doip_set_lock_callbacks() pair, sends each frame it returns,
+ * reports it with uds_server_frame_sent(), and stops after the final
+ * response. While the job has nothing to send it waits with the sleep_ms
+ * platform op. With a callback registered, the server behaves as below,
+ * as before EDS#282.
+ *
  * Some services answer NRC 0x78 (requestCorrectlyReceived-ResponsePending)
  * and finish the job afterwards, one bounded step at a time. RequestDownload's
  * chunked erase does this when the flash ops provide erase_step_cb
- * (uds_service_0x34_pending_tick(), platform/zephyr/zephyr_flash_ops.c). On
- * CAN the application's poll loop drives those steps. Over DoIP nothing did,
- * so the tester got 0x78 and never a final response.
+ * (uds_service_0x34_pending_tick(), platform/zephyr/zephyr_flash_ops.c).
  *
  * With a callback registered, after the server sends a 7F xx 78 response it
  * calls cb inside the eds_doip_set_lock_callbacks() pair, sends the frame cb
@@ -612,11 +633,11 @@ typedef bool (*eds_doip_pending_cb_t)(uds_msg_buf_t *out_frame);
  * so the supervision gap during this phase is one cb call: for a chunked
  * erase, one sector erase (up to 4 s on STM32H7).
  *
- * The server does not read from the connection meanwhile; ISO 14229-1 has
- * the tester wait for the final response.
+ * Either way the server does not read from the connection meanwhile;
+ * ISO 14229-1 has the tester wait for the final response. A disconnect
+ * aborts the job (uds_server_pending_abort()).
  *
- * Not registering one leaves the server unchanged. Call before
- * eds_doip_server_run().
+ * Call before eds_doip_server_run().
  *
  * @param[in] cb  Continuation callback, e.g. uds_service_0x34_pending_tick.
  *                NULL clears it.
