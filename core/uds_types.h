@@ -364,6 +364,13 @@ _Static_assert(
 /**
  * @brief Descriptor for a single CAN or CAN FD frame.
  */
+/** [EDS#282] Outcome of one step of a response-pending job (uds_server_defer()). */
+typedef enum {
+    UDS_STEP_IN_PROGRESS = 0, /**< More work left; call again.               */
+    UDS_STEP_DONE        = 1, /**< The final response is ready.              */
+    UDS_STEP_FAILED      = 2  /**< *nrc holds the NRC to answer.             */
+} uds_step_result_t;
+
 /**
  * @brief [EDS#444] Addressing type of a received request (ISO 14229-1:2026
  *        §7.7): physical (one server) or functional (broadcast).

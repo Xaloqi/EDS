@@ -110,6 +110,27 @@
  * @return UDS_STATUS_ERR_SESSION_INVALID → mapped to NRC 0x31 by the caller [EDS#468]
  * @return UDS_STATUS_ERR_SEC_NOT_UNLOCKED                → NRC 0x33
  */
+/* --------------------------------------------------------------------------
+ * [EDS#282] Deferred startRoutine (routine_database_set_deferral() opt-in)
+ *
+ * One job at a time, the server's own rule. The job state is this static,
+ * so the server's job carries no context pointer.
+ * -------------------------------------------------------------------------- */
+typedef struct {
+    bool                      active;
+    uint16_t                  rid;
+    const routine_deferral_t *deferral;
+} svc_0x31_job_t;
+
+static svc_0x31_job_t s_routine_job;
+
+static uds_step_result_t s_routine_step(uds_msg_buf_t *final_resp, uds_nrc_t *nrc);
+static void s_routine_abort(void);
+static uds_status_t s_defer_start(uds_server_ctx_t          *ctx,
+                                  uint16_t                   rid,
+                                  const routine_deferral_t  *deferral,
+                                  uds_msg_buf_t             *resp);
+
 static uds_status_t s_validate_routine_access(
     const routine_entry_t    *entry,
     const uds_session_ctx_t  *session_ctx,
@@ -245,6 +266,14 @@ uds_status_t uds_service_0x31_handler(
                 opt_buf, opt_len,
                 result_buf, (uint8_t)sizeof(result_buf),
                 &result_len);
+            /* [EDS#282] Opted in: start_cb accepted the request; the rest
+             * runs as a pending job and the answer now is 7F 31 78. */
+            if (status == UDS_STATUS_OK) {
+                const routine_deferral_t *deferral = routine_database_get_deferral(rid);
+                if (deferral != NULL) {
+                    return s_defer_start(ctx, rid, deferral, resp);
+                }
+            }
             break;
 
         case SVC_0x31_SUBFN_STOP:
@@ -330,4 +359,100 @@ uds_status_t uds_service_0x31_handler(
     }
 
     return UDS_STATUS_OK;
+}
+
+/* --------------------------------------------------------------------------
+ * [EDS#282] Deferred startRoutine
+ * -------------------------------------------------------------------------- */
+
+static uds_status_t s_defer_start(uds_server_ctx_t          *ctx,
+                                  uint16_t                   rid,
+                                  const routine_deferral_t  *deferral,
+                                  uds_msg_buf_t             *resp)
+{
+    uds_pending_job_t job;
+    uds_status_t      status;
+
+    job.sid         = (uint8_t)UDS_SID_ROUTINE_CONTROL;
+    job.step_max_ms = deferral->step_max_ms;
+    job.step        = s_routine_step;
+    job.abort       = s_routine_abort;
+
+    status = uds_server_defer(ctx, &job, resp);
+    if (status != UDS_STATUS_OK) {
+        /* Functional request, a job already pending, or a step_max_ms that
+         * does not fit P2*: start_cb began the work, so stop it. */
+        if (deferral->abort_cb != NULL) {
+            deferral->abort_cb();
+        }
+        return status;
+    }
+
+    s_routine_job.active   = true;
+    s_routine_job.rid      = rid;
+    s_routine_job.deferral = deferral;
+    return UDS_STATUS_OK;   /* resp = 7F 31 78 */
+}
+
+static uds_step_result_t s_routine_step(uds_msg_buf_t *final_resp, uds_nrc_t *nrc)
+{
+    uint8_t           result_buf[ROUTINE_MAX_RESULT_LEN];
+    uint8_t           result_len = (uint8_t)0U;
+    uds_step_result_t step_rc;
+    uint16_t          rid;
+    uint8_t           i;
+
+    if ((!s_routine_job.active) || (s_routine_job.deferral == NULL)) {
+        *nrc = UDS_NRC_CONDITIONS_NOT_CORRECT;
+        return UDS_STEP_FAILED;
+    }
+
+    (void)memset(result_buf, 0, sizeof(result_buf));
+    step_rc = s_routine_job.deferral->step_cb(result_buf, (uint8_t)sizeof(result_buf),
+                                              &result_len, nrc);
+    rid = s_routine_job.rid;
+
+    switch (step_rc) {
+        case UDS_STEP_IN_PROGRESS:
+            break;
+
+        case UDS_STEP_DONE:
+            (void)memset(&s_routine_job, 0, sizeof(s_routine_job));
+            if (result_len > (uint8_t)sizeof(result_buf)) {
+                *nrc    = UDS_NRC_GENERAL_REJECT;
+                step_rc = UDS_STEP_FAILED;
+                break;
+            }
+            /* Same state transition and response as a synchronous start. */
+            (void)routine_database_set_state(rid,
+                (uint8_t)(ROUTINE_STATE_STARTED | ROUTINE_STATE_ACTIVE));
+            (void)uds_service_write_pos_sid((uint8_t)UDS_SID_ROUTINE_CONTROL, final_resp);
+            final_resp->data[1U] = (uint8_t)SVC_0x31_SUBFN_START;
+            final_resp->data[2U] = (uint8_t)((rid >> (uint16_t)8U) & (uint16_t)0xFFU);
+            final_resp->data[3U] = (uint8_t)( rid                  & (uint16_t)0xFFU);
+            for (i = (uint8_t)0U; i < result_len; i++) {
+                final_resp->data[(uint16_t)4U + (uint16_t)i] = result_buf[i];
+            }
+            final_resp->length = (uint16_t)((uint16_t)4U + (uint16_t)result_len);
+            break;
+
+        case UDS_STEP_FAILED:
+        default:
+            (void)memset(&s_routine_job, 0, sizeof(s_routine_job));
+            if (*nrc == UDS_NRC_POSITIVE_RESPONSE) {
+                *nrc = UDS_NRC_GENERAL_REJECT;
+            }
+            step_rc = UDS_STEP_FAILED;
+            break;
+    }
+    return step_rc;
+}
+
+static void s_routine_abort(void)
+{
+    if (s_routine_job.active && (s_routine_job.deferral != NULL) &&
+        (s_routine_job.deferral->abort_cb != NULL)) {
+        s_routine_job.deferral->abort_cb();
+    }
+    (void)memset(&s_routine_job, 0, sizeof(s_routine_job));
 }

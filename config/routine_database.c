@@ -42,6 +42,10 @@ static routine_entry_t s_routine_table[UDS_MAX_ROUTINE_COUNT];
 /** ROUTINE_STATE_* flags, parallel to s_routine_table [EDS#484]. */
 static uint8_t s_routine_state[UDS_MAX_ROUTINE_COUNT];
 
+/** [EDS#282] Opt-in deferrals, parallel to s_routine_table (step_cb NULL =
+ *  synchronous). */
+static routine_deferral_t s_routine_deferral[UDS_MAX_ROUTINE_COUNT];
+
 /** Number of entries currently registered. */
 static uint16_t s_routine_count = (uint16_t)0U;
 
@@ -60,6 +64,7 @@ uds_status_t routine_database_init(void)
 
     (void)memset(s_routine_table, 0, sizeof(s_routine_table));
     (void)memset(s_routine_state, 0, sizeof(s_routine_state));
+    (void)memset(s_routine_deferral, 0, sizeof(s_routine_deferral));
     s_routine_count = (uint16_t)0U;
     s_initialized   = true;
 
@@ -177,6 +182,36 @@ uds_status_t routine_database_set_state(uint16_t rid, uint8_t state)
     }
     s_routine_state[idx] = state;
     return UDS_STATUS_OK;
+}
+
+uds_status_t routine_database_set_deferral(uint16_t rid,
+                                           const routine_deferral_t *deferral)
+{
+    uint16_t idx = routine_database_index(rid);
+
+    if ((!s_initialized) || (idx >= s_routine_count)) {
+        return UDS_STATUS_ERR_ROUTINE_NOT_FOUND;
+    }
+    if (deferral == NULL) {
+        (void)memset(&s_routine_deferral[idx], 0, sizeof(routine_deferral_t));
+        return UDS_STATUS_OK;
+    }
+    if (deferral->step_cb == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    s_routine_deferral[idx] = *deferral;
+    return UDS_STATUS_OK;
+}
+
+const routine_deferral_t *routine_database_get_deferral(uint16_t rid)
+{
+    uint16_t idx = routine_database_index(rid);
+
+    if ((!s_initialized) || (idx >= s_routine_count) ||
+        (s_routine_deferral[idx].step_cb == NULL)) {
+        return NULL;
+    }
+    return &s_routine_deferral[idx];
 }
 
 void routine_database_reset_state(void)
