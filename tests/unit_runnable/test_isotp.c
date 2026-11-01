@@ -1422,6 +1422,70 @@ ZTEST(test_isotp_transmit, test_uudt_refusals)
     zassert_equal(isotp_transmit_uudt(&c2, msg, 2U), UDS_STATUS_ERR_TP_TX_FAILED, "driver refuses");
 }
 
+#if ISOTP_ENABLE_CAN_FD
+/* [EDS#546] ISO 14229-3:2022 §8.5, A_UUAtype 3/4: on a CAN FD channel a periodic
+ * message longer than 8 bytes is one unsegmented FD frame, DLC rounded up to a
+ * valid FD length, padded; <= 8 bytes stays a classic-format frame. */
+ZTEST(test_isotp_transmit, test_uudt_fd_frame_dlc_and_padding)
+{
+    static const struct { uint32_t len; uint8_t dlc; } cases[] = {
+        { 9U, 12U }, { 12U, 12U }, { 13U, 16U }, { 17U, 20U }, { 21U, 24U },
+        { 25U, 32U }, { 33U, 48U }, { 49U, 64U }, { 64U, 64U },
+    };
+    uint8_t msg[64];
+    uint32_t n;
+    uint32_t k;
+
+    for (n = 0U; n < 64U; n++) { msg[n] = (uint8_t)(0x40U + n); }
+    for (k = 0U; k < (uint32_t)(sizeof(cases) / sizeof(cases[0])); k++) {
+        mock_can_reset();
+        isotp_ctx_t ctx;
+        isotp_cfg_t cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.rx_can_id = 0x7E0U; cfg.tx_can_id = 0x7E8U; cfg.periodic_tx_can_id = 0x5E8U;
+        cfg.use_fd = true; cfg.can = &g_mock_can;
+        memset(&ctx, 0, sizeof(ctx));
+        zassert_equal(isotp_init(&ctx, &cfg), UDS_STATUS_OK, "init");
+        zassert_equal(isotp_transmit_uudt(&ctx, msg, cases[k].len), UDS_STATUS_OK, "send");
+        zassert_equal(g_mock_tx_count, 1U, "one frame");
+        zassert_equal(g_mock_tx_frames[0].id, 0x5E8U, "periodic ID");
+        zassert_true(g_mock_tx_frames[0].is_fd, "an FD frame");
+        zassert_equal(g_mock_tx_frames[0].dlc, cases[k].dlc, "DLC rounded up to a valid FD length");
+        zassert_mem_equal(g_mock_tx_frames[0].data, msg, cases[k].len, "[pDID, data], no PCI byte");
+        for (n = cases[k].len; n < cases[k].dlc; n++) {
+            zassert_equal(g_mock_tx_frames[0].data[n], (uint8_t)ISOTP_TX_PADDING_BYTE, "padding");
+        }
+    }
+}
+
+ZTEST(test_isotp_transmit, test_uudt_fd_small_message_and_limits)
+{
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    isotp_cfg_t cfg;
+    static const uint8_t msg[65] = { 0 };
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.rx_can_id = 0x7E0U; cfg.tx_can_id = 0x7E8U; cfg.periodic_tx_can_id = 0x5E8U;
+    cfg.use_fd = true; cfg.can = &g_mock_can;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(isotp_init(&ctx, &cfg), UDS_STATUS_OK, "init");
+
+    zassert_equal(isotp_transmit_uudt(&ctx, msg, 8U), UDS_STATUS_OK, "8 bytes");
+    zassert_false(g_mock_tx_frames[0].is_fd, "up to 8 bytes: classic-format frame");
+    zassert_equal(g_mock_tx_frames[0].dlc, 8U, "DLC = length");
+    zassert_equal(isotp_transmit_uudt(&ctx, msg, 65U), UDS_STATUS_ERR_BUFFER_OVERFLOW,
+                  "more than one CAN FD frame holds");
+    zassert_equal(g_mock_tx_count, 1U, "the refused message sent nothing");
+
+    /* An FD-capable build but a classic channel (use_fd false): 9 bytes refused. */
+    memset(&ctx, 0, sizeof(ctx));
+    cfg.use_fd = false;
+    zassert_equal(isotp_init(&ctx, &cfg), UDS_STATUS_OK, "init classic");
+    zassert_equal(isotp_transmit_uudt(&ctx, msg, 9U), UDS_STATUS_ERR_BUFFER_OVERFLOW,
+                  "9 bytes need an FD channel");
+}
+#endif /* ISOTP_ENABLE_CAN_FD */
+
 ZTEST(test_isotp_transmit, test_tx_in_progress_stays_busy)
 {
     mock_can_reset();
@@ -2635,6 +2699,10 @@ extern void test_isotp_transmit__test_tx_after_fc_overflow_starts_a_new_message(
 extern void test_isotp_transmit__test_uudt_frame_has_no_pci_and_its_own_id(void);
 extern void test_isotp_transmit__test_uudt_while_a_multiframe_is_in_flight(void);
 extern void test_isotp_transmit__test_uudt_refusals(void);
+#if ISOTP_ENABLE_CAN_FD
+extern void test_isotp_transmit__test_uudt_fd_frame_dlc_and_padding(void);
+extern void test_isotp_transmit__test_uudt_fd_small_message_and_limits(void);
+#endif
 extern void test_isotp_transmit__test_tx_in_progress_stays_busy(void);
 extern void test_isotp_tick__test_null_ctx(void);
 extern void test_isotp_tick__test_cr_timeout(void);
@@ -2731,6 +2799,10 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_transmit__test_uudt_frame_has_no_pci_and_its_own_id);
     RUN_TEST(test_isotp_transmit__test_uudt_while_a_multiframe_is_in_flight);
     RUN_TEST(test_isotp_transmit__test_uudt_refusals);
+#if ISOTP_ENABLE_CAN_FD
+    RUN_TEST(test_isotp_transmit__test_uudt_fd_frame_dlc_and_padding);
+    RUN_TEST(test_isotp_transmit__test_uudt_fd_small_message_and_limits);
+#endif
     RUN_TEST(test_isotp_transmit__test_tx_in_progress_stays_busy);
     RUN_TEST(test_isotp_tick__test_null_ctx);
     RUN_TEST(test_isotp_tick__test_cr_timeout);

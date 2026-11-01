@@ -71,6 +71,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### New
 
+- **CAN FD periodic messages (SID 0x2A)** (#546): on a CAN FD channel (`ISOTP_ENABLE_CAN_FD=1` and
+  `isotp_cfg_t.use_fd`), `isotp_transmit_uudt()` sends a 9..64-byte periodic message
+  `[pDID, data]` as one unsegmented CAN FD frame (ISO 14229-3:2022 §8.5, A_UUAtype 3/4): DLC
+  rounded up to the next valid FD length (12, 16, 20, 24, 32, 48, 64), the tail padded with
+  `ISOTP_TX_PADDING_BYTE`. Up to 8 bytes nothing changes; on classic CAN more than 8 is still
+  refused. Periodic messages over DoIP are unchanged.
+
 - CI job `isotp-burst-e2e` (#558): `basic_ecu` on native_sim over SocketCAN receives a 4000-byte
   request at STmin 0, classic CAN and CAN FD (`scripts/e2e_isotp_burst.py`).
 

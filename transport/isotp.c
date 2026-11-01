@@ -595,14 +595,40 @@ uds_status_t isotp_transmit_uudt(
     if ((length == (uint32_t)0U) || (ctx->periodic_tx_can_id == (uint32_t)0U)) {
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
-    if (length > (uint32_t)8U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
 
     (void)memset(&frame, 0, sizeof(frame));
     frame.id             = ctx->periodic_tx_can_id;
     frame.is_extended_id = (ctx->periodic_tx_can_id > (uint32_t)ISOTP_CAN_STD_ID_MAX);
-    frame.dlc            = (uint8_t)length;
+
+    if (length <= (uint32_t)8U) {
+        frame.dlc = (uint8_t)length;
+    } else {
+#if ISOTP_ENABLE_CAN_FD
+        /* [EDS#546] ISO 14229-3:2022 §8.5 (A_UUAtype 3/4): TX_DL > 8 is one
+         * unsegmented CAN FD frame. The DLC is the smallest valid FD length
+         * that holds the message; the bytes after it are padding. */
+        static const uint8_t fd_dlcs[] = { 12U, 16U, 20U, 24U, 32U, 48U, 64U };
+        uint8_t i;
+        uint8_t dlc = (uint8_t)64U;
+
+        if ((!ctx->use_fd) || (length > (uint32_t)64U)) {
+            return UDS_STATUS_ERR_BUFFER_OVERFLOW;
+        }
+        for (i = 0U; i < (uint8_t)(sizeof(fd_dlcs) / sizeof(fd_dlcs[0U])); i++) {
+            if (length <= (uint32_t)fd_dlcs[i]) {
+                dlc = fd_dlcs[i];
+                break;
+            }
+        }
+        frame.is_fd = true;
+        frame.dlc   = dlc;
+        for (i = (uint8_t)length; i < dlc; i++) {
+            frame.data[i] = (uint8_t)ISOTP_TX_PADDING_BYTE;
+        }
+#else
+        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
+#endif
+    }
     (void)memcpy(frame.data, data, (size_t)length);
 
     if (can_transport_transmit(ctx->can, &frame) != UDS_STATUS_OK) {

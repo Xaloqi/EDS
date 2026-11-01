@@ -484,16 +484,19 @@ uds_status_t isotp_transmit(
  * protocol control information byte nor a service ID, written directly to the
  * CAN driver and bypassing the network layer. So this does not use, change or
  * wait for the ISO-TP TX channel: it is allowed while a multi-frame response is
- * being sent. The DLC is the length (no padding).
+ * being sent. Up to 8 bytes the DLC is the length (no padding). On a CAN FD
+ * channel (ISOTP_ENABLE_CAN_FD=1 and isotp_cfg_t.use_fd) 9..64 bytes go out as
+ * one CAN FD frame (A_UUAtype 3/4, TX_DL > 8): the DLC is the smallest valid
+ * FD length that holds the message, the tail is ISOTP_TX_PADDING_BYTE.
  *
  * @param[in] ctx     Initialized ISO-TP context.
  * @param[in] data    pDID followed by the data record.
- * @param[in] length  1..8 (classic CAN; the periodic DID's record is at most 7 bytes).
+ * @param[in] length  1..8 on classic CAN (the record is at most 7 bytes); 1..64 on a CAN FD channel.
  *
  * @return UDS_STATUS_OK once the frame is confirmed transmitted.
  * @return UDS_STATUS_ERR_NULL_PTR / ERR_NOT_INITIALIZED as isotp_transmit().
  * @return UDS_STATUS_ERR_INVALID_PARAM if length is zero or no periodic CAN ID is configured.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if length exceeds 8.
+ * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if length exceeds 8 (64 on a CAN FD channel).
  * @return UDS_STATUS_ERR_TP_TX_FAILED if the CAN transport refused the frame.
  */
 uds_status_t isotp_transmit_uudt(
