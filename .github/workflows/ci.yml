@@ -1885,6 +1885,12 @@ jobs:
             gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
             python3 python3-pip libffi-dev libssl-dev git wget
 
+      # xaloqi-tester 1.5.10 needs Python >= 3.11; ubuntu-22.04's system
+      # Python is 3.10, where pip only sees 1.5.0 and the pin cannot resolve.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install west and the free tester
         run: pip install west python-can "xaloqi-tester==1.5.10"
 
