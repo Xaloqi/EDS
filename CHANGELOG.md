@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.27.0] — 2026-11-02
+
 ### Fixed
 
 - **`examples/vehicle_state_ecu` configures again** (#560). #538 regenerated its
