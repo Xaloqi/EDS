@@ -1863,6 +1863,85 @@ jobs:
           sudo ip link set up zcan0
           python3 EDS/scripts/smoke_robot_periodic_2a.py build/zephyr/zephyr.exe zcan0
 
+  # [EDS#282] The server's response-pending path end to end: basic_ecu on
+  # native_sim with the bench-only slow routine (RID 0xF0F0), the free tester
+  # (it waits through 0x78 since 1.5.10) over SocketCAN, plus raw frames for
+  # 0x21 while busy and 3E 80 accepted silently. Timing is only loosely
+  # bounded here; the Pi 5 CAN bench measures the cadence.
+  response-pending-e2e:
+    name: "Response pending (NRC 0x78) — native_sim end to end (SocketCAN)"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget
+
+      # xaloqi-tester 1.5.10 needs Python >= 3.11; ubuntu-22.04's system
+      # Python is 3.10, where pip only sees 1.5.0 and the pin cannot resolve.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install west and the free tester
+        run: pip install west python-can "xaloqi-tester==1.5.10"
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: West build — basic_ecu, native_sim, real CAN, slow routine
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          B="${GITHUB_WORKSPACE}/EDS/boards/native_sim"
+          west build \
+            --pristine \
+            -b native_sim \
+            EDS/examples/basic_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DDIAG_BENCH_SLOW_ROUTINE=ON \
+            "-DEXTRA_CONF_FILE=${B}/native_sim.conf;${B}/native_sim_realcan.conf" \
+            "-DDTC_OVERLAY_FILE=${B}/native_sim.overlay;${B}/native_sim_realcan.overlay"
+          test -f build/zephyr/zephyr.exe
+
+      - name: Load vcan
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
+            echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
+            sudo timeout 120 apt-get update -qq
+            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            sudo modprobe vcan
+            sudo modprobe can_raw
+          fi
+          lsmod | grep -E '^(vcan|can_raw) '
+
+      - name: End to end — 0x78 keepalives, final response, 0x21 while busy
+        run: |
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set up zcan0
+          python3 -c "import xaloqi.tester as t; print(t.__file__)"
+          python3 EDS/scripts/e2e_response_pending.py build/zephyr/zephyr.exe zcan0
+
   example-safeboot:
     name: "SafeBoot ECU — generated file validation (5 DIDs)"
     runs-on: ubuntu-22.04

@@ -118,13 +118,6 @@ typedef struct uds_service_entry {
  * every UDS state change happens inside step, on that thread.
  * -------------------------------------------------------------------------- */
 
-/** Outcome of one pending-job step. */
-typedef enum {
-    UDS_STEP_IN_PROGRESS = 0, /**< More work left; call again.               */
-    UDS_STEP_DONE        = 1, /**< final_resp holds the final response.      */
-    UDS_STEP_FAILED      = 2  /**< *nrc holds the NRC to answer.             */
-} uds_step_result_t;
-
 /**
  * @brief Run one bounded step of a pending job.
  *

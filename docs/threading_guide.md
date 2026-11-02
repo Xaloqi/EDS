@@ -160,6 +160,8 @@ unsynchronized cross-thread read — nothing UDS-specific makes it safer.
 | Periodic MEDIUM | `uds_periodic_tick_1ms()` | per tick | SID 0x2A push at 100 ms |
 | Periodic FAST | `uds_periodic_tick_1ms()` | per tick | SID 0x2A push at 10 ms |
 | WDT window | IWDG hardware | 100 ms | Poll loop health check |
+| Response-pending keepalive | `uds_server_tick_1ms()` + step credit | P2\*/2 (2500 ms) | `7F sid 78` while a deferred job runs (#282) |
+| Response-pending cap | `uds_server_tick_1ms()` + step credit | 120 s | Job aborted, `7F sid 10` |
 
 **Critical constraint:** Each `diag_task` iteration must complete in < 1 ms.
 
@@ -169,6 +171,23 @@ Worst-case measured with `-fstack-usage` on STM32H743 at 400 MHz:
 - Multi-frame response assembly: ~290 µs
 
 All timings are well within the 1 ms deadline at 400 MHz. Re-measure on any new target.
+
+**Response-pending steps are the one exception (#282).** While a deferred job runs (a chunked
+0x34 erase, or a routine opted in with `routine_database_set_deferral()`), `uds_server_poll()`
+runs one step per iteration, and that step may take up to the job's declared `step_max_ms`
+(4000 ms for an STM32H7 sector erase). Rules:
+
+- Call `uds_server_poll()` and `uds_server_frame_sent()` on the thread that owns the server,
+  under the same lock as `uds_server_process_request()` and `uds_server_tick_1ms()`. All UDS
+  state changes happen inside the step, on that thread. A step whose work is asynchronous (DMA,
+  a crypto peripheral) only checks its completion flag.
+- A step must not call back into `uds_server_poll()` or `uds_server_process_request()`: the server
+  fails the job with `7F sid 10`.
+- The 1 ms tick does not run during a step. The server credits the step's `step_max_ms` after it,
+  so the keepalive is not delayed. Keep the watchdog fed across a long step as
+  `zephyr_flash_ops_set_wdt()` does for the erase.
+- Over DoIP, `doip_server.c` polls the job inside the `eds_doip_set_lock_callbacks()` pair. It
+  sleeps 1 ms between polls (the `sleep_ms` platform op), so the UDS tick task still gets the lock.
 
 ---
 
