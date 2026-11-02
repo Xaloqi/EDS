@@ -1942,6 +1942,81 @@ jobs:
           python3 -c "import xaloqi.tester as t; print(t.__file__)"
           python3 EDS/scripts/e2e_response_pending.py build/zephyr/zephyr.exe zcan0
 
+  # [EDS#558] A 4000-byte request sent as fast as the ECU's Flow Control
+  # allows (STmin 0, BS as advertised) must be reassembled, on classic CAN and
+  # CAN FD. With the old BS 0 and one frame drained per tick, the 8-frame RX
+  # queue overflowed and no request was answered. New job, not a rename; not a
+  # required status check until it has a track record.
+  isotp-burst-e2e:
+    name: "ISO-TP burst RX (4000 B, STmin 0) — native_sim, classic + FD (SocketCAN)"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget
+
+      - name: Install west and python-can
+        run: pip install west python-can
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: West build — basic_ecu, native_sim, real CAN, classic and FD
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          B="${GITHUB_WORKSPACE}/EDS/boards/native_sim"
+          for v in classic fd; do
+            extra=()
+            if [ "$v" = fd ]; then
+              extra=(-DCONFIG_CAN_FD_MODE=y -DEXTRA_CFLAGS=-DISOTP_ENABLE_CAN_FD=1)
+            fi
+            west build --pristine -b native_sim -d "build-$v" EDS/examples/basic_ecu -- \
+              -DDIAG_SKIP_CODEGEN=ON "${extra[@]}" \
+              "-DEXTRA_CONF_FILE=${B}/native_sim.conf;${B}/native_sim_realcan.conf" \
+              "-DDTC_OVERLAY_FILE=${B}/native_sim.overlay;${B}/native_sim_realcan.overlay"
+            test -f "build-$v/zephyr/zephyr.exe"
+          done
+
+      - name: Load vcan
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
+            echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
+            sudo timeout 120 apt-get update -qq
+            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            sudo modprobe vcan
+            sudo modprobe can_raw
+          fi
+          lsmod | grep -E '^(vcan|can_raw) '
+
+      - name: Burst — classic CAN, then CAN FD
+        run: |
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set zcan0 mtu 72
+          sudo ip link set up zcan0
+          python3 EDS/scripts/e2e_isotp_burst.py build-classic/zephyr/zephyr.exe zcan0
+          python3 EDS/scripts/e2e_isotp_burst.py build-fd/zephyr/zephyr.exe zcan0 --fd
+
   example-safeboot:
     name: "SafeBoot ECU — generated file validation (5 DIDs)"
     runs-on: ubuntu-22.04

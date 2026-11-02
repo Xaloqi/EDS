@@ -67,12 +67,23 @@
 /**
  * @brief RX queue depth in frames.
  *
- * 8 frames matches the Zephyr implementation's k_msgq depth. Enough to
- * buffer a burst of diagnostic frames between poll iterations.
- * Increase if the poll loop runs slower than 1 ms on the target.
+ * EDS_CAN_RX_QUEUE_DEPTH (transport/can_transport.h, default 32), as on
+ * Zephyr. The poll task drains it every iteration, and the Flow Control
+ * BlockSize keeps a sender from putting more CFs on the bus than it holds
+ * [EDS#558]. CAN_FREERTOS_RX_QUEUE_DEPTH is kept as an override name.
  */
 #ifndef CAN_FREERTOS_RX_QUEUE_DEPTH
-#define CAN_FREERTOS_RX_QUEUE_DEPTH  (8U)
+#define CAN_FREERTOS_RX_QUEUE_DEPTH  (EDS_CAN_RX_QUEUE_DEPTH)
+#endif
+
+/* [EDS#558] BS 0 or a BS above the queue depth lets a tester overrun it.
+ * MISRA_ANALYSIS guard as in core/uds_types.h (the addon reports
+ * _Static_assert as "Rule N/A"). */
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L) && !defined(MISRA_ANALYSIS)
+_Static_assert((ISOTP_DEFAULT_BLOCK_SIZE >= 1U) &&
+               (ISOTP_DEFAULT_BLOCK_SIZE <= CAN_FREERTOS_RX_QUEUE_DEPTH) &&
+               (ISOTP_DEFAULT_BLOCK_SIZE <= 255U),
+               "ISOTP_DEFAULT_BLOCK_SIZE must be 1..CAN_FREERTOS_RX_QUEUE_DEPTH (EDS#558)");
 #endif
 
 /* --------------------------------------------------------------------------

@@ -454,72 +454,79 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
         }
 
         /* ── [2] CAN RX poll ─────────────────────────────────────────────── */
-        frame_ready = false;
-        status = can_transport_receive(can, &rx_frame, &frame_ready);
+        /* [EDS#558] Drain every queued frame, at most the queue depth. The Flow
+         * Control BlockSize keeps a burst within the RX queue only if each
+         * iteration empties it; one frame per tick loses CFs of long requests. */
+        frame_ready = true;
+        for (uint32_t rx_n = 0U;
+             frame_ready && (rx_n < (uint32_t)EDS_CAN_RX_QUEUE_DEPTH); rx_n++) {
+            frame_ready = false;
+            status = can_transport_receive(can, &rx_frame, &frame_ready);
 
-        if (status != UDS_STATUS_OK) {
-            if (status == UDS_STATUS_ERR_CAN_BUS_OFF) {
-                LOG_ERR("CAN bus-off condition detected.");
-                /*
-                 * TODO [APPLICATION]: Implement bus-off recovery:
-                 *   1. Call can_recover(plat->can_dev, K_MSEC(200)).
-                 *   2. Re-register RX filter.
-                 *   3. Clear s_bus_off flag.
-                 * For now: log and continue — the WDT will reset if the
-                 * bus remains off long enough that the loop stalls.
-                 */
+            if (status != UDS_STATUS_OK) {
+                if (status == UDS_STATUS_ERR_CAN_BUS_OFF) {
+                    LOG_ERR("CAN bus-off condition detected.");
+                    /*
+                     * TODO [APPLICATION]: Implement bus-off recovery:
+                     *   1. Call can_recover(plat->can_dev, K_MSEC(200)).
+                     *   2. Re-register RX filter.
+                     *   3. Clear s_bus_off flag.
+                     * For now: log and continue — the WDT will reset if the
+                     * bus remains off long enough that the loop stalls.
+                     */
+                } else {
+                    LOG_DBG("can_transport_receive error: 0x%02X", (unsigned)status);
+                }
+
+            } else if (frame_ready) {
+
+#if defined(DIAG_WCET_MEASURE)
+                /* [#31] WCET measurement scaffolding — see
+                 * platform/zephyr/zephyr_wcet.h. This wraps isotp_process_rx_frame()
+                 * end-to-end, per CAN frame: for a Consecutive Frame that
+                 * completes a multi-frame message, that includes the nested
+                 * on_isotp_rx_complete() -> uds_server_process_request() dispatch
+                 * — already measured separately above — folded in here too,
+                 * since that IS what happens on a real completing frame. See
+                 * docs/PERFORMANCE.md for how the two are read together. */
+                static wcet_stats_t s_isotp_wcet;
+                static bool         s_isotp_wcet_init_done;
+                if (!s_isotp_wcet_init_done) {
+                    wcet_stats_init(&s_isotp_wcet);
+                    s_isotp_wcet_init_done = true;
+                }
+                timing_t wcet_isotp_t0 = timing_counter_get();
+#endif
+
+                status = isotp_process_rx_frame(
+                    tp,
+                    &rx_frame,
+                    on_isotp_rx_complete,
+                    (void *)srv
+                );
+
+#if defined(DIAG_WCET_MEASURE)
+                timing_t wcet_isotp_t1 = timing_counter_get();
+                uint64_t wcet_isotp_cyc = timing_cycles_get(&wcet_isotp_t0, &wcet_isotp_t1);
+                bool wcet_isotp_new_max = wcet_stats_record(&s_isotp_wcet, wcet_isotp_cyc);
+                if (wcet_isotp_new_max || ((s_isotp_wcet.count % 200U) == 0U)) {
+                    LOG_INF("[WCET] isotp_rx: n=%u cur=%llu min=%llu max=%llu avg=%llu cyc",
+                            (unsigned)s_isotp_wcet.count,
+                            (unsigned long long)wcet_isotp_cyc,
+                            (unsigned long long)s_isotp_wcet.min_cycles,
+                            (unsigned long long)s_isotp_wcet.max_cycles,
+                            (unsigned long long)(s_isotp_wcet.sum_cycles / s_isotp_wcet.count));
+                }
+#endif
+
+                if ((status != UDS_STATUS_OK) &&
+                    (status != (uds_status_t)UDS_STATUS_ERR_TP_FRAME_INVALID)) {
+                    LOG_WRN("ISO-TP RX error: 0x%02X", (unsigned)status);
+                }
+
             } else {
-                LOG_DBG("can_transport_receive error: 0x%02X", (unsigned)status);
+                /* No frame this iteration — idle. */
             }
-
-        } else if (frame_ready) {
-
-#if defined(DIAG_WCET_MEASURE)
-            /* [#31] WCET measurement scaffolding — see
-             * platform/zephyr/zephyr_wcet.h. This wraps isotp_process_rx_frame()
-             * end-to-end, per CAN frame: for a Consecutive Frame that
-             * completes a multi-frame message, that includes the nested
-             * on_isotp_rx_complete() -> uds_server_process_request() dispatch
-             * — already measured separately above — folded in here too,
-             * since that IS what happens on a real completing frame. See
-             * docs/PERFORMANCE.md for how the two are read together. */
-            static wcet_stats_t s_isotp_wcet;
-            static bool         s_isotp_wcet_init_done;
-            if (!s_isotp_wcet_init_done) {
-                wcet_stats_init(&s_isotp_wcet);
-                s_isotp_wcet_init_done = true;
-            }
-            timing_t wcet_isotp_t0 = timing_counter_get();
-#endif
-
-            status = isotp_process_rx_frame(
-                tp,
-                &rx_frame,
-                on_isotp_rx_complete,
-                (void *)srv
-            );
-
-#if defined(DIAG_WCET_MEASURE)
-            timing_t wcet_isotp_t1 = timing_counter_get();
-            uint64_t wcet_isotp_cyc = timing_cycles_get(&wcet_isotp_t0, &wcet_isotp_t1);
-            bool wcet_isotp_new_max = wcet_stats_record(&s_isotp_wcet, wcet_isotp_cyc);
-            if (wcet_isotp_new_max || ((s_isotp_wcet.count % 200U) == 0U)) {
-                LOG_INF("[WCET] isotp_rx: n=%u cur=%llu min=%llu max=%llu avg=%llu cyc",
-                        (unsigned)s_isotp_wcet.count,
-                        (unsigned long long)wcet_isotp_cyc,
-                        (unsigned long long)s_isotp_wcet.min_cycles,
-                        (unsigned long long)s_isotp_wcet.max_cycles,
-                        (unsigned long long)(s_isotp_wcet.sum_cycles / s_isotp_wcet.count));
-            }
-#endif
-
-            if ((status != UDS_STATUS_OK) &&
-                (status != (uds_status_t)UDS_STATUS_ERR_TP_FRAME_INVALID)) {
-                LOG_WRN("ISO-TP RX error: 0x%02X", (unsigned)status);
-            }
-
-        } else {
-            /* No frame this iteration — idle. */
         }
 
         /* ── [3] 1 ms tick processing (ISO-TP + UDS + periodic timers) ─── */

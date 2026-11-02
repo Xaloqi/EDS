@@ -34,7 +34,45 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `sleep_ms` platform op (set in both in-tree bindings) paces it. Both old APIs still work in this
   release and are deprecated; they go in the next minor release. Do not call both.
 
+- **The ECU's Flow Control now advertises BlockSize 16, not 0; the CAN RX queue grows from 8 to
+  32 frames; every example drains the queue each iteration** (#558). With BS 0 / STmin 0 a tester
+  may send a whole long request back to back, but the RX queue between the CAN driver and the
+  loop held 8 frames and the loops took one per tick, so long requests (0x2E, 0x36 TransferData,
+  0x3D) lost Consecutive Frames and got no answer, on classic CAN and CAN FD alike. Now:
+  - the FC after a First Frame reads `30 10 00` instead of `30 00 00`, and the ECU sends a further
+    FC after every 16 CFs (ISO 15765-2 FlowControl BS; STmin stays 0). Testers that honour FC need
+    nothing; a tester that ignores BS can still overrun the ECU;
+  - the queue depth is new and configurable: `CONFIG_EDS_CAN_RX_QUEUE_DEPTH` on Zephyr,
+    `-DEDS_CAN_RX_QUEUE_DEPTH=N` elsewhere, **default 32** (was a fixed 8);
+    `CAN_FREERTOS_RX_QUEUE_DEPTH` still overrides the FreeRTOS queue alone.
+    `ISOTP_DEFAULT_BLOCK_SIZE` defaults to half the depth;
+  - **the build fails** when `ISOTP_DEFAULT_BLOCK_SIZE` is 0 or larger than the queue depth
+    (`zephyr_can.c`, `freertos_can.c`);
+  - every example loop and the FreeRTOS poll task (`eds_freertos_start()`) take every queued
+    frame each iteration, at most the queue depth;
+  - **RAM:** +384 B for classic frames (32 x 16 B instead of 8 x 16 B), +1,728 B with
+    `CONFIG_CAN_FD_MODE` (72 B frames, 2,304 B in all). Measured: ZRE on nucleo_h753zi +384 B,
+    `basic_ecu_freertos` on Cortex-M4 +384 B.
+
+  Measured on a NUCLEO-H753ZI (ZRE) over real CAN at 500 kbit/s, a 4000-byte request sent at the
+  FC's pace: before, 0 of 3 answered, 393 `Msgq overflowed` lines; depth 8 / BS 4, 5 of 5 in
+  288 ms; depth 32 / BS 16 (the default), 10 of 10 in 179 ms, about 20% over the ~150 ms the
+  frames take on the wire, no overflow. native_sim (CI, classic and FD) shows the same before /
+  after.
+
+  **Migration:** a custom CAN loop must drain the queue every iteration (loop on
+  `can_transport_receive()` until no frame, at most `EDS_CAN_RX_QUEUE_DEPTH` times; see
+  `docs/INTEGRATION_GUIDE.md` §3 Step 5, "The receive rule for custom loops"). A build that set
+  `-DISOTP_DEFAULT_BLOCK_SIZE=0` no longer compiles: drop it. A RAM-tight ECU can set the depth
+  to 8 (BS 4) and pay roughly 1.6x the download time. A tester or test that expected `30 00 00`
+  after the First Frame must expect `30 10 00`. A BS set at runtime in `isotp_cfg_t.block_size`
+  is not build-checked; keep it within the queue depth. `safeboot_ecu` keeps its own
+  `ISOTP_DEFAULT_BLOCK_SIZE=4` / `ISOTP_DEFAULT_STMIN_MS=1` override from #312.
+
 ### New
+
+- CI job `isotp-burst-e2e` (#558): `basic_ecu` on native_sim over SocketCAN receives a 4000-byte
+  request at STmin 0, classic CAN and CAN FD (`scripts/e2e_isotp_burst.py`).
 
 - **A routine can answer startRoutine with NRC 0x78** (#282): `routine_database_set_deferral(rid,
   &{step_cb, abort_cb, step_max_ms})` after registering it. `start_cb` still decides every other

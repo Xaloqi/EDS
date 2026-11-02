@@ -15,7 +15,7 @@
  *            CAN ISR (Zephyr driver)
  *              │  rx_callback()   — matches our diagnostic RX filter
  *              ▼
- *            k_msgq  s_can_rx_msgq   (8 frames, ISR-safe ring buffer)
+ *            k_msgq  s_can_rx_msgq   (EDS_CAN_RX_QUEUE_DEPTH frames, ISR-safe)
  *              │
  *              ▼
  *            zephyr_can_receive()  <- poll loop calls can_transport_receive()
@@ -83,9 +83,17 @@
 LOG_MODULE_REGISTER(zephyr_can, LOG_LEVEL_INF);
 
 /* --------------------------------------------------------------------------
- * RX message queue: 8 classic CAN frames, ISR-safe.
+ * RX message queue: EDS_CAN_RX_QUEUE_DEPTH frames (default 32), ISR-safe.
  * -------------------------------------------------------------------------- */
-#define CAN_RX_MSGQ_DEPTH   (8U)
+#define CAN_RX_MSGQ_DEPTH   (EDS_CAN_RX_QUEUE_DEPTH)
+
+/* [EDS#558] The Flow Control BlockSize must fit the queue: with BS 0 (or a BS
+ * above the depth) a tester may send more CFs back to back than the queue
+ * holds before the loop drains it, and the overflow drops a CF. */
+BUILD_ASSERT((ISOTP_DEFAULT_BLOCK_SIZE >= 1U) &&
+             (ISOTP_DEFAULT_BLOCK_SIZE <= CAN_RX_MSGQ_DEPTH) &&
+             (ISOTP_DEFAULT_BLOCK_SIZE <= 255U),
+             "ISOTP_DEFAULT_BLOCK_SIZE must be 1..CONFIG_EDS_CAN_RX_QUEUE_DEPTH (EDS#558)");
 
 K_MSGQ_DEFINE(s_can_rx_msgq,
               sizeof(struct can_frame),

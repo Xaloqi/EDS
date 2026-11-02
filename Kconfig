@@ -106,6 +106,23 @@ config ISOTP_TIMEOUT_AR_MS
 	  Receiver: maximum time for the Flow Control frame's transmission
 	  confirmation. ISO 15765-2:2024 Table 22: 1000 ms (lower limit).
 
+config EDS_CAN_RX_QUEUE_DEPTH
+	int "CAN RX queue depth (frames)"
+	default 32
+	range 2 255
+	help
+	  Frames the CAN RX callback can queue for the diagnostics loop
+	  (platform/zephyr/zephyr_can.c k_msgq). The Flow Control BlockSize the
+	  ECU advertises defaults to half of it (ISOTP_DEFAULT_BLOCK_SIZE in
+	  transport/isotp.h) and the build fails if a BlockSize override is 0 or
+	  larger than this depth: with BS 0 a tester may send a whole 4 KB
+	  request back to back and the queue drops frames. Raise both together
+	  for more throughput on long 0x36 transfers; each queued frame costs
+	  sizeof(struct can_frame) of RAM: 16 bytes, 72 with CONFIG_CAN_FD_MODE
+	  (512 / 2304 bytes at the default 32). It was 8 before EDS#558; at 8
+	  (BS 4) a long classic-CAN download takes about twice as long.
+	  TRACEABILITY: EDS#558
+
 # ---------------------------------------------------------------------------
 # UDS session timing and SecurityAccess lockout are NOT Kconfig parameters.
 # They come from diagnostics_config.yaml via codegen (GEN_S3_SERVER_TIMEOUT_MS,

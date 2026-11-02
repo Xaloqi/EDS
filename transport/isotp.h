@@ -99,7 +99,14 @@ extern "C" {
 #define ISOTP_TIMEOUT_CR_MS   (1000U)
 #endif
 
-/** Default STmin value in milliseconds (0x00 = send as fast as possible). */
+/**
+ * STmin the ECU advertises in its Flow Control, in milliseconds (0x00 = the
+ * sender may send CFs back to back). ISO 15765-2 FlowControl STmin: the
+ * minimum gap the sender keeps between two CFs. Back to back is safe by
+ * default because ISOTP_DEFAULT_BLOCK_SIZE bounds the burst [EDS#558]; raise
+ * STmin only to pace a slow receive path (0x01-0x7F ms; 0xF1-0xF9 are
+ * 100-900 us and not expressible here).
+ */
 #ifndef ISOTP_DEFAULT_STMIN_MS
 #define ISOTP_DEFAULT_STMIN_MS (0U)
 #endif
@@ -218,9 +225,30 @@ extern "C" {
 /** Largest 11-bit CAN identifier. */
 #define ISOTP_CAN_STD_ID_MAX   (0x7FFU)
 
-/** Default block size (0 = no block size limit). */
+/**
+ * BlockSize (BS) the ECU advertises in its Flow Control. ISO 15765-2
+ * FlowControl BS: the sender sends at most BS CFs, then waits for the next
+ * FC; BS 0 lets it send the whole message without stopping.
+ *
+ * Default: half the CAN RX queue (EDS_CAN_RX_QUEUE_DEPTH, 32 -> 16) [EDS#558].
+ * The receiver sends the next FC only after the loop has taken the block's
+ * last CF out of the queue, so no more than BS CFs of one message are ever
+ * queued; the other half keeps room for functional requests (0x3E) on the
+ * same queue. It was 0, which promised the old 8-frame queue it could take a
+ * 4000-byte request at once; on a real bus long 0x2E/0x36/0x3D requests lost
+ * CFs and got no answer.
+ *
+ * Range 1..EDS_CAN_RX_QUEUE_DEPTH; the CAN platform files check it at build
+ * time. Override with -DISOTP_DEFAULT_BLOCK_SIZE=N (Zephyr:
+ * zephyr_compile_definitions). Every BS round costs one loop iteration, so a
+ * deeper queue with a larger BS is the way to more throughput, not BS 0.
+ */
 #ifndef ISOTP_DEFAULT_BLOCK_SIZE
-#define ISOTP_DEFAULT_BLOCK_SIZE (0U)
+#if (EDS_CAN_RX_QUEUE_DEPTH / 2U) == 0U
+#define ISOTP_DEFAULT_BLOCK_SIZE (1U)
+#else
+#define ISOTP_DEFAULT_BLOCK_SIZE (EDS_CAN_RX_QUEUE_DEPTH / 2U)
+#endif
 #endif
 
 /* --------------------------------------------------------------------------

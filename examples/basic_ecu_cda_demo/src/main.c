@@ -190,11 +190,18 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
     while (true) {
         (void)diag_timer_wait_tick(&s_tick_timer, 2U);
 
-        frame_ready = false;
-        status = can_transport_receive(can, &rx_frame, &frame_ready);
-        if ((status == UDS_STATUS_OK) && frame_ready) {
-            (void)isotp_process_rx_frame(tp, &rx_frame,
-                                          on_isotp_rx_complete, srv);
+        /* [EDS#558] Drain every queued frame, at most the queue depth. The Flow
+         * Control BlockSize keeps a burst within the RX queue only if each
+         * iteration empties it; one frame per tick loses CFs of long requests. */
+        frame_ready = true;
+        for (uint32_t rx_n = 0U;
+             frame_ready && (rx_n < (uint32_t)EDS_CAN_RX_QUEUE_DEPTH); rx_n++) {
+            frame_ready = false;
+            status = can_transport_receive(can, &rx_frame, &frame_ready);
+            if ((status == UDS_STATUS_OK) && frame_ready) {
+                (void)isotp_process_rx_frame(tp, &rx_frame,
+                                              on_isotp_rx_complete, srv);
+            }
         }
 
         on_tick(&tick_ctx);

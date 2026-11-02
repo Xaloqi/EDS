@@ -657,12 +657,19 @@ static void eds_uds_poll_task(void *arg)
     for (;;) {
         vTaskDelay((TickType_t)1U);
 
-        frame_ready = false;
-        status = can_transport_receive(can, &rx_frame, &frame_ready);
+        /* [EDS#558] Drain every queued frame, at most the queue depth. The Flow
+         * Control BlockSize keeps a burst within the RX queue only if each
+         * iteration empties it; one frame per tick loses CFs of long requests. */
+        frame_ready = true;
+        for (uint32_t rx_n = 0U;
+             frame_ready && (rx_n < (uint32_t)EDS_CAN_RX_QUEUE_DEPTH); rx_n++) {
+            frame_ready = false;
+            status = can_transport_receive(can, &rx_frame, &frame_ready);
 
-        if ((status == UDS_STATUS_OK) && frame_ready) {
-            (void)isotp_process_rx_frame(
-                tp, &rx_frame, eds_on_isotp_rx_complete, (void *)srv);
+            if ((status == UDS_STATUS_OK) && frame_ready) {
+                (void)isotp_process_rx_frame(
+                    tp, &rx_frame, eds_on_isotp_rx_complete, (void *)srv);
+            }
         }
 
         elapsed = eds_elapsed_consume(&tick_clock, eds_platform_uptime_ms(),
