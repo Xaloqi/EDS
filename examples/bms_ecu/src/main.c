@@ -933,33 +933,40 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
         }
 
         /* ── [2] CAN RX poll ─────────────────────────────────────────────── */
-        frame_ready = false;
-        status = can_transport_receive(can, &rx_frame, &frame_ready);
+        /* [EDS#558] Drain every queued frame, at most the queue depth. The Flow
+         * Control BlockSize keeps a burst within the RX queue only if each
+         * iteration empties it; one frame per tick loses CFs of long requests. */
+        frame_ready = true;
+        for (uint32_t rx_n = 0U;
+             frame_ready && (rx_n < (uint32_t)EDS_CAN_RX_QUEUE_DEPTH); rx_n++) {
+            frame_ready = false;
+            status = can_transport_receive(can, &rx_frame, &frame_ready);
 
-        if (status != UDS_STATUS_OK) {
-            if (status == UDS_STATUS_ERR_CAN_BUS_OFF) {
-                LOG_ERR("[BMS] CAN bus-off detected.");
-                /*
-                 * TODO [APPLICATION]: Implement bus-off recovery.
-                 * For now log and continue — WDT will reset if bus stays off.
-                 */
+            if (status != UDS_STATUS_OK) {
+                if (status == UDS_STATUS_ERR_CAN_BUS_OFF) {
+                    LOG_ERR("[BMS] CAN bus-off detected.");
+                    /*
+                     * TODO [APPLICATION]: Implement bus-off recovery.
+                     * For now log and continue — WDT will reset if bus stays off.
+                     */
+                } else {
+                    LOG_DBG("[BMS] can_transport_receive error: 0x%02X",
+                            (unsigned)status);
+                }
+            } else if (frame_ready) {
+                status = isotp_process_rx_frame(
+                    tp,
+                    &rx_frame,
+                    on_isotp_rx_complete,
+                    (void *)srv
+                );
+                if ((status != UDS_STATUS_OK) &&
+                    (status != (uds_status_t)UDS_STATUS_ERR_TP_FRAME_INVALID)) {
+                    LOG_WRN("[BMS] ISO-TP RX error: 0x%02X", (unsigned)status);
+                }
             } else {
-                LOG_DBG("[BMS] can_transport_receive error: 0x%02X",
-                        (unsigned)status);
+                /* No frame this iteration — idle. */
             }
-        } else if (frame_ready) {
-            status = isotp_process_rx_frame(
-                tp,
-                &rx_frame,
-                on_isotp_rx_complete,
-                (void *)srv
-            );
-            if ((status != UDS_STATUS_OK) &&
-                (status != (uds_status_t)UDS_STATUS_ERR_TP_FRAME_INVALID)) {
-                LOG_WRN("[BMS] ISO-TP RX error: 0x%02X", (unsigned)status);
-            }
-        } else {
-            /* No frame this iteration — idle. */
         }
 
         /* ── [3] 1 ms tick processing (ISO-TP + UDS + periodic timers) ─── */

@@ -69,7 +69,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | Single Frame (SF) | **Implemented** | Max 7 bytes payload. |
 | First Frame (FF) | **Implemented** | Total length up to 4095 bytes. |
 | Consecutive Frame (CF) | **Implemented** | Sequence number validated (0x1–0xF, wraps). |
-| Flow Control (FC) | **Implemented** | CTS (FS=0), Wait (FS=1) and Overflow (FS=2) all handled. BlockSize and STmin extracted from FC and applied. |
+| Flow Control (FC) | **Implemented** | CTS (FS=0), Wait (FS=1) and Overflow (FS=2) all handled. BlockSize and STmin extracted from FC and applied. The FC the ECU sends advertises BS = half the CAN RX queue (4 by default) and STmin 0, so a tester cannot overrun the queue (EDS#558; see §3 Step 5, "The receive rule for custom loops"). |
 | STmin 0x00–0x7F | **Implemented** | 0–127 ms inter-frame delay (1 ms resolution). |
 | STmin 0xF1–0xF9 | **Implemented** | 100–900 µs; rounded up to 1 ms tick interval. |
 | STmin 0x80–0xF0, 0xFA–0xFF | **Implemented** | Reserved values treated as 0 ms (CTS-immediate). |
@@ -450,9 +450,14 @@ uds_session_register_change_cb(srv->cfg.session_ctx, s_on_session_change);
 
 /* 6. Run the 1 ms poll loop (in a dedicated thread — see threading_guide.md) */
 while (true) {
-    uds_can_frame_t frame; bool ready;
-    can_transport_receive(can, &frame, &ready);
-    if (ready) isotp_process_rx_frame(tp, &frame, on_rx_complete, srv);
+    uds_can_frame_t frame; bool ready = true;
+    /* Drain the RX queue, at most its depth (EDS#558; see "The receive rule" below) */
+    for (uint32_t n = 0U; ready && (n < EDS_CAN_RX_QUEUE_DEPTH); n++) {
+        ready = false;
+        if ((can_transport_receive(can, &frame, &ready) == UDS_STATUS_OK) && ready) {
+            isotp_process_rx_frame(tp, &frame, on_rx_complete, srv);
+        }
+    }
     isotp_tick_1ms(tp);
     uds_server_tick_1ms(srv);
     uds_periodic_tick_1ms();                       /* advance periodic timers */
@@ -466,6 +471,16 @@ while (true) {
     k_sleep(K_MSEC(1));
 }
 ```
+
+#### The receive rule for custom loops (EDS#558)
+
+The CAN driver hands frames to the loop through a software queue of `EDS_CAN_RX_QUEUE_DEPTH` frames (default 8; Zephyr `CONFIG_EDS_CAN_RX_QUEUE_DEPTH`, elsewhere `-DEDS_CAN_RX_QUEUE_DEPTH=N`). A frame that arrives while it is full is dropped, and a dropped Consecutive Frame means no answer to the request. If you write your own loop:
+
+1. **Drain the queue every iteration**: call `can_transport_receive()` until it reports no frame, at most `EDS_CAN_RX_QUEUE_DEPTH` times (the bound keeps the iteration's WCET fixed). One frame per iteration is not enough: at 500 kbit/s a classic CF arrives every ~0.25 ms.
+2. **Keep the Flow Control BlockSize within the queue**: the ECU's FC tells the tester how many CFs it may send before waiting for the next FC (ISO 15765-2 FlowControl BS; 0 = no limit) and the minimum gap between them (STmin). EDS sends the next FC only after the loop has taken the block's last CF out of the queue, so a BS of at most the queue depth means a tester can never overrun it, at any STmin and any bus speed. The default `ISOTP_DEFAULT_BLOCK_SIZE` is half the depth (4); the other half leaves room for functional requests such as `3E 80` on the same queue. The build fails if it is 0 or above the depth. STmin stays 0 by default (`ISOTP_DEFAULT_STMIN_MS`).
+3. **For throughput, raise both together**, e.g. `CONFIG_EDS_CAN_RX_QUEUE_DEPTH=32` and `zephyr_compile_definitions(ISOTP_DEFAULT_BLOCK_SIZE=16)`. Each block costs one loop iteration of latency for the FC, so a long 0x36 transfer at BS 4 runs at about 4 CFs per iteration. BS 0 is never the answer while frames pass through a bounded queue.
+
+These defaults set `isotp_cfg_t.block_size` / `.stmin_ms` in the generated `uds_init.c`; a value you set at runtime in `isotp_cfg_t` is not build-checked, so keep it within the same bound.
 
 **Implement your DID handlers** — open `generated/did_handlers.c` and replace each stub body with a real sensor read. These run synchronously from task context (`diag_task` for CAN, `doip_thread` for DoIP), never from an ISR, and EDS holds no lock while calling them — synchronizing access to any shared application state inside your handler is your responsibility. See [`docs/threading_guide.md`](threading_guide.md)'s "Callback Execution Context" section for the full contract:
 
@@ -682,7 +697,7 @@ void app_init(void)
 
 The poll task:
 - Runs every 1 ms (`vTaskDelay(1)` — requires `configTICK_RATE_HZ=1000`)
-- Drains the CAN RX queue and feeds frames to the ISO-TP reassembler
+- Drains the CAN RX queue (up to `EDS_CAN_RX_QUEUE_DEPTH` frames per iteration, EDS#558) and feeds frames to the ISO-TP reassembler
 - Calls `isotp_tick_1ms()`, `uds_server_tick_1ms()`, and `uds_periodic_tick_1ms()` each iteration, then drains the `uds_periodic_pop_due()` queue for SID 0x2A periodic push
 - On ISO-TP RX completion, dispatches to `uds_server_process_request()` and transmits the response
 

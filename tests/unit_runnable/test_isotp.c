@@ -641,8 +641,9 @@ ZTEST(test_isotp_rx_multi, test_rx_block_size_periodic_fc)
 /**
  * TC-ISTP-RX-MF-006 [#121] non-regression: BlockSize 0 means "unlimited", so
  * the receiver must send exactly ONE FC (the FF's CTS) for the whole PDU and
- * behave byte-for-byte as it did before the #121 fix.  This is the default
- * configuration (ISOTP_DEFAULT_BLOCK_SIZE == 0) used by every bundled example.
+ * behave byte-for-byte as it did before the #121 fix.  This was the default
+ * configuration the bundled examples used until EDS#558 (the default is now
+ * EDS_CAN_RX_QUEUE_DEPTH / 2); BS 0 remains a valid ISO 15765-2 setting.
  *
  * Same 37-byte / 5-CF transfer as TC-ISTP-RX-MF-005, so the two tests differ
  * only in the advertised BlockSize.

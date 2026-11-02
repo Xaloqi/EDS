@@ -39,6 +39,28 @@ extern "C" {
 #define CAN_MAX_RX_FILTERS (4U)
 #endif
 
+/**
+ * Depth, in frames, of the software RX queue between the CAN driver
+ * (ISR / RX callback) and the diagnostics loop: the Zephyr k_msgq in
+ * platform/zephyr/zephyr_can.c and the FreeRTOS queue in
+ * platform/freertos/freertos_can.c. A frame arriving while it is full is
+ * dropped. [EDS#558]
+ *
+ * Two rules follow from it, both in docs/INTEGRATION_GUIDE.md §3 Step 5:
+ *   - the loop drains every queued frame each iteration, up to this many;
+ *   - the Flow Control BlockSize the ECU advertises (ISOTP_DEFAULT_BLOCK_SIZE,
+ *     transport/isotp.h, derived from this value) is at most this many, so a
+ *     sender can never have more CFs in flight than the queue holds.
+ *
+ * Zephyr: CONFIG_EDS_CAN_RX_QUEUE_DEPTH. Elsewhere: -DEDS_CAN_RX_QUEUE_DEPTH=N.
+ */
+#if !defined(EDS_CAN_RX_QUEUE_DEPTH) && defined(CONFIG_EDS_CAN_RX_QUEUE_DEPTH)
+#define EDS_CAN_RX_QUEUE_DEPTH (CONFIG_EDS_CAN_RX_QUEUE_DEPTH)
+#endif
+#ifndef EDS_CAN_RX_QUEUE_DEPTH
+#define EDS_CAN_RX_QUEUE_DEPTH (8U)
+#endif
+
 /* --------------------------------------------------------------------------
  * CAN transport interface (vtable pattern)
  * -------------------------------------------------------------------------- */
