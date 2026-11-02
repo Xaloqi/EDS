@@ -2441,6 +2441,7 @@ jobs:
           - ardep_ecu
           - basic_ecu_cda_demo
           - canfd_ecu
+          - vehicle_state_ecu
 
     steps:
       - uses: actions/checkout@v4
