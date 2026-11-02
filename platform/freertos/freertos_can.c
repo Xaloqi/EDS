@@ -67,7 +67,7 @@
 /**
  * @brief RX queue depth in frames.
  *
- * EDS_CAN_RX_QUEUE_DEPTH (transport/can_transport.h, default 8), as on
+ * EDS_CAN_RX_QUEUE_DEPTH (transport/can_transport.h, default 32), as on
  * Zephyr. The poll task drains it every iteration, and the Flow Control
  * BlockSize keeps a sender from putting more CFs on the bus than it holds
  * [EDS#558]. CAN_FREERTOS_RX_QUEUE_DEPTH is kept as an override name.

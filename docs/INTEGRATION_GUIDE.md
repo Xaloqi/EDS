@@ -69,7 +69,7 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | Single Frame (SF) | **Implemented** | Max 7 bytes payload. |
 | First Frame (FF) | **Implemented** | Total length up to 4095 bytes. |
 | Consecutive Frame (CF) | **Implemented** | Sequence number validated (0x1–0xF, wraps). |
-| Flow Control (FC) | **Implemented** | CTS (FS=0), Wait (FS=1) and Overflow (FS=2) all handled. BlockSize and STmin extracted from FC and applied. The FC the ECU sends advertises BS = half the CAN RX queue (4 by default) and STmin 0, so a tester cannot overrun the queue (EDS#558; see §3 Step 5, "The receive rule for custom loops"). |
+| Flow Control (FC) | **Implemented** | CTS (FS=0), Wait (FS=1) and Overflow (FS=2) all handled. BlockSize and STmin extracted from FC and applied. The FC the ECU sends advertises BS = half the CAN RX queue (16 by default) and STmin 0, so a tester cannot overrun the queue (EDS#558; see §3 Step 5, "The receive rule for custom loops"). |
 | STmin 0x00–0x7F | **Implemented** | 0–127 ms inter-frame delay (1 ms resolution). |
 | STmin 0xF1–0xF9 | **Implemented** | 100–900 µs; rounded up to 1 ms tick interval. |
 | STmin 0x80–0xF0, 0xFA–0xFF | **Implemented** | Reserved values treated as 0 ms (CTS-immediate). |
@@ -474,11 +474,11 @@ while (true) {
 
 #### The receive rule for custom loops (EDS#558)
 
-The CAN driver hands frames to the loop through a software queue of `EDS_CAN_RX_QUEUE_DEPTH` frames (default 8; Zephyr `CONFIG_EDS_CAN_RX_QUEUE_DEPTH`, elsewhere `-DEDS_CAN_RX_QUEUE_DEPTH=N`). A frame that arrives while it is full is dropped, and a dropped Consecutive Frame means no answer to the request. If you write your own loop:
+The CAN driver hands frames to the loop through a software queue of `EDS_CAN_RX_QUEUE_DEPTH` frames (default 32; Zephyr `CONFIG_EDS_CAN_RX_QUEUE_DEPTH`, elsewhere `-DEDS_CAN_RX_QUEUE_DEPTH=N`). A frame that arrives while it is full is dropped, and a dropped Consecutive Frame means no answer to the request. If you write your own loop:
 
 1. **Drain the queue every iteration**: call `can_transport_receive()` until it reports no frame, at most `EDS_CAN_RX_QUEUE_DEPTH` times (the bound keeps the iteration's WCET fixed). One frame per iteration is not enough: at 500 kbit/s a classic CF arrives every ~0.25 ms.
-2. **Keep the Flow Control BlockSize within the queue**: the ECU's FC tells the tester how many CFs it may send before waiting for the next FC (ISO 15765-2 FlowControl BS; 0 = no limit) and the minimum gap between them (STmin). EDS sends the next FC only after the loop has taken the block's last CF out of the queue, so a BS of at most the queue depth means a tester can never overrun it, at any STmin and any bus speed. The default `ISOTP_DEFAULT_BLOCK_SIZE` is half the depth (4); the other half leaves room for functional requests such as `3E 80` on the same queue. The build fails if it is 0 or above the depth. STmin stays 0 by default (`ISOTP_DEFAULT_STMIN_MS`).
-3. **For throughput, raise both together**, e.g. `CONFIG_EDS_CAN_RX_QUEUE_DEPTH=32` and `zephyr_compile_definitions(ISOTP_DEFAULT_BLOCK_SIZE=16)`. Each block costs one loop iteration of latency for the FC, so a long 0x36 transfer at BS 4 runs at about 4 CFs per iteration. BS 0 is never the answer while frames pass through a bounded queue.
+2. **Keep the Flow Control BlockSize within the queue**: the ECU's FC tells the tester how many CFs it may send before waiting for the next FC (ISO 15765-2 FlowControl BS; 0 = no limit) and the minimum gap between them (STmin). EDS sends the next FC only after the loop has taken the block's last CF out of the queue, so a BS of at most the queue depth means a tester can never overrun it, at any STmin and any bus speed. The default `ISOTP_DEFAULT_BLOCK_SIZE` is half the depth (16); the other half leaves room for functional requests such as `3E 80` on the same queue. The build fails if it is 0 or above the depth. STmin stays 0 by default (`ISOTP_DEFAULT_STMIN_MS`).
+3. **Size it for throughput or for RAM.** Each block costs one loop iteration of latency for the FC. At the default (depth 32, BS 16) a 4000-byte classic-CAN request takes ~180 ms on a NUCLEO-H753ZI at 500 kbit/s, about 20% over the ~150 ms the frames need on the wire; at depth 8 (BS 4) it takes ~290 ms. The queue costs `sizeof(struct can_frame)` per entry: 16 B classic, 72 B with CAN FD (512 B / 2.3 KB at 32). A RAM-tight ECU can set `CONFIG_EDS_CAN_RX_QUEUE_DEPTH=8`; BS follows. BS 0 is never the answer while frames pass through a bounded queue.
 
 These defaults set `isotp_cfg_t.block_size` / `.stmin_ms` in the generated `uds_init.c`; a value you set at runtime in `isotp_cfg_t` is not build-checked, so keep it within the same bound.
 

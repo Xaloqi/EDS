@@ -108,7 +108,7 @@ config ISOTP_TIMEOUT_AR_MS
 
 config EDS_CAN_RX_QUEUE_DEPTH
 	int "CAN RX queue depth (frames)"
-	default 8
+	default 32
 	range 2 255
 	help
 	  Frames the CAN RX callback can queue for the diagnostics loop
@@ -118,7 +118,9 @@ config EDS_CAN_RX_QUEUE_DEPTH
 	  larger than this depth: with BS 0 a tester may send a whole 4 KB
 	  request back to back and the queue drops frames. Raise both together
 	  for more throughput on long 0x36 transfers; each queued frame costs
-	  sizeof(struct can_frame) of RAM (72 bytes with CONFIG_CAN_FD_MODE).
+	  sizeof(struct can_frame) of RAM: 16 bytes, 72 with CONFIG_CAN_FD_MODE
+	  (512 / 2304 bytes at the default 32). It was 8 before EDS#558; at 8
+	  (BS 4) a long classic-CAN download takes about twice as long.
 	  TRACEABILITY: EDS#558
 
 # ---------------------------------------------------------------------------

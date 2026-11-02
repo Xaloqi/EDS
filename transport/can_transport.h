@@ -58,7 +58,7 @@ extern "C" {
 #define EDS_CAN_RX_QUEUE_DEPTH (CONFIG_EDS_CAN_RX_QUEUE_DEPTH)
 #endif
 #ifndef EDS_CAN_RX_QUEUE_DEPTH
-#define EDS_CAN_RX_QUEUE_DEPTH (8U)
+#define EDS_CAN_RX_QUEUE_DEPTH (32U)
 #endif
 
 /* --------------------------------------------------------------------------

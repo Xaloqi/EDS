@@ -15,7 +15,7 @@
  *            CAN ISR (Zephyr driver)
  *              │  rx_callback()   — matches our diagnostic RX filter
  *              ▼
- *            k_msgq  s_can_rx_msgq   (8 frames, ISR-safe ring buffer)
+ *            k_msgq  s_can_rx_msgq   (EDS_CAN_RX_QUEUE_DEPTH frames, ISR-safe)
  *              │
  *              ▼
  *            zephyr_can_receive()  <- poll loop calls can_transport_receive()
@@ -83,7 +83,7 @@
 LOG_MODULE_REGISTER(zephyr_can, LOG_LEVEL_INF);
 
 /* --------------------------------------------------------------------------
- * RX message queue: EDS_CAN_RX_QUEUE_DEPTH frames (default 8), ISR-safe.
+ * RX message queue: EDS_CAN_RX_QUEUE_DEPTH frames (default 32), ISR-safe.
  * -------------------------------------------------------------------------- */
 #define CAN_RX_MSGQ_DEPTH   (EDS_CAN_RX_QUEUE_DEPTH)
 

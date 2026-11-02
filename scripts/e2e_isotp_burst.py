@@ -28,6 +28,12 @@ Run (no sudo: a user + network namespace with its own vcan; mtu 72 for FD):
     unshare -rn sh -c 'ip link add zcan0 type vcan && ip link set zcan0 mtu 72 up &&
                        python3 scripts/e2e_isotp_burst.py build/zephyr/zephyr.exe zcan0 [--fd]'
 
+Real hardware (no simulator): pass "-" as the executable, an slcan adapter
+as the channel, and the ECU's console to scan it for queue overflows:
+
+    python3 scripts/e2e_isotp_burst.py - /dev/serial/by-id/<canable> --slcan \
+        --rx-id 0x7E0 --console /dev/serial/by-id/<st-link>
+
 Exit 0 when every request is answered.
 """
 
@@ -36,13 +42,14 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import threading
 import time
 from typing import List, Optional
 
 import can
 
-RX_ID = 0x7DF            # basic_ecu request ID (GEN_CAN_RX_ID)
-TX_ID = 0x7E8            # basic_ecu response ID (GEN_CAN_TX_ID)
+RX_ID = 0x7DF            # basic_ecu request ID (GEN_CAN_RX_ID); --rx-id
+TX_ID = 0x7E8            # basic_ecu response ID (GEN_CAN_TX_ID); --tx-id
 REQ_LEN = 4000           # fits the 12-bit FF_DL, so classic and FD use the same FF
 FD_DLS = (8, 12, 16, 20, 24, 32, 48, 64)
 FC_TIMEOUT_S = 1.0       # N_Bs
@@ -136,14 +143,38 @@ def main() -> int:
     ap.add_argument("channel")
     ap.add_argument("--fd", action="store_true", help="send the request as CAN FD frames")
     ap.add_argument("--rounds", type=int, default=5)
+    ap.add_argument("--slcan", action="store_true",
+                    help="channel is an slcan serial port (classic CAN, 500 kbit/s)")
+    ap.add_argument("--rx-id", type=lambda v: int(v, 0), default=RX_ID)
+    ap.add_argument("--tx-id", type=lambda v: int(v, 0), default=TX_ID)
+    ap.add_argument("--console", help="ECU serial console to scan, with exe '-'")
     args = ap.parse_args()
+    globals().update(RX_ID=args.rx_id, TX_ID=args.tx_id)
 
-    ecu = subprocess.Popen([args.exe], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log: List[str] = []
+    ecu = None
+    if args.exe != "-":
+        ecu = subprocess.Popen([args.exe], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    stop = threading.Event()
+    reader = None
+    if args.console:
+        import serial  # pyserial, a python-can dependency of the slcan backend
+        con = serial.Serial(args.console, 115200, timeout=0.2)
+
+        def read_console() -> None:
+            buf = b""
+            while not stop.is_set():
+                buf += con.read(4096)
+            log.extend(buf.decode(errors="replace").splitlines())
+        reader = threading.Thread(target=read_console)
+        reader.start()
     try:
         time.sleep(1.5)
-        bus = can.Bus(interface="socketcan", channel=args.channel,
-                      receive_own_messages=False, fd=args.fd)
+        if args.slcan:
+            bus = can.Bus(interface="slcan", channel=args.channel, bitrate=500000)
+        else:
+            bus = can.Bus(interface="socketcan", channel=args.channel,
+                          receive_own_messages=False, fd=args.fd)
         tx = IsoTpSender(bus, args.fd)
         kind = "CAN FD" if args.fd else "classic CAN"
         payload = bytes([0x2E, 0xF1, 0x90]) + bytes(i & 0xFF for i in range(REQ_LEN - 3))
@@ -159,13 +190,17 @@ def main() -> int:
             print("FC seen (PCI BS STmin): " + ", ".join(sorted({f.hex() for f in tx.fcs})))
         bus.shutdown()
     finally:
-        ecu.terminate()
-        try:
-            out, _ = ecu.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            ecu.kill()
-            out, _ = ecu.communicate()
-        log = out.decode(errors="replace").splitlines()
+        stop.set()
+        if reader is not None:
+            reader.join()
+        if ecu is not None:
+            ecu.terminate()
+            try:
+                out, _ = ecu.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                ecu.kill()
+                out, _ = ecu.communicate()
+            log.extend(out.decode(errors="replace").splitlines())
 
     overflows = [ln for ln in log if "overflowed" in ln]
     check(not overflows, f"no CAN RX queue overflow logged ({len(overflows)} lines)")

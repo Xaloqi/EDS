@@ -230,11 +230,11 @@ extern "C" {
  * FlowControl BS: the sender sends at most BS CFs, then waits for the next
  * FC; BS 0 lets it send the whole message without stopping.
  *
- * Default: half the CAN RX queue (EDS_CAN_RX_QUEUE_DEPTH, 8 -> 4) [EDS#558].
+ * Default: half the CAN RX queue (EDS_CAN_RX_QUEUE_DEPTH, 32 -> 16) [EDS#558].
  * The receiver sends the next FC only after the loop has taken the block's
  * last CF out of the queue, so no more than BS CFs of one message are ever
  * queued; the other half keeps room for functional requests (0x3E) on the
- * same queue. It was 0, which promised an 8-frame queue it could take a
+ * same queue. It was 0, which promised the old 8-frame queue it could take a
  * 4000-byte request at once; on a real bus long 0x2E/0x36/0x3D requests lost
  * CFs and got no answer.
  *
