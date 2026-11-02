@@ -8,6 +8,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **`examples/vehicle_state_ecu` configures again** (#560). #538 regenerated its
+  `generated/routine_handlers.c` and dropped the four `[APP HOOK]` delegations to
+  `src/vehicle_state.c` (RID 0xC100 start/results, 0xC101 start/stop), so the example's own guard
+  failed CMake configure on main, in v1.26.0 and v1.26.1. The hooks are restored, and the example
+  is now built on native_sim by `zephyr-examples-native`; it was the only example no CI job built.
+
 ### Behaviour changes
 
 - **A hand-written CAN FD channel (`isotp_cfg_t.use_fd = true`) now sends FD frames only**
