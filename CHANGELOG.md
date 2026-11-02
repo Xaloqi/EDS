@@ -84,8 +84,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `-DISOTP_DEFAULT_BLOCK_SIZE=0` no longer compiles: drop it. A RAM-tight ECU can set the depth
   to 8 (BS 4) and pay roughly 1.6x the download time. A tester or test that expected `30 00 00`
   after the First Frame must expect `30 10 00`. A BS set at runtime in `isotp_cfg_t.block_size`
-  is not build-checked; keep it within the queue depth. `safeboot_ecu` keeps its own
-  `ISOTP_DEFAULT_BLOCK_SIZE=4` / `ISOTP_DEFAULT_STMIN_MS=1` override from #312.
+  is not build-checked; keep it within the queue depth. `safeboot_ecu` no longer carries its own
+  `ISOTP_DEFAULT_BLOCK_SIZE=4` / `ISOTP_DEFAULT_STMIN_MS=1` override from #312 (see the next entry).
+
+- **`safeboot_ecu` advertises the stack's default Flow Control, BS 16 / STmin 0, instead of BS 4 /
+  STmin 1 ms: a download is twice as fast.** The override was the workaround for the 8-frame RX
+  queue overflowing (#313); #558's depth 32 and the BS derived from it make it unnecessary.
+  Measured on a NUCLEO-H753ZI over real CAN at 500 kbit/s, a 133,272-byte image
+  (`0x34`, every `0x36`, `0x37`), timed from the first `0x36` to the `0x37` response, the client adding
+  no pacing of its own: **3.80 KB/s before, 7.44 KB/s after** (5 of 5 each, identical to 0.01 KB/s;
+  a 524,288-byte image: 7.51 KB/s, 2 of 2). Every download ended in `77`: the tester's CRC-32 and
+  the SHA-256 policy both accepted the image. **Migration:** a tester that expected `30 04 01` after
+  the First Frame must expect `30 10 00`. A RAM-tight build can set the depth to 8 and get BS 4 back.
 
 ### New
 

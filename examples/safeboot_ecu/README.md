@@ -418,9 +418,10 @@ except where shown symbolic (`<...>`) because they depend on the image being sen
 #    7F 36 73). maxNumberOfBlockLength above INCLUDES the
 #    1-byte block counter, so the payload here is 255 bytes, not 256.
 #    Needs multi-frame ISO-TP for any block over 7 bytes — this ECU
-#    advertises block_size=4 / STmin=1ms in its Flow Control (issue #313);
-#    a sender that ignores that and blasts frames unpaced will overflow the
-#    8-frame CAN RX queue.
+#    advertises the stack default in its Flow Control, block_size=16 /
+#    STmin=0 (30 10 00, EDS#558); a sender that ignores the block size and
+#    blasts more than 16 frames between Flow Controls can overflow the
+#    32-frame CAN RX queue.
 36 <blk_seq> <up to 255 bytes>  →  76 <blk_seq>
 
 # 7. RequestTransferExit — the CRC-32 record is MANDATORY here once any

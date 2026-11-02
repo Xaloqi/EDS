@@ -177,20 +177,8 @@ endif()
 # hardware targets need it here.
 target_compile_definitions(app PRIVATE EDS_MSG_BUF_MAX_STACK_BYTES=8192)
 
-# [#313] ISO-TP flow control the ECU advertises to the tester must not
-# promise a pace it cannot sustain. generated/uds_init.c configures
-# isotp_cfg.block_size/stmin_ms from ISOTP_DEFAULT_BLOCK_SIZE/
-# ISOTP_DEFAULT_STMIN_MS (transport/isotp.h, both guarded by #ifndef so a
-# compile definition here overrides the 0/0 "unlimited, tester decides
-# pace" default without touching the generated file). 0/0 let a 36-CF
-# TransferData block arrive faster than platform/zephyr/zephyr_can.c's
-# 8-frame CAN_RX_MSGQ_DEPTH can be drained at this ECU's ~1 ms poll
-# cadence, overflowing the queue and corrupting ISO-TP reassembly (issue
-# #313). BS=4/STmin=1ms caps any burst at 4 frames before the tester must
-# wait for the next FC, and paces individual frames to roughly the same
-# rate the poll loop drains them at — half the 8-deep queue's capacity,
-# leaving headroom for ordinary tick jitter.
-target_compile_definitions(app PRIVATE
-    ISOTP_DEFAULT_BLOCK_SIZE=4
-    ISOTP_DEFAULT_STMIN_MS=1
-)
+# ISO-TP flow control: no override. The stack's own default is what the ECU
+# advertises: STmin 0 and a block size of half the RX queue depth
+# (transport/isotp.h, EDS#558). This block used to force BS 4 / STmin 1 ms
+# (#313), the workaround for a burst overflowing the old 8-frame CAN RX queue;
+# the deeper queue and the BS derived from it make it unnecessary.
