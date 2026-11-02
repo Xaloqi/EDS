@@ -1,0 +1,848 @@
+# =============================================================================
+# GENERATED — do NOT edit manually.
+# Regenerate: python3 tools/testgen.py --config <yaml> --out generated/
+#
+# ECU       : CanFdEcu
+# Version   : 1.0.0
+# Generated : 2026-11-02T08:21:02Z
+#
+# PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
+#
+# Replaces 870 lines of inline ISO-TP / AES-128 / ECU simulator with
+# xaloqi-tester imports.  Public API is identical — all test files
+# (test_did_*.py, test_services.py, test_routine_*.py) work unchanged:
+#
+#   IsoTpTransport.request(pdu)  ->  raw UDS PDU response bytes
+#   _EcuSimulator                ->  importable for key derivation
+#   All SID/NRC/SESSION constants
+#   uds_bus fixture (function scope)
+#
+# INTERFACE MODES (CAN_INTERFACE env var or --can-interface CLI flag):
+#   simulator  — built-in ECU simulator via xaloqi-tester (default)
+#   virtual    — xaloqi-tester VirtualBus (in-process)
+#   socketcan  — Linux SocketCAN / vcan0
+#   pcan       — PEAK PCAN USB
+#   kvaser     — Kvaser USB
+#   firmware   — the real compiled EDS stack (harness, Professional tier):
+#                every test is judged by the shipped C code, not by the
+#                simulator below. Use it to check the simulator against the
+#                stack — they disagreed on 0x22/0x2E/0x31 NRCs and the P2*
+#                encoding for a release before anyone noticed (2026-10-16, F1).
+#
+# DEPENDENCIES: see requirements_testgen.txt
+#   xaloqi-tester >= 1.0.0
+#   pytest >= 7.0
+# =============================================================================
+
+from __future__ import annotations
+import asyncio, os, logging, zlib
+from typing import Optional
+import pytest
+
+# [SEC-FIRMWARE-CONFTEST-01, 2026-08-31 campaign] pytest only auto-loads
+# conftest.py, never a sibling conftest_firmware.py — so the firmware_bus
+# fixture that test_firmware_services.py.j2 depends on was never available
+# ("fixture 'firmware_bus' not found"), producing a setup error for every
+# firmware-backed test in every example. Declaring it as a plugin here
+# makes conftest_firmware.py's fixtures and --firmware/--firmware-sec-key-*
+# options available the same way pytest would treat a second conftest.py.
+pytest_plugins = ["conftest_firmware"]
+
+try:
+    from xaloqi.tester import (
+        UdsTester, NrcError,
+        TimeoutError as UdsTimeoutError, TransportError, LicenseError,
+    )
+    from xaloqi.tester.transport.virtual import VirtualBus
+    from xaloqi.tester._security import aes_cmac, derive_key
+    _XALOQI_AVAILABLE = True
+except ImportError:
+    _XALOQI_AVAILABLE = False
+
+log = logging.getLogger("conftest.canfdecu")
+
+# ---------------------------------------------------------------------------
+# Protocol constants
+# ---------------------------------------------------------------------------
+
+TESTER_TX_ID:   int   = 2016
+ECU_TX_ID:      int   = 2024
+CAN_EXTENDED:   bool  = False
+P2_SERVER_MAX_MS:      int = 25
+P2_STAR_SERVER_MAX_MS: int = 5000
+S3_SERVER_TIMEOUT_MS:  int = 5000
+RESPONSE_TIMEOUT_S:    float = (P2_SERVER_MAX_MS + 50) / 1000.0
+
+SID_DIAGNOSTIC_SESSION_CONTROL: int = 0x10
+SID_ECU_RESET:                  int = 0x11
+SID_READ_DTC_INFO:              int = 0x19
+SID_READ_DATA_BY_ID:            int = 0x22
+SID_SECURITY_ACCESS:            int = 0x27
+SID_WRITE_DATA_BY_ID:           int = 0x2E
+SID_ROUTINE_CONTROL:            int = 0x31
+SID_TESTER_PRESENT:             int = 0x3E
+SID_NEGATIVE_RESPONSE:          int = 0x7F
+POSITIVE_RESPONSE_OFFSET:       int = 0x40
+SESSION_DEFAULT:                int = 0x01
+SESSION_PROGRAMMING:            int = 0x02
+SESSION_EXTENDED:               int = 0x03
+NRC_INCORRECT_MSG_LEN:                int = 0x13
+NRC_CONDITIONS_NOT_CORRECT:           int = 0x22
+NRC_REQUEST_OUT_OF_RANGE:             int = 0x31
+#: DTCStatusAvailabilityMask the simulator reports in 0x19 responses (EDS default,
+#: core/uds_services/service_0x19.c, EDS#451).
+_DTC_AVAILABILITY_MASK:               int = 0xFF
+NRC_SECURITY_ACCESS_DENIED:           int = 0x33
+NRC_INVALID_KEY:                      int = 0x35
+NRC_SUB_FUNCTION_NOT_SUPPORTED:       int = 0x12
+NRC_SERVICE_NOT_SUPPORTED_IN_SESSION: int = 0x7F
+ALGO_SEED_LEN: int = 8
+ALGO_KEY_LEN:  int = 4
+
+_LEVEL_KEYS: dict = {
+    1: bytes([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+              0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F]),
+    2: bytes([0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,
+              0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F]),
+}
+_SESSION_ORDINALS: dict = {0x01: 1, 0x02: 2, 0x03: 3}
+
+#: EDS-toolchain#187. The memory services answer for the firmware the harness
+#: builds: platform/zephyr/harness_flash_mock.c, one 4 KiB region that is
+#: readable and writable, an erase, write and verify callback but NO read
+#: callback (so 0x23 and 0x35 are NRC 0x22), blocks of up to 256 bytes, and no
+#: image policy. A customer firmware with another memory map or a read
+#: callback answers differently; run those tests against the firmware.
+_MEM_BASE: int = 0x08020000
+_MEM_SIZE: int = 4096
+_MEM_BLOCK: int = 256
+#: core/uds_access_table.c, default table: (programming session only, security level).
+_ACL: dict = {0x2A: (False, 0), 0x2F: (False, 1), 0x23: (True, 1), 0x3D: (True, 1),
+              0x34: (True, 1), 0x35: (True, 1), 0x36: (True, 1), 0x37: (True, 1)}
+#: UDS_PERIODIC_MAX_SUBSCRIPTIONS (core/uds_periodic.h).
+_PERIODIC_MAX: int = 8
+
+
+# ---------------------------------------------------------------------------
+# _EcuSimulator — compatibility shim
+# test_did_*.py imports _EcuSimulator for _derive_key / _cmac.
+# Delegates to xaloqi-tester._security — no inline AES needed.
+# ---------------------------------------------------------------------------
+
+class _EcuSimulator:
+    _LEVEL_KEYS: dict = _LEVEL_KEYS
+
+    @classmethod
+    def _cmac(cls, key: bytes, msg: bytes) -> bytes:
+        if _XALOQI_AVAILABLE:
+            return aes_cmac(key, msg)
+        try:
+            from Crypto.Cipher import AES as _AES
+            from Crypto.Hash import CMAC as _CMAC
+            c = _CMAC.new(key, ciphermod=_AES); c.update(msg); return c.digest()
+        except ImportError:
+            raise ImportError(
+                'xaloqi-tester or pycryptodome required. '
+                'Run: pip install -r requirements_testgen.txt'
+            )
+
+    def _derive_key(self, seed: bytes, level: int) -> bytes:
+        if _XALOQI_AVAILABLE:
+            return derive_key(seed, level)
+        key = self._LEVEL_KEYS.get(level, self._LEVEL_KEYS[1])
+        return self._cmac(key, seed)[:4]
+
+
+# ---------------------------------------------------------------------------
+# IsoTpTransport — backward-compatible adapter over UdsTester.raw_request()
+# ---------------------------------------------------------------------------
+
+class IsoTpTransport:
+    def __init__(self, tester: UdsTester, loop: asyncio.AbstractEventLoop) -> None:
+        self._tester = tester
+        self._loop   = loop
+
+    def request(self, pdu: bytes, timeout: float = RESPONSE_TIMEOUT_S) -> Optional[bytes]:
+        async def _req():
+            try:
+                return await self._tester.raw_request(pdu, timeout=timeout)
+            except NrcError as e:
+                return bytes([0x7F, e.sid, e.nrc])
+            except (UdsTimeoutError, TransportError):
+                return None
+            except Exception:
+                return None
+        try:
+            return self._loop.run_until_complete(_req())
+        except Exception:
+            return None
+
+    def close(self) -> None:
+        try:
+            self._loop.run_until_complete(self._tester.__aexit__(None, None, None))
+        except Exception:
+            pass
+        finally:
+            self._loop.close()
+
+
+# ---------------------------------------------------------------------------
+# Inline ECU simulator state — mirrors diagnostics_config.yaml
+# Used when --can-interface=simulator (default in CI).
+# ---------------------------------------------------------------------------
+
+class _InlineEcuState:
+    def __init__(self) -> None:
+        self.session: int = 0x01
+        self.sec_unlocked: dict = {}
+        # SecurityAccess mirrors core/uds_security.c (EDS-toolchain#178): one
+        # attempt counter and one lockout for all levels, kept across session
+        # changes and ECUReset (NVM-persisted, P3-SEC-01); at most one level
+        # unlocked at a time (active_level).
+        self.sec_failed_attempts: int = 0
+        self.sec_locked_out: bool = False
+        # RoutineControl started/active state (EDS#484, ISO 14229-1:2026 Table 430).
+        self.routine_started: dict = {}
+        self.routine_active: dict = {}
+        self.pending_seed: Optional[bytes] = None
+        self.pending_level: Optional[int] = None
+        # EDS-toolchain#187: 0x34/0x36/0x37 download in progress (None = idle),
+        # 0x3D writes, and 0x2A subscriptions; see _MEM_* below.
+        self.xfer: Optional[dict] = None
+        self.flash: bytearray = bytearray(b"\xFF" * _MEM_SIZE)
+        self.periodic: set = set()
+        self.did_store: dict = {
+            61840: bytearray([0xAA] * 17),
+            256: bytearray([0xAA] * 64),
+            257: bytearray([0xAA] * 64),
+            258: bytearray([0xAA] * 64),
+            61953: bytearray([0xAA] * 20),
+        }
+        # 0x50 = testNotCompletedSinceLastClear | testNotCompletedThisOperationCycle,
+        # what EDS reports after registration since v1.20.0 (EDS#448).
+        # severity: the DTCSeverity byte codegen registers (EDS#145).
+        self.dtcs: list = [
+        ]
+
+    @property
+    def _dids_meta(self) -> dict:
+        return {
+            61840: {
+                "data_length":  17,
+                "access_read":  True,
+                "access_write": False,
+                "min_session":  1,
+                "read_sec":     0,
+                "write_sec":    1,
+            },
+            256: {
+                "data_length":  64,
+                "access_read":  True,
+                "access_write": False,
+                "min_session":  1,
+                "read_sec":     0,
+                "write_sec":    1,
+            },
+            257: {
+                "data_length":  64,
+                "access_read":  True,
+                "access_write": False,
+                "min_session":  1,
+                "read_sec":     0,
+                "write_sec":    1,
+            },
+            258: {
+                "data_length":  64,
+                "access_read":  True,
+                "access_write": False,
+                "min_session":  1,
+                "read_sec":     0,
+                "write_sec":    1,
+            },
+            61953: {
+                "data_length":  20,
+                "access_read":  True,
+                "access_write": False,
+                "min_session":  3,
+                "read_sec":     0,
+                "write_sec":    0,
+            },
+        }
+
+    @property
+    def _routines_meta(self) -> dict:
+        return {
+        }
+
+
+def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optional[bytes]:
+    """Inline ECU protocol simulator — mirrors docker/ecu_sim/sim.py."""
+    if not pdu: return bytes([0x7F, 0x00, 0x13])
+    sid = pdu[0]
+    def nrc(s, n): return bytes([0x7F, s, n])
+
+    if sid == 0x10:
+        if len(pdu) < 2: return nrc(0x10, 0x13)
+        sub = pdu[1] & 0x7F
+        if sub not in (0x01, 0x02, 0x03): return nrc(0x10, 0x12)
+        # uds_session.c: from programming only default or programming -> else 0x22.
+        if state.session == 0x02 and sub not in (0x01, 0x02): return nrc(0x10, 0x22)
+        state.session = sub; state.sec_unlocked.clear()
+        state.pending_seed = state.pending_level = None
+        state.xfer = None                       # service_0x10.c, EDS#442
+        if sub == 0x01: state.periodic.clear()
+        if pdu[1] & 0x80: return None
+        p2_hi=0; p2_lo=25; p2s_hi=1; p2s_lo=244
+        return bytes([0x50, sub, p2_hi, p2_lo, p2s_hi, p2s_lo])
+    if sid == 0x3E:
+        if len(pdu) < 2: return nrc(0x3E, 0x13)
+        if (pdu[1] & 0x7F) != 0x00: return nrc(0x3E, 0x12)  # subFunctionNotSupported
+        if pdu[1] & 0x80: return None
+        return bytes([0x7E, 0x00])
+    if sid == 0x11:
+        if len(pdu) < 2: return nrc(0x11, 0x13)
+        sub = pdu[1] & 0x7F
+        if sub not in (0x01, 0x02, 0x03): return nrc(0x11, 0x12)
+        state.session = 0x01; state.sec_unlocked.clear()
+        state.pending_seed = state.pending_level = None
+        state.xfer = None; state.periodic.clear()
+        if pdu[1] & 0x80: return None
+        return bytes([0x51, sub])
+    if sid == 0x27:
+        # Session gate before length (ISO 14229-1:2026 Figure 5, EDS-toolchain#179).
+        if state.session == 0x01: return nrc(0x27, 0x7F)
+        if len(pdu) < 2: return nrc(0x27, 0x13)
+        # securityAccessType is bits 6-0; bit 7 suppresses the positive
+        # response (Table 41 / Table 10, EDS#486).
+        sub = pdu[1] & 0x7F; suppress = bool(pdu[1] & 0x80)
+        if sub % 2 == 1:
+            level = (sub + 1) // 2
+            if state.sec_locked_out: return nrc(0x27, 0x37)         # EDS#446
+            if state.sec_unlocked.get(level):
+                return None if suppress else bytes([0x67, sub] + [0x00] * ALGO_SEED_LEN)
+            # EDS#485: a level the stack's algorithm doesn't define -> NRC 0x12.
+            if level not in _LEVEL_KEYS: return nrc(0x27, 0x12)
+            import os as _os
+            seed = _os.urandom(6) + bytes([0x00, level & 0xFF])
+            state.pending_seed = seed; state.pending_level = level
+            return None if suppress else bytes([0x67, sub]) + seed
+        else:
+            level = sub // 2
+            if len(pdu) < 3: return nrc(0x27, 0x13)
+            # During the delay no seed can be pending: sendKey is 0x24 (EDS#446).
+            if state.pending_seed is None: return nrc(0x27, 0x24)
+            def _fail(code):
+                state.pending_seed = state.pending_level = None
+                state.sec_failed_attempts += 1
+                if state.sec_failed_attempts >= 3:
+                    state.sec_failed_attempts = 0; state.sec_locked_out = True
+                    return nrc(0x27, 0x36)                        # Table 45
+                return nrc(0x27, code)
+            # Key for a level with no pending seed: 0x24, and it costs an
+            # attempt (EDS#487, P4-SEC-01).
+            if state.pending_level != level: return _fail(0x24)
+            # Wrong key length is invalidKey, not 0x13, mirroring the stack's
+            # deliberate no-length-oracle behaviour (core/uds_security.c).
+            if len(pdu) != 2 + ALGO_KEY_LEN: return _fail(0x35)
+            key_material = _LEVEL_KEYS.get(level, _LEVEL_KEYS[1])
+            expected = (aes_cmac(key_material, state.pending_seed)[:ALGO_KEY_LEN]
+                        if _XALOQI_AVAILABLE else
+                        _EcuSimulator._cmac(key_material, state.pending_seed)[:ALGO_KEY_LEN])
+            if bytes(pdu[2:]) != expected: return _fail(0x35)
+            state.pending_seed = state.pending_level = None
+            state.sec_failed_attempts = 0
+            state.sec_unlocked.clear(); state.sec_unlocked[level] = True
+            return None if suppress else bytes([0x67, sub])
+    if sid == 0x22:
+        if len(pdu) < 3: return nrc(0x22, 0x13)
+        if (len(pdu) - 1) % 2 != 0: return nrc(0x22, 0x13)
+        resp = bytearray([0x62]); meta = state._dids_meta
+        for i in range(1, len(pdu), 2):
+            did_id = (pdu[i] << 8) | pdu[i + 1]; entry = meta.get(did_id)
+            # Mirrors EDS v1.20.0 service_0x22.c (EDS#465, ISO 14229-1:2026
+            # Figure 21): a DID unknown or not supported in the active session
+            # is skipped; NRC 0x31 only if no requested DID is supported.
+            if entry is None: continue
+            if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: continue
+            if entry['read_sec'] > 0 and not state.sec_unlocked.get(entry['read_sec']): return nrc(0x22, 0x33)
+            resp.extend([pdu[i], pdu[i+1]])
+            resp.extend(state.did_store.get(did_id, bytearray(entry['data_length'])))
+        if len(resp) == 1: return nrc(0x22, 0x31)
+        return bytes(resp)
+    if sid == 0x2E:
+        # Service-level gate first, as uds_access_table.c does: 0x2E needs a
+        # non-default session (NRC 0x7F) and SecurityAccess level 1 (NRC 0x33),
+        # both before any length check (Figure 5, EDS-toolchain#179).
+        if state.session == 0x01: return nrc(0x2E, 0x7F)
+        if not state.sec_unlocked.get(1): return nrc(0x2E, 0x33)
+        if len(pdu) < 4: return nrc(0x2E, 0x13)
+        did_id = (pdu[1] << 8) | pdu[2]; meta = state._dids_meta; entry = meta.get(did_id)
+        if entry is None or not entry['access_write']: return nrc(0x2E, 0x31)
+        # EDS#466/#449: DID not writable in the active session -> NRC 0x31.
+        if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: return nrc(0x2E, 0x31)
+        if entry['write_sec'] > 0 and not state.sec_unlocked.get(entry['write_sec']): return nrc(0x2E, 0x33)
+        data = pdu[3:]
+        if len(data) != entry['data_length']: return nrc(0x2E, 0x13)
+        state.did_store[did_id] = bytearray(data); return bytes([0x6E, pdu[1], pdu[2]])
+    if sid == 0x19:
+        if len(pdu) < 2: return nrc(0x19, 0x13)
+        # reportType is a SubFunction: bit 7 suppresses the positive response.
+        sub = pdu[1] & 0x7F; suppress = bool(pdu[1] & 0x80)
+        if sub == 0x01:
+            if len(pdu) < 3: return nrc(0x19, 0x13)
+            mask = pdu[2]
+            # Byte 2 is the ECU's DTCStatusAvailabilityMask (EDS default 0xFF,
+            # EDS#451), not an echo of the request mask — echoing it went
+            # unnoticed while every test used mask 0xFF (2026-10-16, F15).
+            n = sum(1 for d in state.dtcs if d['status'] & mask & _DTC_AVAILABILITY_MASK)
+            if suppress: return None
+            return bytes([0x59, 0x01, _DTC_AVAILABILITY_MASK, 0x01, (n >> 8) & 0xFF, n & 0xFF])
+        if sub == 0x02:
+            if len(pdu) < 3: return nrc(0x19, 0x13)
+            mask = pdu[2]
+            resp = bytearray([0x59, 0x02, _DTC_AVAILABILITY_MASK])
+            for d in state.dtcs:
+                if d['status'] & mask & _DTC_AVAILABILITY_MASK:
+                    c = d['code']
+                    resp.extend([(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, d['status']])
+            if suppress: return None
+            return bytes(resp)
+        if sub in (0x07, 0x08):
+            # EDS#145, ISO 14229-1:2013 §11.3.1.8/9: match iff (status & statusMask)
+            # and (DTCSeverity & severityMask) are both non-zero.
+            if len(pdu) != 4: return nrc(0x19, 0x13)
+            sev_mask = pdu[2]; st_mask = pdu[3] & _DTC_AVAILABILITY_MASK
+            hits = [d for d in state.dtcs if (d['status'] & st_mask) and (d['severity'] & sev_mask)]
+            if suppress: return None
+            if sub == 0x07:
+                return bytes([0x59, 0x07, _DTC_AVAILABILITY_MASK, 0x01, (len(hits) >> 8) & 0xFF, len(hits) & 0xFF])
+            resp = bytearray([0x59, 0x08, _DTC_AVAILABILITY_MASK])
+            for d in hits:
+                c = d['code']
+                resp.extend([d['severity'], 0x00, (c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, d['status']])
+            return bytes(resp)
+        if sub == 0x09:
+            # EDS#145, §11.3.1.10: one DTC's severity record; unknown DTC -> 0x31.
+            if len(pdu) != 5: return nrc(0x19, 0x13)
+            code = (pdu[2] << 16) | (pdu[3] << 8) | pdu[4]
+            d = next((x for x in state.dtcs if x['code'] == code), None)
+            if d is None: return nrc(0x19, 0x31)
+            if suppress: return None
+            return bytes([0x59, 0x09, _DTC_AVAILABILITY_MASK, d['severity'], 0x00,
+                          pdu[2], pdu[3], pdu[4], d['status']])
+        if sub in (0x0B, 0x0C, 0x0D, 0x0E):
+            # EDS#145, §11.3.1.12/13: first/most recent failed/confirmed DTC.
+            # The model has no fault monitor, so no DTC ever fails or confirms
+            # and the record is always empty: [59 sub mask].
+            if len(pdu) != 2: return nrc(0x19, 0x13)
+            if suppress: return None
+            return bytes([0x59, sub, _DTC_AVAILABILITY_MASK])
+        if sub == 0x03:   # reportDTCSnapshotIdentification: no snapshots are stored
+            if len(pdu) != 2: return nrc(0x19, 0x13)
+            if suppress: return None
+            return bytes([0x59, 0x03])
+        if sub in (0x04, 0x06):
+            # Snapshot / extended data by DTC: only record 0xFF, answered with the
+            # DTCAndStatusRecord alone; any other record, or an unknown DTC, is 0x31.
+            if len(pdu) != 6: return nrc(0x19, 0x13)
+            code = (pdu[2] << 16) | (pdu[3] << 8) | pdu[4]
+            d = next((x for x in state.dtcs if x['code'] == code), None)
+            if d is None or pdu[5] != 0xFF: return nrc(0x19, 0x31)
+            if suppress: return None
+            return bytes([0x59, sub, pdu[2], pdu[3], pdu[4], d['status']])
+        if sub == 0x14:   # reportDTCFaultDetectionCounter: no fault monitor, so none in 1..126
+            if len(pdu) != 2: return nrc(0x19, 0x13)
+            if suppress: return None
+            return bytes([0x59, 0x14])
+        if sub == 0x15:   # reportDTCWithPermanentStatus: the model has no permanent DTC
+            if len(pdu) != 2: return nrc(0x19, 0x13)
+            if suppress: return None
+            return bytes([0x59, 0x15, _DTC_AVAILABILITY_MASK])
+        if sub == 0x0A:   # reportSupportedDTC: every DTC, whatever its status
+            resp = bytearray([0x59, 0x0A, _DTC_AVAILABILITY_MASK])
+            for d in state.dtcs:
+                c = d['code']
+                resp.extend([(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, d['status']])
+            if suppress: return None
+            return bytes(resp)
+        return nrc(0x19, 0x12)
+    if sid == 0x14:
+        if state.session == 0x01: return nrc(0x14, 0x7F)
+        # service_0x14.c: exactly [SID, groupOfDTC(3)]; 0xFFFFFF = all, or one
+        # registered DTC; anything else -> 0x31 (EDS#450).
+        if len(pdu) != 4: return nrc(0x14, 0x13)
+        group = (pdu[1] << 16) | (pdu[2] << 8) | pdu[3]
+        targets = [d for d in state.dtcs if group == 0xFFFFFF or d['code'] == group]
+        if not targets: return nrc(0x14, 0x31)
+        for d in targets: d['status'] = 0x50   # after ClearDTC, as EDS#448
+        return bytes([0x54])
+    if sid == 0x31:
+        if len(pdu) < 4: return nrc(0x31, 0x13)
+        sub_fn = pdu[1] & 0x7F
+        # ISO 14229-1:2026 Figure 31: the RID (0x31, 0x33) before the SubFunction (EDS#492).
+        rid = (pdu[2] << 8) | pdu[3]; meta = state._routines_meta; entry = meta.get(rid)
+        if entry is None: return nrc(0x31, 0x31)
+        # EDS#468: RID not supported in the active session -> NRC 0x31.
+        if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: return nrc(0x31, 0x31)
+        if entry['sec_level'] > 0 and not state.sec_unlocked.get(entry['sec_level']): return nrc(0x31, 0x33)
+        if sub_fn < 0x01 or sub_fn > 0x03: return nrc(0x31, 0x12)
+        if sub_fn == 0x01 and 'start'   not in entry['support']: return nrc(0x31, 0x12)
+        if sub_fn == 0x02 and 'stop'    not in entry['support']: return nrc(0x31, 0x12)
+        if sub_fn == 0x03 and 'results' not in entry['support']: return nrc(0x31, 0x12)
+        # EDS#484, Table 430: stop needs an active routine, results a started one.
+        if sub_fn == 0x02 and not state.routine_active.get(rid, False): return nrc(0x31, 0x24)
+        if sub_fn == 0x03 and not state.routine_started.get(rid, False): return nrc(0x31, 0x24)
+        if sub_fn == 0x01: state.routine_started[rid] = True; state.routine_active[rid] = True
+        if sub_fn == 0x02: state.routine_active[rid] = False
+        if pdu[1] & 0x80: return None
+        return bytes([0x71, sub_fn, pdu[2], pdu[3]])
+    if sid == 0x28:
+        if state.session == 0x01: return nrc(0x28, 0x7F)            # EDS-toolchain#179
+        if len(pdu) < 2: return nrc(0x28, 0x13)
+        sub = pdu[1] & 0x7F
+        if sub > 0x03: return nrc(0x28, 0x12)
+        # Exactly controlType + communicationType (EDS-toolchain#181).
+        if len(pdu) != 3: return nrc(0x28, 0x13)
+        # Annex B Table B.1: bits 1-0 = 0 or any of bits 3-2 is reserved -> 0x31.
+        if (pdu[2] & 0x03) == 0 or (pdu[2] & 0x0C) != 0: return nrc(0x28, 0x31)
+        if pdu[1] & 0x80: return None
+        return bytes([0x68, sub])
+    if sid == 0x85:
+        if state.session == 0x01: return nrc(0x85, 0x7F)            # EDS-toolchain#179
+        if len(pdu) < 2: return nrc(0x85, 0x13)
+        sub = pdu[1] & 0x7F
+        if sub not in (0x01, 0x02): return nrc(0x85, 0x12)
+        if pdu[1] & 0x80: return None
+        return bytes([0xC5, sub])
+    if sid in _ACL:
+        return _inline_acl_services(pdu, sid, state, nrc)
+    return bytes([0x7F, sid, 0x11])
+
+
+def _inline_alfid(pdu: bytes, off: int):
+    """addressAndLengthFormatIdentifier at pdu[off] -> (addr_len, size_len), or None."""
+    al, sl = pdu[off] & 0x0F, (pdu[off] >> 4) & 0x0F
+    return (al, sl) if 1 <= al <= 4 and 1 <= sl <= 4 else None
+
+
+def _inline_in_region(address: int, size: int) -> bool:
+    """uds_transfer_validate_memory_range() against the one harness region."""
+    return size != 0 and _MEM_BASE <= address and address + size <= _MEM_BASE + _MEM_SIZE
+
+
+def _inline_acl_services(pdu: bytes, sid: int, state: _InlineEcuState, nrc) -> Optional[bytes]:
+    """0x23, 0x2A, 0x2F, 0x34, 0x35, 0x36, 0x37, 0x3D (EDS-toolchain#187)."""
+    programming_only, sec_level = _ACL[sid]
+    # core/uds_server.c: the access table runs before the handler.
+    if programming_only and state.session != 0x02: return nrc(sid, 0x7F)
+    if not programming_only and state.session == 0x01: return nrc(sid, 0x7F)
+    if sec_level and not state.sec_unlocked.get(sec_level): return nrc(sid, 0x33)
+    n = len(pdu)
+
+    if sid == 0x2F:
+        # No generated DID has an IO-control callback, so every well-formed
+        # request is "DID not supported for IO control".
+        return nrc(0x2F, 0x13) if n < 4 else nrc(0x2F, 0x31)
+
+    if sid == 0x2A:
+        if n < 2: return nrc(0x2A, 0x13)
+        mode = pdu[1]
+        # Figure 24 (EDS#546): the length check (3 bytes unless stopSending) comes
+        # before the transmissionMode check.
+        if mode != 0x04 and n < 3: return nrc(0x2A, 0x13)
+        if mode < 0x01 or mode > 0x04: return nrc(0x2A, 0x31)
+        if mode == 0x04:                       # stopSending: all, or the listed pDIDs
+            if n == 2: state.periodic.clear()
+            else: state.periodic.difference_update(pdu[2:])
+            return bytes([0x6A])
+        supported = []
+        for pid in dict.fromkeys(pdu[2:]):     # each pDID once, in order
+            entry = state._dids_meta.get(0xF200 | pid)
+            if entry is None or not entry['access_read']: continue
+            if _SESSION_ORDINALS.get(state.session, 1) < entry['min_session']: continue
+            if entry['read_sec'] > 0 and not state.sec_unlocked.get(entry['read_sec']):
+                return nrc(0x2A, 0x33)
+            supported.append(pid)
+        if not supported: return nrc(0x2A, 0x31)
+        if len(set(supported) - state.periodic) > _PERIODIC_MAX - len(state.periodic):
+            return nrc(0x2A, 0x31)
+        state.periodic.update(supported)
+        return bytes([0x6A])
+
+    if sid in (0x23, 0x35):                    # no read callback: see _MEM_BASE
+        if n < (2 if sid == 0x23 else 3): return nrc(sid, 0x13)
+        return nrc(sid, 0x22)
+
+    if sid == 0x3D:
+        if n < 2: return nrc(0x3D, 0x13)
+        fmt = _inline_alfid(pdu, 1)
+        if fmt is None or n < 2 + fmt[0] + fmt[1]: return nrc(0x3D, 0x13)
+        al, sl = fmt
+        address = int.from_bytes(pdu[2:2 + al], "big")
+        size = int.from_bytes(pdu[2 + al:2 + al + sl], "big")
+        if n != 2 + al + sl + size: return nrc(0x3D, 0x13)
+        if not _inline_in_region(address, size): return nrc(0x3D, 0x31)
+        off = address - _MEM_BASE
+        state.flash[off:off + size] = pdu[2 + al + sl:]
+        return bytes([0x7D]) + pdu[1:2 + al + sl]
+
+    if sid == 0x34:
+        if n < 3: return nrc(0x34, 0x13)
+        if pdu[1] != 0x00: return nrc(0x34, 0x31)
+        fmt = _inline_alfid(pdu, 2)
+        if fmt is None or n != 3 + fmt[0] + fmt[1]: return nrc(0x34, 0x13)
+        al, sl = fmt
+        address = int.from_bytes(pdu[3:3 + al], "big")
+        size = int.from_bytes(pdu[3 + al:3 + al + sl], "big")
+        if not _inline_in_region(address, size): return nrc(0x34, 0x31)
+        if state.xfer is not None: return nrc(0x34, 0x22)
+        off = address - _MEM_BASE
+        state.flash[off:off + size] = b"\xFF" * size           # erase_cb
+        state.xfer = {"address": address, "total": size, "remaining": size,
+                      "next": 1, "last": None, "crc": 0}
+        return bytes([0x74, 0x20, (_MEM_BLOCK + 2) >> 8, (_MEM_BLOCK + 2) & 0xFF])
+
+    if sid == 0x36:
+        if n < 3: return nrc(0x36, 0x13)
+        x = state.xfer
+        if x is None: return nrc(0x36, 0x24)
+        if n > _MEM_BLOCK + 2: return nrc(0x36, 0x13)
+        seq, payload = pdu[1], pdu[2:]
+        if x["last"] == seq: return bytes([0x76, seq])          # repeated block
+        if x["remaining"] == 0: return nrc(0x36, 0x24)
+        if len(payload) > x["remaining"]:
+            state.xfer = None; return nrc(0x36, 0x71)
+        if seq != x["next"]: return nrc(0x36, 0x73)
+        done = x["total"] - x["remaining"]
+        off = x["address"] - _MEM_BASE + done
+        state.flash[off:off + len(payload)] = payload
+        x["crc"] = zlib.crc32(payload, x["crc"])
+        x["remaining"] -= len(payload)
+        x["last"] = seq
+        x["next"] = 0 if x["next"] == 0xFF else x["next"] + 1
+        return bytes([0x76, seq])
+
+    # 0x37: optional 4-byte CRC-32 of the image (no image policy is registered).
+    x = state.xfer
+    if x is None: return nrc(0x37, 0x24)
+    if n not in (1, 5): return nrc(0x37, 0x13)
+    if x["remaining"] != 0:
+        state.xfer = None; return nrc(0x37, 0x24)
+    state.xfer = None
+    if n == 5 and int.from_bytes(pdu[1:5], "big") != x["crc"]: return nrc(0x37, 0x72)
+    return bytes([0x77])
+
+
+# ---------------------------------------------------------------------------
+# pytest CLI options and fixtures
+# ---------------------------------------------------------------------------
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        '--can-interface', default=os.environ.get('CAN_INTERFACE', 'simulator'),
+        help='CAN interface: simulator|firmware|virtual|socketcan|pcan|kvaser (default: simulator)')
+    parser.addoption(
+        '--can-channel', default=os.environ.get('CAN_CHANNEL', 'vcan0'),
+        help='CAN channel name (default: vcan0)')
+    parser.addoption(
+        '--can-bitrate', type=int, default=int(os.environ.get('CAN_BITRATE', '500000')),
+        help='CAN bitrate in bps (default: 500000)')
+    parser.addoption('--hil', action='store_true', default=False,
+        help='Enable hardware-in-loop tests (requires real ECU)')
+    parser.addoption('--sec-key-l1', default=None,
+        help='Hex AES-128 key for security level 1')
+    parser.addoption('--sec-key-l2', default=None,
+        help='Hex AES-128 key for security level 2')
+
+@pytest.fixture(scope='session')
+def can_interface(request: pytest.FixtureRequest) -> str:
+    return request.config.getoption('--can-interface')
+
+@pytest.fixture(scope='session')
+def is_hil(request: pytest.FixtureRequest) -> bool:
+    return bool(request.config.getoption('--hil'))
+
+@pytest.fixture(scope='session')
+def aes_keys(request: pytest.FixtureRequest) -> dict:
+    keys = dict(_LEVEL_KEYS)
+    k1 = request.config.getoption('--sec-key-l1')
+    k2 = request.config.getoption('--sec-key-l2')
+    if k1: keys[1] = bytes.fromhex(k1.replace('0x','').replace(' ',''))
+    if k2: keys[2] = bytes.fromhex(k2.replace('0x','').replace(' ',''))
+    return keys
+
+
+def _fail_needs_testlab_licence(can_interface: str, exc: Exception) -> None:
+    """Fail loudly when a real-transport mode has no Xaloqi TestLab licence.
+
+    A hard failure, not a skip. A skip here would report as a pass on a run the
+    customer explicitly asked to drive real hardware with — the same class of
+    false green that let a suite look healthy while executing nothing.
+
+    The default --can-interface simulator needs no licence at all: it runs these
+    same tests against the built-in ECU simulator over a virtual bus, which is
+    free (Apache-2.0 xaloqi-tester core).
+    """
+    pytest.fail(
+        f"--can-interface {can_interface} drives a real transport, which "
+        f"requires a Xaloqi TestLab licence.\n"
+        f"  {exc}\n"
+        f"  Run these same tests with no licence using the default: "
+        f"pytest --can-interface simulator\n"
+        f"  For real CAN hardware, the Developer + TestLab and "
+        f"Professional + TestLab bundles at https://xaloqi.com include it.",
+        pytrace=False,
+    )
+
+
+def _fail_needs_testlab_pro(can_interface: str, exc: Exception) -> None:
+    """Fail loudly when a real-transport mode has no TestLab pro installed.
+
+    Distinct from a licence refusal: here the package providing the transport
+    is absent, so telling the customer to check their licence would be wrong.
+    """
+    pytest.fail(
+        f"--can-interface {can_interface} needs Xaloqi TestLab installed "
+        f"(the xaloqi-tester-pro package provides real CAN transports).\n"
+        f"  {exc}\n"
+        f"  Run these same tests with no extra package using the default: "
+        f"pytest --can-interface simulator\n"
+        f"  See https://xaloqi.com for the Developer + TestLab and "
+        f"Professional + TestLab bundles.",
+        pytrace=False,
+    )
+
+
+@pytest.fixture(scope='function')
+def uds_bus(
+    can_interface: str,
+    request: pytest.FixtureRequest,
+    aes_keys: dict,
+) -> IsoTpTransport:
+    """
+    Per-test IsoTpTransport fixture backed by xaloqi-tester.
+    Provides the same transport.request(pdu) -> bytes API as the previous
+    conftest. All test files (test_did_*.py etc.) work unchanged.
+    """
+    if can_interface == 'firmware':
+        # Same request(pdu) -> bytes API, backed by the compiled harness
+        # (conftest_firmware.py). Needs no xaloqi-tester.
+        yield request.getfixturevalue('firmware_bus')
+        return
+    if not _XALOQI_AVAILABLE:
+        pytest.skip(
+            'xaloqi-tester not installed. '
+            'Run: pip install -r requirements_testgen.txt'
+        )
+    channel = request.config.getoption('--can-channel')
+    bitrate = request.config.getoption('--can-bitrate')
+    loop    = asyncio.new_event_loop()
+
+    if can_interface == 'simulator':
+        tester_bus, ecu_bus = VirtualBus.pair('testgen_sim')
+        from xaloqi.tester._isotp import IsoTpEngine
+        state = _InlineEcuState()
+        stop_event = asyncio.Event()
+        async def _ecu_loop():
+            eng = IsoTpEngine()
+            while not stop_event.is_set():
+                result = await ecu_bus.recv(timeout=0.05)
+                if result is None: continue
+                _, frame = result
+                pci = (frame[0] >> 4) & 0x0F
+                if pci == 0x0:
+                    pdu = bytes(frame[1:1 + (frame[0] & 0x0F)])
+                elif pci == 0x1:
+                    expected_len = ((frame[0] & 0x0F) << 8) | frame[1]
+                    chunks = [bytes(frame[2:])]
+                    await ecu_bus.send(ECU_TX_ID, eng.flow_control_cts())
+                    while sum(len(c) for c in chunks) < expected_len:
+                        res = await ecu_bus.recv(timeout=0.5)
+                        if res is None: break
+                        _, cf = res
+                        if (cf[0] >> 4) == 0x2: chunks.append(bytes(cf[1:]))
+                    pdu = b''.join(chunks)[:expected_len]
+                else: continue
+                resp = _inline_handle(pdu, state, False)
+                if resp is None: continue
+                frames = eng.encode(resp)
+                if len(frames) == 1:
+                    await ecu_bus.send(ECU_TX_ID, frames[0])
+                else:
+                    await ecu_bus.send(ECU_TX_ID, frames[0])
+                    await ecu_bus.recv(timeout=0.5)
+                    for cf in frames[1:]: await ecu_bus.send(ECU_TX_ID, cf)
+        sim_task = loop.create_task(_ecu_loop())
+        tester = UdsTester(tester_bus, rx_id=ECU_TX_ID, tx_id=TESTER_TX_ID,
+                           timeout=RESPONSE_TIMEOUT_S, keepalive=False)
+        loop.run_until_complete(tester.__aenter__())
+        transport = IsoTpTransport(tester, loop)
+        yield transport
+        try:
+            loop.run_until_complete(tester.raw_request(
+                bytes([SID_DIAGNOSTIC_SESSION_CONTROL, SESSION_DEFAULT]), timeout=0.1))
+        except Exception: pass
+        stop_event.set()
+        loop.run_until_complete(asyncio.sleep(0.05))
+        sim_task.cancel()
+        try: loop.run_until_complete(sim_task)
+        except asyncio.CancelledError: pass
+        transport.close()
+        return
+
+    # ── Hardware / virtual modes ──────────────────────────────────────────
+    try:
+        if can_interface == 'virtual':
+            bus, _ = VirtualBus.pair('testgen')
+            rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
+        elif can_interface in ('socketcan', 'pcan', 'kvaser'):
+            # Real transports come from Xaloqi TestLab (the xaloqi-tester-pro
+            # package) through the core plugin registry.
+            #
+            # These were once importable as xaloqi.tester.transport.socketcan /
+            # .transport.hardware. Those module paths no longer exist — the
+            # open-core split moved the classes into xaloqi_tester_pro — so the
+            # direct imports this branch used raised ModuleNotFoundError, which
+            # the handler below turned into a skip. Every hardware run was a
+            # silent skip rather than a test.
+            from xaloqi.tester import _plugins
+            factory = _plugins.get_transport(can_interface)
+            if can_interface == 'socketcan':
+                bus = factory(channel)
+            elif can_interface == 'pcan':
+                bus = factory(channel, bitrate=bitrate)
+            else:
+                bus = factory(int(channel) if channel.isdigit() else 0,
+                              bitrate=bitrate)
+            # The registry contract hands back an UNOPENED bus; opening it is the
+            # caller's job. UdsTester does this itself only for a string
+            # interface — given a bus object it calls open(), which the pro buses
+            # do not define (their opener is the async _open()). So open it here,
+            # preferring _open exactly as UdsTester's string path does.
+            _opener = getattr(bus, '_open', None) or getattr(bus, 'open', None)
+            if _opener is not None:
+                loop.run_until_complete(_opener())
+            rx_id, tx_id = ECU_TX_ID, TESTER_TX_ID
+        else:
+            loop.close(); pytest.skip(f'Unknown CAN interface: {can_interface!r}'); return
+    except LicenseError as exc:
+        loop.close(); _fail_needs_testlab_licence(can_interface, exc)
+    except TransportError as exc:
+        loop.close(); _fail_needs_testlab_pro(can_interface, exc)
+    except (ImportError, Exception) as exc:
+        loop.close(); pytest.skip(str(exc)); return
+    try:
+        tester = UdsTester(bus, rx_id=rx_id, tx_id=tx_id,
+                           timeout=RESPONSE_TIMEOUT_S, keepalive=False)
+        loop.run_until_complete(tester.__aenter__())
+    except LicenseError as exc:
+        loop.close(); _fail_needs_testlab_licence(can_interface, exc)
+    except Exception as exc:
+        loop.close(); pytest.skip(f'Cannot open CAN bus ({can_interface}/{channel}): {exc}'); return
+    transport = IsoTpTransport(tester, loop)
+    yield transport
+    try:
+        loop.run_until_complete(tester.raw_request(
+            bytes([SID_DIAGNOSTIC_SESSION_CONTROL, SESSION_DEFAULT]), timeout=0.1))
+    except Exception: pass
+    transport.close()

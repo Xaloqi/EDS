@@ -10,6 +10,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Behaviour changes
 
+- **A hand-written CAN FD channel (`isotp_cfg_t.use_fd = true`) now sends FD frames only**
+  (#557). Before, only Single Frames of 8..62 bytes (and an FF over 4095 bytes) were FD: short
+  SFs, the FF, every CF and the Flow Control went out as classic frames, so responses over 62
+  bytes had no FD throughput and a receiver bound to CAN FD (Linux can-isotp with an MTU-72
+  socket) ignored them. Now every frame is FD and FF/CFs carry TX_DL bytes (`isotp_cfg_t.tx_dl`,
+  0 = 64). An FD Single Frame sent without `ISOTP_TX_PADDING` had an invalid length (e.g. 10);
+  it is now padded to the next valid FD length. **Migration:** none for testers that follow
+  ISO 15765-2; set `tx_dl` if your bus needs a TX_DL below 64. `isotp_init()` refuses a
+  `tx_dl` that is not a CAN FD data length. Classic channels are unchanged.
+
 - **A generic response-pending path in the server (NRC 0x78)** (#282). A handler validates the
   request, then calls `uds_server_defer()`; the server answers `7F sid 78` at once and the
   integration drives the job with `uds_server_poll()` / `uds_server_frame_sent()` on the thread
@@ -71,12 +81,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### New
 
+- **CAN FD end to end: `can.fd` in the YAML, every ISO-TP frame FD, BRS** (#557). YAML
+  `can.fd: true` (optional `can.fd_tx_dl`: 8, 12, 16, 20, 24, 32, 48 or 64, default 64;
+  `can.fd_brs`, default false) makes codegen set `isotp_cfg_t.use_fd`, `.tx_dl` and `.brs` in
+  `uds_init.c`, which then refuses to build without `ISOTP_ENABLE_CAN_FD=1`. On an FD channel
+  the ECU now sends **every** frame as CAN FD: SF 1..7 bytes with the 4-bit PCI, 8..TX_DL-2
+  bytes as an escape SF, longer messages as FF + CFs carrying TX_DL bytes, the last CF padded
+  to the next valid FD length, and the Flow Control too. BRS is set on every frame when
+  configured (Zephyr: `CAN_FRAME_BRS`; FreeRTOS: new `eds_can_frame_t.brs` for your send
+  function); the data bit rate stays the board's. A periodic DID may hold `fd_tx_dl - 1`
+  bytes (up to 63) with `can.fd`; 7 on classic CAN, as before. Configs without `can.fd`
+  generate byte-identical code (all 14 examples checked).
+- **`examples/canfd_ecu`**: FD single and multi-frame, a 20-byte periodic DID, native_sim
+  loopback and SocketCAN variants. CI job `example-canfd-runtime` runs
+  `scripts/smoke_canfd_ecu.py` against the Linux kernel's can-isotp on an MTU-72 vcan:
+  multi-frame both directions, FD Flow Control both ways, BRS, the periodic FD frame.
 - **CAN FD periodic messages (SID 0x2A)** (#546): on a CAN FD channel (`ISOTP_ENABLE_CAN_FD=1` and
   `isotp_cfg_t.use_fd`), `isotp_transmit_uudt()` sends a 9..64-byte periodic message
   `[pDID, data]` as one unsegmented CAN FD frame (ISO 14229-3:2022 §8.5, A_UUAtype 3/4): DLC
   rounded up to the next valid FD length (12, 16, 20, 24, 32, 48, 64), the tail padded with
-  `ISOTP_TX_PADDING_BYTE`. Up to 8 bytes nothing changes; on classic CAN more than 8 is still
-  refused. Periodic messages over DoIP are unchanged.
+  `ISOTP_TX_PADDING_BYTE`. On an FD channel every periodic frame is an FD frame (#557); on
+  classic CAN nothing changes and more than 8 bytes is still refused. Periodic messages over DoIP are unchanged.
 
 - CI job `isotp-burst-e2e` (#558): `basic_ecu` on native_sim over SocketCAN receives a 4000-byte
   request at STmin 0, classic CAN and CAN FD (`scripts/e2e_isotp_burst.py`).

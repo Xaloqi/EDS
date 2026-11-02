@@ -207,6 +207,10 @@ static uds_status_t zephyr_can_transmit(
 #if ISOTP_ENABLE_CAN_FD
     /* CAN FD: set FDF flag; encode DLC as CAN FD DLC value (0–15). */
     zf.flags = frame->is_fd ? (uint8_t)CAN_FRAME_FDF : (uint8_t)0U;
+    if (frame->is_fd && frame->brs) {
+        /* [EDS#557] Data phase at the data bit rate (devicetree bus-speed-data). */
+        zf.flags = (uint8_t)(zf.flags | (uint8_t)CAN_FRAME_BRS);
+    }
     zf.dlc   = frame->is_fd ? can_bytes_to_dlc(frame->dlc) : frame->dlc;
 #else
     zf.flags = (uint8_t)0U;  /* can_frame_flags_t removed in Zephyr 3.x */

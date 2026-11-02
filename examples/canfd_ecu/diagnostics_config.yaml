@@ -1,0 +1,112 @@
+# =============================================================================
+# Xaloqi EDS
+# examples/canfd_ecu/diagnostics_config.yaml
+#
+# PURPOSE: CAN FD example ECU (EDS#557, EDS#546). Shows what `can.fd: true`
+#          changes on the wire, and nothing else:
+#            - every ISO-TP frame (SF, FF, CF, FC) is a CAN FD frame;
+#            - a 8..62-byte message is one escape Single Frame (0xF190: 20 B);
+#            - a longer one is FF + CFs of 64 bytes (TX_DL), both directions:
+#              a 0x22 naming 32 DIDs is a 65-byte request, its answer 2112 B;
+#            - SID 0x2A sends a 20-byte record as one CAN FD frame (0xF201).
+#
+# TARGET: native_sim over SocketCAN (an MTU-72 vcan): see README.md. Any Zephyr
+#         board with a CAN FD controller should work with CONFIG_CAN_FD_MODE=y
+#         and a data bit rate in its devicetree (bus-speed-data); none has
+#         been validated with this example.
+#
+# DID ADDRESS MAP:
+#   0xF190        17-byte identification string (escape SF response)
+#   0x0100-0x0102 64-byte records (multi-frame responses)
+#   0xF201        20-byte periodic record for SID 0x2A (pDID 0x01)
+#
+# SPDX-License-Identifier: Apache-2.0
+# =============================================================================
+
+schema_version: 1
+metadata:
+  ecu_name:    "CanFdEcu"
+  version:     "1.0.0"
+  description: >
+    CAN FD example ECU: FD single and multi-frame ISO-TP and a 20-byte
+    periodic DID on a CAN FD channel.
+
+can:
+  rx_can_id: "0x7E0"             # ISO 15765-4 physical request (ECU address 0)
+  functional_rx_can_id: "0x7DF"  # ISO 15765-4 functional request; "none" turns it off
+  tx_can_id: "0x7E8"             # ISO 15765-4 physical response (ECU address 0)
+  periodic_tx_can_id: "0x5E8"    # SID 0x2A periodic messages (UUDT, ISO 14229-3 Table 3); no default
+  fd: true                       # CAN FD channel: every frame FD (build with ISOTP_ENABLE_CAN_FD=1)
+  fd_tx_dl: 64                   # TX_DL: 8, 12, 16, 20, 24, 32, 48 or 64 (default 64)
+  fd_brs: true                   # bit rate switch on every frame; the data bit rate is the board's
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
+
+dids:
+
+  - id:   "0xF190"
+    name: "FdEcuIdentification"
+    description: "17-byte identification string; the response (20 B) is one escape SF"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 17
+    default_value: "0x58414C4F51492D43414E46442D30303031"
+
+  - id:   "0x0100"
+    name: "FdRecordA"
+    description: "64-byte record; reading it alone is FF + one CF"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 64
+    default_value: "0x000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F202122232425262728292A2B2C2D2E2F303132333435363738393A3B3C3D3E3F"
+
+  - id:   "0x0101"
+    name: "FdRecordB"
+    description: "64-byte record"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 64
+    default_value: "0x404142434445464748494A4B4C4D4E4F505152535455565758595A5B5C5D5E5F606162636465666768696A6B6C6D6E6F707172737475767778797A7B7C7D7E7F"
+
+  - id:   "0x0102"
+    name: "FdRecordC"
+    description: "64-byte record"
+    access:
+      - read
+    min_session: "default"
+    read_security_level:  0
+    write_security_level: 1
+    data_length: 64
+    default_value: "0x808182838485868788898A8B8C8D8E8F909192939495969798999A9B9C9D9E9FA0A1A2A3A4A5A6A7A8A9AAABACADAEAFB0B1B2B3B4B5B6B7B8B9BABBBCBDBEBF"
+
+  # A periodic DID sits in 0xF200-0xF2FF; its low byte is the pDID (0xF201 -> 0x01).
+  # On a CAN FD channel the record may be up to TX_DL - 1 bytes (63 at 64).
+  - id:   "0xF201"
+    name: "FdPeriodicStatus"
+    source: app   # src/main.c: 4-byte uptime (ms, BE) + 16-byte fixed pattern
+    description: >
+      20-byte status for periodic push: uptime in ms (uint32 big-endian)
+      followed by 16 bytes 0xA0..0xAF. Subscribe with 2A <mode> 01 in an
+      extended session; each message is one CAN FD frame of 24 bytes.
+    access:
+      - read
+    min_session: "extended"
+    read_security_level:  0
+    write_security_level: 0
+    data_length: 20
+
+dtcs: []
+
+routines: []

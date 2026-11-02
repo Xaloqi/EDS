@@ -60,6 +60,7 @@ EDS/
 │   ├── safeboot_ecu/                 # MCUboot DFU over UDS (safeboot.platform: zephyr)
 │   ├── safeboot_freertos_ecu/        # FreeRTOS OTA DFU — STM32H743 dual-bank, no MCUboot (safeboot.platform: freertos)
 │   ├── robot_joint_controller_ecu/   # Robotics positioning example
+│   ├── canfd_ecu/                    # CAN FD channel (can.fd): FD ISO-TP + FD periodic messages
 │   ├── bms_ecu/                      # Battery Management System (24 DIDs)
 │   ├── motor_controller_ecu/         # Motor controller (27 DIDs)
 │   └── ardep_ecu/                    # Mercedes ARDEP reference platform (35 DIDs)

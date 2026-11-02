@@ -257,6 +257,9 @@ MAX_DTC_COUNT     = 128
 MAX_ROUTINE_COUNT = 32
 CAN_ID_11BIT_MAX = 0x7FF
 
+#: [EDS#557] Valid CAN FD data lengths for can.fd_tx_dl (ISO 11898-1).
+CAN_FD_TX_DLS = (8, 12, 16, 20, 24, 32, 48, 64)
+
 #: ISO 15765-4 functional request ID. Default for can.functional_rx_can_id
 #: (EDS-toolchain#165).
 FUNCTIONAL_RX_CAN_ID_DEFAULT = 0x7DF
@@ -602,6 +605,25 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                         f"ID of their own (ISO 14229-3 Table 3)."
                     )
 
+        # [EDS#557] CAN FD channel: can.fd (bool), can.fd_tx_dl (TX_DL, default
+        # 64), can.fd_brs (bit rate switch, default false). The data bit rate
+        # belongs to the platform (Zephyr: devicetree bus-speed-data).
+        fd = can_cfg.get("fd", False)
+        if not isinstance(fd, bool):
+            _fatal("VALIDATION: can.fd must be true or false.")
+        for key in ("fd_tx_dl", "fd_brs"):
+            if key in can_cfg and not fd:
+                _fatal(f"VALIDATION: can.{key} needs can.fd: true.")
+        if "fd_tx_dl" in can_cfg:
+            tx_dl = can_cfg["fd_tx_dl"]
+            if isinstance(tx_dl, bool) or tx_dl not in CAN_FD_TX_DLS:
+                _fatal(
+                    f"VALIDATION: can.fd_tx_dl = {tx_dl!r} is not a CAN FD data length; "
+                    f"use one of {', '.join(str(v) for v in CAN_FD_TX_DLS)}."
+                )
+        if "fd_brs" in can_cfg and not isinstance(can_cfg["fd_brs"], bool):
+            _fatal("VALIDATION: can.fd_brs must be true or false.")
+
     # ── dids ─────────────────────────────────────────────────────────────────
     dids: List[Any] = cfg.get("dids", [])
 
@@ -804,9 +826,12 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     # [EDS#546] Periodic DIDs (0xF200-0xF2FF, SID 0x2A). A periodic message is an
     # unsegmented UUDT frame, [pDID, data], on its own CAN ID (ISO 14229-3:2022
     # §8.5, Table 3, REQ 7.5): the ID must be configured, and the record must
-    # fit one classic CAN frame with the pDID byte (<= 7 bytes).
+    # fit one frame of TX_DL with the pDID byte: 7 bytes on classic CAN,
+    # TX_DL - 1 (up to 63) on a CAN FD channel [EDS#557].
     can_for_periodic = cfg.get("can", {}) or {}
     pt_raw = can_for_periodic.get("periodic_tx_can_id")
+    periodic_tx_dl = (can_for_periodic.get("fd_tx_dl", 64)
+                      if can_for_periodic.get("fd", False) is True else 8)
     for idx, did in enumerate(dids):
         did_id = _parse_did_id(did["id"]) if isinstance(did.get("id"), str) else None
         if did_id is None or not (0xF200 <= did_id <= 0xF2FF):
@@ -819,11 +844,12 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                 "(ISO 14229-3:2022 Table 3) and there is no default. "
                 "FIX: add e.g. `periodic_tx_can_id: \"0x5E8\"` under `can:`."
             )
-        if did.get("data_length", 1) > 7:
+        if did.get("data_length", 1) > periodic_tx_dl - 1:
             _fatal(
                 f"{pfx}: data_length {did.get('data_length')} does not fit a periodic "
-                "message: [pDID, data] is one unsegmented CAN frame, so a periodic "
-                "DID's record is at most 7 bytes (ISO 14229-3:2022 REQ 7.5)."
+                "message: [pDID, data] is one unsegmented CAN frame of TX_DL bytes, so "
+                f"a periodic DID's record is at most {periodic_tx_dl - 1} bytes here "
+                "(ISO 14229-3:2022 REQ 7.5; 7 on classic CAN, up to 63 with can.fd)."
             )
 
     # ── dtcs ─────────────────────────────────────────────────────────────────
@@ -1210,6 +1236,8 @@ def _build_can_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     pt_raw = can_cfg.get("periodic_tx_can_id")
     pt_val = 0 if (pt_raw is None or str(pt_raw).lower() == "none") else int(pt_raw, 16)
 
+    fd = can_cfg.get("fd", False) is True
+
     return {
         "rx_can_id":       _normalise_hex(rx_raw),
         "tx_can_id":       _normalise_hex(tx_raw),
@@ -1222,6 +1250,10 @@ def _build_can_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         # [EDS#546] No default: 0 = not configured (SID 0x2A then answers 0x22).
         "periodic_tx_can_id":       "none" if pt_val == 0 else _normalise_hex(pt_raw),
         "periodic_tx_can_id_int":   pt_val,
+        # [EDS#557] CAN FD channel; templates emit FD settings only when true.
+        "fd":                       fd,
+        "fd_tx_dl":                 int(can_cfg.get("fd_tx_dl", 64)) if fd else 8,
+        "fd_brs":                   bool(can_cfg.get("fd_brs", False)) if fd else False,
     }
 
 
@@ -1371,6 +1403,9 @@ def build_generated_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "can_functional_rx_id_int": can["functional_rx_can_id_int"],
         "can_periodic_tx_id":       can["periodic_tx_can_id"],
         "can_periodic_tx_id_int":   can["periodic_tx_can_id_int"],
+        "can_fd":                   can["fd"],
+        "can_fd_tx_dl":             can["fd_tx_dl"],
+        "can_fd_brs":               can["fd_brs"],
     }
 
 
@@ -1425,6 +1460,9 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "s3_server_timeout_ms":  timing["s3_server_timeout_ms"],
         "can_rx_id":             can["rx_can_id"],
         "can_tx_id":             can["tx_can_id"],
+        "can_fd":                can["fd"],
+        "can_fd_tx_dl":          can["fd_tx_dl"],
+        "can_fd_brs":            can["fd_brs"],
         "dids":                  _build_did_list(cfg),
         "dtcs":                  _build_dtc_list(cfg),
         "routines":              _build_routine_list(cfg),
@@ -2289,10 +2327,14 @@ def _write_routine_handlers_inline(
             "/* Register all routines with routine_database */",
             "uds_status_t routine_handlers_register_all(void)",
             "{",
-            "    uds_status_t status;",
-            "    routine_entry_t entry;",
-            "",
         ]
+        if routines:
+            # [EDS#557] With `routines: []` these were unused (-Wunused-variable).
+            lines += [
+                "    uds_status_t status;",
+                "    routine_entry_t entry;",
+                "",
+            ]
         for r in routines:
             cn = r["c_name"]
             lines += [

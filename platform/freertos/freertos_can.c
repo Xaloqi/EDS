@@ -160,6 +160,7 @@ static uds_status_t freertos_can_transmit(
     ef.is_extended = frame->is_extended_id;
 #if ISOTP_ENABLE_CAN_FD
     ef.is_fd       = frame->is_fd;
+    ef.brs         = frame->is_fd && frame->brs;
 #endif
     (void)memcpy(ef.data, frame->data, (size_t)frame->dlc);
 

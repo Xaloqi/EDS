@@ -1135,6 +1135,165 @@ ZTEST(test_isotp_canfd, test_fd_ff_escape_tx)
     zassert_equal(state, ISOTP_STATE_TX_WAIT_FC,
                   "State must be TX_WAIT_FC after FD FF escape TX");
 }
+
+static uds_can_frame_t make_fc(uint8_t flow_status);   /* defined with the FC tests below */
+
+/* [EDS#557] FD channel with a given TX_DL / BRS. */
+static uds_status_t init_isotp_fd_dl(isotp_ctx_t *ctx, uint8_t tx_dl, bool brs)
+{
+    isotp_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.rx_can_id = 0x7DFU;
+    cfg.tx_can_id = 0x7E8U;
+    cfg.use_fd    = true;
+    cfg.tx_dl     = tx_dl;
+    cfg.brs       = brs;
+    cfg.can       = &g_mock_can;
+    return isotp_init(ctx, &cfg);
+}
+
+/* Send an FC CTS (BS 0, STmin 0) and tick until the TX is idle again. */
+static void fd_fc_and_drain(isotp_ctx_t *ctx)
+{
+    uds_can_frame_t fc = make_fc((uint8_t)ISOTP_FC_STATUS_CONTINUE_TO_SEND);
+    isotp_state_t   st = ISOTP_STATE_TX_SEND_CF;
+    uint32_t        n;
+
+    fc.is_fd = true;
+    zassert_equal(isotp_process_rx_frame(ctx, &fc, rx_complete_cb, NULL), UDS_STATUS_OK, "FC");
+    for (n = 0U; (n < 100U) && (st != ISOTP_STATE_IDLE); n++) {
+        (void)isotp_tick_1ms(ctx);
+        (void)isotp_get_tx_state(ctx, &st);
+    }
+    zassert_equal(st, ISOTP_STATE_IDLE, "TX completes");
+}
+
+/**
+ * TC-ISTP-FD-009 [EDS#557]: on an FD channel a multi-frame message goes out at
+ * TX_DL (default 64): FF 2 PCI + 62 data, CFs 1 + 63, the last CF padded to the
+ * next valid FD length; every frame is an FD frame.
+ */
+ZTEST(test_isotp_canfd, test_fd_multiframe_tx_at_tx_dl_64)
+{
+    static uint8_t msg[200];
+    uint32_t n;
+
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd_dl(&ctx, 0U, false), UDS_STATUS_OK, "init (tx_dl 0 = 64)");
+    for (n = 0U; n < sizeof(msg); n++) { msg[n] = (uint8_t)n; }
+
+    zassert_equal(isotp_transmit(&ctx, msg, 200U), UDS_STATUS_OK, "FF");
+    zassert_equal(g_mock_tx_frames[0].dlc, 64U, "FF fills TX_DL");
+    zassert_equal(g_mock_tx_frames[0].data[0], 0x10U, "FF PCI");
+    zassert_equal(g_mock_tx_frames[0].data[1], 200U, "FF_DL");
+    zassert_mem_equal(&g_mock_tx_frames[0].data[2], msg, 62U, "62 data bytes in the FF");
+    fd_fc_and_drain(&ctx);
+
+    /* 200 - 62 = 138 = 63 + 63 + 12: frames FF, FC-in, CF1, CF2, CF3. */
+    zassert_equal(g_mock_tx_count, 4U, "FF + 3 CFs");
+    zassert_equal(g_mock_tx_frames[1].dlc, 64U, "CF1 carries TX_DL");
+    zassert_equal(g_mock_tx_frames[1].data[0], 0x21U, "CF1 SN");
+    zassert_mem_equal(&g_mock_tx_frames[1].data[1], &msg[62], 63U, "CF1 data");
+    zassert_equal(g_mock_tx_frames[2].dlc, 64U, "CF2 carries TX_DL");
+    zassert_equal(g_mock_tx_frames[3].dlc, 16U, "last CF: 13 bytes -> FD length 16");
+    zassert_mem_equal(&g_mock_tx_frames[3].data[1], &msg[188], 12U, "last CF data");
+    for (n = 13U; n < 16U; n++) {
+        zassert_equal(g_mock_tx_frames[3].data[n], (uint8_t)ISOTP_TX_PADDING_BYTE, "padding");
+    }
+    for (n = 0U; n < 4U; n++) {
+        zassert_true(g_mock_tx_frames[n].is_fd, "every frame is an FD frame");
+        zassert_false(g_mock_tx_frames[n].brs, "no BRS unless configured");
+    }
+}
+
+/**
+ * TC-ISTP-FD-010 [EDS#557]: TX_DL 16 with BRS: SF 1..7 bytes keeps the 4-bit
+ * PCI, 8..14 bytes is an escape SF, longer is multi-frame at 16; BRS on every
+ * frame.
+ */
+ZTEST(test_isotp_canfd, test_fd_tx_dl_16_with_brs)
+{
+    static uint8_t msg[40];
+    uint32_t n;
+
+    mock_can_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd_dl(&ctx, 16U, true), UDS_STATUS_OK, "init");
+    for (n = 0U; n < sizeof(msg); n++) { msg[n] = (uint8_t)(0xA0U + n); }
+
+    zassert_equal(isotp_transmit(&ctx, msg, 5U), UDS_STATUS_OK, "SF 5");
+    zassert_equal(g_mock_tx_frames[0].data[0], 0x05U, "4-bit SF_DL");
+    zassert_equal(g_mock_tx_frames[0].dlc, 8U, "padded to 8 (ISOTP_TX_PADDING)");
+
+    zassert_equal(isotp_transmit(&ctx, msg, 14U), UDS_STATUS_OK, "SF 14");
+    zassert_equal(g_mock_tx_frames[1].data[0], 0x00U, "escape SF");
+    zassert_equal(g_mock_tx_frames[1].data[1], 14U, "SF_DL");
+    zassert_equal(g_mock_tx_frames[1].dlc, 16U, "16 bytes");
+
+    zassert_equal(isotp_transmit(&ctx, msg, 40U), UDS_STATUS_OK, "FF 40");
+    zassert_equal(g_mock_tx_frames[2].dlc, 16U, "FF fills TX_DL 16");
+    fd_fc_and_drain(&ctx);
+    /* 40 - 14 = 26 = 15 + 11. */
+    zassert_equal(g_mock_tx_count, 5U, "SF, SF, FF, 2 CFs");
+    zassert_equal(g_mock_tx_frames[3].dlc, 16U, "CF at TX_DL");
+    zassert_equal(g_mock_tx_frames[4].dlc, 12U, "last CF: 12 bytes");
+    zassert_mem_equal(&g_mock_tx_frames[4].data[1], &msg[29], 11U, "last CF data");
+    for (n = 0U; n < 5U; n++) {
+        zassert_true(g_mock_tx_frames[n].is_fd, "FD frame");
+        zassert_true(g_mock_tx_frames[n].brs, "BRS on every frame");
+    }
+}
+
+/**
+ * TC-ISTP-FD-011 [EDS#557]: on an FD channel the receiver's Flow Control is an
+ * FD frame (a can-isotp socket bound to CAN FD ignores classic frames).
+ */
+ZTEST(test_isotp_canfd, test_fd_fc_is_an_fd_frame)
+{
+    uds_can_frame_t ff;
+    uint32_t n;
+
+    mock_can_reset();
+    rx_cb_reset();
+    isotp_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    zassert_equal(init_isotp_fd_dl(&ctx, 64U, true), UDS_STATUS_OK, "init");
+
+    memset(&ff, 0, sizeof(ff));
+    ff.id = 0x7DFU; ff.is_fd = true; ff.dlc = 64U;
+    ff.data[0] = 0x10U; ff.data[1] = 100U;
+    for (n = 2U; n < 64U; n++) { ff.data[n] = (uint8_t)n; }
+    zassert_equal(isotp_process_rx_frame(&ctx, &ff, rx_complete_cb, NULL), UDS_STATUS_OK, "FF");
+    zassert_equal(g_mock_tx_count, 1U, "one FC");
+    zassert_equal(g_mock_tx_frames[0].data[0], 0x30U, "FC CTS");
+    zassert_true(g_mock_tx_frames[0].is_fd, "FC is an FD frame");
+    zassert_true(g_mock_tx_frames[0].brs, "with BRS");
+    zassert_equal(g_mock_tx_frames[0].dlc, 8U, "3 bytes padded to 8");
+}
+
+/**
+ * TC-ISTP-FD-012 [EDS#557]: TX_DL must be a valid FD data length.
+ */
+ZTEST(test_isotp_canfd, test_fd_invalid_tx_dl_refused)
+{
+    static const uint8_t bad[] = { 1U, 7U, 9U, 10U, 13U, 33U, 65U, 255U };
+    static const uint8_t good[] = { 8U, 12U, 16U, 20U, 24U, 32U, 48U, 64U };
+    uint32_t k;
+    isotp_ctx_t ctx;
+
+    for (k = 0U; k < (uint32_t)sizeof(bad); k++) {
+        memset(&ctx, 0, sizeof(ctx));
+        zassert_equal(init_isotp_fd_dl(&ctx, bad[k], false), UDS_STATUS_ERR_INVALID_PARAM,
+                      "invalid TX_DL refused");
+    }
+    for (k = 0U; k < (uint32_t)sizeof(good); k++) {
+        memset(&ctx, 0, sizeof(ctx));
+        zassert_equal(init_isotp_fd_dl(&ctx, good[k], false), UDS_STATUS_OK, "valid TX_DL");
+    }
+}
 #endif /* ISOTP_ENABLE_CAN_FD — test_isotp_canfd suite */
 
 /* =========================================================================
@@ -1471,7 +1630,7 @@ ZTEST(test_isotp_transmit, test_uudt_fd_small_message_and_limits)
     zassert_equal(isotp_init(&ctx, &cfg), UDS_STATUS_OK, "init");
 
     zassert_equal(isotp_transmit_uudt(&ctx, msg, 8U), UDS_STATUS_OK, "8 bytes");
-    zassert_false(g_mock_tx_frames[0].is_fd, "up to 8 bytes: classic-format frame");
+    zassert_true(g_mock_tx_frames[0].is_fd, "[EDS#557] on an FD channel every frame is an FD frame");
     zassert_equal(g_mock_tx_frames[0].dlc, 8U, "DLC = length");
     zassert_equal(isotp_transmit_uudt(&ctx, msg, 65U), UDS_STATUS_ERR_BUFFER_OVERFLOW,
                   "more than one CAN FD frame holds");
@@ -2686,6 +2845,10 @@ extern void test_isotp_canfd__test_fd_ff_escape_rx_fits(void);
 extern void test_isotp_canfd__test_fd_ff_escape_rx_overflow(void);
 extern void test_isotp_canfd__test_fd_ff_escape_classic_can_rejected(void);
 extern void test_isotp_canfd__test_fd_ff_escape_tx(void);
+extern void test_isotp_canfd__test_fd_multiframe_tx_at_tx_dl_64(void);
+extern void test_isotp_canfd__test_fd_tx_dl_16_with_brs(void);
+extern void test_isotp_canfd__test_fd_fc_is_an_fd_frame(void);
+extern void test_isotp_canfd__test_fd_invalid_tx_dl_refused(void);
 #endif /* ISOTP_ENABLE_CAN_FD */
 extern void test_isotp_transmit__test_null_ctx(void);
 extern void test_isotp_transmit__test_null_data(void);
@@ -2786,6 +2949,10 @@ void run_all_tests(void)
     RUN_TEST(test_isotp_canfd__test_fd_ff_escape_rx_overflow);
     RUN_TEST(test_isotp_canfd__test_fd_ff_escape_classic_can_rejected);
     RUN_TEST(test_isotp_canfd__test_fd_ff_escape_tx);
+    RUN_TEST(test_isotp_canfd__test_fd_multiframe_tx_at_tx_dl_64);
+    RUN_TEST(test_isotp_canfd__test_fd_tx_dl_16_with_brs);
+    RUN_TEST(test_isotp_canfd__test_fd_fc_is_an_fd_frame);
+    RUN_TEST(test_isotp_canfd__test_fd_invalid_tx_dl_refused);
 #endif /* ISOTP_ENABLE_CAN_FD */
     RUN_TEST(test_isotp_transmit__test_null_ctx);
     RUN_TEST(test_isotp_transmit__test_null_data);
