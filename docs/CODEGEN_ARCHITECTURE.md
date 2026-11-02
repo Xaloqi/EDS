@@ -236,6 +236,7 @@ routines:
 | `can_rx_id` | int | `can.rx_can_id` (default `0x7DF`) | |
 | `can_tx_id` | int | `can.tx_can_id` (default `0x7E8`) | |
 | `can_periodic_tx_id` / `can_periodic_tx_id_int` | str / int | `can.periodic_tx_can_id` (**no default**; 0 = unset) | SID 0x2A periodic messages, UUDT on this ID (EDS#546); a 0xF2xx DID requires it |
+| `can_fd` / `can_fd_tx_dl` / `can_fd_brs` | bool / int / bool | `can.fd` (default `false`), `can.fd_tx_dl` (8, 12, 16, 20, 24, 32, 48, 64; default 64), `can.fd_brs` (default `false`) | CAN FD channel (EDS#557). Templates emit `GEN_CAN_FD*` and the `isotp_cfg_t.use_fd/tx_dl/brs` lines only when `can_fd`; the `fd_*` keys need `can.fd: true`. With fd, a periodic DID may hold `fd_tx_dl - 1` bytes (7 on classic CAN) |
 | `dids` | list | `_build_did_list(cfg)` | |
 | `dtcs` | list | `_build_dtc_list(cfg)` | |
 | `routines` | list | `_build_routine_list(cfg)` | |

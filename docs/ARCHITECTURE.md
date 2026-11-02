@@ -645,6 +645,7 @@ autocomplete and schema-driven validation in addition to the in-process validato
 | `safeboot_ecu` | MCUboot DFU over UDS (`safeboot.enabled: true`, `platform: zephyr`) | 5 | 3 | 2 | Nucleo-H743ZI2 (MCUboot required) |
 | `safeboot_freertos_ecu` | FreeRTOS OTA DFU over UDS — STM32H743 dual-bank, no MCUboot (`platform: freertos`) | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (CI RAM stub) |
 | `robot_joint_controller_ecu` | Robot joint controller — position, velocity, torque, soft limits | 10 | 5 | 3 | native\_sim, any Zephyr CAN board |
+| `canfd_ecu` | CAN FD channel (`can.fd: true`) — FD single and multi-frame ISO-TP, a 20-byte 0x2A periodic record in one FD frame | 5 | 0 | 0 | native\_sim (MTU-72 vcan) |
 | `bms_ecu` | Battery Management System — cell voltages, temperatures, SoC, SoH | 24 | 10 | 5 | native\_sim |
 | `motor_controller_ecu` | Motor controller — speed, torque, temperatures, calibration | 27 | 8 | 6 | native\_sim |
 | `ardep_ecu` | ARDEP I/O controller — PowerIO, CAN/LIN status, DFU, calibration | 35 | 19 | 6 | native\_sim, ARDEP board |

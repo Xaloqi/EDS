@@ -328,7 +328,9 @@ typedef struct isotp_ctx {
     uint8_t          local_block_size;                  /**< Block size to advertise in FC. */
     uint8_t          local_stmin_ms;                    /**< STmin to advertise in FC (ms). */
 #if ISOTP_ENABLE_CAN_FD
-    bool             use_fd;                            /**< True: CAN FD mode (SF up to 62 B, FF escape for >4095 B). */
+    bool             use_fd;                            /**< True: CAN FD channel; every TX frame is an FD frame. */
+    uint8_t          tx_dl;                             /**< [EDS#557] TX_DL on an FD channel (8, 12, ..., 64). */
+    bool             brs;                               /**< [EDS#557] Set BRS on every TX frame of an FD channel. */
 #endif
 
     /* Bound CAN transport interface. */
@@ -365,7 +367,19 @@ typedef struct isotp_cfg {
     uint8_t          block_size;        /**< Block size to advertise to sender (0 = unlimited). */
     uint8_t          stmin_ms;          /**< Minimum separation time to advertise (ms). */
 #if ISOTP_ENABLE_CAN_FD
-    bool             use_fd;            /**< Set true to enable CAN FD SF/FF encoding. */
+    /**
+     * [EDS#557] CAN FD channel. When true every frame this channel sends (SF,
+     * FF, CF, FC and the 0x2A UUDT message) is a CAN FD frame: FF and every CF
+     * but the last carry tx_dl bytes, a frame over 8 bytes is padded to the next
+     * valid FD length, a 8..tx_dl-2 byte message is an escape Single Frame
+     * (ISO 15765-2 TX_DL rules). Reception follows the sender's RX_DL either way.
+     */
+    bool             use_fd;
+    /** [EDS#557] TX_DL: 8, 12, 16, 20, 24, 32, 48 or 64; 0 = 64. Only with use_fd. */
+    uint8_t          tx_dl;
+    /** [EDS#557] Set the bit rate switch on every frame, so the data phase runs at
+     *  the controller's data bit rate (Zephyr: devicetree bus-speed-data). */
+    bool             brs;
 #endif
     can_transport_t *can;               /**< Pointer to initialized CAN transport interface. */
 } isotp_cfg_t;

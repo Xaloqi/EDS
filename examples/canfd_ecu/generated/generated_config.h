@@ -1,0 +1,138 @@
+/*
+ * =============================================================================
+ * Xaloqi EDS
+ * FILE: GENERATED — generated_config.h
+ *
+ * ECU       : CanFdEcu
+ * Version   : 1.0.0
+ * Generated : 2026-11-02T08:21:02Z
+ *
+ * PURPOSE: Compile-time constants derived from diagnostics_config.yaml.
+ *          Provides all protocol timing parameters, CAN addressing, and
+ *          database dimension bounds used across the diagnostics stack.
+ *
+ *          Architecture:
+ *            diagnostics_config.yaml
+ *              -> tools/codegen.py (build_generated_config_context)
+ *                -> tools/templates/generated_config.h.j2
+ *                  -> generated/generated_config.h  (this file)
+ *
+ *          This design allows all timing, addressing, and sizing constants
+ *          to be driven from a single YAML source without touching C headers.
+ *
+ * WARNING: DO NOT EDIT MANUALLY.
+ *          Regenerate: python3 tools/codegen.py --config <yaml> --out generated/
+ *
+ * SAFETY  : Timing constants govern ISO 14229-1 protocol compliance.
+ *           CAN IDs govern which frames the ECU accepts and transmits.
+ *           Changing these values without revalidating timing analysis is unsafe.
+ * STANDARD: MISRA C:2012 alignment intended.
+ * =============================================================================
+ */
+
+#ifndef GENERATED_CONFIG_H
+#define GENERATED_CONFIG_H
+
+/* --------------------------------------------------------------------------
+ * Protocol timing constants
+ *
+ * All values in milliseconds. Derived from the 'timing' section of
+ * diagnostics_config.yaml. ISO 14229-1 §6.2 reference values shown.
+ * -------------------------------------------------------------------------- */
+
+/*
+ * P2server_max — Maximum response time before ECU must respond or send
+ * NRC 0x78 (requestCorrectlyReceivedResponsePending).
+ * ISO 14229-1 default: 50 ms. YAML value: 25 ms.
+ */
+#define GEN_P2_SERVER_MAX_MS      (25U)
+
+/*
+ * P2*server_max — Extended response time after NRC 0x78 ResponsePending.
+ * ISO 14229-1 default: 5000 ms. YAML value: 5000 ms.
+ * Constraint: GEN_P2_STAR_SERVER_MAX_MS > GEN_P2_SERVER_MAX_MS.
+ */
+#define GEN_P2_STAR_SERVER_MAX_MS (5000U)
+
+/*
+ * S3server — Session inactivity timeout. After this duration without a
+ * TesterPresent or any other request, the ECU reverts to Default Session.
+ * ISO 14229-1 default: 5000 ms. YAML value: 5000 ms.
+ */
+#define GEN_S3_SERVER_TIMEOUT_MS  (5000U)
+
+/* --------------------------------------------------------------------------
+ * CAN transport addressing
+ *
+ * Derived from the 'can' section of diagnostics_config.yaml.
+ * Defaults: 0x7E0 (physical RX, ECU #0), 0x7E8 (physical TX, ECU #0),
+ * 0x7DF (functional RX, ISO 15765-4).
+ * -------------------------------------------------------------------------- */
+
+/** CAN ID on which the ECU listens for physically addressed UDS requests. */
+#define GEN_CAN_RX_ID             (2016U)   /* 0x7E0 */
+
+/**
+ * CAN ID of functionally addressed requests (ISO 15765-4), or 0 for none.
+ * Set in isotp_cfg_t.functional_rx_can_id by uds_init.c. The application's
+ * ISO-TP rx callback passes isotp_get_rx_addressing() on to
+ * uds_server_process_request_ex(), and its CAN filter must accept this ID.
+ */
+#define GEN_CAN_FUNCTIONAL_RX_ID  (2015U)   /* 0x7DF */
+
+/**
+ * CAN ID of the periodic data response messages of SID 0x2A, or 0 for none
+ * (EDS#546). ISO 14229-3:2022 Table 3: periodic messages use a CAN ID of their
+ * own (an unsegmented [pDID, data] frame, no PCI, no SID); there is no default.
+ * Set in isotp_cfg_t.periodic_tx_can_id and uds_periodic_set_tx_can_id() by
+ * uds_init.c; with 0, SID 0x2A answers NRC 0x22 to a subscription.
+ * codegen refuses a 0xF2xx DID in a config without it.
+ */
+#define GEN_CAN_PERIODIC_TX_ID    (1512U)   /* 0x5E8 */
+
+/** CAN ID on which the ECU transmits UDS diagnostic responses. */
+#define GEN_CAN_TX_ID             (2024U)   /* 0x7E8 */
+
+/** True (1) if RX CAN ID is a 29-bit extended identifier. */
+#define GEN_CAN_RX_IS_EXTENDED    (0U)
+
+/** True (1) if TX CAN ID is a 29-bit extended identifier. */
+#define GEN_CAN_TX_IS_EXTENDED    (0U)
+
+/**
+ * CAN FD channel (can.fd: true; EDS#557). uds_init.c sets isotp_cfg_t.use_fd,
+ * .tx_dl and .brs from these. Build with ISOTP_ENABLE_CAN_FD=1 (Zephyr:
+ * CONFIG_CAN_FD_MODE=y too); the data bit rate is the platform's (Zephyr:
+ * devicetree bus-speed-data).
+ */
+#define GEN_CAN_FD                (1U)
+/** TX_DL: FF and every CF but the last carry this many bytes. */
+#define GEN_CAN_FD_TX_DL          (64U)
+/** 1: every frame sets the bit rate switch (data phase at the data bit rate). */
+#define GEN_CAN_FD_BRS            (1U)
+
+/* --------------------------------------------------------------------------
+ * Database dimensions
+ *
+ * Must not exceed UDS_MAX_DID_COUNT and UDS_MAX_DTC_COUNT in uds_types.h.
+ * These macros allow compile-time array sizing in generated code.
+ * -------------------------------------------------------------------------- */
+
+/** Number of DIDs declared in diagnostics_config.yaml. */
+#define GEN_DID_COUNT             (5U)
+
+/** Number of DTCs declared in diagnostics_config.yaml. */
+#define GEN_DTC_COUNT             (0U)
+
+/* --------------------------------------------------------------------------
+ * ECU identification (tooling and logging use only)
+ *
+ * NOT intended for use in protocol responses. Use dedicated DIDs
+ * (e.g. 0xF190 VIN, 0xF18C ECU Serial) for protocol-level identification.
+ * -------------------------------------------------------------------------- */
+
+#define GEN_ECU_NAME            "CanFdEcu"
+#define GEN_ECU_VERSION         "1.0.0"
+#define GEN_GENERATED_TIMESTAMP "2026-11-02T08:21:02Z"
+
+#endif /* GENERATED_CONFIG_H */

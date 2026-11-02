@@ -392,8 +392,8 @@ bash run_python_tests.sh
 > `pytest.ini`) — every example's `generated/tests/` is its own
 > self-contained pytest project and must be run scoped to its own
 > directory, exactly as shown above. `run_python_tests.sh` runs all of them
-> for you. It executes **2,038 of 3,102** collected cases in a Developer-tier
-> checkout (this repo, as cloned) and **3,059 of 3,102** with the
+> for you. It executes **2,087 of 3,198** collected cases in a Developer-tier
+> checkout (this repo, as cloned) and **3,143 of 3,198** with the
 > Professional-tier `harness/` build present — the gap is cases gated on
 > commercial prerequisites (TestLab, the firmware harness, or the
 > `tools/templates` codegen ZIP), not failures. Not every executed case
@@ -495,6 +495,7 @@ inspect without a license.
 | `safeboot_ecu` | 5 | 3 | 2 | NUCLEO-H753ZI, Nucleo-H743ZI2 (MCUboot required) | **hardware-validated** (NUCLEO-H753ZI, CAN) |
 | `safeboot_freertos_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (FreeRTOS, no MCUboot) | **compile-verified** (QEMU Cortex-M4) |
 | `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim (simulated joint; loopback and SocketCAN variants) | **compile-verified** (native\_sim); runtime smoke over vcan in CI; no hardware |
+| `canfd_ecu` | 5 | 0 | 0 | native\_sim (loopback and SocketCAN on an MTU-72 vcan) | **compile-verified** (native\_sim); CAN FD runtime smoke against Linux can-isotp in CI; no hardware |
 | `bms_ecu` | 24 | 10 | 5 | native\_sim | **compile-verified** (native\_sim) |
 | `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | **compile-verified** (native\_sim) |
 | `ardep_ecu` | 35 | 19 | 6 | ardep (custom board, ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim) |
@@ -509,7 +510,7 @@ strongest label that is true of it:
 | **hardware-validated** | Flashed onto real silicon and exercised, with measurements recorded | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — DWT cycle-counter figures from a NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, `-Os`): `safeboot_ecu` over CAN/ISO-TP, `basic_ecu_doip` over the board's onboard MAC+PHY |
 | **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
 
-**All twelve examples are now at least compile-verified, and two have been on a
+**All thirteen examples are now at least compile-verified, and two have been on a
 bench.** That became true on 2026-10-02 and was not true before, which is worth
 stating rather than quietly presenting as always-so:
 
@@ -529,7 +530,7 @@ stating rather than quietly presenting as always-so:
 Read **compile-verified** literally: it means the committed generated code
 compiles and links against the stack on that target. It is not a claim that the
 example has run anywhere, and for the `native_sim` entries it is not a claim
-about the physical board named in the Boards column. All twelve ship complete,
+about the physical board named in the Boards column. All thirteen ship complete,
 committed generated code and are architecturally identical in how they wire the
 stack — that is why they are useful as references — but only two have been on a
 bench.

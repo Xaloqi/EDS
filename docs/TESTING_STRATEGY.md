@@ -10,8 +10,8 @@ commercial deliverable (#68), absent from a Developer-tier checkout (every
 public clone and CI run), which reports the harness suite **BLOCKED**, not a
 pass, per ADR-005 (execution-truth semantics — see `xaloqi-knowledge`'s
 `decisions/ADR-005-execution-truth-semantics.md`). The canonical Python suite
-(`run_python_tests.sh`) executes **2,038 of 3,102** collected cases in a
-Developer-tier checkout and **3,059 of 3,102** with the Professional harness
+(`run_python_tests.sh`) executes **2,087 of 3,198** collected cases in a
+Developer-tier checkout and **3,143 of 3,198** with the Professional harness
 present — see "Canonical whole-suite floors" below for the per-suite
 breakdown. FreeRTOS, SafeBoot (Zephyr + FreeRTOS), DoIP, and sensor examples
 all covered.
@@ -91,16 +91,17 @@ profile, under `bash --noprofile --norc -eo pipefail`
 | `examples/basic_ecu_doip_freertos` | 99 | 155 |
 | `examples/basic_ecu_freertos` | 99 | 155 |
 | `examples/bms_ecu` | 228 | 331 |
+| `examples/canfd_ecu` | 49 | 84 |
 | `examples/motor_controller_ecu` | 263 | 379 |
 | `examples/robot_joint_controller_ecu` | 142 | 215 |
 | `examples/safeboot_ecu` | 80 | 130 |
 | `examples/safeboot_freertos_ecu` | 80 | 130 |
 | `examples/sensor_ecu` | 105 | 165 |
 | `examples/sensor_ecu_freertos` | 105 | 165 |
-| **Total** | **2,038 of 3,102** | **3,059 of 3,102** |
+| **Total** | **2,087 of 3,198** | **3,143 of 3,198** |
 
 **What the denominator counts, and what it does not.** 3,102 is the total
-collected by the twelve example suites — the ones that can contribute to a
+collected by the thirteen example suites — the ones that can contribute to a
 claim. It is identical in both profiles: the same cases are collected either
 way, and the profile decides how many *execute*.
 

@@ -386,6 +386,7 @@ typedef struct uds_can_frame {
     uint8_t  dlc;                             /**< Data length code. */
     bool     is_extended_id;                  /**< True if 29-bit CAN ID. */
     bool     is_fd;                           /**< True if CAN FD frame. */
+    bool     brs;                             /**< [EDS#557] CAN FD bit rate switch (data phase at the data bit rate); only with is_fd. */
 } uds_can_frame_t;
 
 /* --------------------------------------------------------------------------

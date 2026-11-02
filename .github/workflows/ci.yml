@@ -1863,6 +1863,76 @@ jobs:
           sudo ip link set up zcan0
           python3 EDS/scripts/smoke_robot_periodic_2a.py build/zephyr/zephyr.exe zcan0
 
+  # [EDS#557][EDS#546] CAN FD end to end: examples/canfd_ecu (can.fd: true) on
+  # native_sim over an MTU-72 vcan, tested by the Linux kernel's own ISO-TP
+  # stack (can-isotp, net/can/isotp.c) set to CAN FD, plus a raw FD socket on
+  # the frames: escape SF, multi-frame both ways at TX_DL 64, FD Flow Control
+  # both ways, BRS, and 0x2A's 20-byte record as one FD frame on its own ID.
+  # New job, not a rename; not a required status check yet.
+  example-canfd-runtime:
+    name: "CAN FD ECU — native_sim vs Linux can-isotp (MTU-72 vcan)"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget
+
+      - name: Install west and python-can
+        run: pip install west python-can
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: West build — canfd_ecu, native_sim, SocketCAN variant
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          EX="${GITHUB_WORKSPACE}/EDS/examples/canfd_ecu"
+          west build --pristine -b native_sim EDS/examples/canfd_ecu -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${EX}/boards/native_sim/native_sim_socketcan.conf" \
+            "-DDTC_OVERLAY_FILE=${EX}/boards/native_sim/native_sim_socketcan.overlay"
+          test -f build/zephyr/zephyr.exe
+
+      - name: Load vcan and can-isotp
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          if ! { sudo modprobe vcan && sudo modprobe can_raw && sudo modprobe can_isotp; } 2>/dev/null; then
+            echo "vcan/can_raw/can_isotp not loadable; installing linux-modules-extra-$(uname -r)"
+            sudo timeout 120 apt-get update -qq
+            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            sudo modprobe vcan
+            sudo modprobe can_raw
+            sudo modprobe can_isotp
+          fi
+          lsmod | grep -E '^(vcan|can_raw|can_isotp) '
+
+      - name: CAN FD smoke — SF / multi-frame both ways / FC / BRS / periodic
+        run: |
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set zcan0 mtu 72
+          sudo ip link set up zcan0
+          python3 EDS/scripts/smoke_canfd_ecu.py build/zephyr/zephyr.exe zcan0
+
   # [EDS#282] The server's response-pending path end to end: basic_ecu on
   # native_sim with the bench-only slow routine (RID 0xF0F0), the free tester
   # (it waits through 0x78 since 1.5.10) over SocketCAN, plus raw frames for
@@ -2370,6 +2440,7 @@ jobs:
           - robot_joint_controller_ecu
           - ardep_ecu
           - basic_ecu_cda_demo
+          - canfd_ecu
 
     steps:
       - uses: actions/checkout@v4

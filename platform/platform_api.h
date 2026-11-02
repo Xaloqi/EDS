@@ -85,6 +85,7 @@ typedef struct {
     bool     is_extended;                   /**< True if 29-bit extended ID. */
 #if ISOTP_ENABLE_CAN_FD
     bool     is_fd;                         /**< True if CAN FD frame. */
+    bool     brs;                           /**< [EDS#557] Bit rate switch: send the data phase at the data bit rate. */
 #endif
 } eds_can_frame_t;
 
