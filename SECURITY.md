@@ -4,7 +4,7 @@
 
 | Version | Security fixes |
 |---|---|
-| 1.26.x (current) | ✅ Yes |
+| 1.27.x (current) | ✅ Yes |
 | 1.11.x | ✅ Yes (critical only) |
 | < 1.26 | ❌ No — please upgrade |
 

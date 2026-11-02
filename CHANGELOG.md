@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.27.0] — 2026-11-02
+
 ### Fixed
 
 - **`examples/vehicle_state_ecu` configures again** (#560). #538 regenerated its
@@ -19,7 +21,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Behaviour changes
 
 - **A hand-written CAN FD channel (`isotp_cfg_t.use_fd = true`) now sends FD frames only**
-  (#557). Before, only Single Frames of 8..62 bytes (and an FF over 4095 bytes) were FD: short
+  (#557, PR #564). Before, only Single Frames of 8..62 bytes (and an FF over 4095 bytes) were FD: short
   SFs, the FF, every CF and the Flow Control went out as classic frames, so responses over 62
   bytes had no FD throughput and a receiver bound to CAN FD (Linux can-isotp with an MTU-72
   socket) ignored them. Now every frame is FD and FF/CFs carry TX_DL bytes (`isotp_cfg_t.tx_dl`,
@@ -28,7 +30,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   ISO 15765-2; set `tx_dl` if your bus needs a TX_DL below 64. `isotp_init()` refuses a
   `tx_dl` that is not a CAN FD data length. Classic channels are unchanged.
 
-- **A generic response-pending path in the server (NRC 0x78)** (#282). A handler validates the
+- **A generic response-pending path in the server (NRC 0x78)** (#282, PRs #555 and #559). A handler validates the
   request, then calls `uds_server_defer()`; the server answers `7F sid 78` at once and the
   integration drives the job with `uds_server_poll()` / `uds_server_frame_sent()` on the thread
   that owns the server. Observable on the wire while a job is pending:
@@ -53,7 +55,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   release and are deprecated; they go in the next minor release. Do not call both.
 
 - **The ECU's Flow Control now advertises BlockSize 16, not 0; the CAN RX queue grows from 8 to
-  32 frames; every example drains the queue each iteration** (#558). With BS 0 / STmin 0 a tester
+  32 frames; every example drains the queue each iteration** (#558, PR #561). With BS 0 / STmin 0 a tester
   may send a whole long request back to back, but the RX queue between the CAN driver and the
   loop held 8 frames and the loops took one per tick, so long requests (0x2E, 0x36 TransferData,
   0x3D) lost Consecutive Frames and got no answer, on classic CAN and CAN FD alike. Now:
@@ -88,7 +90,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `ISOTP_DEFAULT_BLOCK_SIZE=4` / `ISOTP_DEFAULT_STMIN_MS=1` override from #312 (see the next entry).
 
 - **`safeboot_ecu` advertises the stack's default Flow Control, BS 16 / STmin 0, instead of BS 4 /
-  STmin 1 ms: a download is twice as fast.** The override was the workaround for the 8-frame RX
+  STmin 1 ms: a download is twice as fast.** (PR #567) The override was the workaround for the 8-frame RX
   queue overflowing (#313); #558's depth 32 and the BS derived from it make it unnecessary.
   Measured on a NUCLEO-H753ZI over real CAN at 500 kbit/s, a 133,272-byte image
   (`0x34`, every `0x36`, `0x37`), timed from the first `0x36` to the `0x37` response, the client adding
@@ -99,7 +101,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### New
 
-- **CAN FD end to end: `can.fd` in the YAML, every ISO-TP frame FD, BRS** (#557). YAML
+- **CAN FD end to end: `can.fd` in the YAML, every ISO-TP frame FD, BRS** (#557, PR #564). YAML
   `can.fd: true` (optional `can.fd_tx_dl`: 8, 12, 16, 20, 24, 32, 48 or 64, default 64;
   `can.fd_brs`, default false) makes codegen set `isotp_cfg_t.use_fd`, `.tx_dl` and `.brs` in
   `uds_init.c`, which then refuses to build without `ISOTP_ENABLE_CAN_FD=1`. On an FD channel
@@ -114,7 +116,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   loopback and SocketCAN variants. CI job `example-canfd-runtime` runs
   `scripts/smoke_canfd_ecu.py` against the Linux kernel's can-isotp on an MTU-72 vcan:
   multi-frame both directions, FD Flow Control both ways, BRS, the periodic FD frame.
-- **CAN FD periodic messages (SID 0x2A)** (#546): on a CAN FD channel (`ISOTP_ENABLE_CAN_FD=1` and
+- **CAN FD periodic messages (SID 0x2A)** (#546, PR #563): on a CAN FD channel (`ISOTP_ENABLE_CAN_FD=1` and
   `isotp_cfg_t.use_fd`), `isotp_transmit_uudt()` sends a 9..64-byte periodic message
   `[pDID, data]` as one unsegmented CAN FD frame (ISO 14229-3:2022 §8.5, A_UUAtype 3/4): DLC
   rounded up to the next valid FD length (12, 16, 20, 24, 32, 48, 64), the tail padded with
@@ -134,6 +136,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   the 0x78 cadence without flash wear. `basic_ecu` now polls the server for pending jobs.
 - CI job `response-pending-e2e`: `basic_ecu` on native_sim over SocketCAN with the free tester
   (`scripts/e2e_response_pending.py`).
+
+### Not covered
+
+- **CAN FD is verified on native_sim against the Linux kernel's can-isotp, not on an FD board yet.**
+  The Raspberry Pi 5 bench with an MCP2518FD is next; until it has run, treat FD timing and BRS
+  behaviour on real hardware as unmeasured.
+- **Periodic messages (SID 0x2A) over DoIP** are unchanged and not covered (#546 stays open for them).
 
 ## [1.26.1] — 2026-10-30
 
