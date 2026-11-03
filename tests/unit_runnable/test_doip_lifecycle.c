@@ -47,6 +47,14 @@
  *     - test_doip_checkin_while_idle_without_client
  *     - test_doip_checkin_while_connected_idle
  *     - test_doip_checkin_cleared_is_never_called
+ *   Generic header NACK on TCP (EDS#571):
+ *     - test_doip_bad_header_nack_0x00_then_close
+ *     - test_doip_default_version_on_tcp_nack_0x00
+ *     - test_doip_unknown_type_nack_0x01_keeps_connection
+ *     - test_doip_udp_type_on_tcp_nack_0x01
+ *     - test_doip_message_too_large_nack_0x02
+ *     - test_doip_invalid_length_nack_0x04
+ *     - test_doip_valid_frames_get_no_header_nack
  *
  * FRAMEWORK: Zephyr Ztest (shim used for host builds — see tests/runner/)
  * BUILT BY : build_tests.sh
@@ -200,9 +208,23 @@ static int mock_tcp_accept(void *server_ctx, void **conn_ctx, uint32_t timeout_m
 static uint8_t  g_resp[MAX_RESPS][3];
 static uint32_t g_resp_count;
 
+/* [EDS#571] Generic header NACK codes the server sent, in order, and any
+ * diagnostic NACK (0x8003) frames. */
+#define MAX_HDR_NACKS 16U
+static uint8_t  g_hdr_nack[MAX_HDR_NACKS];
+static uint32_t g_hdr_nack_count;
+static uint32_t g_diag_nack_count;
+
 static int mock_tcp_send(void *conn_ctx, const uint8_t *data, size_t len)
 {
     (void)conn_ctx;
+    if ((len == (size_t)(DOIP_HEADER_LEN + 1U)) && (data[2] == 0x00U) && (data[3] == 0x00U) &&
+        (g_hdr_nack_count < MAX_HDR_NACKS)) {
+        g_hdr_nack[g_hdr_nack_count++] = data[DOIP_HEADER_LEN];
+    }
+    if ((len >= 4U) && (data[2] == 0x80U) && (data[3] == 0x03U)) {
+        g_diag_nack_count++;
+    }
     /* A DiagnosticMessage (0x8001) from us: header, 4 address bytes, UDS. */
     if ((len >= (size_t)(DOIP_HEADER_LEN + 5U)) &&
         (data[2] == 0x80U) && (data[3] == 0x01U) && (g_resp_count < MAX_RESPS)) {
@@ -576,6 +598,8 @@ static void reset_observations(void)
     eds_doip_set_pending_callback(NULL);
     eds_doip_set_lock_callbacks(NULL, NULL);
     g_resp_count             = 0U;
+    g_hdr_nack_count         = 0U;   /* [EDS#571] */
+    g_diag_nack_count        = 0U;
     g_pending_calls          = 0U;
     g_pending_left           = 0U;
     g_pending_forever        = false;
@@ -1064,6 +1088,118 @@ ZTEST(doip_lifecycle_suite, test_doip_disconnect_restores_comm_and_dtc_setting)
         "a DoIP disconnect must abort the active transfer (EDS#442)");
 }
 
+/* =========================================================================
+ * Generic header NACK on TCP (EDS#571, ISO 13400-2)
+ * ========================================================================= */
+
+/* Bad inverse version byte: NACK 0x00, then the server closes. */
+ZTEST(doip_lifecycle_suite, test_doip_bad_header_nack_0x00_then_close)
+{
+    static const uint8_t bad[] = { 0x02U, 0xFCU, 0x80U, 0x01U, 0x00U, 0x00U, 0x00U, 0x06U };
+    reset_observations();
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(bad, sizeof(bad));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(1U, g_hdr_nack_count, "no generic header NACK for a bad pattern (EDS#571)");
+    EXPECT_EQ_MSG(DOIP_HDR_NACK_INCORRECT_PATTERN, g_hdr_nack[0], "NACK code for a bad pattern");
+    EXPECT_TRUE_MSG(!g_script_done_at_close, "connection not closed after a bad pattern");
+    EXPECT_EQ_MSG(0U, g_tp_calls, "a frame after a bad pattern was dispatched");
+}
+
+/* The 0xFF default version is for UDP vehicle identification only. */
+ZTEST(doip_lifecycle_suite, test_doip_default_version_on_tcp_nack_0x00)
+{
+    static const uint8_t ff[] = { 0xFFU, 0x00U, 0x00U, 0x05U, 0x00U, 0x00U, 0x00U, 0x07U };
+    reset_observations();
+    add_data(ff, sizeof(ff));
+    run_server();
+    EXPECT_EQ_MSG(1U, g_hdr_nack_count, "no NACK for version 0xFF on TCP");
+    EXPECT_EQ_MSG(DOIP_HDR_NACK_INCORRECT_PATTERN, g_hdr_nack[0], "NACK code");
+}
+
+/* Unknown payload type: NACK 0x01, payload discarded, connection kept. */
+ZTEST(doip_lifecycle_suite, test_doip_unknown_type_nack_0x01_keeps_connection)
+{
+    static const uint8_t unknown[] = { 0x02U, 0xFDU, 0x12U, 0x34U, 0x00U, 0x00U, 0x00U, 0x02U,
+                                       0xAAU, 0xBBU };
+    reset_observations();
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(unknown, sizeof(unknown));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(1U, g_hdr_nack_count, "no generic header NACK for an unknown type (EDS#571)");
+    EXPECT_EQ_MSG(DOIP_HDR_NACK_UNKNOWN_TYPE, g_hdr_nack[0], "NACK code for an unknown type");
+    EXPECT_EQ_MSG(1U, g_tp_calls, "the request after an unknown type was not served");
+    EXPECT_TRUE_MSG(g_script_done_at_close, "server closed the connection for an unknown type");
+}
+
+/* UDP-only types on TCP are unknown there. */
+ZTEST(doip_lifecycle_suite, test_doip_udp_type_on_tcp_nack_0x01)
+{
+    static const uint8_t vir[] = { 0x02U, 0xFDU, 0x00U, 0x01U, 0x00U, 0x00U, 0x00U, 0x00U };
+    reset_observations();
+    add_data(vir, sizeof(vir));
+    run_server();
+    EXPECT_EQ_MSG(1U, g_hdr_nack_count, "no NACK for 0x0001 on TCP");
+    EXPECT_EQ_MSG(DOIP_HDR_NACK_UNKNOWN_TYPE, g_hdr_nack[0], "NACK code");
+}
+
+/* Too large: NACK 0x02 (not a diagnostic NACK), then close. */
+ZTEST(doip_lifecycle_suite, test_doip_message_too_large_nack_0x02)
+{
+    static const uint8_t huge[] = { 0x02U, 0xFDU, 0x80U, 0x01U, 0x00U, 0x01U, 0x00U, 0x00U };
+    reset_observations();
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(huge, sizeof(huge));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(1U, g_hdr_nack_count, "no generic header NACK for a message too large");
+    EXPECT_EQ_MSG(DOIP_HDR_NACK_MSG_TOO_LARGE, g_hdr_nack[0], "NACK code for too large");
+    EXPECT_EQ_MSG(0U, g_diag_nack_count, "too large must be a header NACK, not 0x8003 (EDS#571)");
+    EXPECT_TRUE_MSG(!g_script_done_at_close, "connection not closed after a message too large");
+}
+
+/* Invalid length for the type: NACK 0x04, then close. */
+ZTEST(doip_lifecycle_suite, test_doip_invalid_length_nack_0x04)
+{
+    static const uint8_t ra8[] = { 0x02U, 0xFDU, 0x00U, 0x05U, 0x00U, 0x00U, 0x00U, 0x08U,
+                                   0x0EU, 0x80U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U };
+    reset_observations();
+    add_data(ra8, sizeof(ra8));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(1U, g_hdr_nack_count, "no NACK for a routing activation of 8 bytes");
+    EXPECT_EQ_MSG(DOIP_HDR_NACK_INVALID_LENGTH, g_hdr_nack[0], "NACK code for invalid length");
+    EXPECT_TRUE_MSG(!g_script_done_at_close, "connection not closed after an invalid length");
+}
+
+/* Valid shapes get no NACK: routing activation with the 4-byte OEM field
+ * (11 bytes), and a tester's alive check response (0x0008, 2 bytes). */
+ZTEST(doip_lifecycle_suite, test_doip_valid_frames_get_no_header_nack)
+{
+    static const uint8_t ra11[] = { 0x02U, 0xFDU, 0x00U, 0x05U, 0x00U, 0x00U, 0x00U, 0x0BU,
+                                    (uint8_t)(TEST_TESTER_ADDR >> 8U),
+                                    (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
+                                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                                    0x00U, 0x00U, 0x00U, 0x00U };
+    static const uint8_t alive_resp[] = { 0x02U, 0xFDU, 0x00U, 0x08U, 0x00U, 0x00U, 0x00U, 0x02U,
+                                          (uint8_t)(TEST_TESTER_ADDR >> 8U),
+                                          (uint8_t)(TEST_TESTER_ADDR & 0xFFU) };
+    reset_observations();
+    add_data(ra11, sizeof(ra11));
+    add_data(alive_resp, sizeof(alive_resp));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    run_server();
+
+    EXPECT_EQ_MSG(0U, g_hdr_nack_count, "a valid frame got a generic header NACK");
+    EXPECT_EQ_MSG(1U, g_tp_calls, "TesterPresent after RA(11) + alive check response not served");
+}
+
 ZTEST_SUITE(doip_lifecycle_suite, NULL, NULL, NULL, NULL, NULL);
 
 /* =========================================================================
@@ -1096,4 +1232,11 @@ void run_all_tests(void)
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_idle_without_client);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_connected_idle);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_cleared_is_never_called);
+    RUN_TEST(doip_lifecycle_suite__test_doip_bad_header_nack_0x00_then_close);
+    RUN_TEST(doip_lifecycle_suite__test_doip_default_version_on_tcp_nack_0x00);
+    RUN_TEST(doip_lifecycle_suite__test_doip_unknown_type_nack_0x01_keeps_connection);
+    RUN_TEST(doip_lifecycle_suite__test_doip_udp_type_on_tcp_nack_0x01);
+    RUN_TEST(doip_lifecycle_suite__test_doip_message_too_large_nack_0x02);
+    RUN_TEST(doip_lifecycle_suite__test_doip_invalid_length_nack_0x04);
+    RUN_TEST(doip_lifecycle_suite__test_doip_valid_frames_get_no_header_nack);
 }

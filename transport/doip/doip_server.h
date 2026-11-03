@@ -64,7 +64,10 @@ extern "C" {
  * Symmetric with xaloqi-tester transport/doip.py — do not change values.
  * ========================================================================== */
 
-#define DOIP_VERSION            (0x02U)  /**< ISO 13400-2:2019 protocol version. */
+/** Protocol version byte. 0x02 is the ISO 13400-2:2012 value (2019 is 0x03),
+ * what EDS has always sent and what testers default to; parsing and the
+ * message layout follow the 2019 text. [EDS#571] */
+#define DOIP_VERSION            (0x02U)
 #define DOIP_VERSION_INV        (0xFDU)  /**< Inverse byte (0xFF XOR 0x02). */
 #define DOIP_HEADER_LEN         (8U)     /**< Generic header size in bytes. */
 #define DOIP_PORT               (13400U) /**< Standard TCP port (ISO 13400). */

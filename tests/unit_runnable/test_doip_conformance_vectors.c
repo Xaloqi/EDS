@@ -83,9 +83,10 @@
  *     no Gateway type 0x01, no WithVM), Alive Check, DiagnosticMessage +
  *     its positive/negative ack, generic header validation. It does NOT
  *     implement UDP Vehicle Identification / Entity Status / PowerMode, the
- *     standalone Generic DoIP Header NACK (payload type 0x0000 — malformed/
- *     unknown headers are silently ignored, per EDS's own
- *     test_doip_handle_unknown_payload_type_ignored), TLS, or IPv6.
+ *     standalone Generic DoIP Header NACK (payload type 0x0000), TLS, or
+ *     IPv6. (Since then: discovery over UDP, EDS#392, and the generic header
+ *     NACK on TCP, EDS#571, tested in test_doip_discovery and
+ *     test_doip_lifecycle; not ported from upstream vectors.)
  *     Upstream's fixtures for all of those (vehicle_identification_*,
  *     entity_status_*, diagnostic_power_mode_*, nack_response /
  *     "Generic NACK", gateway_activation_response, activation_request_with_vm)

@@ -44,6 +44,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `-DEDS_DOIP_DISCOVERY=0`, which restores exactly the previous socket calls. A custom
   binding gets discovery by implementing the new optional UDP ops (part A).
 
+- **DoIP over TCP answers malformed messages with the ISO 13400-2 generic header NACK
+  (0x0000)** (#571). Before, a bad version or inverse byte closed the connection silently, an
+  unknown payload type was ignored, and an oversized message got a *diagnostic* NACK (0x8003,
+  code 0x05). Now:
+  - bad pattern (version/inverse; 0xFF too, which is for UDP only) → NACK 0x00, then close;
+  - unknown payload type (UDP-only types included) → NACK 0x01, message discarded, connection
+    kept;
+  - payload longer than `DOIP_MAX_PDU_SIZE - 8` → NACK 0x02, then close. ISO says discard; the
+    connection is closed instead, so a peer cannot make the server read up to 4 GiB;
+  - wrong length for the type (routing activation 7 or 11, alive check request 0, alive check
+    response 2, diagnostic message ≥ 5) → NACK 0x04, then close. A short routing activation
+    now gets this instead of a routing activation denial.
+
+  Well-formed traffic is unchanged; a tester's alive check response (0x0008) is accepted
+  silently. **Migration:** none for ISO-conformant testers. `DOIP_VERSION` (0x02) is now
+  documented as the 2012 protocol version; the value is unchanged.
+
 ### Fixed
 
 - **Six example READMEs no longer say a licence is needed to use them** (#569). `ardep_ecu`,
