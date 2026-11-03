@@ -8,6 +8,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **Six example READMEs no longer say a licence is needed to use them** (#569). `ardep_ecu`,
+  `bms_ecu`, `motor_controller_ecu`, `safeboot_ecu`, `sensor_ecu` and `sensor_ecu_freertos`
+  said "Included with Developer and Professional licenses" (bms_ecu: "after purchase, extract
+  your delivery ZIP"), though each is on main with its YAML, `src/` and `generated/`. Availability
+  now reads as in `robot_joint_controller_ecu` (#528): free to build, run and study; only
+  regenerating from a changed YAML needs a Developer licence. New
+  `tests/test_example_readmes_free_to_build.py` fails if any `examples/*/README.md` claims otherwise.
+
 ## [1.27.0] — 2026-11-02
 
 ### Fixed
