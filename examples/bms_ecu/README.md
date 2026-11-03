@@ -41,13 +41,10 @@ bms_ecu/
 
 ## Availability
 
-This example is included with **Developer** and **Professional** licenses.
-
-**[Purchase at xaloqi.com →](https://xaloqi.com)**
-
-After purchase, extract your delivery ZIP into the repo root and this directory
-will be populated with the full example, including `diagnostics_config.yaml`,
-`src/`, and the pre-generated test suite.
+Free to build, run and study. The example is Apache-2.0; the EDS runtime it links is
+GPL v2. Regenerating `generated/` from a changed `diagnostics_config.yaml` needs a
+**Developer** licence ([xaloqi.com](https://xaloqi.com)); shipping the runtime in
+proprietary firmware needs a commercial licence. See the repository README, "Open-core".
 
 ---
 
@@ -90,7 +87,7 @@ dids:
   # ... 22 more DIDs
 ```
 
-The full config, source, and generated test suite are delivered with the license.
+The full config, source, and generated test suite are in this directory.
 
 ---
 

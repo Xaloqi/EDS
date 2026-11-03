@@ -89,9 +89,10 @@ redundant — included for clarity and to match CI's own invocation).
 
 ## Availability
 
-Included with **Developer** and **Professional** licenses.
-
-**[Purchase at xaloqi.com →](https://xaloqi.com)**
+Free to build, run and study. The example is Apache-2.0; the EDS runtime it links is
+GPL v2. Regenerating `generated/` from a changed `diagnostics_config.yaml` needs a
+**Developer** licence ([xaloqi.com](https://xaloqi.com)); shipping the runtime in
+proprietary firmware needs a commercial licence. See the repository README, "Open-core".
 
 ---
 

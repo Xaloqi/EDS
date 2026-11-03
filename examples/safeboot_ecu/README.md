@@ -4,7 +4,9 @@ Secure OTA firmware update over UDS + MCUboot on the STM32H743ZI.
 Demonstrates the complete RequestDownload / TransferData / RequestTransferExit (0x34/0x36/0x37)
 pipeline with CRC-32 integrity, AES-128-CMAC SecurityAccess, and atomic A/B slot swap via MCUboot.
 
-Included with **Developer** and **Professional** licenses.
+Free to build, run and study (Apache-2.0 example, GPL v2 runtime). Regenerating `generated/`
+from a changed `diagnostics_config.yaml` needs a **Developer** licence; see
+[Availability](#availability).
 
 ---
 
@@ -283,7 +285,7 @@ west build --pristine -b $BOARD -d build-safeboot \
 
 `-DDIAG_SKIP_CODEGEN=ON` builds against the pre-committed
 `examples/safeboot_ecu/generated/` sources. Drop it only if you hold a
-Developer or Professional licence — regenerating requires `tools/templates/`,
+Developer licence — regenerating requires `tools/templates/`,
 which is not part of a public checkout.
 
 ### 3. Sign the image
@@ -554,3 +556,12 @@ Step 5.7. No manual wiring required.
 - `generated/uds_init.c` — full 9-step init sequence including flash ops wiring
 - MCUboot documentation: <https://docs.mcuboot.com>
 - EDS protocol reference: `docs/uds_services.md`
+
+---
+
+## Availability
+
+Free to build, run and study. The example is Apache-2.0; the EDS runtime it links is
+GPL v2. Regenerating `generated/` from a changed `diagnostics_config.yaml` needs a
+**Developer** licence ([xaloqi.com](https://xaloqi.com)); shipping the runtime in
+proprietary firmware needs a commercial licence. See the repository README, "Open-core".
