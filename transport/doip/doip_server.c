@@ -73,6 +73,23 @@ static eds_doip_checkin_cb_t s_doip_checkin_cb = NULL;
 /* [EDS#423] Response-pending continuation -- see eds_doip_set_pending_callback(). */
 static eds_doip_pending_cb_t s_doip_pending_cb = NULL;
 
+/* [EDS#392] Vehicle discovery configuration -- see eds_doip_set_discovery().
+ * Starts at the defaults eds_doip_set_discovery(NULL) restores. */
+static eds_doip_discovery_cfg_t s_discovery = {
+    .enabled        = true,
+    .announce       = true,
+    .get_vin        = NULL,
+    .eid_set        = false,
+    .gid_set        = false,
+    .further_action = DOIP_FURTHER_ACTION_NONE,
+    .get_power_mode = NULL,
+};
+
+/* [EDS#392] Set by eds_doip_announce_request() from any thread, consumed by
+ * the server thread. A single bool store; a request that lands between the
+ * read and the clear is folded into the burst that read starts. */
+static volatile bool s_announce_requested = false;
+
 /* ---------------------------------------------------------------------------
  * Internal helpers — forward declarations
  * ------------------------------------------------------------------------ */
@@ -179,6 +196,17 @@ uds_status_t eds_doip_register_platform(const eds_doip_platform_ops_t *ops)
         ops->ecu_reset        == NULL) {   /* [EDS#434] */
         return UDS_STATUS_ERR_NULL_PTR;
     }
+    /* [EDS#392] The UDP ops are all or none: a partial set would open a
+     * socket the server cannot wait on, or read from one it cannot answer. */
+    uint32_t udp_ops = 0U;
+    udp_ops += (ops->udp_open      != NULL) ? 1U : 0U;
+    udp_ops += (ops->udp_recvfrom  != NULL) ? 1U : 0U;
+    udp_ops += (ops->udp_sendto    != NULL) ? 1U : 0U;
+    udp_ops += (ops->udp_close     != NULL) ? 1U : 0U;
+    udp_ops += (ops->wait_readable != NULL) ? 1U : 0U;
+    if ((udp_ops != 0U) && (udp_ops != 5U)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
     s_ops = ops;
     return UDS_STATUS_OK;
 }
@@ -203,6 +231,29 @@ void eds_doip_set_checkin_callback(eds_doip_checkin_cb_t cb)
 void eds_doip_set_pending_callback(eds_doip_pending_cb_t cb)
 {
     s_doip_pending_cb = cb;
+}
+
+/* ---------------------------------------------------------------------------
+ * Public: eds_doip_set_discovery / eds_doip_announce_request  [EDS#392]
+ * ------------------------------------------------------------------------ */
+
+void eds_doip_set_discovery(const eds_doip_discovery_cfg_t *cfg)
+{
+    static const eds_doip_discovery_cfg_t defaults = {
+        .enabled        = true,
+        .announce       = true,
+        .get_vin        = NULL,
+        .eid_set        = false,
+        .gid_set        = false,
+        .further_action = DOIP_FURTHER_ACTION_NONE,
+        .get_power_mode = NULL,
+    };
+    s_discovery = (cfg != NULL) ? *cfg : defaults;
+}
+
+void eds_doip_announce_request(void)
+{
+    s_announce_requested = true;
 }
 
 /* [EDS#399] Called by eds_doip_server_run() every time it wakes. */
@@ -719,6 +770,375 @@ static bool doip_lifetime_spent(doip_server_state_t *s, const eds_elapsed_t *con
     return spent;
 }
 
+/* ===========================================================================
+ * [EDS#392] Vehicle discovery over UDP
+ *
+ * Served on the server thread, between TCP waits (doip_wait_tcp()), so it
+ * adds no thread and no new unsupervised surface. Reactive answers go to
+ * the requester's own address and port (the CDA sends from 13400,
+ * python-doipclient from an ephemeral port); announcements go to
+ * 255.255.255.255:13400.
+ * ======================================================================== */
+
+/* Vehicle identification response payload: VIN(17) LA(2) EID(6) GID(6)
+ * further action(1), plus the optional VIN/GID sync status(1). */
+#define DOIP_VAM_PAYLOAD_LEN       (32U)
+#define DOIP_VAM_PAYLOAD_LEN_SYNC  (33U)
+/* Entity status response: node type(1) max sockets(1) open sockets(1)
+ * max data size(4). */
+#define DOIP_ENTITY_STATUS_PAYLOAD_LEN (7U)
+/* The server serves one TCP connection at a time (DOIP_MAX_CONNECTIONS is a
+ * listen() backlog), so that is the number it reports. */
+#define DOIP_MAX_CONCURRENT_SOCKETS (1U)
+
+/* UDP payloads larger than this cannot be held, whatever their type. */
+#define DOIP_UDP_MAX_PAYLOAD ((uint32_t)DOIP_UDP_RX_BUF_LEN - (uint32_t)DOIP_HEADER_LEN)
+
+/* Payload types that are themselves responses. Never answered, not even
+ * with a NACK: two entities on one segment would otherwise NACK each
+ * other's announcements forever, and our own broadcast echo is one too. */
+static bool doip_udp_is_response_type(uint16_t payload_type)
+{
+    return (payload_type == DOIP_PT_GENERIC_NACK) ||
+           (payload_type == DOIP_PT_VEHICLE_ANNOUNCE) ||
+           (payload_type == DOIP_PT_ENTITY_STATUS_RESP) ||
+           (payload_type == DOIP_PT_POWER_MODE_RESP);
+}
+
+static bool doip_udp_is_vir_type(uint16_t payload_type)
+{
+    return (payload_type == DOIP_PT_VEHICLE_ID_REQ) ||
+           (payload_type == DOIP_PT_VEHICLE_ID_REQ_EID) ||
+           (payload_type == DOIP_PT_VEHICLE_ID_REQ_VIN);
+}
+
+/* Expected payload length of a request served on UDP; false if the type is
+ * not served on UDP. */
+static bool doip_udp_expected_len(uint16_t payload_type, uint32_t *len)
+{
+    bool served = true;
+
+    switch (payload_type) {
+    case DOIP_PT_VEHICLE_ID_REQ:     *len = 0U;                       break;
+    case DOIP_PT_VEHICLE_ID_REQ_EID: *len = (uint32_t)DOIP_EID_LEN;   break;
+    case DOIP_PT_VEHICLE_ID_REQ_VIN: *len = (uint32_t)DOIP_VIN_LEN;   break;
+    case DOIP_PT_ENTITY_STATUS_REQ:  *len = 0U;                       break;
+    case DOIP_PT_POWER_MODE_REQ:     *len = 0U;                       break;
+    default:                         served = false;                  break;
+    }
+    return served;
+}
+
+static void doip_get_eid(uint8_t eid[DOIP_EID_LEN])
+{
+    int rc = -1;
+
+    if (s_discovery.eid_set) {
+        (void)memcpy(eid, s_discovery.eid, (size_t)DOIP_EID_LEN);
+        rc = 0;
+    } else if (s_ops->get_eid != NULL) {
+        rc = s_ops->get_eid(eid);
+    } else {
+        /* no EID source: all zeros below */
+    }
+    if (rc != 0) {
+        (void)memset(eid, 0, (size_t)DOIP_EID_LEN);
+    }
+}
+
+/* VIN for a response, read through the integrator's callback inside the
+ * EDS#353 lock pair, so the DID path sees a consistent session/security
+ * state. false: not available (no callback, or the safety wrapper refused). */
+static bool doip_read_vin(uds_server_ctx_t *uds_ctx, uint8_t vin[DOIP_VIN_LEN])
+{
+    uds_status_t rc = UDS_STATUS_ERR_NOT_INITIALIZED;
+
+    if (s_discovery.get_vin != NULL) {
+        if (s_doip_lock_cb != NULL) {
+            s_doip_lock_cb();
+        }
+        rc = s_discovery.get_vin(uds_ctx, vin);
+        if (s_doip_unlock_cb != NULL) {
+            s_doip_unlock_cb();
+        }
+    }
+    if (rc != UDS_STATUS_OK) {
+        /* ISO 13400-2 invalidity value for a VIN that is not available. */
+        (void)memset(vin, 0, (size_t)DOIP_VIN_LEN);
+    }
+    return (rc == UDS_STATUS_OK);
+}
+
+static void doip_udp_send(doip_server_state_t *s,
+                          const eds_doip_udp_peer_t *peer,
+                          uint16_t payload_type,
+                          const uint8_t *payload,
+                          uint32_t payload_len)
+{
+    /* Callers pass at most DOIP_VAM_PAYLOAD_LEN_SYNC bytes. */
+    (void)doip_encode_header(s->udp_tx_buf, payload_type, payload_len);
+    if (payload_len > 0U) {
+        (void)memcpy(&s->udp_tx_buf[DOIP_HEADER_LEN], payload, (size_t)payload_len);
+    }
+    int rc = s_ops->udp_sendto(s->udp_ctx, peer, s->udp_tx_buf,
+                               (size_t)(DOIP_HEADER_LEN + payload_len));
+    if (rc < 0) {
+        s->udp_send_failed++;
+    }
+}
+
+/* Build a vehicle identification response / announcement payload. Returns
+ * its length: 32, or 33 with sync status "incomplete" when the VIN is not
+ * available. vin_out receives the VIN used (zeros when not available). */
+static uint32_t doip_build_vam(const doip_server_state_t *s,
+                               uds_server_ctx_t *uds_ctx,
+                               uint8_t payload[DOIP_VAM_PAYLOAD_LEN_SYNC],
+                               bool *vin_ok)
+{
+    *vin_ok = doip_read_vin(uds_ctx, &payload[0]);
+    payload[17] = (uint8_t)((s->logical_address >> 8U) & 0xFFU);
+    payload[18] = (uint8_t)(s->logical_address & 0xFFU);
+    doip_get_eid(&payload[19]);
+    if (s_discovery.gid_set) {
+        (void)memcpy(&payload[25], s_discovery.gid, (size_t)DOIP_GID_LEN);
+    } else {
+        (void)memcpy(&payload[25], &payload[19], (size_t)DOIP_GID_LEN);
+    }
+    payload[31] = s_discovery.further_action;
+    payload[32] = DOIP_SYNC_STATUS_INCOMPLETE;
+    return *vin_ok ? DOIP_VAM_PAYLOAD_LEN : DOIP_VAM_PAYLOAD_LEN_SYNC;
+}
+
+/* The reply rate cap (DOIP_UDP_MAX_REPLIES_PER_S). true: this reply may go;
+ * false: drop the datagram and count it. */
+static bool doip_udp_reply_allowed(doip_server_state_t *s)
+{
+    uint32_t now = s_ops->uptime_ms();
+
+    if ((uint32_t)(now - s->udp_rate_window_ms) >= 1000U) {
+        s->udp_rate_window_ms    = now;
+        s->udp_replies_in_window = 0U;
+    }
+    if (s->udp_replies_in_window >= (uint32_t)DOIP_UDP_MAX_REPLIES_PER_S) {
+        s->udp_dropped++;
+        return false;
+    }
+    s->udp_replies_in_window++;
+    s->udp_replied++;
+    return true;
+}
+
+static void doip_udp_send_nack(doip_server_state_t *s,
+                               const eds_doip_udp_peer_t *peer,
+                               uint8_t nack_code)
+{
+    if (doip_udp_reply_allowed(s)) {
+        doip_udp_send(s, peer, DOIP_PT_GENERIC_NACK, &nack_code, 1U);
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * Public: doip_handle_udp_datagram  [EDS#392]
+ * ------------------------------------------------------------------------ */
+
+uds_status_t doip_handle_udp_datagram(doip_server_state_t       *s,
+                                      uds_server_ctx_t          *uds_ctx,
+                                      const uint8_t             *buf,
+                                      uint32_t                   len,
+                                      const eds_doip_udp_peer_t *peer)
+{
+    if ((s == NULL) || (uds_ctx == NULL) || (buf == NULL) || (peer == NULL) ||
+        (s_ops == NULL) || (s->udp_ctx == NULL)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    /* Too short to hold a header: nothing to judge or answer. */
+    if (len < (uint32_t)DOIP_HEADER_LEN) {
+        return UDS_STATUS_OK;
+    }
+
+    uint8_t  version      = buf[DOIP_HDR_OFF_VERSION];
+    uint16_t payload_type = ((uint16_t)buf[DOIP_HDR_OFF_TYPE_HI] << 8U) |
+                             (uint16_t)buf[DOIP_HDR_OFF_TYPE_LO];
+    uint32_t payload_len  = ((uint32_t)buf[DOIP_HDR_OFF_LEN_3] << 24U) |
+                            ((uint32_t)buf[DOIP_HDR_OFF_LEN_2] << 16U) |
+                            ((uint32_t)buf[DOIP_HDR_OFF_LEN_1] <<  8U) |
+                             (uint32_t)buf[DOIP_HDR_OFF_LEN_0];
+
+    if (doip_udp_is_response_type(payload_type)) {
+        return UDS_STATUS_OK;
+    }
+
+    /* Generic header handling, ISO 13400-2. UDP has no socket to close, so
+     * the "close the socket" cases become NACK and discard. */
+    bool version_ok = (version == DOIP_VERSION) ||
+                      ((version == DOIP_VERSION_DEFAULT) &&
+                       doip_udp_is_vir_type(payload_type));
+    if (!version_ok ||
+        (((uint8_t)(version ^ buf[DOIP_HDR_OFF_INV_VERSION])) != 0xFFU)) {
+        doip_udp_send_nack(s, peer, DOIP_HDR_NACK_INCORRECT_PATTERN);
+        return UDS_STATUS_OK;
+    }
+    uint32_t expected_len = 0U;
+    if (!doip_udp_expected_len(payload_type, &expected_len)) {
+        doip_udp_send_nack(s, peer, DOIP_HDR_NACK_UNKNOWN_TYPE);
+        return UDS_STATUS_OK;
+    }
+    if (payload_len > DOIP_UDP_MAX_PAYLOAD) {
+        doip_udp_send_nack(s, peer, DOIP_HDR_NACK_MSG_TOO_LARGE);
+        return UDS_STATUS_OK;
+    }
+    if ((payload_len != expected_len) ||
+        (len != ((uint32_t)DOIP_HEADER_LEN + payload_len))) {
+        doip_udp_send_nack(s, peer, DOIP_HDR_NACK_INVALID_LENGTH);
+        return UDS_STATUS_OK;
+    }
+
+    const uint8_t *payload = &buf[DOIP_HEADER_LEN];
+    uint8_t out[DOIP_VAM_PAYLOAD_LEN_SYNC];
+
+    switch (payload_type) {
+    case DOIP_PT_VEHICLE_ID_REQ:
+    case DOIP_PT_VEHICLE_ID_REQ_EID:
+    case DOIP_PT_VEHICLE_ID_REQ_VIN: {
+        bool vin_ok = false;
+        uint32_t out_len = doip_build_vam(s, uds_ctx, out, &vin_ok);
+        /* A filtered request that does not match gets no answer at all
+         * (ISO 13400-2). A VIN that is not available never matches. */
+        bool match = true;
+        if (payload_type == DOIP_PT_VEHICLE_ID_REQ_EID) {
+            match = (memcmp(payload, &out[19], (size_t)DOIP_EID_LEN) == 0);
+        } else if (payload_type == DOIP_PT_VEHICLE_ID_REQ_VIN) {
+            match = vin_ok && (memcmp(payload, &out[0], (size_t)DOIP_VIN_LEN) == 0);
+        } else {
+            /* 0x0001: everyone answers */
+        }
+        if (match && doip_udp_reply_allowed(s)) {
+            doip_udp_send(s, peer, DOIP_PT_VEHICLE_ANNOUNCE, out, out_len);
+        }
+        break;
+    }
+    case DOIP_PT_ENTITY_STATUS_REQ:
+        out[0] = DOIP_NODE_TYPE_NODE;
+        out[1] = (uint8_t)DOIP_MAX_CONCURRENT_SOCKETS;
+        out[2] = (s->conn_ctx != NULL) ? 1U : 0U;
+        out[3] = (uint8_t)(((uint32_t)DOIP_MAX_PDU_SIZE >> 24U) & 0xFFU);
+        out[4] = (uint8_t)(((uint32_t)DOIP_MAX_PDU_SIZE >> 16U) & 0xFFU);
+        out[5] = (uint8_t)(((uint32_t)DOIP_MAX_PDU_SIZE >>  8U) & 0xFFU);
+        out[6] = (uint8_t)((uint32_t)DOIP_MAX_PDU_SIZE & 0xFFU);
+        if (doip_udp_reply_allowed(s)) {
+            doip_udp_send(s, peer, DOIP_PT_ENTITY_STATUS_RESP, out,
+                          (uint32_t)DOIP_ENTITY_STATUS_PAYLOAD_LEN);
+        }
+        break;
+    case DOIP_PT_POWER_MODE_REQ:
+    default: /* only DOIP_PT_POWER_MODE_REQ reaches here */
+        out[0] = (s_discovery.get_power_mode != NULL) ?
+                 s_discovery.get_power_mode() : DOIP_POWER_MODE_READY;
+        if (doip_udp_reply_allowed(s)) {
+            doip_udp_send(s, peer, DOIP_PT_POWER_MODE_RESP, out, 1U);
+        }
+        break;
+    }
+    return UDS_STATUS_OK;
+}
+
+/* Read and answer up to DOIP_UDP_MAX_PER_WAKE queued datagrams. */
+static void doip_udp_service(doip_server_state_t *s, uds_server_ctx_t *uds_ctx)
+{
+    for (uint32_t i = 0U; i < (uint32_t)DOIP_UDP_MAX_PER_WAKE; i++) {
+        eds_doip_udp_peer_t peer = { 0U, 0U };
+        int n = s_ops->udp_recvfrom(s->udp_ctx, s->udp_rx_buf,
+                                    sizeof(s->udp_rx_buf), &peer);
+        if (n < 0) {
+            break; /* DOIP_UDP_NO_DATA, or an error: try again next wake */
+        }
+        s->udp_received++;
+        (void)doip_handle_udp_datagram(s, uds_ctx, s->udp_rx_buf, (uint32_t)n, &peer);
+    }
+}
+
+/* Run the announcement schedule: start a burst if one was requested, send
+ * the one that is due. Returns ms until the next one is due, UINT32_MAX if
+ * none is pending. */
+static uint32_t doip_announce_step(doip_server_state_t *s, uds_server_ctx_t *uds_ctx)
+{
+    uint32_t now = s_ops->uptime_ms();
+
+    if (s_announce_requested) {
+        s_announce_requested = false;
+        if (s_discovery.announce) {
+            /* A_DoIP_Announce_Wait jitter, seeded from the EID so entities
+             * powered together pick different delays; no TRNG needed. */
+            uint8_t  eid[DOIP_EID_LEN];
+            uint32_t seed = now;
+            doip_get_eid(eid);
+            for (uint32_t i = 0U; i < (uint32_t)DOIP_EID_LEN; i++) {
+                seed = (seed * 31U) + (uint32_t)eid[i];
+            }
+            s->announce_remaining = (uint8_t)DOIP_ANNOUNCE_NUM;
+            s->announce_anchor_ms = now;
+            s->announce_delay_ms  = seed % ((uint32_t)DOIP_ANNOUNCE_WAIT_MAX_MS + 1U);
+        }
+    }
+    if (s->announce_remaining == 0U) {
+        return UINT32_MAX;
+    }
+    uint32_t elapsed = now - s->announce_anchor_ms;
+    if (elapsed < s->announce_delay_ms) {
+        return s->announce_delay_ms - elapsed;
+    }
+
+    static const eds_doip_udp_peer_t broadcast = {
+        DOIP_UDP_BROADCAST_ADDR, (uint16_t)DOIP_PORT
+    };
+    uint8_t out[DOIP_VAM_PAYLOAD_LEN_SYNC];
+    bool vin_ok = false;
+    uint32_t out_len = doip_build_vam(s, uds_ctx, out, &vin_ok);
+    doip_udp_send(s, &broadcast, DOIP_PT_VEHICLE_ANNOUNCE, out, out_len);
+    s->announcements_sent++;
+    s->announce_remaining--;
+    s->announce_anchor_ms = now;
+    s->announce_delay_ms  = (uint32_t)DOIP_ANNOUNCE_INTERVAL_MS;
+    return (s->announce_remaining > 0U) ? (uint32_t)DOIP_ANNOUNCE_INTERVAL_MS : UINT32_MAX;
+}
+
+/* Wait up to timeout_ms for tcp_ctx to become readable, serving discovery
+ * meanwhile. true: TCP is readable (or the wait op failed), so the caller
+ * makes its usual TCP call, which returns at once; false: timeout_ms passed
+ * on the uptime clock with nothing on TCP, which the caller treats exactly
+ * as its TCP call timing out. Measuring the whole timeout on the clock,
+ * across UDP wakes, keeps an idle poll worth DOIP_IDLE_POLL_MS (EDS#400).
+ * Checks in on every wake (EDS#399). */
+static bool doip_wait_tcp(doip_server_state_t *s, uds_server_ctx_t *uds_ctx,
+                          void *tcp_ctx, uint32_t timeout_ms)
+{
+    eds_elapsed_t waited;
+    eds_elapsed_init(&waited, s_ops->uptime_ms());
+
+    for (;;) {
+        uint32_t next_announce = doip_announce_step(s, uds_ctx);
+        uint32_t spent = eds_elapsed_since(&waited, s_ops->uptime_ms());
+        if (spent >= timeout_ms) {
+            return false;
+        }
+        uint32_t left = timeout_ms - spent;
+        if (next_announce < left) {
+            left = next_announce;
+        }
+        int ready = s_ops->wait_readable(tcp_ctx, s->udp_ctx, left);
+        doip_checkin();
+        if (ready < 0) {
+            return true;
+        }
+        if (((uint32_t)ready & DOIP_READY_UDP) != 0U) {
+            doip_udp_service(s, uds_ctx);
+        }
+        if (((uint32_t)ready & DOIP_READY_TCP) != 0U) {
+            return true;
+        }
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * Public: eds_doip_server_run
  *
@@ -780,6 +1200,24 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
         return UDS_STATUS_ERR_PLATFORM;
     }
 
+    /* [EDS#392] Discovery socket, when the platform has UDP and discovery
+     * is enabled. Failing to open it leaves the server TCP-only. Bindings
+     * start this thread once the interface is up, so this is where the
+     * first announcement burst is requested. */
+    s->udp_ctx = NULL;
+    if ((s_ops->udp_open != NULL) && s_discovery.enabled) {
+        void *udp_ctx = NULL;
+        if (s_ops->udp_open(port, &udp_ctx) == 0) {
+            s->udp_ctx = udp_ctx;
+            s->udp_rate_window_ms = s_ops->uptime_ms();
+            if (s_discovery.announce) {
+                s_announce_requested = true;
+            }
+        } else {
+            s->udp_open_failed++;
+        }
+    }
+
     /* [EDS#218] Rapid-reconnect tracking across connections — see
      * DOIP_RAPID_RECONNECT_THRESHOLD / DOIP_RECONNECT_BACKOFF_REJECTS in
      * doip_server.h (a bounded count used in place of a cooldown timer). */
@@ -789,6 +1227,12 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
     /* Accept → receive → handle → repeat */
     for (;;) {
         void *conn_ctx = NULL;
+        /* [EDS#392] With discovery on, wait on both sockets first; a poll
+         * that passes with no connection is an accept timeout. */
+        if ((s->udp_ctx != NULL) &&
+            !doip_wait_tcp(s, uds_ctx, server_ctx, DOIP_ACCEPT_POLL_TIMEOUT_MS)) {
+            continue;
+        }
         rc = s_ops->tcp_accept(server_ctx, &conn_ctx, DOIP_ACCEPT_POLL_TIMEOUT_MS);
         /* [EDS#399] Every accept wake checks in, client or not: an idle
          * server must never look hung to a supervisor. */
@@ -840,10 +1284,18 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
             int first = 0;
 
             for (;;) {
-                first = s_ops->tcp_recv(s->conn_ctx, hdr_buf,
-                                        (size_t)DOIP_HEADER_LEN,
-                                        DOIP_IDLE_POLL_MS);
-                doip_checkin();
+                /* [EDS#392] With discovery on, a poll that passes on the
+                 * clock with nothing on TCP is one idle poll, as if
+                 * tcp_recv() had timed out (doip_wait_tcp() checked in). */
+                if ((s->udp_ctx != NULL) &&
+                    !doip_wait_tcp(s, uds_ctx, s->conn_ctx, DOIP_IDLE_POLL_MS)) {
+                    first = DOIP_TCP_RECV_TIMEOUT;
+                } else {
+                    first = s_ops->tcp_recv(s->conn_ctx, hdr_buf,
+                                            (size_t)DOIP_HEADER_LEN,
+                                            DOIP_IDLE_POLL_MS);
+                    doip_checkin();
+                }
                 if (first != DOIP_TCP_RECV_TIMEOUT) {
                     break;
                 }
@@ -1046,6 +1498,10 @@ connection_closed:
     }
 
     /* Unreachable in normal operation */
+    if (s->udp_ctx != NULL) {
+        s_ops->udp_close(s->udp_ctx);
+        s->udp_ctx = NULL;
+    }
     s_ops->tcp_server_close(server_ctx);
     return UDS_STATUS_OK;
 }

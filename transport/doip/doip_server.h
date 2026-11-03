@@ -20,9 +20,15 @@
  *            - Alive Check Request/Response (0x0007/0x0008)
  *            - Generic header validation (version 0x02, inverse byte)
  *
- *          Not implemented in v1.7.0 (documented, not planned):
- *            - UDP Vehicle Identification / Entity Status / PowerMode
- *            - DoIP Vehicle Announcement
+ *          [EDS#392] Vehicle discovery over UDP, when the platform ops
+ *          include UDP (on by default; see eds_doip_set_discovery()):
+ *            - Vehicle Identification Request 0x0001 / by EID 0x0002 /
+ *              by VIN 0x0003 -> response 0x0004
+ *            - Vehicle Announcement 0x0004 (A_DoIP_Announce_* defaults)
+ *            - Entity Status 0x4001/0x4002, Power Mode 0x4003/0x4004
+ *            - Generic header NACK 0x0000 for malformed datagrams
+ *
+ *          Not implemented (documented, not planned):
  *            - TLS (plain TCP only)
  *            - Multiple routing activation types (Default=0x00 only)
  *            - IPv6 (IPv4 only)
@@ -83,6 +89,50 @@ extern "C" {
 #define DOIP_NACK_MSG_TOO_LARGE    (0x05U) /**< Diagnostic message too large. */
 #define DOIP_NACK_OUT_OF_MEMORY    (0x06U) /**< Out of memory. */
 #define DOIP_NACK_TGT_UNREACHABLE  (0x07U) /**< Target unreachable (not routing-active). */
+
+/* [EDS#392] Vehicle discovery over UDP (ISO 13400-2 payload types). */
+#define DOIP_PT_GENERIC_NACK       (0x0000U) /**< Generic DoIP header negative ack. */
+#define DOIP_PT_VEHICLE_ID_REQ     (0x0001U) /**< Vehicle identification request. */
+#define DOIP_PT_VEHICLE_ID_REQ_EID (0x0002U) /**< ... with EID (6 bytes). */
+#define DOIP_PT_VEHICLE_ID_REQ_VIN (0x0003U) /**< ... with VIN (17 bytes). */
+#define DOIP_PT_VEHICLE_ANNOUNCE   (0x0004U) /**< Vehicle announcement / identification response. */
+#define DOIP_PT_ENTITY_STATUS_REQ  (0x4001U)
+#define DOIP_PT_ENTITY_STATUS_RESP (0x4002U)
+#define DOIP_PT_POWER_MODE_REQ     (0x4003U) /**< Diagnostic power mode information request. */
+#define DOIP_PT_POWER_MODE_RESP    (0x4004U)
+
+/** [EDS#392] Protocol version a tester may put in a vehicle identification
+ * request (0x0001-0x0003) instead of its own, per ISO 13400-2. The Eclipse
+ * OpenSOVD CDA sends it. Accepted on UDP for those three types only; TCP
+ * stays strict. */
+#define DOIP_VERSION_DEFAULT       (0xFFU)
+
+/** [EDS#392] Generic DoIP header negative acknowledge codes (ISO 13400-2). */
+#define DOIP_HDR_NACK_INCORRECT_PATTERN  (0x00U)
+#define DOIP_HDR_NACK_UNKNOWN_TYPE       (0x01U)
+#define DOIP_HDR_NACK_MSG_TOO_LARGE      (0x02U)
+#define DOIP_HDR_NACK_OUT_OF_MEMORY      (0x03U)
+#define DOIP_HDR_NACK_INVALID_LENGTH     (0x04U)
+
+/** [EDS#392] Field sizes of the vehicle identification response. */
+#define DOIP_VIN_LEN               (17U)
+#define DOIP_EID_LEN               (6U)
+#define DOIP_GID_LEN               (6U)
+
+/** [EDS#392] Further action byte: no further action required. */
+#define DOIP_FURTHER_ACTION_NONE   (0x00U)
+
+/** [EDS#392] VIN/GID sync status: incomplete, VIN and GID not synchronized.
+ * Sent (as the optional 33rd byte) only when the VIN is not available. */
+#define DOIP_SYNC_STATUS_INCOMPLETE (0x10U)
+
+/** [EDS#392] Entity status node type: DoIP node (not a gateway). */
+#define DOIP_NODE_TYPE_NODE        (0x01U)
+
+/** [EDS#392] Diagnostic power mode values. */
+#define DOIP_POWER_MODE_NOT_READY     (0x00U)
+#define DOIP_POWER_MODE_READY         (0x01U)
+#define DOIP_POWER_MODE_NOT_SUPPORTED (0x02U)
 
 /* ============================================================================
  * Tuneable limits (override via Kconfig / -D flags)
@@ -255,6 +305,57 @@ extern "C" {
 #error "DOIP_MAX_CONNECTION_LIFETIME_MS must be non-zero (EDS#412)"
 #endif
 
+/*
+ * [EDS#392] Vehicle discovery bounds. Discovery is served on the server
+ * thread between TCP waits, so these keep a UDP flood from starving the TCP
+ * tester or the supervision check-in, and cap what the ECU sends to
+ * unauthenticated peers: a reply is ~5x its request, so without a rate cap
+ * the ECU is a reflector against a spoofed source.
+ */
+
+/** Datagrams read per wake before the server looks at TCP again. */
+#ifndef DOIP_UDP_MAX_PER_WAKE
+#define DOIP_UDP_MAX_PER_WAKE (4U)
+#endif
+
+/** Replies (responses and generic NACKs) sent per second; datagrams beyond
+ * this are read and dropped, counted in udp_dropped. Announcements are not
+ * counted against it. */
+#ifndef DOIP_UDP_MAX_REPLIES_PER_S
+#define DOIP_UDP_MAX_REPLIES_PER_S (16U)
+#endif
+
+/** ISO 13400-2 A_DoIP_Announce_Num: announcements sent per trigger. */
+#ifndef DOIP_ANNOUNCE_NUM
+#define DOIP_ANNOUNCE_NUM (3U)
+#endif
+
+/** ISO 13400-2 A_DoIP_Announce_Interval, ms between announcements. */
+#ifndef DOIP_ANNOUNCE_INTERVAL_MS
+#define DOIP_ANNOUNCE_INTERVAL_MS (500U)
+#endif
+
+/** ISO 13400-2 A_DoIP_Announce_Wait: the first announcement waits a random
+ * 0..this many ms, so entities powered together do not collide. */
+#ifndef DOIP_ANNOUNCE_WAIT_MAX_MS
+#define DOIP_ANNOUNCE_WAIT_MAX_MS (500U)
+#endif
+
+/** UDP buffers. rx: the largest request served is 8 + 17 bytes; longer
+ * datagrams are truncated and NACKed by their header. tx: the largest reply
+ * is a 33-byte vehicle announcement plus the header. Not tuneable. */
+#define DOIP_UDP_RX_BUF_LEN (64U)
+#define DOIP_UDP_TX_BUF_LEN (48U)
+
+#if (DOIP_ANNOUNCE_NUM > 255U)
+#error "DOIP_ANNOUNCE_NUM must fit in a uint8_t (EDS#392)"
+#endif
+
+#if (DOIP_UDP_MAX_PER_WAKE == 0U) || (DOIP_UDP_MAX_REPLIES_PER_S == 0U) || \
+    (DOIP_ANNOUNCE_INTERVAL_MS == 0U)
+#error "DoIP discovery bounds must be non-zero (EDS#392)"
+#endif
+
 #ifdef DOIP_MAX_CONNECTION_FRAMES
 #error "DOIP_MAX_CONNECTION_FRAMES was removed (EDS#412): set DOIP_MAX_CONNECTION_LIFETIME_MS instead"
 #endif
@@ -312,6 +413,23 @@ extern "C" {
  * wait, as they did after DOIP_TCP_RECV_TIMEOUT_MS before EDS#400.
  */
 #define DOIP_TCP_RECV_TIMEOUT   (-1000)
+
+/** [EDS#392] udp_recvfrom() return value for "no datagram queued". Outside
+ * every errno range, like DOIP_TCP_RECV_TIMEOUT. */
+#define DOIP_UDP_NO_DATA        (-1001)
+
+/** [EDS#392] wait_readable() result bits. */
+#define DOIP_READY_TCP          (0x01U)
+#define DOIP_READY_UDP          (0x02U)
+
+/** [EDS#392] IPv4 UDP peer, both fields in host byte order. */
+typedef struct eds_doip_udp_peer {
+    uint32_t addr;   /**< IPv4 address, e.g. 0xC0000201 for 192.0.2.1. */
+    uint16_t port;   /**< UDP port. */
+} eds_doip_udp_peer_t;
+
+/** [EDS#392] Limited broadcast, where announcements go (port DOIP_PORT). */
+#define DOIP_UDP_BROADCAST_ADDR (0xFFFFFFFFU)
 
 typedef struct eds_doip_platform_ops {
     /**
@@ -430,6 +548,67 @@ typedef struct eds_doip_platform_ops {
      * @param[in] ms  Time to sleep.
      */
     void (*sleep_ms)(uint32_t ms);
+
+    /*
+     * [EDS#392] Vehicle discovery over UDP -- optional, all or none.
+     * udp_open, udp_recvfrom, udp_sendto, udp_close and wait_readable are
+     * either all set or all NULL (eds_doip_register_platform() refuses a
+     * partial set). All NULL: no UDP socket, and eds_doip_server_run() makes
+     * exactly the calls it made before EDS#392. get_eid is optional on its
+     * own.
+     */
+
+    /**
+     * @brief Open a UDP socket bound to INADDR_ANY:port, able to receive and
+     *        send limited broadcasts (SO_BROADCAST).
+     * @param[in]  port     UDP port (DOIP_PORT).
+     * @param[out] udp_ctx  Opaque handle.
+     * @return 0 on success, negative on failure. A failure leaves the server
+     *         TCP-only; it does not stop it.
+     */
+    int (*udp_open)(uint16_t port, void **udp_ctx);
+
+    /**
+     * @brief Read one queued datagram without blocking.
+     * A datagram longer than buf_len is truncated to buf_len.
+     * @param[in]  udp_ctx  Handle from udp_open().
+     * @param[out] buf      Destination.
+     * @param[in]  buf_len  Capacity.
+     * @param[out] peer     Sender address and port.
+     * @return Bytes copied (>= 0), DOIP_UDP_NO_DATA if nothing is queued,
+     *         any other negative value on error.
+     */
+    int (*udp_recvfrom)(void *udp_ctx, uint8_t *buf, size_t buf_len,
+                        eds_doip_udp_peer_t *peer);
+
+    /**
+     * @brief Send one datagram. Must not block for long: a full send buffer
+     *        is a failure, not a wait.
+     * @return Bytes sent, or negative on error.
+     */
+    int (*udp_sendto)(void *udp_ctx, const eds_doip_udp_peer_t *peer,
+                      const uint8_t *data, size_t len);
+
+    /** @brief Close the UDP socket. */
+    void (*udp_close)(void *udp_ctx);
+
+    /**
+     * @brief Wait until a TCP handle or the UDP socket is readable.
+     * tcp_ctx is the listening socket (readable = a connection is pending)
+     * or a connection (readable = data or end of stream).
+     * @return A mask of DOIP_READY_TCP / DOIP_READY_UDP, 0 if timeout_ms
+     *         passed with neither ready, negative on error. On an error the
+     *         server falls back to the plain TCP call for that wait.
+     */
+    int (*wait_readable)(void *tcp_ctx, void *udp_ctx, uint32_t timeout_ms);
+
+    /**
+     * @brief This entity's EID, normally the interface MAC address.
+     * Optional: NULL, or a negative return, gives an all-zero EID unless
+     * eds_doip_discovery_cfg_t sets one.
+     * @return 0 on success.
+     */
+    int (*get_eid)(uint8_t eid[DOIP_EID_LEN]);
 } eds_doip_platform_ops_t;
 
 /**
@@ -465,6 +644,23 @@ typedef struct doip_server_state {
      * Diagnostic/telemetry only; never reset except at server init. */
     uint32_t connections_lifetime_capped;
     uint32_t connections_rate_rejected;
+    /* [EDS#392] Vehicle discovery. udp_ctx is NULL when discovery is off
+     * or its socket failed to open. */
+    void    *udp_ctx;
+    uint8_t  udp_rx_buf[DOIP_UDP_RX_BUF_LEN]; /**< Static UDP receive buffer. */
+    uint8_t  udp_tx_buf[DOIP_UDP_TX_BUF_LEN]; /**< Static UDP transmit buffer. */
+    uint32_t udp_rate_window_ms;  /**< Start of the current 1 s reply window. */
+    uint32_t udp_replies_in_window;
+    uint8_t  announce_remaining;  /**< Announcements left in this burst. */
+    uint32_t announce_anchor_ms;  /**< Time the next delay is measured from. */
+    uint32_t announce_delay_ms;   /**< Delay from the anchor to the next one. */
+    /** [EDS#392] Diagnostic counters, never reset except at init. */
+    uint32_t udp_open_failed;     /**< udp_open() failures (server ran TCP-only). */
+    uint32_t udp_received;        /**< Datagrams read. */
+    uint32_t udp_replied;         /**< Responses and NACKs sent. */
+    uint32_t udp_dropped;         /**< Read and dropped by the reply rate cap. */
+    uint32_t udp_send_failed;     /**< udp_sendto() failures, announcements included. */
+    uint32_t announcements_sent;
 } doip_server_state_t;
 
 /* ============================================================================
@@ -644,6 +840,65 @@ typedef bool (*eds_doip_pending_cb_t)(uds_msg_buf_t *out_frame);
  */
 void eds_doip_set_pending_callback(eds_doip_pending_cb_t cb);
 
+/* --------------------------------------------------------------------------
+ * [EDS#392] Vehicle discovery -- on by default where the platform has UDP
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Read the VIN for a vehicle identification response.
+ * Called on the DoIP server thread inside the eds_doip_set_lock_callbacks()
+ * pair, once per response, so a 0x2E write to the VIN DID shows at once.
+ * Read it through the 0xF190 safety wrapper with uds_ctx's own session and
+ * security contexts, never around them: if the DID is restricted (say, to
+ * a non-default session) the wrapper refuses and the response reports the
+ * VIN as not available.
+ * @param[in]  uds_ctx  The UDS context passed to eds_doip_server_run().
+ * @param[out] vin      17 bytes.
+ * @return UDS_STATUS_OK with vin filled; anything else means not available.
+ */
+typedef uds_status_t (*eds_doip_vin_cb_t)(uds_server_ctx_t *uds_ctx,
+                                          uint8_t vin[DOIP_VIN_LEN]);
+
+/**
+ * @brief Report the diagnostic power mode (DOIP_POWER_MODE_*). Called on the
+ * server thread, must not block. Not called under the UDS lock.
+ */
+typedef uint8_t (*eds_doip_power_mode_cb_t)(void);
+
+/** [EDS#392] Discovery configuration. Copied by eds_doip_set_discovery(). */
+typedef struct eds_doip_discovery_cfg {
+    bool     enabled;         /**< Answer discovery on UDP DOIP_PORT. */
+    bool     announce;        /**< Announce at start and on eds_doip_announce_request(). */
+    eds_doip_vin_cb_t get_vin; /**< NULL: VIN not available. */
+    bool     eid_set;         /**< true: use eid below instead of the get_eid op. */
+    uint8_t  eid[DOIP_EID_LEN];
+    bool     gid_set;         /**< false: GID = EID. */
+    uint8_t  gid[DOIP_GID_LEN];
+    uint8_t  further_action;  /**< Normally DOIP_FURTHER_ACTION_NONE. */
+    eds_doip_power_mode_cb_t get_power_mode; /**< NULL: always ready. */
+} eds_doip_discovery_cfg_t;
+
+/**
+ * @brief Configure vehicle discovery (ISO 13400-2 0x0001-0x0004,
+ *        0x4001-0x4004 over UDP).
+ * Discovery runs whenever the platform ops include UDP. Without a call to
+ * this function it runs with: enabled, announce, no VIN, EID from the
+ * get_eid op, GID = EID, no further action, power mode ready.
+ * Call before eds_doip_server_run(), like eds_doip_set_lock_callbacks().
+ * @param[in] cfg  Copied. NULL restores the defaults above.
+ */
+void eds_doip_set_discovery(const eds_doip_discovery_cfg_t *cfg);
+
+/**
+ * @brief Ask the server to announce again (A_DoIP_Announce_Num times), for
+ *        example when the interface gets an IPv4 address after a link flap.
+ * Safe to call from another thread or a network event callback: it only
+ * sets a flag the server thread consumes on its next wake, so the burst
+ * starts up to DOIP_CHECKIN_MAX_WAIT_MS later (plus the A_DoIP_Announce_Wait
+ * jitter). Ignored while announcements are off.
+ */
+void eds_doip_announce_request(void);
+
 /** [EDS#399] Longest wait inside eds_doip_server_run() that EDS itself
  * bounds: the accept poll with no client, or one idle poll while
  * connected. See eds_doip_set_checkin_callback(). */
@@ -742,6 +997,25 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
                                 uint16_t             payload_type,
                                 const uint8_t       *payload,
                                 uint32_t             payload_len);
+
+/**
+ * @brief [EDS#392] Handle one datagram received on the discovery socket.
+ * Called internally by eds_doip_server_run(). Exposed for unit testing.
+ * Replies, if any, go to peer through the udp_sendto op, within the
+ * DOIP_UDP_MAX_REPLIES_PER_S cap.
+ * @param[in] s        DoIP server state, with its UDP socket open.
+ * @param[in] uds_ctx  UDS server context (for the VIN read).
+ * @param[in] buf      Datagram bytes.
+ * @param[in] len      Datagram length.
+ * @param[in] peer     Sender.
+ * @return UDS_STATUS_OK if handled (answered, NACKed or ignored).
+ * @return UDS_STATUS_ERR_NULL_PTR on a NULL argument, or no UDP socket.
+ */
+uds_status_t doip_handle_udp_datagram(doip_server_state_t       *s,
+                                      uds_server_ctx_t          *uds_ctx,
+                                      const uint8_t             *buf,
+                                      uint32_t                   len,
+                                      const eds_doip_udp_peer_t *peer);
 
 #ifdef __cplusplus
 }

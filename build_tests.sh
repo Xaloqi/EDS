@@ -407,6 +407,9 @@ TESTS=(
     # itself (inactivity bounds, the EDS#193/#218 guards at loop level,
     # supervision check-in) -- the two modules above never enter the loop.
     test_doip_lifecycle
+    # [EDS#392] Vehicle discovery over UDP: datagram handling byte-exact,
+    # and the server loop's announcements, opt-outs and UDP wakes.
+    test_doip_discovery
     # [EDS#418] FreeRTOS tick-to-ms conversion behind eds_platform_uptime_ms().
     test_freertos_ticks
     # [EDS#411, EDS#412] core/eds_elapsed.h: carry, saturation, wrap.

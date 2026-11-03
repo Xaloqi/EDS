@@ -8,6 +8,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **DoIP vehicle discovery in the transport core** (#392, part A of 3). `doip_server.c`
+  answers ISO 13400-2 vehicle identification (0x0001, by EID 0x0002, by VIN 0x0003 → 0x0004),
+  entity status (0x4001 → 0x4002) and diagnostic power mode (0x4003 → 0x4004) on UDP 13400,
+  NACKs malformed datagrams with the generic header NACK (0x0000), and announces itself 3 times,
+  500 ms apart, after a random 0–500 ms wait (A_DoIP_Announce_* defaults). New optional
+  platform ops (`udp_open`, `udp_recvfrom`, `udp_sendto`, `udp_close`, `wait_readable`,
+  `get_eid`; all or none), `eds_doip_set_discovery()` and `eds_doip_announce_request()`. The VIN
+  is read per response through an integrator callback inside the EDS#353 lock pair, meant to call
+  the 0xF190 safety wrapper; a refused or missing VIN is sent as 17 × 0x00 with sync status 0x10.
+  Replies are capped at `DOIP_UDP_MAX_REPLIES_PER_S` (16/s) and reads at `DOIP_UDP_MAX_PER_WAKE`
+  (4) per wake. **No behaviour change yet:** neither in-tree binding implements the UDP ops, so
+  the server makes the same calls as before. Part B turns discovery on in both bindings.
+
 ### Fixed
 
 - **Six example READMEs no longer say a licence is needed to use them** (#569). `ardep_ecu`,
