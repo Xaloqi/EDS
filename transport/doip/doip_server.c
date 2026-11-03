@@ -80,9 +80,7 @@ static eds_doip_discovery_cfg_t s_discovery = {
     .announce       = true,
     .get_vin        = NULL,
     .eid_set        = false,
-    .eid            = { 0U },
     .gid_set        = false,
-    .gid            = { 0U },
     .further_action = DOIP_FURTHER_ACTION_NONE,
     .get_power_mode = NULL,
 };
@@ -246,9 +244,7 @@ void eds_doip_set_discovery(const eds_doip_discovery_cfg_t *cfg)
         .announce       = true,
         .get_vin        = NULL,
         .eid_set        = false,
-        .eid            = { 0U },
         .gid_set        = false,
-        .gid            = { 0U },
         .further_action = DOIP_FURTHER_ACTION_NONE,
         .get_power_mode = NULL,
     };
