@@ -681,6 +681,12 @@ add_diag_test(test_doip_lifecycle
         "${TEST_UNIT_DIR}/test_doip_lifecycle.c"
 )
 
+# [EDS#392] Vehicle discovery over UDP.
+add_diag_test(test_doip_discovery
+    SOURCES
+        "${TEST_UNIT_DIR}/test_doip_discovery.c"
+)
+
 # [EDS#418] FreeRTOS tick-to-ms conversion behind eds_platform_uptime_ms().
 add_diag_test(test_freertos_ticks
     SOURCES
