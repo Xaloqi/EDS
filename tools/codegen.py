@@ -1006,6 +1006,9 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                    "answers it NRC 0x12 and they could never be reached. "
                    "FIX: set 'ecu: {sessions: {safety_system: true}}' (EDS#494).")
 
+    # ── ecu.doip.discovery (optional) — vehicle discovery over UDP [EDS#392] ──
+    _doip_discovery(cfg)
+
     # ── service_ids (optional override list) ─────────────────────────────────
     service_ids: List[Any] = cfg.get("service_ids", [])
     for idx, sid in enumerate(service_ids):
@@ -1439,6 +1442,84 @@ def build_dtc_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_DISCOVERY_KEYS = ("enabled", "announce", "vin_did", "eid", "gid", "further_action")
+
+
+def _discovery_id6(value: Any, key: str) -> Optional[List[int]]:
+    """A 6-byte EID/GID from "02:00:5e:00:53:31", "02005E005331" or null."""
+    if value is None:
+        return None
+    text = str(value).replace(":", "").replace("-", "")
+    if not re.fullmatch(r"[0-9A-Fa-f]{12}", text):
+        _fatal(f"VALIDATION: 'ecu.doip.discovery.{key}' must be 6 bytes of hex, "
+               f"e.g. \"02:00:5e:00:53:31\", or null; got: {value!r}")
+    return [int(text[i:i + 2], 16) for i in range(0, 12, 2)]
+
+
+def _doip_discovery(cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Validate ecu.doip.discovery and return its template context [EDS#392].
+
+    None for a CAN-only ECU. Defaults: enabled, announce, VIN from 0xF190
+    when that DID exists, is readable and is 17 bytes (otherwise no VIN),
+    EID from the interface MAC, GID = EID, further action 0x00. An explicit
+    vin_did must name such a DID; null means no VIN.
+    """
+    ecu = cfg.get("ecu", {}) or {}
+    if str(ecu.get("transport", "can")).lower() not in ("doip", "both"):
+        return None
+    disc = (ecu.get("doip", {}) or {}).get("discovery", {})
+    if disc is None:
+        disc = {}
+    if not isinstance(disc, dict):
+        _fatal("VALIDATION: 'ecu.doip.discovery' must be a mapping, e.g. "
+               "'discovery: {enabled: false}'.")
+    for key in disc:
+        if key not in _DISCOVERY_KEYS:
+            _fatal(f"VALIDATION: unknown 'ecu.doip.discovery.{key}'. Known keys: "
+                   f"{', '.join(_DISCOVERY_KEYS)}.")
+    for key in ("enabled", "announce"):
+        if not isinstance(disc.get(key, True), bool):
+            _fatal(f"VALIDATION: 'ecu.doip.discovery.{key}' must be true or false, "
+                   f"got: {disc[key]!r}")
+
+    dids = {str(d.get("id", "")).upper().replace("0X", "0x"): d for d in (cfg.get("dids") or [])}
+
+    def vin_capable(d: Dict[str, Any]) -> bool:
+        return "read" in d.get("access", []) and int(d.get("data_length", 0)) == 17
+
+    vin_did = None
+    if "vin_did" in disc:
+        if disc["vin_did"] is not None:
+            want = str(disc["vin_did"]).upper().replace("0X", "0x")
+            d = dids.get(want)
+            if d is None or not vin_capable(d):
+                _fatal(f"VALIDATION: 'ecu.doip.discovery.vin_did' {disc['vin_did']} must "
+                       "name a readable DID with data_length 17 in 'dids'. "
+                       "FIX: point it at your VIN DID, or set it to null for no VIN.")
+            vin_did = d
+    elif "0xF190" in dids and vin_capable(dids["0xF190"]):
+        vin_did = dids["0xF190"]
+
+    fa = disc.get("further_action", 0)
+    try:
+        fa_int = int(str(fa), 0) if isinstance(fa, str) else int(fa)
+    except ValueError:
+        fa_int = -1
+    if not 0 <= fa_int <= 0xFF:
+        _fatal(f"VALIDATION: 'ecu.doip.discovery.further_action' must be a byte "
+               f"(0x00 = no further action), got: {fa!r}")
+
+    return {
+        "enabled":        disc.get("enabled", True),
+        "announce":       disc.get("announce", True),
+        "vin_c_name":     _c_identifier(vin_did["name"]) if vin_did else None,
+        "vin_did_id":     (str(vin_did["id"]).upper().replace("0X", "0x") if vin_did else None),
+        "eid":            _discovery_id6(disc.get("eid"), "eid"),
+        "gid":            _discovery_id6(disc.get("gid"), "gid"),
+        "further_action": fa_int,
+    }
+
+
 def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Build the template context for uds_init.h and uds_init.c."""
     timing = cfg["timing"]
@@ -1471,6 +1552,8 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "safeboot_max_block":    safeboot_max_block,
         # [EDS#494] uds_init.c enables 0x04 only when the YAML asks for it.
         "safety_system_session": _safety_session_enabled(cfg),
+        # [EDS#392] None for CAN-only; otherwise the vehicle discovery config.
+        "doip_discovery":        _doip_discovery(cfg),
     }
 
 

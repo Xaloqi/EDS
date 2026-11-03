@@ -46,6 +46,7 @@
 #include "lwip/ip4_addr.h"
 #include "lwip/init.h"
 #include "netif/ethernet.h"
+#include "doip_server.h"   /* [EDS#392] eds_doip_announce_request() */
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -166,6 +167,10 @@ static void net_setup_task(void *pvParameters)
 
     s_net_ready = true;
     board_uart_puts("[net] netif up — DoIP reachable on port 13400\r\n");
+
+    /* [EDS#392] The DoIP task announces when it starts, which can be
+     * before this point; announce again now the address is usable. */
+    eds_doip_announce_request();
 
     /* Become the RX poll loop. */
     for (;;) {

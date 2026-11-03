@@ -23,6 +23,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   (4) per wake. **No behaviour change yet:** neither in-tree binding implements the UDP ops, so
   the server makes the same calls as before. Part B turns discovery on in both bindings.
 
+### Behaviour changes
+
+- **DoIP builds now answer vehicle discovery on UDP 13400 and announce themselves, by
+  default** (#392, part B). Both bindings (Zephyr, FreeRTOS + lwIP) open a UDP socket on the
+  DoIP port next to the TCP server. Observable on the network:
+  - 3 vehicle announcements (0x0004) to 255.255.255.255:13400 after start, 500 ms apart after
+    a 0–500 ms wait, and again when an IPv4 address is added (Zephyr) or the integrator calls
+    `eds_doip_announce_request()`;
+  - 0x0001/0x0002/0x0003 get 0x0004 (by EID/VIN only on a match), 0x4001 gets 0x4002, 0x4003
+    gets 0x4004, malformed datagrams get a generic header NACK; at most 16 replies per second;
+  - the announcement and response carry the VIN, read per response through the 0xF190 safety
+    wrapper under the UDS lock (both DoIP examples), the logical address and the MAC as EID.
+    Anyone on the segment can read them; see INTEGRATION_GUIDE §5b.7.
+
+  TCP behaviour is unchanged. Zephyr builds need `CONFIG_NET_UDP=y` (Zephyr's default).
+  **Migration:** none to keep discovery. To opt out at run time,
+  `eds_doip_set_discovery()` with `.enabled = false` (or `.announce = false` for
+  announcements only); at build time `CONFIG_EDS_DOIP_DISCOVERY=n` /
+  `-DEDS_DOIP_DISCOVERY=0`, which restores exactly the previous socket calls. A custom
+  binding gets discovery by implementing the new optional UDP ops (part A).
+
 ### Fixed
 
 - **Six example READMEs no longer say a licence is needed to use them** (#569). `ardep_ecu`,
