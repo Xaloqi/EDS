@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP
  * Version   : 1.6.0
- * Generated : 2026-10-28T15:53:55Z
+ * Generated : 2026-11-04T06:25:34Z
  *
  * PURPOSE: Generated UDS stack initialisation. Wires all sub-modules together
  *          using timing constants and database entries derived from YAML.
@@ -58,6 +58,7 @@
 #include "uds_security_nvm.h"
 #include "uds_safety.h"
 #include "uds_comm_control.h"
+#include "uds_periodic.h"
 #include "uds_types.h"
 #include "services.h"
 #include "did_handlers.h"
@@ -72,6 +73,7 @@
 #endif /* EDS_DOIP_ONLY_BUILD */
 #include "generated_config.h"
 #include "safety_config.h"
+#include "did_safety_wrappers.h"   /* [EDS#392] VIN for vehicle discovery */
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -538,7 +540,11 @@ uds_status_t uds_generated_init(
      * stmin_ms   = 0: no minimum separation time enforced by this ECU.
      * functional_rx_can_id: GEN_CAN_FUNCTIONAL_RX_ID, 0 when the YAML turns
      *              functional addressing off.
+     * periodic_tx_can_id: GEN_CAN_PERIODIC_TX_ID, 0 when the YAML sets none
+     *              (SID 0x2A then answers 0x22). [EDS#546]
      */
+    uds_periodic_set_tx_can_id((uint32_t)GEN_CAN_PERIODIC_TX_ID);
+
 #ifndef EDS_DOIP_ONLY_BUILD
     if (can != NULL) {
         isotp_cfg_t isotp_cfg;
@@ -548,6 +554,8 @@ uds_status_t uds_generated_init(
         isotp_cfg.tx_can_id  = tx_can_id;
         /* Functional requests (ISO 15765-4): 0 = none. [EDS-toolchain#165] */
         isotp_cfg.functional_rx_can_id = (uint32_t)GEN_CAN_FUNCTIONAL_RX_ID;
+        /* SID 0x2A periodic messages: UUDT on their own ID, 0 = none. [EDS#546] */
+        isotp_cfg.periodic_tx_can_id   = (uint32_t)GEN_CAN_PERIODIC_TX_ID;
         isotp_cfg.block_size = (uint8_t)ISOTP_DEFAULT_BLOCK_SIZE;
         isotp_cfg.stmin_ms   = (uint8_t)ISOTP_DEFAULT_STMIN_MS;
         isotp_cfg.can        = can;
@@ -591,5 +599,44 @@ isotp_ctx_t *uds_generated_get_isotp(void)
     return &s_isotp_ctx;
 }
 #endif /* EDS_DOIP_ONLY_BUILD */
+
+/* =============================================================================
+ * [EDS#392] Vehicle discovery configuration (ecu.doip.discovery)
+ * ============================================================================= */
+
+/**
+ * @brief VIN for vehicle discovery: DID 0xF190 through its safety wrapper,
+ *        with the server's own session and security contexts.
+ *
+ * Called by the DoIP server on its own thread, inside the
+ * eds_doip_set_lock_callbacks() pair. A refusal (for example, the DID is
+ * restricted to a non-default session) or a short read is "VIN not
+ * available": the response carries 17 x 0x00 and sync status 0x10.
+ */
+static uds_status_t gen_doip_vin(uds_server_ctx_t *ctx, uint8_t vin[DOIP_VIN_LEN])
+{
+    uint16_t len = 0U;
+    uds_status_t rc = did_safe_read_vehicle_identification_number(
+        ctx->cfg.session_ctx, ctx->cfg.security_ctx, vin, (uint16_t)DOIP_VIN_LEN, &len);
+    if ((rc == UDS_STATUS_OK) && (len != (uint16_t)DOIP_VIN_LEN)) {
+        rc = UDS_STATUS_ERR_BUFFER_OVERFLOW;
+    }
+    return rc;
+}
+
+static const eds_doip_discovery_cfg_t s_doip_discovery = {
+    .enabled        = true,
+    .announce       = true,
+    .get_vin        = gen_doip_vin,
+    .further_action = 0x00U,
+};
+
+/**
+ * @brief Return the vehicle discovery configuration (EDS#392).
+ */
+const eds_doip_discovery_cfg_t *uds_generated_doip_discovery(void)
+{
+    return &s_doip_discovery;
+}
 
 /* End of uds_init.c */

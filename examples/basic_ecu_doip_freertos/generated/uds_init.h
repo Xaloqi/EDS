@@ -5,7 +5,7 @@
  *
  * ECU       : BasicECU_DoIP_FreeRTOS
  * Version   : 1.6.0
- * Generated : 2026-08-30T13:14:20Z
+ * Generated : 2026-11-04T06:25:34Z
  *
  * PURPOSE: Public interface for the generated UDS stack initialisation module.
  *
@@ -27,6 +27,7 @@
 #include "isotp.h"
 #include "can_transport.h"
 #endif /* EDS_DOIP_ONLY_BUILD */
+#include "doip_server.h"   /* [EDS#392] eds_doip_discovery_cfg_t */
 
 #ifdef __cplusplus
 extern "C" {
@@ -83,6 +84,17 @@ uds_status_t uds_generated_init(
  *         Returns NULL if uds_generated_init() has not been called.
  */
 uds_server_ctx_t *uds_generated_get_server(void);
+
+/**
+ * @brief Vehicle discovery configuration from ecu.doip.discovery (EDS#392).
+ *
+ * Pass it to eds_doip_set_discovery() before eds_doip_platform_start():
+ *   eds_doip_set_discovery(uds_generated_doip_discovery());
+ * Without that call the server still runs discovery, with no VIN.
+ *
+ * @return Non-NULL pointer to a static configuration.
+ */
+const eds_doip_discovery_cfg_t *uds_generated_doip_discovery(void);
 
 /**
  * @brief Return a pointer to the generated ISO-TP context.

@@ -61,6 +61,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   silently. **Migration:** none for ISO-conformant testers. `DOIP_VERSION` (0x02) is now
   documented as the 2012 protocol version; the value is unchanged.
 
+### Changed
+
+- **The DoIP examples take their discovery config from the YAML** (#392). `basic_ecu_doip` and
+  `basic_ecu_doip_freertos` are regenerated with the EDS-toolchain templates that emit
+  `uds_generated_doip_discovery()`, and their `main.c` passes it to `eds_doip_set_discovery()`
+  instead of a hand-written VIN callback; behaviour is unchanged. The regeneration also brings
+  in the EDS#546 periodic-ID lines these two had missed (EDS-toolchain#239).
+
 ### Fixed
 
 - **Six example READMEs no longer say a licence is needed to use them** (#569). `ardep_ecu`,
