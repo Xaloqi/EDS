@@ -103,6 +103,7 @@
 #include "uds_init.h"
 #include "generated_config.h"
 #include "did_handlers.h"
+#include "did_safety_wrappers.h"   /* [EDS#392] VIN for vehicle discovery */
 
 /* --------------------------------------------------------------------------
  * Zephyr headers
@@ -259,6 +260,30 @@ static void uds_tick_task_entry(void *p1, void *p2, void *p3)
  * main()
  * ============================================================================= */
 
+#if defined(CONFIG_EDS_DOIP_DISCOVERY)
+/* [EDS#392] VIN for vehicle discovery: the 0xF190 safety wrapper with the
+ * server's own session and security contexts. Called by the DoIP server
+ * inside the lock callbacks registered above. Anything but a full 17-byte
+ * read is "not available". */
+static uds_status_t doip_vin_from_f190(uds_server_ctx_t *ctx, uint8_t vin[DOIP_VIN_LEN])
+{
+    uint16_t len = 0U;
+    uds_status_t rc = did_safe_read_vehicle_identification_number(
+        ctx->cfg.session_ctx, ctx->cfg.security_ctx, vin, (uint16_t)DOIP_VIN_LEN, &len);
+    if ((rc == UDS_STATUS_OK) && (len != (uint16_t)DOIP_VIN_LEN)) {
+        rc = UDS_STATUS_ERR_BUFFER_OVERFLOW;
+    }
+    return rc;
+}
+
+static const eds_doip_discovery_cfg_t s_doip_discovery = {
+    .enabled        = true,
+    .announce       = true,
+    .get_vin        = doip_vin_from_f190,
+    .further_action = DOIP_FURTHER_ACTION_NONE,
+};
+#endif
+
 int main(void)
 {
     uds_status_t      status;
@@ -392,6 +417,16 @@ int main(void)
         CONFIG_DIAG_TICK_TASK_PRIORITY, 0U, K_NO_WAIT
     );
     k_thread_name_set(&s_tick_thread, "uds_tick_task");
+
+    /*
+     * [EDS#392] Vehicle discovery: on by default (CONFIG_EDS_DOIP_DISCOVERY).
+     * The VIN in each response is read through the 0xF190 safety wrapper,
+     * on the DoIP thread under the same lock as UDS dispatch; if 0xF190 is
+     * restricted the response says "VIN not available".
+     */
+#if defined(CONFIG_EDS_DOIP_DISCOVERY)
+    eds_doip_set_discovery(&s_doip_discovery);
+#endif
 
     /*
      * Start DoIP server.

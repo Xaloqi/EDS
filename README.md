@@ -355,9 +355,10 @@ independently from the real seed EDS sends over the wire), and
 RoutineControl — all against real, unmodified `core/`, `transport/` and
 `platform/` code, routed entirely through the CDA's own SOVD HTTP API.
 
-**Stated plainly:** this is CAN only — the real CDA discovers DoIP gateways
-exclusively by UDP Vehicle Identification, which EDS has never implemented
-([EDS#392](https://github.com/Xaloqi/EDS/issues/392)). And
+**Stated plainly:** this script is CAN only. The real CDA discovers DoIP
+gateways exclusively by UDP vehicle identification, which EDS answers since
+[EDS#392](https://github.com/Xaloqi/EDS/issues/392) (on by default); this
+script does not exercise the CDA over DoIP. And
 `examples/basic_ecu_cda_demo` carries two diagnostic IDs chosen to match
 the CDA's own shipped test fixture rather than EDS's own convention —
 disclosed in that example's own README, not quietly carried. This proves

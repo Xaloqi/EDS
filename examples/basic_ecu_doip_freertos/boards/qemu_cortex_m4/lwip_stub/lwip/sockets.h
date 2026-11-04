@@ -35,6 +35,7 @@ struct struct_timeval { long tv_sec; long tv_usec; };
 typedef struct { unsigned long fds_bits[1]; } fd_set;
 #define FD_ZERO(s)       do { (s)->fds_bits[0] = 0UL; } while (0)
 #define FD_SET(fd, s)    do { (s)->fds_bits[0] |= (1UL << (unsigned)(fd)); } while (0)
+#define FD_ISSET(fd, s)  ((int)(((s)->fds_bits[0] >> (unsigned)(fd)) & 1UL))
 
 /* Constants */
 #define AF_INET        2
@@ -45,6 +46,11 @@ typedef struct { unsigned long fds_bits[1]; } fd_set;
 #define SO_SNDTIMEO    0x1005  /* lwIP's value */
 #define TCP_NODELAY    0x01    /* lwIP's value */
 #define INADDR_ANY     0U
+/* [EDS#392] UDP vehicle discovery: lwIP's values. */
+#define SOCK_DGRAM     2
+#define IPPROTO_UDP    17
+#define SO_BROADCAST   0x0020
+#define MSG_DONTWAIT   0x08
 
 /* Stubs — never called in compile-only build */
 static inline uint16_t lwip_htons(uint16_t x) { return x; }
@@ -63,5 +69,12 @@ static inline int lwip_send(int s, const void *d, size_t l, int f)
 static inline int lwip_recv(int s, void *d, size_t l, int f)
                                                              { (void)s;(void)d;(void)l;(void)f; return -1; }
 static inline int lwip_close(int s)                          { (void)s; return -1; }
+static inline uint16_t lwip_ntohs(uint16_t x) { return x; }
+static inline uint32_t lwip_htonl(uint32_t x) { return x; }
+static inline uint32_t lwip_ntohl(uint32_t x) { return x; }
+static inline int lwip_recvfrom(int s, void *d, size_t l, int f, struct sockaddr *a, socklen_t *sl)
+                                                             { (void)s;(void)d;(void)l;(void)f;(void)a;(void)sl; return -1; }
+static inline int lwip_sendto(int s, const void *d, size_t l, int f, const struct sockaddr *a, socklen_t sl)
+                                                             { (void)s;(void)d;(void)l;(void)f;(void)a;(void)sl; return -1; }
 
 #endif /* LWIP_SOCKETS_STUB_H */

@@ -53,6 +53,7 @@
 #include "uds_periodic.h"
 #include "uds_session.h"
 #include "generated_config.h"
+#include "did_safety_wrappers.h"   /* [EDS#392] VIN for vehicle discovery */
 #include "uds_security_algo.h"
 #include "eds_elapsed.h"      /* [EDS#411] elapsed-time ticking */
 
@@ -162,6 +163,28 @@ static void uds_tick_task(void *pvParameters)
     }
 }
 
+/* [EDS#392] VIN for vehicle discovery: the 0xF190 safety wrapper with the
+ * server's own session and security contexts. Called by the DoIP server
+ * inside the lock callbacks above. Anything but a full 17-byte read is
+ * "not available". */
+static uds_status_t doip_vin_from_f190(uds_server_ctx_t *ctx, uint8_t vin[DOIP_VIN_LEN])
+{
+    uint16_t len = 0U;
+    uds_status_t rc = did_safe_read_vehicle_identification_number(
+        ctx->cfg.session_ctx, ctx->cfg.security_ctx, vin, (uint16_t)DOIP_VIN_LEN, &len);
+    if ((rc == UDS_STATUS_OK) && (len != (uint16_t)DOIP_VIN_LEN)) {
+        rc = UDS_STATUS_ERR_BUFFER_OVERFLOW;
+    }
+    return rc;
+}
+
+static const eds_doip_discovery_cfg_t s_doip_discovery = {
+    .enabled        = true,
+    .announce       = true,
+    .get_vin        = doip_vin_from_f190,
+    .further_action = DOIP_FURTHER_ACTION_NONE,
+};
+
 /* =============================================================================
  * main() — four-step integration
  * ============================================================================= */
@@ -234,6 +257,8 @@ int main(void)
     configASSERT(s_session_lock != NULL);
     configASSERT(s_security_lock != NULL);
     eds_doip_set_lock_callbacks(doip_lock_cb, doip_unlock_cb);
+    /* [EDS#392] Vehicle discovery, on by default (EDS_DOIP_DISCOVERY). */
+    eds_doip_set_discovery(&s_doip_discovery);
 
     /*
      * Step 2.5: Start the 1 ms UDS tick task [EDS#191] — before the DoIP

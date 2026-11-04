@@ -24,6 +24,10 @@
  *            zephyr_tcp_recv()   — zsock_poll(timeout) + zsock_recv
  *            zephyr_tcp_close()  — zsock_close(conn_fd)
  *            zephyr_tcp_server_close() — zsock_close(server_fd)
+ *          [EDS#392] With CONFIG_EDS_DOIP_DISCOVERY (default y): a UDP
+ *          socket on the same port for vehicle discovery, polled together
+ *          with the TCP socket (zephyr_wait_readable()); EID = the default
+ *          interface's MAC; NET_EVENT_IPV4_ADDR_ADD re-announces.
  *
  *          SO_REUSEADDR is set on the server socket so native_sim CI
  *          restarts don't hit EADDRINUSE if the previous run did not
@@ -44,6 +48,12 @@
 #include <zephyr/kernel.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/logging/log.h>
+#if defined(CONFIG_EDS_DOIP_DISCOVERY)
+#include <zephyr/version.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/net_event.h>
+#endif
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -253,6 +263,158 @@ static void zephyr_tcp_server_close(void *server_ctx)
     (void)zsock_close(fd);
 }
 
+#if defined(CONFIG_EDS_DOIP_DISCOVERY)
+/* ---------------------------------------------------------------------------
+ * [EDS#392] Vehicle discovery: UDP socket on DOIP_PORT
+ *
+ * The UDP context is fd + 1, never the bare fd: the server reads a NULL
+ * udp_ctx as "no discovery socket", and fd 0 cast to void* is NULL.
+ * ------------------------------------------------------------------------ */
+
+#if !defined(CONFIG_NET_UDP)
+#error "CONFIG_EDS_DOIP_DISCOVERY needs CONFIG_NET_UDP=y (EDS#392)."
+#endif
+
+static int udp_fd(const void *udp_ctx)
+{
+    return (int)(uintptr_t)udp_ctx - 1;
+}
+
+static int zephyr_udp_open(uint16_t port, void **udp_ctx)
+{
+    int fd = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) {
+        LOG_ERR("DoIP: UDP zsock_socket failed: %d; discovery off", errno);
+        return -errno;
+    }
+
+    int opt = 1;
+    (void)zsock_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    /* Best effort: Zephyr sends to 255.255.255.255 without it on the
+     * versions EDS supports, and a stack that needs it accepts it. */
+    (void)zsock_setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt));
+
+    struct sockaddr_in addr;
+    (void)memset(&addr, 0, sizeof(addr));
+    addr.sin_family      = AF_INET;
+    addr.sin_port        = htons(port);
+    addr.sin_addr.s_addr = INADDR_ANY;
+
+    if (zsock_bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        LOG_ERR("DoIP: UDP bind port %u failed: %d; discovery off", (unsigned)port, errno);
+        (void)zsock_close(fd);
+        return -errno;
+    }
+
+    LOG_INF("DoIP: vehicle discovery on UDP port %u", (unsigned)port);
+    *udp_ctx = (void *)(uintptr_t)((uint32_t)fd + 1U);
+    return 0;
+}
+
+static int zephyr_udp_recvfrom(void *udp_ctx, uint8_t *buf, size_t buf_len,
+                               eds_doip_udp_peer_t *peer)
+{
+    struct sockaddr_in from;
+    socklen_t fromlen = sizeof(from);
+
+    (void)memset(&from, 0, sizeof(from));
+    ssize_t n = zsock_recvfrom(udp_fd(udp_ctx), buf, buf_len, ZSOCK_MSG_DONTWAIT,
+                               (struct sockaddr *)&from, &fromlen);
+    if (n < 0) {
+        return ((errno == EAGAIN) || (errno == EWOULDBLOCK)) ? DOIP_UDP_NO_DATA : -errno;
+    }
+    peer->addr = ntohl(from.sin_addr.s_addr);
+    peer->port = ntohs(from.sin_port);
+    return (int)n;
+}
+
+static int zephyr_udp_sendto(void *udp_ctx, const eds_doip_udp_peer_t *peer,
+                             const uint8_t *data, size_t len)
+{
+    struct sockaddr_in to;
+
+    (void)memset(&to, 0, sizeof(to));
+    to.sin_family      = AF_INET;
+    to.sin_port        = htons(peer->port);
+    to.sin_addr.s_addr = htonl(peer->addr);
+    /* MSG_DONTWAIT: a full send buffer is a dropped datagram, not a wait
+     * on the server thread. */
+    ssize_t n = zsock_sendto(udp_fd(udp_ctx), data, len, ZSOCK_MSG_DONTWAIT,
+                             (struct sockaddr *)&to, sizeof(to));
+    if (n < 0) {
+        LOG_DBG("DoIP: UDP sendto failed: %d", errno);
+        return -errno;
+    }
+    return (int)n;
+}
+
+static void zephyr_udp_close(void *udp_ctx)
+{
+    (void)zsock_close(udp_fd(udp_ctx));
+}
+
+static int zephyr_wait_readable(void *tcp_ctx, void *udp_ctx, uint32_t timeout_ms)
+{
+    struct zsock_pollfd pfd[2] = {
+        { .fd = (int)(uintptr_t)tcp_ctx, .events = ZSOCK_POLLIN },
+        { .fd = udp_fd(udp_ctx),         .events = ZSOCK_POLLIN },
+    };
+    int rc = zsock_poll(pfd, 2, (int)timeout_ms);
+    if (rc < 0) {
+        return -errno;
+    }
+    uint32_t mask = 0U;
+    /* POLLHUP/POLLERR on the connection count as readable: tcp_recv()
+     * then reports the close or error, as before. */
+    const uint32_t tcp_ready = (uint32_t)ZSOCK_POLLIN | (uint32_t)ZSOCK_POLLHUP |
+                               (uint32_t)ZSOCK_POLLERR;
+    if (((uint32_t)(uint16_t)pfd[0].revents & tcp_ready) != 0U) {
+        mask |= DOIP_READY_TCP;
+    }
+    if (((uint32_t)(uint16_t)pfd[1].revents & (uint32_t)ZSOCK_POLLIN) != 0U) {
+        mask |= DOIP_READY_UDP;
+    }
+    return (int)mask;
+}
+
+/* EID = the default interface's 6-byte link-layer (MAC) address. */
+static int zephyr_get_eid(uint8_t eid[DOIP_EID_LEN])
+{
+    struct net_if *iface = net_if_get_default();
+    if (iface == NULL) {
+        return -ENODEV;
+    }
+    struct net_linkaddr *ll = net_if_get_link_addr(iface);
+    if ((ll == NULL) || (ll->len != DOIP_EID_LEN)) {
+        return -ENODEV;   /* loopback has no MAC: all-zero EID */
+    }
+    (void)memcpy(eid, ll->addr, DOIP_EID_LEN);
+    return 0;
+}
+
+#if defined(CONFIG_NET_MGMT_EVENT)
+/* Announce again when the interface gets an IPv4 address (DHCP, a static
+ * address applied late, or a link that came back). */
+static struct net_mgmt_event_callback s_ipv4_cb;
+
+/* Zephyr 4.2 widened the event code from uint32_t to uint64_t. */
+#if ZEPHYR_VERSION_CODE >= ZEPHYR_VERSION(4, 2, 0)
+typedef uint64_t doip_mgmt_event_t;
+#else
+typedef uint32_t doip_mgmt_event_t;
+#endif
+
+static void doip_ipv4_event(struct net_mgmt_event_callback *cb,
+                            doip_mgmt_event_t mgmt_event, struct net_if *iface)
+{
+    (void)cb; (void)iface;
+    if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD) {
+        eds_doip_announce_request();
+    }
+}
+#endif /* CONFIG_NET_MGMT_EVENT */
+#endif /* CONFIG_EDS_DOIP_DISCOVERY */
+
 /* [EDS#434] Same sequence as the CAN loops: persist, let the 0x11
  * response leave the stack, reset. Does not return for a supported type. */
 static void zephyr_doip_ecu_reset(uint8_t reset_type)
@@ -278,6 +440,14 @@ static const eds_doip_platform_ops_t s_zephyr_doip_ops = {
     .uptime_ms         = eds_platform_uptime_ms,  /* [EDS#412] */
     .ecu_reset         = zephyr_doip_ecu_reset,   /* [EDS#434] */
     .sleep_ms          = zephyr_doip_sleep_ms, /* [EDS#282] */
+#if defined(CONFIG_EDS_DOIP_DISCOVERY)
+    .udp_open          = zephyr_udp_open,      /* [EDS#392] */
+    .udp_recvfrom      = zephyr_udp_recvfrom,
+    .udp_sendto        = zephyr_udp_sendto,
+    .udp_close         = zephyr_udp_close,
+    .wait_readable     = zephyr_wait_readable,
+    .get_eid           = zephyr_get_eid,
+#endif
 };
 
 /* ---------------------------------------------------------------------------
@@ -336,6 +506,14 @@ uds_status_t zephyr_doip_platform_init(uint16_t          logical_address,
     s_uds_ctx = uds_ctx;
 
     rc = eds_doip_register_platform(&s_zephyr_doip_ops);
+#if defined(CONFIG_EDS_DOIP_DISCOVERY) && defined(CONFIG_NET_MGMT_EVENT)
+    if (rc == UDS_STATUS_OK) {
+        /* [EDS#392] Re-announce when an IPv4 address is added. */
+        net_mgmt_init_event_callback(&s_ipv4_cb, doip_ipv4_event,
+                                     NET_EVENT_IPV4_ADDR_ADD);
+        net_mgmt_add_event_callback(&s_ipv4_cb);
+    }
+#endif
     if (rc == UDS_STATUS_OK) {
         /* [EDS#192] s_uds_ctx and platform ops are both ready — release
          * doip_thread now instead of leaving it to a fixed delay. */

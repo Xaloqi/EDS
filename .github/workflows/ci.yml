@@ -2661,6 +2661,10 @@ jobs:
             echo "FAIL: DoIP server never logged 'DoIP: listening on port 13400' within 30s"
             exit 1
           fi
+          # [EDS#392] Discovery is on by default.
+          grep -q "DoIP: vehicle discovery on UDP port 13400" /tmp/doip_boot_output.txt \
+            && echo "PASS: vehicle discovery socket opened (on by default)" \
+            || (echo "FAIL: discovery socket not opened in the default build" && exit 1)
 
           echo "NOT COVERED BY THIS JOB: real DoIP protocol/connection testing over a live"
           echo "         TCP handshake. xaloqi-tester (TestLab) is a private, commercial"
@@ -2670,6 +2674,35 @@ jobs:
           echo "         toward a DoIP integration claim. Canonical real-DoIP verification:"
           echo "         xaloqi-compatibility-tests' basic_ecu_doip leg, which runs the real"
           echo "         campaign over real DoIP/TCP and passes on main."
+
+      # [EDS#392] Vehicle discovery end to end, over a real TAP: the same
+      # example built with native_sim_doip_realzeth.conf, on (default) and
+      # with CONFIG_EDS_DOIP_DISCOVERY=n. scripts/doip_discovery_probe.py
+      # (stdlib only) sends what the OpenSOVD CDA and python-doipclient
+      # send, and also checks that TCP diagnostics still work.
+      - name: Build basic_ecu_doip with a real TAP, discovery on and off
+        run: |
+          C="${GITHUB_WORKSPACE}/examples/basic_ecu_doip/boards/native_sim"
+          for v in on off; do
+            extra=""
+            [ "$v" = off ] && extra="-DCONFIG_EDS_DOIP_DISCOVERY=n"
+            west build -b native_sim examples/basic_ecu_doip -p always -d "build-zeth-$v" -- \
+              "-DEXTRA_CONF_FILE=$C/native_sim_doip.conf;$C/native_sim_doip_realzeth.conf" \
+              -DDIAG_SKIP_CODEGEN=ON -DZEPHYR_TOOLCHAIN_VARIANT=host $extra
+          done
+          grep -q "^CONFIG_EDS_DOIP_DISCOVERY=y" build-zeth-on/zephyr/.config
+          ! grep -q "^CONFIG_EDS_DOIP_DISCOVERY=y" build-zeth-off/zephyr/.config
+        env:
+          ZEPHYR_BASE: ${{ env.ZEPHYR_BASE }}
+
+      - name: Vehicle discovery probe over the TAP (on, then off)
+        run: |
+          sudo ip tuntap add zeth mode tap user "$(id -un)"
+          sudo ip link set zeth up
+          sudo ip addr add 192.0.2.2/24 dev zeth
+          sudo ip route add 255.255.255.255/32 dev zeth
+          python3 scripts/doip_discovery_probe.py build-zeth-on/zephyr/zephyr.exe
+          python3 scripts/doip_discovery_probe.py build-zeth-off/zephyr/zephyr.exe --expect-off
 
       - name: Upload ECU binary artifact
         uses: actions/upload-artifact@v4

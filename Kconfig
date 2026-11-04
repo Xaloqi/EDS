@@ -34,6 +34,26 @@ configdefault REBOOT
 menu "Xaloqi EDS"
 
 # ---------------------------------------------------------------------------
+# DoIP vehicle discovery (ISO 13400-2, EDS#392)
+# ---------------------------------------------------------------------------
+
+config EDS_DOIP_DISCOVERY
+	bool "DoIP vehicle discovery over UDP"
+	default y
+	depends on NET_SOCKETS && NET_UDP
+	help
+	  Open a UDP socket on the DoIP port next to the TCP server and answer
+	  ISO 13400-2 vehicle identification (0x0001/0x0002/0x0003), entity
+	  status (0x4001) and power mode (0x4003) requests, and announce the
+	  entity (0x0004) 3 times after start and whenever an IPv4 address is
+	  added. On by default: testers that discover gateways over UDP (the
+	  Eclipse OpenSOVD CDA among them) cannot find the ECU otherwise.
+	  n compiles the UDP code out, and the server makes the same calls as
+	  before EDS#392. To keep it compiled in but switched off, or to stop
+	  only the announcements, use eds_doip_set_discovery() (YAML:
+	  ecu.doip.discovery.enabled / .announce).
+
+# ---------------------------------------------------------------------------
 # ISO-TP timing parameters (ISO 15765-2 §6.7)
 # ---------------------------------------------------------------------------
 

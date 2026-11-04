@@ -18,6 +18,12 @@
  *            freertos_tcp_recv()   — lwip_select(timeout) + lwip_recv
  *            freertos_tcp_close()  — lwip_close(conn_fd)
  *            freertos_tcp_server_close() — lwip_close(server_fd)
+ *          [EDS#392] With EDS_DOIP_DISCOVERY (default 1): a UDP socket on
+ *          the same port for vehicle discovery, selected together with the
+ *          TCP socket (freertos_wait_readable()); EID = netif_default's
+ *          MAC. The task announces when it starts; to announce again after
+ *          a link or address change, call eds_doip_announce_request() from
+ *          the lwIP netif status callback.
  *
  *          File descriptor representation:
  *            The eds_doip_platform_ops_t API uses void* for opaque connection
@@ -55,6 +61,21 @@
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include "lwip/errno.h"
+
+/* [EDS#392] Vehicle discovery over UDP, on by default. -DEDS_DOIP_DISCOVERY=0
+ * compiles it out, and the server makes the same calls as before EDS#392.
+ * To keep it compiled in but off, or to stop only the announcements, use
+ * eds_doip_set_discovery(). */
+#ifndef EDS_DOIP_DISCOVERY
+#define EDS_DOIP_DISCOVERY 1
+#endif
+
+#if EDS_DOIP_DISCOVERY
+#include "lwip/netif.h"
+#if defined(LWIP_UDP) && (LWIP_UDP == 0)
+#error "EDS_DOIP_DISCOVERY needs LWIP_UDP=1 in lwipopts.h, or build with -DEDS_DOIP_DISCOVERY=0 (EDS#392)."
+#endif
+#endif
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -214,6 +235,126 @@ static void freertos_tcp_server_close(void *server_ctx)
     (void)lwip_close(fd);
 }
 
+#if EDS_DOIP_DISCOVERY
+/* ---------------------------------------------------------------------------
+ * [EDS#392] Vehicle discovery: UDP socket on DOIP_PORT
+ *
+ * The UDP context is fd + 1, never the bare fd: the server reads a NULL
+ * udp_ctx as "no discovery socket", and fd 0 cast to void* is NULL.
+ * ------------------------------------------------------------------------ */
+
+static int udp_fd(const void *udp_ctx)
+{
+    return (int)(uintptr_t)udp_ctx - 1;
+}
+
+static int freertos_udp_open(uint16_t port, void **udp_ctx)
+{
+    int fd = lwip_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) {
+        return -1;
+    }
+
+    int opt = 1;
+    (void)lwip_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    /* Needed for broadcast send and receive when lwipopts.h sets
+     * IP_SOF_BROADCAST / IP_SOF_BROADCAST_RECV; harmless otherwise. */
+    (void)lwip_setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt));
+
+    struct sockaddr_in addr;
+    (void)memset(&addr, 0, sizeof(addr));
+    addr.sin_family      = AF_INET;
+    addr.sin_port        = lwip_htons(port);
+    addr.sin_addr.s_addr = INADDR_ANY;
+
+    if (lwip_bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        (void)lwip_close(fd);
+        return -1;
+    }
+
+    *udp_ctx = (void *)(uintptr_t)((uint32_t)fd + 1U);
+    return 0;
+}
+
+static int freertos_udp_recvfrom(void *udp_ctx, uint8_t *buf, size_t buf_len,
+                                 eds_doip_udp_peer_t *peer)
+{
+    struct sockaddr_in from;
+    socklen_t fromlen = sizeof(from);
+
+    (void)memset(&from, 0, sizeof(from));
+    int n = (int)lwip_recvfrom(udp_fd(udp_ctx), buf, buf_len, MSG_DONTWAIT,
+                               (struct sockaddr *)&from, &fromlen);
+    if (n < 0) {
+        /* EWOULDBLOCK or an error: either way, nothing to read this wake.
+         * Not read from errno, which lwIP may keep per task or not at all. */
+        return DOIP_UDP_NO_DATA;
+    }
+    peer->addr = lwip_ntohl(from.sin_addr.s_addr);
+    peer->port = lwip_ntohs(from.sin_port);
+    return n;
+}
+
+static int freertos_udp_sendto(void *udp_ctx, const eds_doip_udp_peer_t *peer,
+                               const uint8_t *data, size_t len)
+{
+    struct sockaddr_in to;
+
+    (void)memset(&to, 0, sizeof(to));
+    to.sin_family      = AF_INET;
+    to.sin_port        = lwip_htons(peer->port);
+    to.sin_addr.s_addr = lwip_htonl(peer->addr);
+    int n = (int)lwip_sendto(udp_fd(udp_ctx), data, len, MSG_DONTWAIT,
+                             (const struct sockaddr *)&to, sizeof(to));
+    return (n < 0) ? -1 : n;
+}
+
+static void freertos_udp_close(void *udp_ctx)
+{
+    (void)lwip_close(udp_fd(udp_ctx));
+}
+
+static int freertos_wait_readable(void *tcp_ctx, void *udp_ctx, uint32_t timeout_ms)
+{
+    int tcp = (int)(uintptr_t)tcp_ctx;
+    int udp = udp_fd(udp_ctx);
+
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET((unsigned int)tcp, &read_fds);
+    FD_SET((unsigned int)udp, &read_fds);
+
+    struct timeval tv;
+    tv.tv_sec  = (long)(timeout_ms / 1000U);
+    tv.tv_usec = (long)((timeout_ms % 1000U) * 1000U);
+
+    int rc = lwip_select(((tcp > udp) ? tcp : udp) + 1, &read_fds, NULL, NULL, &tv);
+    if (rc < 0) {
+        return -1;
+    }
+    uint32_t mask = 0U;
+    if ((rc > 0) && (FD_ISSET((unsigned int)tcp, &read_fds) != 0)) {
+        mask |= DOIP_READY_TCP;
+    }
+    if ((rc > 0) && (FD_ISSET((unsigned int)udp, &read_fds) != 0)) {
+        mask |= DOIP_READY_UDP;
+    }
+    return (int)mask;
+}
+
+/* EID = the default netif's 6-byte MAC. Read without the TCP/IP core lock:
+ * hwaddr is written once by the driver's init, before this task starts. */
+static int freertos_get_eid(uint8_t eid[DOIP_EID_LEN])
+{
+    const struct netif *nif = netif_default;
+    if ((nif == NULL) || (nif->hwaddr_len != (uint8_t)DOIP_EID_LEN)) {
+        return -1;
+    }
+    (void)memcpy(eid, nif->hwaddr, DOIP_EID_LEN);
+    return 0;
+}
+#endif /* EDS_DOIP_DISCOVERY */
+
 /* [EDS#434] Same sequence as the CAN loops: persist, let the 0x11
  * response leave the stack, reset. Does not return for a supported type. */
 static void freertos_doip_ecu_reset(uint8_t reset_type)
@@ -239,6 +380,14 @@ static const eds_doip_platform_ops_t s_freertos_doip_ops = {
     .uptime_ms         = eds_platform_uptime_ms,  /* [EDS#412] */
     .ecu_reset         = freertos_doip_ecu_reset, /* [EDS#434] */
     .sleep_ms          = freertos_doip_sleep_ms, /* [EDS#282] */
+#if EDS_DOIP_DISCOVERY
+    .udp_open          = freertos_udp_open,      /* [EDS#392] */
+    .udp_recvfrom      = freertos_udp_recvfrom,
+    .udp_sendto        = freertos_udp_sendto,
+    .udp_close         = freertos_udp_close,
+    .wait_readable     = freertos_wait_readable,
+    .get_eid           = freertos_get_eid,
+#endif
 };
 
 /* ---------------------------------------------------------------------------

@@ -108,8 +108,9 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 - **Single-ECU only**: no gateway routing. Multi-ECU addressing (ISO 15765-3 normal fixed addressing to 0x7Ex/0x18DAxxxx) is not implemented.
 - **CAN FD available but opt-in**: `ISOTP_ENABLE_CAN_FD=1` enables CAN FD ISO-TP (SF escape up to 62 bytes, FF escape for PDU > 4095 bytes). Disabled by default — classic CAN remains the tested default transport. See §1.2 above for details. **This raises the transport's own ceiling, not the application-layer one**: `uds_msg_buf_t` (`core/uds_types.h`) is a fixed `data[4095]` + `uint16_t length`, so a single diagnostic PDU is still capped at 4095 bytes at the UDS/service layer no matter how large a PDU CAN FD ISO-TP can carry. Anything larger than that (e.g. large-payload OTA) needs a streaming transfer-manager layered on top of the UDS download services (0x34/0x36/0x37) — CAN FD alone does not make single-PDU large-payload transfers work end-to-end through the UDS service layer as-is.
 - **DoIP available** — a DoIP diagnostic server subset (ISO 13400-2 routing activation +
-  diagnostic messaging; vehicle identification, vehicle announcement, and entity status
-  are out of scope): see Section 5b (DoIP Integration) below. CAN and DoIP
+  diagnostic messaging, plus vehicle discovery over UDP: identification, announcement,
+  entity status and power mode, on by default since EDS#392): see Section 5b (DoIP
+  Integration) below. CAN and DoIP
   use the same UDS core — `ecu.transport: doip` in YAML selects the DoIP path.
 - **Strict programming session gate (optional, v1.7.2)**: some OEM toolchains (BMW, VAG) require Extended session before Programming. Enable after init:
   ```c
@@ -1019,10 +1020,9 @@ See `examples/safeboot_ecu/README.md` for the complete annotated script.
 
 DoIP (ISO 13400-2) was added in EDS v1.6.0. EDS implements a **DoIP diagnostic server
 subset** — routing activation and diagnostic messaging (the entity/server side that a
-tester talks to) — not the full ISO 13400-2 surface: UDP vehicle identification, vehicle
-announcement, and entity status requests are out of scope (see the DoIP Feature Matrix
-in [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) §6.2 for the complete implemented/not-implemented
-list). It uses the same UDS server core and ASIL-B
+tester talks to), plus vehicle discovery over UDP (5b.7) — not the full ISO 13400-2
+surface (see the DoIP Feature Matrix in [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) §6.2 for
+the complete implemented/not-implemented list). It uses the same UDS server core and ASIL-B
 safety chain as the CAN/ISO-TP transport. **Selecting DoIP is a build-system change,
 not a YAML one** — see 5b.1a below (EDS#352).
 
@@ -1227,6 +1227,81 @@ For ECUs that must serve diagnostics on both CAN and Ethernet simultaneously
 (e.g. a zonal gateway), set `transport: both` in YAML and include all CAN and DoIP
 sources. Both transports drive the same `uds_server_ctx_t` — session state is shared.
 Do not set `EDS_DOIP_ONLY_BUILD=1` in this configuration.
+
+### 5b.7 Vehicle discovery over UDP (EDS#392)
+
+Testers that find gateways by broadcast (the Eclipse OpenSOVD CDA, python-doipclient's
+`get_entity()`) send an ISO 13400-2 vehicle identification request to UDP port 13400.
+Both bindings open a UDP socket on that port next to the TCP server and answer, **on by
+default**:
+
+| Request | Answer |
+|---|---|
+| 0x0001 vehicle identification (version 0x02, or 0xFF) | 0x0004: VIN, logical address, EID, GID, further action |
+| 0x0002 by EID / 0x0003 by VIN | 0x0004 only on a match; otherwise nothing |
+| 0x4001 entity status | 0x4002: node, max 1 socket, 0 or 1 open, max data size 4096 |
+| 0x4003 power mode | 0x4004: ready (0x01), or your callback |
+| malformed datagram | generic header NACK 0x0000 |
+
+The entity also announces itself: 3 × 0x0004 to 255.255.255.255:13400, 500 ms apart, after
+a random 0–500 ms wait (ISO 13400-2 A_DoIP_Announce_* defaults), when the server starts and
+again when you call `eds_doip_announce_request()`. The Zephyr binding calls it on
+`NET_EVENT_IPV4_ADDR_ADD`; on FreeRTOS + lwIP, call it once the netif is up (see
+`examples/basic_ecu_doip_freertos/src/eds_net.c`).
+
+**Where the values come from**
+
+- **VIN:** your `get_vin` callback, called for each response on the DoIP thread inside the
+  `eds_doip_set_lock_callbacks()` pair. Read it through the 0xF190 safety wrapper with the
+  server's own contexts, as both DoIP examples do:
+  ```c
+  static uds_status_t doip_vin_from_f190(uds_server_ctx_t *ctx, uint8_t vin[DOIP_VIN_LEN])
+  {
+      uint16_t len = 0U;
+      uds_status_t rc = did_safe_read_vehicle_identification_number(
+          ctx->cfg.session_ctx, ctx->cfg.security_ctx, vin, (uint16_t)DOIP_VIN_LEN, &len);
+      if ((rc == UDS_STATUS_OK) && (len != (uint16_t)DOIP_VIN_LEN)) {
+          rc = UDS_STATUS_ERR_BUFFER_OVERFLOW;
+      }
+      return rc;
+  }
+  ```
+  If the wrapper refuses (say, 0xF190 is restricted to a non-default session) or no
+  callback is set, the VIN is sent as 17 × 0x00 with VIN/GID sync status 0x10 ("VIN not
+  available"), and a request by VIN never matches. Discovery never reads the DID around
+  the safety chain.
+- **Logical address:** the one passed to `eds_doip_platform_start()`.
+- **EID:** the interface MAC (Zephyr `net_if_get_link_addr()`, lwIP `netif_default->hwaddr`),
+  or `eid` in the configuration. Loopback has no MAC, so the EID is all zeros there.
+- **GID:** `gid` in the configuration, otherwise the EID. **Further action:** 0x00.
+
+```c
+static const eds_doip_discovery_cfg_t s_doip_discovery = {
+    .enabled  = true,           /* false: no UDP socket at all */
+    .announce = true,           /* false: answer requests, never announce */
+    .get_vin  = doip_vin_from_f190,
+    .further_action = DOIP_FURTHER_ACTION_NONE,
+};
+eds_doip_set_discovery(&s_doip_discovery);   /* before eds_doip_platform_start() */
+```
+
+**Opting out.** At run time: `.enabled = false` (or `.announce = false` for announcements
+only). At build time, compiling the UDP code out: `CONFIG_EDS_DOIP_DISCOVERY=n` (Zephyr) or
+`-DEDS_DOIP_DISCOVERY=0` (FreeRTOS). Compiled out, the server makes exactly the socket
+calls it made before EDS#392.
+
+**What it exposes, and the bounds.** Discovery answers anyone on the segment, without
+authentication: the VIN, logical address, MAC and whether a tester holds the slot. A reply
+is about 5× its request, so replies (NACKs included) are capped at 16 per second
+(`DOIP_UDP_MAX_REPLIES_PER_S`) and the server reads at most 4 datagrams per wake
+(`DOIP_UDP_MAX_PER_WAKE`) before looking at TCP again. Discovery is not served while the
+server is inside a frame or a response-pending job (a firmware download, say); requests
+queue in the socket and are answered afterwards. If the VIN must not be broadcast,
+restrict 0xF190 or leave `get_vin` unset. If the ECU must not be discoverable at all,
+opt out as above.
+
+**Resources.** One more socket (Zephyr: one `NET_MAX_CONTEXTS` entry and one fd; lwIP: one
+UDP PCB, `LWIP_UDP=1`) and about 120 bytes of static state.
 
 
 ---

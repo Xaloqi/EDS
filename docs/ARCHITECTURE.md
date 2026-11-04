@@ -369,7 +369,7 @@ expect fixed-length frames. See [docs/ISOTP_PADDING.md](ISOTP_PADDING.md).
 
 Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protocol over TCP.
 
-#### DoIP Feature Matrix (current as of v1.12.0, ISO 13400-2:2019)
+#### DoIP Feature Matrix (current as of EDS#392, ISO 13400-2)
 
 | Feature | Payload type | Status | Notes |
 |---|---|---|---|
@@ -383,10 +383,14 @@ Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protoc
 | Diagnostic Message Positive Ack | 0x8002 | ✅ Implemented | Sent before UDS dispatch per ISO 13400-2 §9.5 |
 | Diagnostic Message Negative Ack | 0x8003 | ✅ Implemented | NACK codes: 0x03 (invalid src), 0x04 (unknown tgt), 0x05 (too large), 0x07 (not routed) |
 | Single active TCP connection | — | ✅ Implemented | Sequential accept; routing state reset on new connection |
-| UDP Vehicle Identification Request | 0x0001 | ❌ Not implemented | Out of scope as of v1.12.0 |
-| UDP Vehicle Identification w/ EID | 0x0002 | ❌ Not implemented | Out of scope as of v1.12.0 |
-| Vehicle Announcement | 0x0004 | ❌ Not implemented | Out of scope as of v1.12.0 |
-| Entity Status Request/Response | 0x4001/0x4002 | ❌ Not implemented | Out of scope as of v1.12.0 |
+| UDP socket on port 13400 | — | ✅ Implemented | [EDS#392] On by default (`CONFIG_EDS_DOIP_DISCOVERY` / `EDS_DOIP_DISCOVERY`); served on the server thread, waited on together with TCP |
+| Vehicle Identification Request | 0x0001 | ✅ Implemented | Accepts version 0x02, or the 0xFF default version testers use for this request; answered to the requester's address and port |
+| Vehicle Identification Request w/ EID | 0x0002 | ✅ Implemented | Answered only if the EID matches, otherwise silence |
+| Vehicle Identification Request w/ VIN | 0x0003 | ✅ Implemented | Answered only if the VIN is available and matches |
+| Vehicle Identification Response / Announcement | 0x0004 | ✅ Implemented | VIN via the 0xF190 safety wrapper under the UDS lock (17 × 0x00 + sync status 0x10 when not available), LA, EID = MAC, GID = EID unless configured, further action 0x00. Announced 3× at 500 ms after a 0–500 ms wait (A_DoIP_Announce_*), at start and on IPv4 address add |
+| Entity Status Request/Response | 0x4001/0x4002 | ✅ Implemented | Node type 0x01, max sockets 1, open 0/1, max data size 4096 |
+| Diagnostic Power Mode Request/Response | 0x4003/0x4004 | ✅ Implemented | 0x01 ready, or an integrator callback |
+| Generic header NACK (UDP) | 0x0000 | ✅ Implemented | Codes 0x00/0x01/0x02/0x04; response types (0x0000/0x0004/0x4002/0x4004) never answered. Replies capped at 16/s, 4 datagrams read per wake |
 | Activation type 0x01 (OEM-specific) | 0x0005 | ❌ Not implemented | Only Default (0x00) supported |
 | Multiple simultaneous TCP clients | — | ❌ Not implemented | One client per server instance; clients queue sequentially |
 | TLS transport | — | ❌ Not implemented | Plain TCP only |
