@@ -374,7 +374,8 @@ Added in v1.6.0. Implements the ECU (entity) side of the DoIP diagnostics protoc
 | Feature | Payload type | Status | Notes |
 |---|---|---|---|
 | TCP server on port 13400 | — | ✅ Implemented | `eds_doip_server_run()`, blocking loop |
-| DoIP header version check | — | ✅ Implemented | Version 0x02, inverse byte 0xFD validated on every frame |
+| DoIP header version check | — | ✅ Implemented | Version 0x02, inverse byte 0xFD validated on every frame (0x02 is the ISO 13400-2:2012 protocol version) |
+| Generic header NACK (TCP) | 0x0000 | ✅ Implemented | [EDS#571] 0x00 bad pattern (then close), 0x01 unknown type (message discarded, connection kept), 0x02 too large (then close, see `doip_server.c`), 0x04 invalid length for the type (then close) |
 | Routing Activation Request | 0x0005 | ✅ Implemented | Activation type 0x00 (Default) only |
 | Routing Activation Response | 0x0006 | ✅ Implemented | Response codes 0x00 (denied), 0x10 (OK), 0x11 (already active) |
 | Alive Check Request | 0x0007 | ✅ Implemented | Handled without routing activation requirement |

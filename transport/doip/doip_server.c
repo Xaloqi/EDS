@@ -770,6 +770,41 @@ static bool doip_lifetime_spent(doip_server_state_t *s, const eds_elapsed_t *con
     return spent;
 }
 
+/* ---------------------------------------------------------------------------
+ * [EDS#571] Generic header handling on TCP (ISO 13400-2)
+ * ------------------------------------------------------------------------ */
+
+/* Payload types served on a TCP connection. 0x0008 (a tester's alive check
+ * response) is accepted and ignored. Anything else gets NACK 0x01. */
+static bool doip_tcp_type_known(uint16_t payload_type)
+{
+    return (payload_type == DOIP_PT_ROUTING_ACT_REQ) ||
+           (payload_type == DOIP_PT_ALIVE_CHECK_REQ) ||
+           (payload_type == DOIP_PT_ALIVE_CHECK_RESP) ||
+           (payload_type == DOIP_PT_DIAGNOSTIC_MSG);
+}
+
+/* Payload length valid for a known TCP payload type: routing activation 7,
+ * or 11 with the OEM-specific field; alive check request 0, response 2;
+ * diagnostic message SA + TA + at least one UDS byte. */
+static bool doip_tcp_length_valid(uint16_t payload_type, uint32_t payload_len)
+{
+    bool valid;
+
+    switch (payload_type) {
+    case DOIP_PT_ROUTING_ACT_REQ:  valid = (payload_len == 7U) || (payload_len == 11U); break;
+    case DOIP_PT_ALIVE_CHECK_REQ:  valid = (payload_len == 0U);                         break;
+    case DOIP_PT_ALIVE_CHECK_RESP: valid = (payload_len == 2U);                         break;
+    default:                       valid = (payload_len >= 5U);                         break;
+    }
+    return valid;
+}
+
+static void doip_send_generic_nack(doip_server_state_t *s, uint8_t nack_code)
+{
+    (void)doip_send_frame(s, DOIP_PT_GENERIC_NACK, &nack_code, 1U);
+}
+
 /* ===========================================================================
  * [EDS#392] Vehicle discovery over UDP
  *
@@ -1355,13 +1390,25 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
             uint32_t payload_len  = 0U;
             uds_status_t parse_rc = doip_parse_header(hdr_buf, &payload_type, &payload_len);
             if (parse_rc != UDS_STATUS_OK) {
-                /* Malformed header — close connection */
+                /* [EDS#571] Incorrect pattern: generic header NACK 0x00,
+                 * then close (ISO 13400-2). */
+                doip_send_generic_nack(s, DOIP_HDR_NACK_INCORRECT_PATTERN);
                 goto connection_closed;
             }
 
-            /* Reject oversized payloads before reading */
+            /* [EDS#571] Generic header checks before reading the payload. A
+             * message too large to hold is NACKed and the connection closed:
+             * ISO 13400-2 says discard it, but discarding means reading up to
+             * a peer-chosen 4 GiB, so the slot is released instead, as before
+             * (when this sent a diagnostic NACK 0x05). */
+            bool tcp_type_known = doip_tcp_type_known(payload_type);
             if (payload_len > (uint32_t)(DOIP_MAX_PDU_SIZE - DOIP_HEADER_LEN)) {
-                (void)doip_send_diagnostic_negative_ack(s, DOIP_NACK_MSG_TOO_LARGE);
+                doip_send_generic_nack(s, tcp_type_known ? DOIP_HDR_NACK_MSG_TOO_LARGE
+                                                         : DOIP_HDR_NACK_UNKNOWN_TYPE);
+                goto connection_closed;
+            }
+            if (tcp_type_known && !doip_tcp_length_valid(payload_type, payload_len)) {
+                doip_send_generic_nack(s, DOIP_HDR_NACK_INVALID_LENGTH);
                 goto connection_closed;
             }
 
@@ -1390,6 +1437,16 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
                     }
                     received += (uint32_t)bytes;
                 }
+            }
+
+            /* [EDS#571] Unknown payload type: NACK 0x01 and discard the
+             * message (payload already read), keeping the connection. */
+            if (!tcp_type_known) {
+                doip_send_generic_nack(s, DOIP_HDR_NACK_UNKNOWN_TYPE);
+                if (doip_lifetime_spent(s, &conn_age)) {
+                    goto connection_closed;
+                }
+                continue;
             }
 
             /* --- Dispatch --- */
