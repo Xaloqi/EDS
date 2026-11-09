@@ -805,6 +805,13 @@ jobs:
           cppcheck --version \
             || (echo "FAIL: cppcheck not available — MISRA analysis would silently degrade to GCC-only mode" \
                 && exit 1)
+          # The "0 open violations" claim is a statement about cppcheck 2.7 (EDS#583:
+          # 2.19 reports 95 open on the same code). Fail on any other version so a
+          # runner-image change cannot turn the gate red or green silently.
+          # Moving to a newer cppcheck is a deliberate change: see EDS#583.
+          [ "$(cppcheck --version)" = "Cppcheck 2.7" ] \
+            || (echo "FAIL: MISRA gate is pinned to cppcheck 2.7, runner has: $(cppcheck --version)" \
+                && exit 1)
 
       - name: Install Python dependencies
         run: pip install pyyaml jinja2
