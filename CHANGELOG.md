@@ -80,6 +80,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   fire without `CONFIG_*` defines); the analysis now defines them, and the two Rule 10.8
   findings that exposed are fixed in the code (no value change). On CI's cppcheck 2.7: 1032
   findings, all justified, 0 open.
+- **`INSTALL.md` installs the `.vsix` that is actually in the ZIP** (Xaloqi/EDS-toolchain#242). It named
+  `eds-diagnostics-1.1.0.vsix`, the oldest of four builds the Developer ZIP used to carry; it now
+  uses `eds-diagnostics-*.vsix` (the ZIP ships exactly one) and installs the Red Hat YAML extension
+  the schema validation depends on. "ASIL-B compliance" / "ASIL-B violations" in the same file now
+  read "ASIL-B-oriented rules" (Xaloqi/EDS-toolchain#243).
 - **Six example READMEs no longer say a licence is needed to use them** (#569). `ardep_ecu`,
   `bms_ecu`, `motor_controller_ecu`, `safeboot_ecu`, `sensor_ecu` and `sensor_ecu_freertos`
   said "Included with Developer and Professional licenses" (bms_ecu: "after purchase, extract
