@@ -10,6 +10,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Bench option `DIAG_BENCH_PERMANENT_DTC`** (#580), `robot_joint_controller_ecu`, off by default.
+  `platform/zephyr/bench_permanent_dtc.[ch]` marks DTC 0xA00101 permanent once it is confirmed
+  (live, or restored from NVM at boot, since the permanent flag is not persisted), and
+  `native_sim_bench_nvs.conf` + a main.c branch keep the DTC mirror in NVS on native_sim's flash
+  simulator, so a native_sim session shows what #534 / #537 fixed: DTC set -> `14 FF FF FF` -> still
+  reported -> reboot -> still reported. `scripts/smoke_permanent_dtc.py` runs that (and `--control`,
+  the same with the marking off: the DTC is cleared) and CI runs both
+  (`example-robot-permanent-dtc`). No change to the default build.
 - **DoIP vehicle discovery in the transport core** (#392, part A of 3). `doip_server.c`
   answers ISO 13400-2 vehicle identification (0x0001, by EID 0x0002, by VIN 0x0003 → 0x0004),
   entity status (0x4001 → 0x4002) and diagnostic power mode (0x4003 → 0x4004) on UDP 13400,

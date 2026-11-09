@@ -1946,6 +1946,96 @@ jobs:
           sudo ip link set up zcan0
           python3 EDS/scripts/smoke_bms_ecu.py build/zephyr/zephyr.exe zcan0
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job: example-robot-permanent-dtc
+  #
+  # EDS#580. Host tests (TC-0x14-018/019, TC-MIRROR-035) pin that a permanent
+  # DTC survives 14 FF FF FF and a power cycle (EDS#534 / #537); this shows it
+  # on native_sim. The robot example with DIAG_BENCH_PERMANENT_DTC=ON and NVS on
+  # the flash simulator: DTC 0xA00101 confirmed (~56 s), 0x19 0x15 lists it,
+  # 14 FF FF FF leaves it, reboot, restored, 14 FF FF FF leaves it. A control
+  # run (--control, marking off) must see it cleared. About 2.5 minutes.
+  #
+  # New job, not a rename. Not a required status check.
+  # ──────────────────────────────────────────────────────────────────────────
+  example-robot-permanent-dtc:
+    name: "Robot Joint Controller ECU — bench: permanent DTC survives 14 FFFFFF and a reboot"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget
+
+      - name: Install west
+        run: pip install west
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: West build — native_sim, SocketCAN + bench NVS
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          EX="${GITHUB_WORKSPACE}/EDS/examples/robot_joint_controller_ecu"
+          west build \
+            --pristine \
+            -b native_sim \
+            EDS/examples/robot_joint_controller_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DDIAG_BENCH_PERMANENT_DTC=ON \
+            "-DEXTRA_CONF_FILE=${EX}/boards/native_sim/native_sim_socketcan.conf;${EX}/boards/native_sim/native_sim_bench_nvs.conf" \
+            "-DDTC_OVERLAY_FILE=${EX}/boards/native_sim/native_sim_socketcan.overlay"
+          test -f build/zephyr/zephyr.exe
+
+      # EDS#536: this step used to apt-get install with no `apt-get update`
+      # and no timeout (8-26 min on bad runs). The module is usually already
+      # there, so try modprobe first; install only if that fails, bounded, and
+      # fail loudly if vcan still cannot be loaded.
+      - name: Load vcan
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
+            echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
+            sudo timeout 120 apt-get update -qq
+            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            sudo modprobe vcan
+            sudo modprobe can_raw
+          fi
+          lsmod | grep -E '^(vcan|can_raw) '
+
+      - name: Bench smoke — permanent DTC survives 14 FF FF FF and a reboot
+        run: |
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set up zcan0
+          python3 EDS/scripts/smoke_permanent_dtc.py build/zephyr/zephyr.exe zcan0
+
+      - name: Control — the same DTC, not permanent, is cleared
+        run: |
+          sudo ip link del zcan0 || true
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set up zcan0
+          python3 EDS/scripts/smoke_permanent_dtc.py --control build/zephyr/zephyr.exe zcan0
+
   # [EDS#557][EDS#546] CAN FD end to end: examples/canfd_ecu (can.fd: true) on
   # native_sim over an MTU-72 vcan, tested by the Linux kernel's own ISO-TP
   # stack (can-isotp, net/can/isotp.c) set to CAN FD, plus a raw FD socket on
