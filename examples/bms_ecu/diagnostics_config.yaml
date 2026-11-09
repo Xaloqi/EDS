@@ -91,6 +91,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 17            # ISO 14229-1 Annex F: VIN always 17 bytes
+    default_value: "0x424d534558414d504c4530303030303031"
 
   - id:   "0xF18C"
     name: "ECUSerialNumber"
@@ -100,6 +101,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 8             # 8-char alphanumeric serial
+    default_value: "0x424d533030303031"
 
   - id:   "0xF187"
     name: "VehicleManufacturerSparePartNumber"
@@ -110,6 +112,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 11            # Supplier part number (OEM format)
+    default_value: "0x3030303030303030303030"
 
   - id:   "0xF189"
     name: "ECUSoftwareVersionNumber"
@@ -119,6 +122,7 @@ dids:
     read_security_level:  0
     write_security_level: 0
     data_length: 4             # Major.Minor.Patch.Build (1 byte each)
+    default_value: "0x01000000"
 
   # ── B. Pack-Level Measurements (0xDB00 range) ──────────────────────────────
   # Pack = sum of all cells in series. Monitoring at pack level is the first
@@ -126,6 +130,7 @@ dids:
 
   - id:   "0xDB00"
     name: "BMS_PackVoltage_mV"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -138,6 +143,7 @@ dids:
 
   - id:   "0xDB01"
     name: "BMS_PackCurrent_100mA"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -150,6 +156,7 @@ dids:
 
   - id:   "0xDB02"
     name: "BMS_PackPower_10W"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -161,6 +168,7 @@ dids:
 
   - id:   "0xDB03"
     name: "BMS_ContactorState"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -177,6 +185,7 @@ dids:
 
   - id:   "0xDB04"
     name: "BMS_InsulationResistance_kOhm"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -194,6 +203,7 @@ dids:
 
   - id:   "0xDC01"
     name: "BMS_CellGroup1_Voltage_mV"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -203,6 +213,7 @@ dids:
 
   - id:   "0xDC02"
     name: "BMS_CellGroup2_Voltage_mV"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -212,6 +223,7 @@ dids:
 
   - id:   "0xDC03"
     name: "BMS_CellGroup3_Voltage_mV"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -221,6 +233,7 @@ dids:
 
   - id:   "0xDC04"
     name: "BMS_CellGroup4_Voltage_mV"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -234,6 +247,7 @@ dids:
 
   - id:   "0xDD00"
     name: "BMS_MaxCellTemperature_degC"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -246,6 +260,7 @@ dids:
 
   - id:   "0xDD01"
     name: "BMS_MinCellTemperature_degC"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -258,6 +273,7 @@ dids:
 
   - id:   "0xDD02"
     name: "BMS_CoolantInletTemperature_degC"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -269,6 +285,7 @@ dids:
 
   - id:   "0xDD03"
     name: "BMS_BMSBoardTemperature_degC"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -283,6 +300,7 @@ dids:
 
   - id:   "0xDE00"
     name: "BMS_StateOfCharge_04pct"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -294,6 +312,7 @@ dids:
 
   - id:   "0xDE01"
     name: "BMS_StateOfHealth_04pct"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "extended"
@@ -306,6 +325,7 @@ dids:
 
   - id:   "0xDE02"
     name: "BMS_BalancingStateBitmask"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "extended"
@@ -323,6 +343,7 @@ dids:
 
   - id:   "0xD900"
     name: "BMS_FaultFlagsBitmask"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "default"
@@ -344,6 +365,7 @@ dids:
 
   - id:   "0xD901"
     name: "BMS_FullChargeCapacity_Wh"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
     min_session: "extended"
@@ -356,6 +378,7 @@ dids:
 
   - id:   "0xD910"
     name: "BMS_OVThreshold_mV"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
       - write
@@ -369,6 +392,7 @@ dids:
 
   - id:   "0xD911"
     name: "BMS_UVThreshold_mV"
+    source: app   # simulated pack: src/bms_sim.c (EDS#577)
     access:
       - read
       - write
