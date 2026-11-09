@@ -71,6 +71,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`misra_analysis.py` no longer reports PASS when cppcheck fails to run** (#572). It ignored
+  cppcheck's exit code and error output, so a broken install produced "0 findings" and
+  `RESULT: PASS`. A non-zero exit, a missing or unrunnable binary (now a FAIL even without
+  `--strict`; only an explicit `--gcc-only` skips cppcheck), an error line in its output, or a
+  canary file with a known Rule 15.1 violation going unreported is now a FAIL. Closing that hole
+  showed cppcheck had never analysed `transport/doip/zephyr_lwip.c` (its `#error` Kconfig guards
+  fire without `CONFIG_*` defines); the analysis now defines them, and the two Rule 10.8
+  findings that exposed are fixed in the code (no value change). On CI's cppcheck 2.7: 1032
+  findings, all justified, 0 open.
 - **Six example READMEs no longer say a licence is needed to use them** (#569). `ardep_ecu`,
   `bms_ecu`, `motor_controller_ecu`, `safeboot_ecu`, `sensor_ecu` and `sensor_ecu_freertos`
   said "Included with Developer and Professional licenses" (bms_ecu: "after purchase, extract

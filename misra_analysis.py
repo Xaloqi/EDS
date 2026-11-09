@@ -28,9 +28,9 @@
 #              Requires: pip install cppcheck-misra  OR  apt install cppcheck
 #   Secondary: GCC MISRA-relevant warning flags (always available)
 #
-#   If cppcheck is not available, the script falls back to GCC-only analysis
-#   and clearly documents this in the report. CI can be configured to
-#   treat absence of cppcheck as a soft failure (warning, not error).
+#   A missing cppcheck, a non-zero cppcheck exit, an error line in its output
+#   or a failed canary (a known violation it must report) is a FAIL (EDS#572).
+#   Only an explicit --gcc-only runs the GCC subset, labelled as such.
 #
 # DEVIATION HANDLING:
 #   Known justified deviations are defined in MISRA_DEVIATIONS below.
@@ -75,6 +75,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -115,6 +116,17 @@ DEFINES: List[str] = [
     # EDS_MSG_BUF_MAX_STACK_BYTES: suppress the assert body itself so cppcheck
     # does not attempt to evaluate sizeof() in an expression context.
     "EDS_MSG_BUF_MAX_STACK_BYTES=8192",
+    # EDS#572: cppcheck error lines now FAIL the gate. These stand in for
+    # platform headers that are not on the analysis include path, so the DoIP
+    # transports are analysed completely instead of "misra checking is
+    # incomplete" (misra-config) / the Zephyr Kconfig #error.
+    "CONFIG_NET_CONTEXT_SNDTIMEO=1",
+    "CONFIG_REBOOT=1",
+    "SOL_SOCKET=1",
+    "SO_SNDTIMEO=1",
+    "IPPROTO_TCP=6",
+    "TCP_NODELAY=1",
+    "pdPASS=1",
 ]
 
 #: GCC MISRA-relevant warning flags (Pass 2 equivalent, cppcheck-free)
@@ -1630,6 +1642,44 @@ _CPPCHECK_MISRA_RE = re.compile(
 )
 
 
+#: A file with a known MISRA violation (Rule 15.1, goto). cppcheck must report
+#: it, or the checker did not really run (EDS#572).
+_CANARY_SRC = "int canary(int a)\n{\n    goto end;\nend:\n    return a;\n}\n"
+_CANARY_RULE = "misra-c2012-15.1"
+
+#: Output that means cppcheck could not analyse, whatever the exit code says.
+_CPPCHECK_FAILURE_RE = re.compile(
+    r"Failed to load|Bailing out|Your Cppcheck installation is broken|"
+    r"^[^\n]*?:\d+: error: |^(?:cppcheck: )?error: |syntaxError|internalError|"
+    r"Unhandled exception|Traceback \(most recent call last\)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+class CppcheckError(RuntimeError):
+    """cppcheck did not run properly; the MISRA gate must FAIL (EDS#572)."""
+
+
+def _cppcheck_canary(cppcheck_path: str) -> None:
+    """Raise CppcheckError unless cppcheck + the misra addon report a known finding."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "canary.c"
+        src.write_text(_CANARY_SRC, encoding="utf-8")
+        try:
+            r = subprocess.run(
+                [cppcheck_path, "--enable=all", "--addon=misra", "--std=c11",
+                 "--template={file}:{line}: {severity}: {id}: {message}", str(src)],
+                capture_output=True, text=True, timeout=120,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise CppcheckError(f"canary: cannot run cppcheck: {exc}") from exc
+        if r.returncode != 0 or _CANARY_RULE not in r.stdout + r.stderr:
+            raise CppcheckError(
+                f"canary: cppcheck exit {r.returncode}, expected {_CANARY_RULE} "
+                f"not reported: {(r.stderr + r.stdout).strip()[:300]}"
+            )
+
+
 def run_cppcheck_analysis(
     sources: List[Path],
     root:    Path,
@@ -1641,16 +1691,27 @@ def run_cppcheck_analysis(
     Requires cppcheck >= 2.6 with the misra addon installed.
     The misra addon text file (MISRA_C_2012.txt) is sought in standard locations;
     cppcheck will use its built-in ruleset if the text file is absent.
+
+    Raises CppcheckError when cppcheck did not analyse (EDS#572): a non-zero
+    exit, an unrunnable binary, an error line in its output, or a failed
+    canary. "Zero findings" is only returned when the checker demonstrably ran.
     """
     include_args = [f"-I{root / d}" for d in INCLUDE_DIRS]
     define_args  = [f"-D{d}" for d in DEFINES]
 
     # Check cppcheck version
-    ver_r = subprocess.run(
-        [cppcheck_path, "--version"],
-        capture_output=True, text=True
-    )
+    try:
+        ver_r = subprocess.run(
+            [cppcheck_path, "--version"],
+            capture_output=True, text=True
+        )
+    except OSError as exc:
+        raise CppcheckError(f"cannot run {cppcheck_path}: {exc}") from exc
+    if ver_r.returncode != 0:
+        raise CppcheckError(f"cppcheck --version exit {ver_r.returncode}")
     print(f"  cppcheck: {ver_r.stdout.strip()}")
+
+    _cppcheck_canary(cppcheck_path)
 
     findings: List[Dict[str, Any]] = []
 
@@ -1672,8 +1733,17 @@ def run_cppcheck_analysis(
         + [str(s) for s in sources]
     )
 
-    r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(root))
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(root))
+    except OSError as exc:
+        raise CppcheckError(f"cannot run {cppcheck_path}: {exc}") from exc
     output = r.stderr + r.stdout
+    if r.returncode != 0:
+        raise CppcheckError(f"cppcheck exit {r.returncode}: {output.strip()[:300]}")
+    bad = _CPPCHECK_FAILURE_RE.search(output)
+    if bad:
+        raise CppcheckError(f"cppcheck error output ({bad.group(0).strip()}): "
+                            f"{output.strip()[:300]}")
 
     for line in output.splitlines():
         # cppcheck output: file:line: severity: id: message
@@ -1893,7 +1963,7 @@ def main() -> int:
     parser.add_argument("--dry-run",  action="store_true",
                         help="Validate configuration only; do not run analysis")
     parser.add_argument("--strict",   action="store_true",
-                        help="Exit 1 if cppcheck is not available (CI enforcement)")
+                        help="Deprecated no-op: a missing cppcheck always FAILs now (EDS#572)")
     args = parser.parse_args()
 
     root       = Path(__file__).parent.resolve()
@@ -1927,10 +1997,15 @@ def main() -> int:
     if cppcheck_path:
         print(f"  cppcheck      : {cppcheck_path} (full MISRA analysis)")
     else:
-        if args.strict and not args.gcc_only:
-            print("ERROR: --strict mode requires cppcheck. Install: apt install cppcheck",
+        if not args.gcc_only:
+            # EDS#572: a missing checker is a FAIL, not a quiet GCC-only PASS.
+            # Only an explicit --gcc-only may skip cppcheck.
+            print("ERROR: cppcheck not found. Install: apt install cppcheck "
+                  "(or pass --gcc-only for the reduced GCC-warnings subset)",
                   file=sys.stderr)
-            return 2
+            print("\n  RESULT: FAIL (cppcheck not available) — "
+                  "the MISRA checker did not run.")
+            return 1
         mode = "GCC-only mode" if args.gcc_only else "GCC-only (cppcheck not found)"
         print(f"  cppcheck      : not available — {mode}")
     print()
@@ -1944,7 +2019,13 @@ def main() -> int:
     cppcheck_findings: List[Dict[str, Any]] = []
     if cppcheck_path:
         print("[2/2] Running cppcheck --addon=misra...")
-        cppcheck_findings = run_cppcheck_analysis(sources, root, cppcheck_path)
+        try:
+            cppcheck_findings = run_cppcheck_analysis(sources, root, cppcheck_path)
+        except CppcheckError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            print("\n  RESULT: FAIL (cppcheck did not run) — "
+                  "zero findings would be meaningless.")
+            return 1
         print(f"      cppcheck findings: {len(cppcheck_findings)}")
     else:
         print("[2/2] cppcheck skipped.")

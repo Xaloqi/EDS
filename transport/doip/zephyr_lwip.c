@@ -187,8 +187,8 @@ static int zephyr_tcp_accept(void *server_ctx, void **conn_ctx,
      * closed: a connection that cannot get the bound is not served. */
     const uint32_t snd_ms = DOIP_TCP_SEND_TIMEOUT_MS;
     struct zsock_timeval snd_tv = {
-        .tv_sec  = (long)(snd_ms / 1000U),
-        .tv_usec = (long)((snd_ms % 1000U) * 1000U),
+        .tv_sec  = (long)snd_ms / 1000L,
+        .tv_usec = ((long)snd_ms % 1000L) * 1000L,
     };
     if (zsock_setsockopt(conn_fd, SOL_SOCKET, SO_SNDTIMEO,
                          &snd_tv, sizeof(snd_tv)) < 0) {
