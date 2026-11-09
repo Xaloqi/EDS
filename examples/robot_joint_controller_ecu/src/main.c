@@ -60,6 +60,11 @@
 #include "uds_security_algo.h"
 #include "generated_config.h"
 #include "joint_sim.h"
+#if defined(DIAG_BENCH_PERMANENT_DTC)
+#include "bench_permanent_dtc.h"
+#include "eds_partition.h"
+#include <zephyr/drivers/flash.h>
+#endif
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
@@ -247,6 +252,10 @@ static void diag_task_entry(void *p1, void *p2, void *p3)
 
         /* Same thread as the UDS dispatch above, so joint_sim needs no lock. */
         joint_sim_step(k_uptime_get_32());
+#if defined(DIAG_BENCH_PERMANENT_DTC)
+        /* [EDS#580] Bench only: re-marks 0xA00101 permanent every boot. */
+        bench_permanent_dtc_step(JOINT_SIM_DTC_OVERTEMP);
+#endif
 
         {
             static uds_msg_buf_t s_periodic_frame;
@@ -333,7 +342,31 @@ int main(void)
      * the real NVS backend — its nvm_store_init() ignores cfg entirely, so
      * NULL is correct here (see nvm_store.h: "may be NULL on host").
      */
+#if defined(DIAG_BENCH_PERMANENT_DTC) && defined(CONFIG_NVS)
+    /* [EDS#580] Bench: NVS on native_sim's flash simulator (storage_partition),
+     * so the DTC mirror survives a reboot. */
+    {
+        const struct device    *nvs_dev = EDS_PARTITION_DEVICE(storage_partition);
+        const off_t              nvs_off = EDS_PARTITION_OFFSET(storage_partition);
+        const size_t              nvs_sz = EDS_PARTITION_SIZE(storage_partition);
+        struct flash_pages_info  page_info;
+
+        if (flash_get_page_info_by_offs(nvs_dev, nvs_off, &page_info) != 0) {
+            rc = UDS_STATUS_ERR_PLATFORM;
+        } else {
+            const nvm_store_cfg_t nvm_cfg = {
+                .flash_dev    = (const void *)nvs_dev,
+                .flash_offset = (uint32_t)nvs_off,
+                .sector_size  = (uint32_t)page_info.size,
+                .sector_count = (uint8_t)(nvs_sz / page_info.size),
+            };
+
+            rc = nvm_store_init(&nvm_cfg);
+        }
+    }
+#else
     rc = nvm_store_init(NULL);
+#endif
     if (rc != UDS_STATUS_OK) {
         LOG_ERR("NVM store init failed: 0x%02X — DTC mirror will not "
                 "survive reset this run.", (unsigned)rc);

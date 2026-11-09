@@ -116,7 +116,17 @@ target_sources(app PRIVATE
     ${DIAG_GENERATED_DIR}/routine_handlers.c
 )
 
-if(CONFIG_BOARD_NATIVE_SIM)
+# [EDS#580] Bench only: mark DTC 0xA00101 permanent once it is confirmed, and
+# (with boards/native_sim/native_sim_bench_nvs.conf) keep the DTC mirror in
+# NVS on native_sim's flash simulator, so the permanent-DTC behaviour of
+# EDS#534 / #537 can be shown over a reboot. Off by default.
+option(DIAG_BENCH_PERMANENT_DTC "Bench only: mark the over-temperature DTC permanent when confirmed" OFF)
+if(DIAG_BENCH_PERMANENT_DTC)
+    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/bench_permanent_dtc.c)
+    target_compile_definitions(app PRIVATE DIAG_BENCH_PERMANENT_DTC=1)
+endif()
+
+if(CONFIG_BOARD_NATIVE_SIM AND NOT (DIAG_BENCH_PERMANENT_DTC AND CONFIG_NVS))
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
 else()
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store.c)

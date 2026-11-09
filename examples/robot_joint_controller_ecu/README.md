@@ -158,6 +158,30 @@ unshare -rn bash -c 'ip link add zcan0 type vcan && ip link set zcan0 up &&
 multi-frame response waits for Flow Control, and the first one follows the `6A` at the next tick.
 A listener needs `0x5E8` on its CAN filter as well as `0x7E8`.
 
+## Bench: a permanent DTC (EDS#580)
+
+`-DDIAG_BENCH_PERMANENT_DTC=ON` (off by default, **not for production**) marks DTC 0xA00101
+permanent as soon as it is confirmed, and `boards/native_sim/native_sim_bench_nvs.conf` keeps the
+DTC mirror in NVS on native_sim's flash simulator (`./flash.bin` in the working directory) instead
+of the RAM mock. It exists to show what EDS#534 / #537 fixed: a permanent DTC survives
+`14 FF FF FF` and a reboot. The permanent flag itself is not persisted, by decision; the hook marks
+the restored DTC permanent again at boot, as an application would.
+
+```bash
+EX=<eds>/examples/robot_joint_controller_ecu
+west build -b native_sim $EX -- -DDIAG_SKIP_CODEGEN=ON -DDIAG_BENCH_PERMANENT_DTC=ON \
+  "-DEXTRA_CONF_FILE=$EX/boards/native_sim/native_sim_socketcan.conf;$EX/boards/native_sim/native_sim_bench_nvs.conf" \
+  -DDTC_OVERLAY_FILE=$EX/boards/native_sim/native_sim_socketcan.overlay
+unshare -rn bash -c 'ip link add zcan0 type vcan && ip link set zcan0 up &&
+  python3 scripts/smoke_permanent_dtc.py build/zephyr/zephyr.exe zcan0'
+```
+
+`scripts/smoke_permanent_dtc.py` waits for the DTC (about 56 s), then `0x19 0x15` lists it,
+`14 FF FF FF` (extended session) answers `54` and leaves it, an ECUReset restarts the ECU on the same
+`flash.bin`, the DTC is restored (the motor is cold again) and `14 FF FF FF` still leaves it.
+`--control` sets `EDS_BENCH_NO_PERMANENT=1` and expects the opposite: not in `0x19 0x15`, and
+`14 FF FF FF` clears it after the reboot. CI runs both (`example-robot-permanent-dtc`).
+
 ## Regenerating
 
 `generated/` is committed. If you change `diagnostics_config.yaml`, regenerate with the
