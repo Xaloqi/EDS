@@ -3,7 +3,7 @@
 -- Protocols: UDS (ISO 14229-1), ISO-TP (ISO 15765-2), DoIP (ISO 13400-2)
 --
 -- Usage:
---   wireshark -Xlua,script:extras/wireshark/eds.lua
+--   wireshark -X lua_script:extras/wireshark/eds.lua
 -- Or copy to your Wireshark plugins directory and reload via Analyze → Reload Lua Plugins.
 -- See extras/wireshark/README.md for full installation steps.
 
