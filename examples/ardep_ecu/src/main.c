@@ -15,7 +15,7 @@
  *   (MIT-licensed, no ASIL documentation, no test generation).
  *   This file demonstrates replacing that integration with the Embedded
  *   Diagnostics Suite:
- *     - ASIL-B safety wrappers (5-step validation chain, generated)
+ *     - ASIL-B-oriented safety wrappers (5-step validation chain, generated)
  *     - AES-128-CMAC security access (Phase 1 hardening)
  *     - Auto-generated test suite (pytest, simulator + firmware modes)
  *     - MISRA C:2012 deviation log (ISO 26262 work product)
@@ -121,7 +121,7 @@ LOG_MODULE_REGISTER(ardep_ecu, LOG_LEVEL_INF);
  * threads that read real hardware (ADC, GPIO, CAN statistics, etc.).
  * Here they are initialized to safe default values for demonstration.
  *
- * Thread safety: DID read handlers access these via the ASIL-B safety
+ * Thread safety: DID read handlers access these via the ASIL-B-oriented safety
  * wrappers which are called only from the diagnostics thread. If your
  * application updates these from another thread, protect them with a mutex.
  * =============================================================================*/
@@ -192,7 +192,7 @@ static diag_wdt_t   s_wdt;
  * DID Read Handlers
  *
  * These functions are registered by the generated did_handlers_register_all()
- * call inside uds_generated_init(). The ASIL-B safety wrappers enforce
+ * call inside uds_generated_init(). The ASIL-B-oriented safety wrappers enforce
  * session, security, and buffer-length checks before calling them.
  *
  * Naming: ardep_read_<did_name_lowercase>
@@ -317,7 +317,7 @@ uds_status_t ardep_write_powerio_outputcontrol(const uint8_t *buf)
      *   - Supply voltage in range (>9V) before energizing outputs
      *   - No existing overcurrent fault active
      *
-     * The ASIL-B wrapper enforces Extended Session + Security Level 1
+     * The ASIL-B-oriented wrapper enforces Extended Session + Security Level 1
      * before this function is called (see diagnostics_config.yaml).
      */
     s_output_bitmask = buf[0];
@@ -583,7 +583,7 @@ void ardep_register_did_handlers(void)
      * In the generated pattern, the handler functions registered here must
      * match the prototypes declared in generated/did_handlers.h.
      *
-     * The ASIL-B safety wrappers (generated/did_safety_wrappers.c) call
+     * The ASIL-B-oriented safety wrappers (generated/did_safety_wrappers.c) call
      * the registered handlers only AFTER passing the 5-step validation chain.
      */
 

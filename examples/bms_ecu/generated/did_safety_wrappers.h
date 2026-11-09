@@ -9,7 +9,7 @@
  * ASIL Level: B
  *
  * PURPOSE: Declarations for per-DID safe accessor wrapper functions.
- *          Each function enforces the full ASIL-B validation chain before
+ *          Each function enforces the full EDS (ASIL-B-oriented) validation chain before
  *          invoking the underlying DID read/write callback.
  *
  *          Architecture:
@@ -27,7 +27,7 @@
  *                                               --out generated/
  *                                               --safety-wrappers
  *
- * SAFETY  : All wrappers enforce the mandatory ASIL-B check sequence:
+ * SAFETY  : All wrappers enforce the mandatory EDS (ASIL-B-oriented) check sequence:
  *           1. NULL-checks all pointer arguments        (REQ-SAFE-004)
  *           2. Resolves DID in the database             (REQ-SAFE-001)
  *           3. Validates session + security access      (REQ-SAFE-002/003)

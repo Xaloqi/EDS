@@ -118,7 +118,7 @@ if(NOT DIAG_SKIP_CODEGEN)
             "${DIAG_CONFIG_YAML}"
             "${DIAG_CODEGEN_SCRIPT}"
             ${DIAG_TEMPLATES}
-        COMMENT  "[DIAG] Generating sources from diagnostics_config.yaml (ASIL-B)... "
+        COMMENT  "[DIAG] Generating sources from diagnostics_config.yaml (ASIL-B-oriented)... "
                  "NOTE: this will overwrite the hand-written [APP HOOK] bodies in "
                  "generated/routine_handlers.c -- reapply them before committing."
         VERBATIM

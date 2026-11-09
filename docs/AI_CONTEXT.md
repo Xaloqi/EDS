@@ -11,7 +11,7 @@
 Xaloqi EDS (Xaloqi Embedded Diagnostic Suite) is a production-grade ISO 14229 (UDS) +
 ISO 15765-2 (ISO-TP) diagnostics stack for embedded RTOS targets. It is YAML-driven: you
 describe your DIDs, DTCs, and routines in YAML, run the code generator, and receive
-ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
+ASIL-B-oriented safety-wrapped C code ready to compile into your ECU firmware.
 
 **Version:** v1.27.0
 **Target RTOS:** Zephyr v3.7+ · FreeRTOS (any version with static allocation support)
@@ -23,7 +23,7 @@ ASIL-B safety-wrapped C code ready to compile into your ECU firmware.
 - **OSS runtime** (`core/`, `transport/`, `config/`, `platform/`) is GPL v2 and fully
   usable — builds and runs standalone, no license needed.
 - **OSS generator, validation only:** `tools/codegen.py` itself is public and its
-  YAML/schema/ASIL-B validation steps run standalone (`--dry-run` will report
+  YAML/schema/EDS safety rule validation steps run standalone (`--dry-run` will report
   config errors without a license).
 - **Commercial, required to actually generate code:** producing output needs
   `tools/templates/` (the Jinja2 templates), a Developer/Professional-tier deliverable
@@ -158,7 +158,7 @@ python3 tools/codegen.py \
     --config examples/basic_ecu/diagnostics_config.yaml \
     --out    examples/basic_ecu/generated/
 
-# With explicit ASIL-B safety wrappers:
+# With explicit ASIL-B-oriented safety wrappers:
 python3 tools/codegen.py \
     --config examples/basic_ecu/diagnostics_config.yaml \
     --out    examples/basic_ecu/generated/ \
@@ -187,7 +187,7 @@ python3 tools/codegen.py \
 Options:
   --config, -c PATH       Path to diagnostics_config.yaml  [required]
   --out,    -o DIR        Output directory (default: generated/)
-  --safety-wrappers       Enforce ASIL-B validation of the config (the
+  --safety-wrappers       Enforce the EDS safety rules on the config (the
                           wrapper files are always generated)
   --asil-level [A|B]      ASIL target level (default: B)
   --test-gen              Also generate pytest test suite into <out>/tests/
@@ -204,7 +204,7 @@ Options:
 | `generated_config.h` | Compile-time constants (CAN IDs, DID count, timing) |
 | `did_handlers.h` | DID handler function prototypes |
 | `did_handlers.c` | Static DID registration table + handler stubs |
-| `did_safety_wrappers.h` | ASIL-B 5-step wrapper prototypes |
+| `did_safety_wrappers.h` | ASIL-B-oriented 5-step wrapper prototypes |
 | `did_safety_wrappers.c` | 5-step wrapper implementations (always generated; `--safety-wrappers` enforces ASIL validation of the config) |
 | `routine_handlers.h` | Routine handler prototypes |
 | `routine_handlers.c` | Static routine registration table |
@@ -470,7 +470,7 @@ async with UdsTester(DoipBus("127.0.0.1"), rx_id=0xE400, tx_id=0x0E00) as ecu:
 #include "did_handlers.h"
 #include <string.h>
 
-// Read handler — called after all 5 ASIL-B safety checks pass
+// Read handler — called after all 5 ASIL-B-oriented safety checks pass
 uds_status_t vehicle_identification_number_read(
     uint8_t *data, uint16_t *length, uint16_t max_length)
 {
@@ -843,7 +843,7 @@ active level, so codegen rejects `write_security_level` above 1.
 | ReadDataByIdentifier | 0x22 | ✅ | Multi-DID read supported |
 | SecurityAccess | 0x27 | ✅ | AES-128-CMAC; odd=seed byte, even=key byte |
 | CommunicationControl | 0x28 | ✅ | Enable/disable Rx/Tx |
-| WriteDataByIdentifier | 0x2E | ✅ | Full ASIL-B wrapper chain |
+| WriteDataByIdentifier | 0x2E | ✅ | Full ASIL-B-oriented wrapper chain |
 | RoutineControl | 0x31 | ✅ | Start / Stop / RequestResult |
 | RequestDownload | 0x34 | ✅ | Programming session + security level 1 required |
 | RequestUpload | 0x35 | ✅ | ECU-to-tester readback; read_cb required; same session/security gates as 0x34 |
@@ -1001,7 +1001,7 @@ License is checked at startup via `_license.py`.
 |---|---|
 | `generate_did_config` | Generate a complete `diagnostics_config.yaml` scaffold from ECU parameters. Use this first when helping a customer configure a new ECU. |
 | `run_codegen` | Run `codegen.py` on a config file. License enforced inside codegen — no duplication. Returns success flag, generated file list, stdout/stderr. |
-| `validate_asil_b` | Validate YAML against ASIL-B constraints via `codegen.py --dry-run`. Returns structured `{valid, violations, warnings}`. |
+| `validate_asil_b` | Validate YAML against EDS safety rules (ASIL-B-oriented) via `codegen.py --dry-run`. Returns structured `{valid, violations, warnings}`. |
 | `explain_uds_error` | Explain a UDS NRC code with EDS-specific trigger and fix guidance. Accepts `0x31`, `31`, or decimal. |
 
 ### Start the server
@@ -1051,7 +1051,7 @@ Using the xaloqi-eds MCP server:
 1. Generate a diagnostics_config.yaml for a BMS ECU with DIDs for cell voltage
    (0x2001, 2 bytes), pack temperature (0x2002, 1 byte), and state of charge
    (0x2003, 1 byte). Add a DTC for cell undervoltage (0xC10100).
-2. Validate it against ASIL-B constraints.
+2. Validate it against EDS safety rules (ASIL-B-oriented).
 3. Run codegen with safety wrappers.
 ```
 

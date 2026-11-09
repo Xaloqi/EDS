@@ -266,7 +266,7 @@ minicom -D /dev/ttyACM0 -b 115200
 
 ## Production Checklist
 
-Before submitting for ASIL-B qualification review:
+Before submitting your integration for safety assessment:
 
 - [ ] Replace stub security algorithm (`app_security_seed_generate` / `app_security_key_validate`)
       with TRNG-backed OEM-approved key derivation

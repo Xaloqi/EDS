@@ -515,7 +515,7 @@ Requires `CONFIG_MCUBOOT_IMG_MANAGER=y` and `CONFIG_BOOTLOADER_MCUBOOT=y`
 
 ---
 
-## ASIL-B properties
+## ASIL-B-oriented properties
 
 - No dynamic memory allocation (`CONFIG_HEAP_MEM_POOL_SIZE=0`)
 - No recursion in any code path

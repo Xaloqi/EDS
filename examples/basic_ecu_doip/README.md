@@ -12,7 +12,7 @@
 The same diagnostic interface as `basic_ecu` — VIN, ECU serial, part number, engine speed,
 coolant temperature, two DTCs, and three routines — served over DoIP instead of CAN/ISO-TP.
 
-The UDS stack, ASIL-B safety wrappers, security access (AES-128-CMAC), DTC persistence, and
+The UDS stack, ASIL-B-oriented safety wrappers, security access (AES-128-CMAC), DTC persistence, and
 YAML schema are identical to `basic_ecu`. The only differences are:
 
 - `ecu.transport: doip` in `diagnostics_config.yaml`
@@ -207,7 +207,7 @@ basic_ecu_doip/
     ├── uds_init.c              EDS_DOIP_ONLY_BUILD guards — isotp_init() omitted
     ├── uds_init.h              DoIP function prototype variant
     ├── did_handlers.c/.h       DID read/write stubs
-    ├── did_safety_wrappers.c/.h   ASIL-B 5-step wrappers
+    ├── did_safety_wrappers.c/.h   ASIL-B-oriented 5-step wrappers
     ├── routine_handlers.c/.h   Routine stubs
     ├── generated_config.h      Compile-time constants
     └── safety_config.h         ASIL-B _Static_assert guards

@@ -17,7 +17,7 @@
 #   no test generation, and no MISRA compliance record.
 #
 #   This configuration demonstrates replacing that integration with the
-#   Xaloqi EDS: ASIL-B safety wrappers, AES-CMAC security,
+#   Xaloqi EDS: ASIL-B-oriented safety wrappers, AES-CMAC security,
 #   MISRA deviation log, and auto-generated test suites — with identical
 #   Zephyr CAN driver integration.
 #

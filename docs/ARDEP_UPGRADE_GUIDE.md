@@ -21,7 +21,7 @@ integration reviews ask questions these libraries cannot answer:
 
 | Question | `driftregion/iso14229` | Xaloqi EDS |
 |---|---|---|
-| ASIL-B safety documentation? | None | ASIL-B safety wrappers, 5-step validation chain, `docs/Safety_Model.md` |
+| ASIL-B-oriented safety documentation? | None | ASIL-B-oriented safety wrappers, 5-step validation chain, `docs/Safety_Model.md` |
 | MISRA C:2012 compliance? | Not stated | the MISRA Deviation Log (Professional tier — xaloqi.com) — 10 deviations, 0 open violations |
 | Automated test generation? | Manual tests only | `--test-gen` generates pytest suite from YAML config |
 | ISO 26262 work products? | None | MISRA deviation log (Table 1 Method 1b, Table 4 Row 1) |
@@ -48,7 +48,7 @@ documentation your customers will ask for.
   to ARDEP's onboard FDCAN1 at 500 kbps ISO 15765-4 default
 - **MCUboot-compatible** Kconfig (`boards/ardep/ardep.conf`) — preserves
   ARDEP's DFU over UDS firmware update workflow
-- **ASIL-B generated wrappers** — every DID access enforces session, security,
+- **ASIL-B-oriented generated wrappers** — every DID access enforces session, security,
   access permission, and data length validation
 - **Auto-generated test suite** — `--test-gen` produces per-DID pytest tests
   that run in simulator mode (no hardware) and against compiled firmware
@@ -111,9 +111,9 @@ This produces in `examples/ardep_ecu/generated/`:
 |------|---------|
 | `generated_config.h` | CAN IDs, timing constants, DID/DTC counts |
 | `did_handlers.h/.c` | 35 DID handler stubs (fill with your sensor reads) |
-| `did_safety_wrappers.h/.c` | ASIL-B 5-step validation before every DID access |
+| `did_safety_wrappers.h/.c` | ASIL-B-oriented 5-step validation before every DID access |
 | `uds_init.h/.c` | Stack wiring: databases → session → security → server → ISO-TP |
-| `safety_config.h` | Compile-time ASIL-B assertions |
+| `safety_config.h` | Compile-time ASIL-B-oriented assertions |
 | `tests/conftest.py` | pytest fixtures (simulator + firmware modes) |
 | `tests/test_firmware_services.py` | 40+ firmware-backed integration tests |
 | `tests/test_did_*.py` | Per-DID exhaustive test files |
@@ -284,13 +284,13 @@ enables `CONFIG_BOOTLOADER_MCUBOOT=y` and `CONFIG_FLASH_MAP=y`.
 
 | Component | `driftregion/iso14229` | Xaloqi EDS |
 |---|---|---|
-| DID registration | Function pointer per DID | YAML → generated C, ASIL-B wrapper per DID |
+| DID registration | Function pointer per DID | YAML → generated C, ASIL-B-oriented wrapper per DID |
 | Session management | Caller-managed state | `uds_session_ctx_t` with S3server timer |
 | Security access | No AES, no TRNG | AES-128-CMAC, RFC 4493, Zephyr TRNG |
 | Error propagation | Return codes | `uds_status_t` + 5-step NRC chain |
 | Tests | None | 40+ generated pytest tests (simulator + firmware) |
 | MISRA docs | None | the MISRA Deviation Log (Professional tier — xaloqi.com) |
-| ISO 26262 docs | None | ASIL-B safety model, MISRA work product |
+| ISO 26262 docs | None | ASIL-B-oriented safety model, MISRA work product |
 | CI | None | 6-job GitHub Actions: unit + simulator + firmware + MISRA + Zephyr builds |
 
 ---

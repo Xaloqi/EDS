@@ -38,7 +38,7 @@ metadata:
 # CAN addressing — ISO 15765-4 PHYSICAL addressing (ECU #0), not the 0x7DF
 # functional (broadcast) request basic_ecu uses. An ECU listening on 0x7DF
 # answers every request addressed to every ECU on the bus; this example's
-# own address is a deliberate, explicit choice (ASIL-B requires one — see
+# own address is a deliberate, explicit choice (the EDS safety rules require one — see
 # ASIL_B_REQUIRE_EXPLICIT_CAN_IDS in tools/codegen.py).
 # -----------------------------------------------------------------------------
 can:
@@ -113,7 +113,7 @@ dids:
       - write
     min_session: "extended"
     read_security_level:  0
-    write_security_level: 1       # ASIL-B: writable DID must be >= 1
+    write_security_level: 1       # EDS safety rule: writable DID must be >= 1
     data_length: 2                 # uint16 big-endian, LSB = 1 rpm
 
   - id:   "0x0D00"

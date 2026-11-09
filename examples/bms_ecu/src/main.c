@@ -25,7 +25,7 @@
  *
  * DIAGNOSTICS OVERVIEW:
  *   24 DIDs generated from examples/bms_ecu/diagnostics_config.yaml.
- *   All DID handlers are ASIL-B wrapped (5-step validation chain).
+ *   All DID handlers are wrapped by the ASIL-B-oriented 5-step validation chain.
  *   10 DTCs covering all safety-relevant BMS faults.
  *   5 RoutineControl procedures: SelfTest, ForcePassiveBalance,
  *     ContactorFunctionalTest, ResetSoCToFullCharge, ClearFaultHistory.

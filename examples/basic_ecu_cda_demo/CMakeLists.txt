@@ -193,7 +193,7 @@ if(NOT DIAG_SKIP_CODEGEN)
             "${DIAG_CONFIG_YAML}"
             "${DIAG_CODEGEN_SCRIPT}"
             ${DIAG_TEMPLATES}
-        COMMENT  "[DIAG] Generating sources from diagnostics_config.yaml (ASIL-B)..."
+        COMMENT  "[DIAG] Generating sources from diagnostics_config.yaml (ASIL-B-oriented)..."
         VERBATIM
     )
 

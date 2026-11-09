@@ -1,6 +1,6 @@
 # Motor Controller ECU Example — Xaloqi EDS
 
-**Traction Motor Controller — 27 DIDs · 6 DTCs · 6 routines · ASIL-B**
+**Traction Motor Controller — 27 DIDs · 6 DTCs · 6 routines · ASIL-B-oriented**
 
 This example demonstrates Xaloqi EDS configured for an **automotive traction motor
 controller ECU** — permanent magnet synchronous motor (PMSM), FOC inverter, with

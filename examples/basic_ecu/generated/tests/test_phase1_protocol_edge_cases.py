@@ -466,7 +466,7 @@ class TestWriteDataByIdentifierEdgeCases:
     def test_wdbi_session_gate_nrc(self, uds_bus: IsoTpTransport) -> None:
         """
         DID 0xF187 requires extended session. Writing in Default must be rejected.
-        ISO 14229-1 ASIL-B chain step 2 → NRC 0x7F (serviceNotSupportedInActiveSession).
+        ISO 14229-1 ASIL-B-oriented chain step 2 → NRC 0x7F (serviceNotSupportedInActiveSession).
         Inline simulator historically returns NRC 0x31 — this test verifies correctness.
         """
         pdu = uds_bus.request(
@@ -475,7 +475,7 @@ class TestWriteDataByIdentifierEdgeCases:
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
         assert pdu[2] == NRC_SERVICE_NOT_SUPPORTED_IN_SESSION, (
-            f"WDBI session gate must return NRC 0x7F per ASIL-B chain step 2, "
+            f"WDBI session gate must return NRC 0x7F per ASIL-B-oriented chain step 2, "
             f"got 0x{pdu[2]:02X} (0x31 = requestOutOfRange is incorrect here)"
         )
 

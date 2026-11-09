@@ -20,7 +20,7 @@ reporting.
 
 EDS is an automotive diagnostics stack intended for deployment in ECU firmware.
 A vulnerability in the UDS security access implementation, ISO-TP transport layer,
-or ASIL-B safety wrappers could affect vehicle systems. Responsible disclosure
+or ASIL-B-oriented safety wrappers could affect vehicle systems. Responsible disclosure
 matters here more than in most software projects.
 
 ### How to report
@@ -62,7 +62,7 @@ and credit you in the release notes unless you prefer to remain anonymous.
 |---|---|
 | `core/uds_security.c` | Seed/key state machine, lockout bypass, session escalation |
 | `core/uds_security_algo.c` + `uds_aes_cmac.c` | AES-128-CMAC correctness, timing side-channels, key placeholder gate |
-| `core/uds_safety.c` | 5-step ASIL-B chain bypass, safety self-test defeat |
+| `core/uds_safety.c` | 5-step ASIL-B-oriented chain bypass, safety self-test defeat |
 | `transport/isotp.c` | Buffer overflow via malformed ISO-TP frames, state machine confusion |
 | `tools/codegen.py` | Generated code that weakens security or safety invariants |
 | Generated code in `generated/` | Defects traceable to a generator template |
@@ -179,7 +179,7 @@ request, so the gap never surfaced there. `-DEDS_PLACEHOLDER_KEYS_ONLY=ON` (the 
 FreeRTOS CMake default) now gives FreeRTOS the same supported development opt-in
 Zephyr's Kconfig always had.
 
-**ASIL-B DID access chain:** The 5-step validation chain is enforced at code generation
+**ASIL-B-oriented DID access chain:** The 5-step validation chain is enforced at code generation
 time. It cannot be disabled by runtime configuration. Any mechanism that allows DID
 access to bypass one or more steps is considered a critical vulnerability.
 

@@ -14,7 +14,7 @@ PURPOSE: Production code generator — reads diagnostics_config.yaml and
 PIPELINE:
     load_config()
       -> validate_config()          (Phase 2A)
-        -> validate_safety_config() (Phase 3 — ASIL-B checks)
+        -> validate_safety_config() (Phase 3 — EDS safety rule checks)
           -> build_contexts()
             -> render_templates()
               -> render_safety_wrappers() (Phase 3 — optional --safety-wrappers)
@@ -66,7 +66,7 @@ DEPENDENCIES:
     Jinja2 >= 3.1    (pip install jinja2)
 
 PHASE 3 ADDITIONS:
-    - validate_safety_config(): ASIL-B DID constraint checks.
+    - validate_safety_config(): EDS safety rule (ASIL-B-oriented) DID constraint checks.
     - build_safety_config_context(): context for safety_config.h.
     - build_did_safety_wrappers_context(): context for safety wrapper files.
     - render_safety_wrappers(): renders the 3 safety wrapper files.
@@ -168,10 +168,10 @@ ASIL_B_MAX_DID_COUNT: int = 64
 #: Minimum number of DIDs expected in a properly configured ASIL build.
 ASIL_B_MIN_DID_COUNT: int = 1
 
-#: ASIL-B requires every DID to have an explicit min_session declaration.
+#: The EDS safety rules require every DID to have an explicit min_session declaration.
 ASIL_B_REQUIRE_EXPLICIT_SESSION: bool = True
 
-#: ASIL-B requires every write-capable DID to have a write_security_level > 0.
+#: The EDS safety rules require every write-capable DID to have a write_security_level > 0.
 #:
 #: [HIGH-1 FIX] Set to True — write_security_level=0 on a write-capable DID is
 #: now a hard fatal error under ASIL-B, not an advisory warning.
@@ -179,8 +179,8 @@ ASIL_B_REQUIRE_EXPLICIT_SESSION: bool = True
 #: RATIONALE: A write-capable DID with no security gate allows any tester in an
 #: Extended session to overwrite safety-relevant calibration data without any
 #: security challenge (SID 0x27 SecurityAccess is bypassed entirely).  Under
-#: ISO 26262-6 ASIL-B this is unacceptable — unauthenticated write access to ECU
-#: parameters must be blocked.
+#: the EDS safety rules (ASIL-B-oriented) this is unacceptable — unauthenticated
+#: write access to ECU parameters must be blocked.
 #:
 #: TO OVERRIDE (requires formal safety deviation record):
 #:   Set write_security_level >= 1 in the YAML for each write-capable DID, OR
@@ -189,7 +189,7 @@ ASIL_B_REQUIRE_EXPLICIT_SESSION: bool = True
 #:   Do NOT set it False globally without per-DID justification.
 ASIL_B_REQUIRE_WRITE_SECURITY: bool = True  # [HIGH-1 FIX] Hard error, not advisory.
 
-#: ASIL-B requires the CAN addressing section to be declared explicitly.
+#: The EDS safety rules require the CAN addressing section to be declared explicitly.
 #:
 #: [#226 FIX] Set to True — an ASIL build with no explicit rx_can_id/tx_can_id
 #: is now a hard fatal error, not an advisory warning. This aligns check 5 with
@@ -203,7 +203,7 @@ ASIL_B_REQUIRE_WRITE_SECURITY: bool = True  # [HIGH-1 FIX] Hard error, not advis
 #: addressed to it, and (b) any second ECU that also defaulted answers on the
 #: same 0x7E8, so two ECUs collide on one response ID. Neither is detectable
 #: from the generated code — it surfaces as bus misbehaviour during
-#: integration. An ASIL-B ECU's diagnostic addressing must be a deliberate,
+#: integration. An ECU's diagnostic addressing under the EDS safety rules must be a deliberate,
 #: reviewed decision, not a fallback nobody chose.
 #:
 #: TO OVERRIDE (requires formal safety deviation record):
@@ -1558,7 +1558,7 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =============================================================================
-# Phase 3 — ASIL-B safety validation (Step 2B)
+# Phase 3 — EDS safety rule validation, ASIL-B-oriented (Step 2B)
 # =============================================================================
 
 def validate_safety_config(cfg: Dict[str, Any], asil_level: str = "B") -> None:
@@ -1575,8 +1575,8 @@ def validate_safety_config(cfg: Dict[str, Any], asil_level: str = "B") -> None:
          (Compile-time array sizing constraint.)
       3. Every write-capable DID is encouraged to have write_security_level > 0.
          (Advisory: ASIL_B_REQUIRE_WRITE_SECURITY controls whether this is fatal.)
-      4. Timing constraints must meet minimum ASIL-B response headroom:
-         p2_server_max_ms >= 10 ms (below 10 ms is unrealistic for ASIL-B).
+      4. Timing constraints must meet minimum EDS safety rule response headroom:
+         p2_server_max_ms >= 10 ms (below 10 ms is unrealistic).
       5. CAN addressing (rx_can_id + tx_can_id) must be declared explicitly
          in ASIL builds — no silent fallback to 0x7DF / 0x7E8.
          (ASIL_B_REQUIRE_EXPLICIT_CAN_IDS controls whether this is fatal.)
@@ -1586,13 +1586,13 @@ def validate_safety_config(cfg: Dict[str, Any], asil_level: str = "B") -> None:
         asil_level: ASIL target level string ("QM", "A", "B", "C", "D").
 
     Raises:
-        SystemExit(1): on any ASIL-B safety constraint violation.
+        SystemExit(1): on any EDS safety rule violation.
     """
     if asil_level == "QM":
         # No additional constraints for QM builds.
         return
 
-    _warn(f"ASIL-{asil_level} safety validation active.")
+    _warn(f"EDS safety rules active (ASIL-{asil_level}-oriented checks).")
 
     dids   = cfg.get("dids", [])
     timing = cfg["timing"]
@@ -1600,7 +1600,7 @@ def validate_safety_config(cfg: Dict[str, Any], asil_level: str = "B") -> None:
     # ── 1. DID count upper bound ─────────────────────────────────────────────
     if len(dids) > ASIL_B_MAX_DID_COUNT:
         _fatal(
-            f"SAFETY: {len(dids)} DIDs exceed ASIL-B maximum of "
+            f"SAFETY: {len(dids)} DIDs exceed the EDS safety rule maximum of "
             f"{ASIL_B_MAX_DID_COUNT}.  Increase ASIL_B_MAX_DID_COUNT or "
             "split into multiple diagnostic configurations."
         )
@@ -1611,7 +1611,7 @@ def validate_safety_config(cfg: Dict[str, Any], asil_level: str = "B") -> None:
         if data_len > ASIL_B_MAX_DID_DATA_LEN:
             _fatal(
                 f"SAFETY: dids[{idx}] (id={did.get('id', '?')!r}) "
-                f"data_length={data_len} exceeds ASIL-B maximum of "
+                f"data_length={data_len} exceeds the EDS safety rule maximum of "
                 f"{ASIL_B_MAX_DID_DATA_LEN} bytes.  "
                 "Large DID data should be split into multiple DIDs or "
                 "handled via upload/download services."
@@ -1626,7 +1626,7 @@ def validate_safety_config(cfg: Dict[str, Any], asil_level: str = "B") -> None:
                     f"SAFETY [HIGH-1]: dids[{idx}] (id={did.get('id', '?')!r}) "
                     f"'{did.get('name', '')}' has write access but "
                     "write_security_level=0.  "
-                    "ASIL-B policy (ISO 26262-6) requires that every write-capable "
+                    "The EDS safety rules (ASIL-B-oriented) require that every write-capable "
                     "DID is protected by a SecurityAccess challenge. "
                     "FIX: set write_security_level >= 1 in diagnostics_config.yaml "
                     "for this DID.  "
@@ -1639,15 +1639,15 @@ def validate_safety_config(cfg: Dict[str, Any], asil_level: str = "B") -> None:
                 _warn(
                     f"SAFETY ADVISORY: dids[{idx}] (id={did.get('id', '?')!r}) "
                     "has write access but write_security_level=0. "
-                    "Consider setting write_security_level >= 1 for ASIL-B."
+                    "Consider setting write_security_level >= 1 (EDS safety rule)."
                 )
 
     # ── 4. Timing headroom ───────────────────────────────────────────────────
     p2 = timing["p2_server_max_ms"]
     if p2 < 10:
         _fatal(
-            f"SAFETY: timing.p2_server_max_ms={p2} ms is below the ASIL-B "
-            "minimum of 10 ms.  Values below 10 ms are impractical for "
+            f"SAFETY: timing.p2_server_max_ms={p2} ms is below the EDS safety "
+            "rule minimum of 10 ms.  Values below 10 ms are impractical for "
             "interrupt-driven CAN controllers and create protocol violations."
         )
 
@@ -2743,7 +2743,7 @@ def main() -> None:
         description=(
             "Xaloqi EDS — Code Generator (Phase 3).\n"
             "Generates C source from diagnostics_config.yaml.  "
-            "Pass --safety-wrappers to enforce ASIL-B validation of the config."
+            "Pass --safety-wrappers to enforce the EDS safety rules (ASIL-B-oriented) on the config."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -2753,7 +2753,7 @@ def main() -> None:
             "      --config examples/basic_ecu/diagnostics_config.yaml \\\n"
             "      --out    generated/\n"
             "\n"
-            "  # Phase 3 — ASIL-B safety wrappers:\n"
+            "  # Phase 3 — ASIL-B-oriented safety wrappers:\n"
             "  python3 tools/codegen.py \\\n"
             "      --config         examples/basic_ecu/diagnostics_config.yaml \\\n"
             "      --out            generated/ \\\n"
@@ -3071,7 +3071,7 @@ def main() -> None:
     # ── Step 2B: Safety validation (Phase 3) ─────────────────────────────────
     if safety_wrappers:
         validate_safety_config(cfg, asil_level=asil_level)
-        print(f"[2B]  ASIL-{asil_level} safety validation passed.")
+        print(f"[2B]  EDS safety rules: passed (ASIL-{asil_level}-oriented checks).")
 
     if args.dry_run:
         print("\n[3/5] DRY RUN — skipping standard file generation.")
@@ -3093,14 +3093,14 @@ def main() -> None:
     # did_safety_wrappers.c unconditionally. --safety-wrappers gates ASIL
     # validation *enforcement* (Step 2B above), not emission: omitting it used
     # to produce C that does not build, and on a regeneration left the
-    # previous config's ASIL-B wrappers behind, wrapping DIDs that no longer
+    # previous config's ASIL-B-oriented wrappers behind, wrapping DIDs that no longer
     # existed. 2026-09-19 campaign.
     safety_written = render_safety_wrappers(
         cfg, template_dir, output_dir, asil_level=asil_level
     )
     written.extend(safety_written)
     if safety_wrappers:
-        print(f"[4/5] Rendering ASIL-{asil_level} safety wrapper files...")
+        print(f"[4/5] Rendering ASIL-{asil_level}-oriented safety wrapper files...")
         print(f"\n      {len(safety_written)} safety file(s) written to {output_dir}")
     else:
         print(f"[4/5] {len(safety_written)} safety file(s) written "

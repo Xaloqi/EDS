@@ -418,7 +418,7 @@ code --install-extension eds-diagnostics-*.vsix
 Open any `diagnostics_config.yaml` and:
 
 - Hover over any key for ISO 14229 documentation and allowed values
-- Invalid field values appear as red squiggles immediately (ASIL-B violations, wrong enums, duplicate IDs)
+- Invalid field values appear as red squiggles immediately (EDS safety rule violations, wrong enums, duplicate IDs)
 - `Ctrl+Shift+P` → **EDS: Run Codegen** to regenerate without leaving the editor
 
 ### Build a new ECU example

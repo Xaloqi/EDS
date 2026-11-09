@@ -144,7 +144,7 @@
  * Compile-time consistency assertions
  * ============================================================================= */
 
-/* ASIL-B requires all four check categories enabled. */
+/* EDS safety rule (ASIL-B-oriented): all four check categories enabled. */
 #if (GEN_ASIL_LEVEL >= 2U)
 #  if (GEN_SAFETY_ENABLE_SESSION_CHECKS  == 0U)
 #    error "SAFETY_CONFIG: GEN_SAFETY_ENABLE_SESSION_CHECKS must be 1 for ASIL-B."

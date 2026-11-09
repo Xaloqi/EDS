@@ -21,7 +21,7 @@ It installs by extracting into the public EDS repo you already cloned.
 - `testgen.py` — pytest + CANoe CAPL test suite generator
 - `arxml_parser.py` — AUTOSAR 4.x ECU Extract ARXML → `diagnostics_config.yaml` importer (stdlib only, no deps)
 - `mcp_server.py` — AI assistant integration (Claude, Cursor, Copilot)
-- `eds_ai.py` — AI CLI: generate configs from plain English, explain NRC failures, validate ASIL-B
+- `eds_ai.py` — AI CLI: generate configs from plain English, explain NRC failures, check configs against the EDS safety rules
 - `_license.py` — offline license verification module
 - React/TypeScript GUI dashboard + WebSocket bridge
 - VS Code extension (YAML validation, hover docs, Run Codegen)
@@ -219,7 +219,7 @@ Expected output:
   ...
 [1/5] Config loaded  — <N> DID(s), <N> DTC(s).
 [2/5] Base validation passed.
-[2B]  ASIL-B safety validation passed.
+[2B]  EDS safety rules: passed (ASIL-B-oriented checks).
 [3/5] Rendering standard templates...
   [OK]     generated/generated_config.h
   [OK]     generated/did_handlers.h
@@ -518,7 +518,7 @@ python3 tools/eds_ai.py explain \
 
 The NRC table (all standard ISO 14229 codes) is embedded in the tool and works offline. The AI explanation requires an API connection.
 
-### validate — ASIL-B-oriented review of a config file
+### validate — review of a config file against the EDS safety rules
 
 Two-pass review: structural (codegen dry-run) then AI semantic analysis.
 
@@ -532,7 +532,7 @@ Example output:
 ```
 ✓ Structural validation passed (codegen dry-run: 0 errors)
 
-⚠  ASIL-B advisory (1 item):
+⚠  EDS safety rules advisory (1 item):
 
   1. DID 0xFD01 (cell_balance_target) — writable in extended session without
      security gating — add security_level_write: 1
