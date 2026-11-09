@@ -454,7 +454,7 @@ jobs:
             || (echo "FAIL: ASIL_B_REQUIRE_WRITE_SECURITY is not True in tools/codegen.py" \
                 && echo "      This flag controls whether write-capable DIDs with write_security_level=0" \
                 && echo "      are rejected at codegen time (True) or only warned about (False)." \
-                && echo "      Setting it to False violates ASIL-B policy (ISO 26262-6)." \
+                && echo "      Setting it to False weakens the EDS safety rule (ASIL-B-oriented)." \
                 && echo "      FIX: restore 'ASIL_B_REQUIRE_WRITE_SECURITY: bool = True' in tools/codegen.py" \
                 && echo "      If a deviation is required, document it per ISO 26262-8 §7 before changing." \
                 && exit 1)

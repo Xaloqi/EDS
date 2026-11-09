@@ -13,7 +13,7 @@ ECUs. It implements a complete UDS (ISO 14229) server over two transports:
 - **ISO-TP (ISO 15765-2)** over CAN — the original and primary transport
 - **DoIP (ISO 13400-2)** over Ethernet/TCP — added in v1.6.0, Zephyr and FreeRTOS+LwIP bindings
 
-Both transports use the same UDS server core, ASIL-B safety wrappers, and YAML-driven code
+Both transports use the same UDS server core, ASIL-B-oriented safety wrappers, and YAML-driven code
 generation. Transport selection is a one-line change in `diagnostics_config.yaml`. Both can be
 active in the same build, but nothing inside the UDS server core serializes concurrent access
 to it if you do — see [`docs/threading_guide.md`](threading_guide.md)'s "Dual-Transport
@@ -22,7 +22,7 @@ Concurrency" section before combining CAN and DoIP in one ECU.
 The system is structured to support:
 
 - Deterministic embedded behavior — no dynamic allocation, no recursion
-- ASIL-B safety-oriented design — 5-step mandatory validation on every DID access
+- ASIL-B-oriented safety design — 5-step mandatory validation on every DID access
 - Configuration-driven diagnostics — YAML in, C code out
 - Zephyr RTOS native integration — CAN drivers, threading, timers
 - Scalable DID and DTC databases — static tables, compile-time bounds
@@ -38,7 +38,7 @@ separate layers with explicit interfaces. No layer reaches across into a non-adj
 not hardcoded. The code generator produces DID handlers, safety wrappers, DTC tables, and the
 complete init sequence. Changing a DID means editing YAML and re-running codegen — not editing C.
 
-**Safety-first.** Every DID access must pass a 5-step ASIL-B validation chain generated at codegen
+**Safety-first.** Every DID access must pass a 5-step ASIL-B-oriented validation chain generated at codegen
 time. The chain cannot be disabled by runtime configuration. Violations produce UDS-compliant
 negative responses and increment a violation counter accessible for field diagnostics.
 
@@ -71,7 +71,7 @@ any safety path. Initialization guards (initialized flags) on all context struct
                            │
                            ▼
 +----------------------------------------------------------+
-|                 ASIL-B Safety Validation                 |
+|            ASIL-B-oriented Safety Validation             |
 |   5-step DID access chain (generated, non-bypassable)    |
 |   uds_safety_self_test() callable at boot                |
 |   Violation counters + last_violation_code               |
@@ -172,7 +172,7 @@ embedded-diagnostics-suite/
 ├── generated/                  # !! DO NOT HAND-EDIT — overwritten by codegen !!
 │   ├── did_database.c          # Generated DID registration table
 │   ├── did_handlers.c/h        # Generated handler declarations
-│   ├── did_safety_wrappers.c/h # Generated ASIL-B 5-step wrapper chain
+│   ├── did_safety_wrappers.c/h # Generated ASIL-B-oriented 5-step wrapper chain
 │   ├── dtc_database.c          # Generated DTC registration table
 │   ├── uds_init.c/h            # Generated init sequence
 │   ├── config.h                # Generated compile-time constants
@@ -465,7 +465,7 @@ DTC status into the in-RAM DTC database at boot. Both are called by the generate
 
 ---
 
-## 9. ASIL-B Safety Validation Layer
+## 9. ASIL-B-oriented Safety Validation Layer
 
 Every DID read or write passes through a generated 5-step chain before the handler is called.
 The chain is produced by `tools/codegen.py` and cannot be bypassed by runtime configuration.
@@ -600,7 +600,7 @@ keystroke and produces `vscode.Diagnostic` objects for:
 - Duplicate DID IDs or DTC codes within the same file
 - `data_length > 64` bytes — ASIL-B `ASIL_B_MAX_DID_DATA_LEN` violation (Error)
 - Invalid enum values for `sessions`, `algorithm`, DTC `severity`
-- `write_security_level = 0` on a writable DID (ASIL-B Warning)
+- `write_security_level = 0` on a writable DID (EDS safety rule warning)
 - `xor_stub` algorithm present (development-only Warning)
 
 **Hover documentation** — `src/hoverDocs.ts` provides Markdown tooltips on every YAML key

@@ -169,7 +169,7 @@ class TestCodegenInvalidInputs:
             routines: []
         """)
         rc, out, _ = _run_codegen(yaml)
-        assert rc == 1, f"Expected exit 1 for ASIL-B write_security_level=0, got {rc}"
+        assert rc == 1, f"Expected exit 1 for write_security_level=0 under the EDS safety rules, got {rc}"
         assert "HIGH-1" in out or "write_security_level" in out.lower() or "SAFETY" in out
 
     def test_duplicate_did_ids_exits_1(self):
@@ -386,14 +386,14 @@ class TestCodegenOutputIntegrity:
         assert rc == 0
         wrappers_c = files.get("did_safety_wrappers.c", "")
         assert "uds_safety_validate_did_access" in wrappers_c, (
-            "ASIL-B safety wrappers must include access validation")
+            "ASIL-B-oriented safety wrappers must include access validation")
 
     def test_did_not_in_generated_raw_code(self):
         rc, out, files = _run_codegen(MINIMAL_VALID)
         assert rc == 0
         handlers_c = files.get("did_handlers.c", "")
         assert "did_database_find" not in handlers_c, (
-            "Service handlers must not call did_database_find() directly — ASIL-B layer rule")
+            "Service handlers must not call did_database_find() directly — EDS safety layer rule")
 
     def test_no_malloc_in_generated_code(self):
         rc, out, files = _run_codegen(MINIMAL_VALID)
@@ -401,7 +401,7 @@ class TestCodegenOutputIntegrity:
         for fname, content in files.items():
             if fname.endswith(".c"):
                 assert "malloc(" not in content and "calloc(" not in content, (
-                    f"Found dynamic allocation in {fname} — violates ASIL-B no-malloc rule")
+                    f"Found dynamic allocation in {fname} — violates the EDS no-malloc rule")
 
     def test_uds_init_correct_step_order(self):
         rc, out, files = _run_codegen(MINIMAL_VALID)

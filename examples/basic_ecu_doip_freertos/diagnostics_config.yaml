@@ -9,7 +9,7 @@
 # to the EDS YAML schema (v1.6.0). Existing configs without a doip: block
 # continue to build unchanged with transport: can (the default).
 #
-# The same 14 UDS service handlers, ASIL-B safety wrappers, and security
+# The same 14 UDS service handlers, ASIL-B-oriented safety wrappers, and security
 # access mechanism operate identically on both CAN and DoIP transports.
 # The codegen, testgen, and safety docs are 100% reused from basic_ecu.
 # =============================================================================

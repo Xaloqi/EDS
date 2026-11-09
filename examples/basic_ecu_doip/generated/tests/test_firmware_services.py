@@ -18,7 +18,7 @@
 #   - Real AES-CMAC key derivation from uds_security_algo.c
 #   - Correct session state machine transitions in uds_session.c
 #   - Correct security lockout behaviour from uds_security.c
-#   - Correct ASIL-B safety wrapper enforcement (5-step validation chain)
+#   - Correct ASIL-B-oriented safety wrapper enforcement (5-step validation chain)
 #   - Real DID buffer sizing from generated/did_handlers.c
 #   - Correct DTC registration from config/dtc_database.c
 #   - RoutineControl (0x31) dispatch, session gate, security gate, RID lookup
@@ -464,7 +464,7 @@ class TestFirmwareReadDID:
     """
     SID 0x22 — validates DID responses from real generated/did_handlers.c.
     Each test verifies that the C handler returns the correct PDU length
-    and that the ASIL-B safety wrapper enforces session/security constraints.
+    and that the EDS safety wrapper enforces session/security constraints.
     """
 
     def test_read_vehicle_identification_number_happy_path(
@@ -541,7 +541,7 @@ class TestFirmwareReadDID:
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
         """
-        DID 0xF187 in Default Session → NRC from firmware ASIL-B safety wrapper.
+        DID 0xF187 in Default Session → NRC from firmware EDS safety wrapper.
         Verifies uds_safety.c session validation (step 2 of 5-step chain).
         """
         firmware_bus.request(
@@ -610,7 +610,7 @@ class TestFirmwareReadDID:
     def test_unknown_did_firmware_nrc_31(
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
-        """Unknown DID 0x0001 → NRC 0x31 from firmware ASIL-B wrapper (step 1)."""
+        """Unknown DID 0x0001 → NRC 0x31 from firmware EDS safety wrapper (step 1)."""
         pdu = firmware_bus.request(bytes([SID_READ_DATA_BY_ID, 0x00, 0x01]))
         assert pdu is not None
         assert pdu[0] == SID_NEGATIVE_RESPONSE
@@ -664,7 +664,7 @@ class TestFirmwareWriteDID:
     def test_write_vehicle_manufacturer_spare_part_number_security_gate(
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
-        """Write without security unlock → NRC 0x33 from firmware ASIL-B wrapper."""
+        """Write without security unlock → NRC 0x33 from firmware EDS safety wrapper."""
         if 3 > 1:
             _enter_session(firmware_bus, _SESSION_BYTE.get(3, SESSION_EXTENDED))
         data = bytes([0x55] * 11)
@@ -756,12 +756,12 @@ class TestFirmwareIsoTp:
 
 
 # =============================================================================
-# §7 ASIL-B Safety Wrapper Chain — exhaustive NRC matrix
+# §7 EDS Safety Wrapper Chain — exhaustive NRC matrix
 # =============================================================================
 
 class TestFirmwareSafetyWrappers:
     """
-    Exhaustive tests of the ASIL-B 5-step safety wrapper chain.
+    Exhaustive tests of the ASIL-B-oriented 5-step safety wrapper chain.
     Every check must return the correct NRC when violated.
     Tests generated/did_safety_wrappers.c against real firmware.
     """

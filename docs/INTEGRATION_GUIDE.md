@@ -39,12 +39,12 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | 0x11 | ECUReset | **Implemented** | Sub-fn 0x01 hardReset, 0x02 keyOffOnReset, 0x03 softReset. All three map to `sys_reboot()` on Zephyr. suppressPosRspMsgIndicationBit honoured. |
 | 0x14 | ClearDiagnosticInformation | **Implemented** | groupOfDTC 0xFFFFFF (all groups) and any 3-byte DTC group code. NVM-backed status cleared via `dtc_mirror_clear_all()`. |
 | 0x19 | ReadDTCInformation | **Implemented** | Sub-fn 0x01 reportNumberOfDTCByStatusMask, 0x02 reportDTCByStatusMask, 0x03 reportDTCSnapshotIdentification (returns empty identifier list — no freeze-frame data stored), 0x04 reportDTCSnapshotRecordByDTCNumber (returns empty record — no snapshot data stored), 0x06 reportDTCExtDataRecordByDTCNumber (returns empty record), 0x0A reportSupportedDTCs, 0x14 reportDTCFaultDetectionCounter, 0x15 reportDTCWithPermanentStatus. All 8 DTC status bits supported (availability mask 0xFF). ISO 14229-1 DTC format (format ID 0x01). |
-| 0x22 | ReadDataByIdentifier | **Implemented** | Multi-DID requests (multiple DID pairs in one request) fully supported. ASIL-B 5-step safety wrapper enforced per DID. Max 64 DIDs configurable. |
+| 0x22 | ReadDataByIdentifier | **Implemented** | Multi-DID requests (multiple DID pairs in one request) fully supported. ASIL-B-oriented 5-step safety wrapper enforced per DID. Max 64 DIDs configurable. |
 | 0x23 | ReadMemoryByAddress | **Implemented** | Programming session + Level 1 security required (enforced by ACL table). Parses `addressAndLengthFormatIdentifier` (1–4 byte address and size fields), validates the address range against the registered readable memory map (`uds_flash_ops_t`) before invoking `read_cb`. Request length is validated exactly against the address+size fields (no request-side data payload). |
 | 0x27 | SecurityAccess | **Implemented** | Odd sub-function = requestSeed, even = sendKey. Levels 1 and 2 active (0x01/0x02 and 0x03/0x04 sub-functions). AES-128-CMAC key derivation (RFC 4493). 8-byte seed with embedded sequence counter (replay protection). Lockout after configurable failed attempts: one counter and one delay for all levels. An undefined level is NRC 0x12, and a key for a level with no pending seed is 0x24. suppressPosRspMsgIndicationBit (bit 7) honoured (#486). Key injection via `uds_security_algo_set_level_key()`. |
 | 0x28 | CommunicationControl | **Implemented** | Sub-fn 0x00 enableRxAndTx, 0x01 enableRxAndDisableTx, 0x02 disableRxAndEnableTx, 0x03 disableRxAndTx. communicationType byte: 0x01 normalCommunication, 0x02 nmCommunication, 0x03 both. State is reset to enabled on return to Default Session. suppressPosRspMsgIndicationBit (bit 7) honoured (v1.7.0). |
 | 0x2A | ReadDataByPeriodicIdentifier | **Implemented** | transmissionMode 0x01 SLOW (1000 ms), 0x02 MEDIUM (100 ms), 0x03 FAST (10 ms), 0x04 stopSending. One-time subscription; the ECU autonomously pushes `[0x6A, periodicId, dataRecord...]` without repeated tester requests. Subscriptions are bulk-cancelled on return to Default Session. Up to 8 simultaneous subscriptions (configurable via `UDS_PERIODIC_MAX_SUBSCRIPTIONS`). DID access validated at subscription time via the 5-step safety chain. Requires `uds_periodic_tick_1ms()` and `uds_periodic_pop_due()` drain loop in the application poll loop — see §3.4. |
-| 0x2E | WriteDataByIdentifier | **Implemented** | ASIL-B 5-step safety wrapper enforced per DID. Data length validated against DID definition. |
+| 0x2E | WriteDataByIdentifier | **Implemented** | ASIL-B-oriented 5-step safety wrapper enforced per DID. Data length validated against DID definition. |
 | 0x2F | InputOutputControlByIdentifier | **Implemented** | Non-default session + Level 1 security required. Four `inputOutputControlParameter` values: `returnControlToECU` (0x00), `resetToDefault` (0x01), `freezeCurrentState` (0x02), `shortTermAdjustment` (0x03). DID must set `DID_ACCESS_IO_CONTROL` flag and provide `io_control_cb`. `io_control_cb == NULL` returns NRC 0x31. |
 | 0x31 | RoutineControl | **Implemented** | Sub-fn 0x01 startRoutine, 0x02 stopRoutine (optional per routine descriptor), 0x03 requestRoutineResults (optional). Session and security level enforced per-routine via `routine_entry_t.min_session` and `.security_level`. Routine option record forwarded to callback. Status record (0–64 bytes) appended to positive response. requestRoutineResults before any start, or stopRoutine while not running, is NRC 0x24 (ISO 14229-1:2026 Table 430, #484). The RID is checked before the sub-function (Figure 31, #492). suppressPosRspMsgIndicationBit (bit 7) honoured (#486; earlier versions answered 0x12 despite this table). A long startRoutine can opt in to NRC 0x78 with `routine_database_set_deferral()` (#282, see [Response pending](#response-pending)). |
 | 0x34 | RequestDownload | **Implemented** | Programming session + Level 1 security required (enforced by ACL table). Validates `dataFormatIdentifier` (0x00 only — no compression/encryption), parses `addressAndLengthFormatIdentifier` (1–4 byte address and size fields), validates target address range against the registered flash memory map (`uds_flash_ops_t`), erases flash, and initialises the block-transfer state machine. Returns `maxNumberOfBlockLength`. **Requires** `uds_flash_ops_register()` before the first 0x34 request (see Step 5 integration note). |
@@ -90,9 +90,9 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 
 | Parameter | Default | Maximum | How to change |
 |---|---|---|---|
-| DID count | Per YAML | 64 (ASIL-B) | `UDS_MAX_DID_COUNT` in `uds_types.h`; ASIL-B enforces ≤ 64 |
+| DID count | Per YAML | 64 (EDS safety rule) | `UDS_MAX_DID_COUNT` in `uds_types.h`; the EDS safety rules enforce ≤ 64 |
 | DTC count | Per YAML | 128 | `UDS_MAX_DTC_COUNT` in `uds_types.h` |
-| Max DID data length | Per YAML | 64 bytes (ASIL-B) | `ASIL_B_MAX_DID_DATA_LEN` in `codegen.py`; non-ASIL-B builds allow up to 4095 bytes |
+| Max DID data length | Per YAML | 64 bytes (EDS safety rule) | `ASIL_B_MAX_DID_DATA_LEN` in `codegen.py`; builds without the safety rules allow up to 4095 bytes |
 | Max PDU length | 4095 bytes | 4095 bytes | `UDS_MAX_PAYLOAD_LEN` in `uds_types.h` — reducing this saves RAM directly |
 | Security levels | 2 | 2 | `ALGO_MAX_LEVELS` in `uds_security_algo.c` |
 | P2 server max | 25 ms | Any uint16 | `timing.p2_server_max_ms` in `diagnostics_config.yaml` |
@@ -259,9 +259,9 @@ This produces under `your_ecu/generated/`:
 - `did_handlers.h/.c` — one handler stub per DID, except DIDs with `source: app`, whose
   `did_read_<name>()` / `did_write_<name>()` your application defines (see `docs/AI_CONTEXT.md`
   Pattern 1). Do not edit the stubs in `generated/`; declare `source: app` instead.
-- `did_safety_wrappers.h/.c` — ASIL-B 5-step validation before every DID access
+- `did_safety_wrappers.h/.c` — ASIL-B-oriented 5-step validation before every DID access
 - `uds_init.h/.c` — full stack wiring: databases → session → security → server → ISO-TP
-- `safety_config.h` — compile-time ASIL-B assertions
+- `safety_config.h` — compile-time ASIL-B-oriented assertions
 - `tests/` — pytest integration tests (simulator + firmware-backed)
 
 ---
@@ -497,7 +497,7 @@ uds_status_t your_ecu_read_coolanttemperature(uint8_t *buf)
 }
 ```
 
-The ASIL-B safety wrappers in `generated/did_safety_wrappers.c` call your handler only after passing the 5-step validation chain (DID exists → session valid → security level met → access permission → length matches). You do not need to add your own guards.
+The ASIL-B-oriented safety wrappers in `generated/did_safety_wrappers.c` call your handler only after passing the 5-step validation chain (DID exists → session valid → security level met → access permission → length matches). You do not need to add your own guards.
 
 **Response pending (NRC 0x78) — drive `uds_server_poll()` from your loop:** {#response-pending}
 
@@ -1552,7 +1552,7 @@ bash eds/build_harness.sh --run  # build + run 68 tests
 ```
 
 **What it proves:** The compiled C service handlers, AES-128-CMAC key derivation,
-ISO-TP multi-frame assembly, and ASIL-B safety wrappers all produce byte-exact
+ISO-TP multi-frame assembly, and ASIL-B-oriented safety wrappers all produce byte-exact
 ISO 14229-1 compliant responses.
 
 **Requirement:** `gcc` only — no Zephyr, no FreeRTOS, no hardware.
@@ -1688,7 +1688,7 @@ pytest test_firmware_services.py -v
 | Architecture overview | `docs/ARCHITECTURE.md` |
 | MISRA C:2012 deviation log | the MISRA Deviation Log (Professional tier — xaloqi.com) |
 | Safety model | `docs/Safety_Model.md` |
-| ASIL-B threading model | `docs/threading_guide.md` |
+| Threading model for the safety chain | `docs/threading_guide.md` |
 | Code generation system | `docs/CODEGEN_ARCHITECTURE.md` |
 | Testing strategy | `docs/TESTING_STRATEGY.md` · Section 8 of this guide |
 | SOVD CDA generation | Section 7 of this guide · `tools/codegen.py --sovd` |

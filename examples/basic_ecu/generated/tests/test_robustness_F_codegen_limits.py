@@ -179,13 +179,13 @@ class TestDataLengthBoundaries:
         assert rc == 0, "data_length: 1 must be accepted (minimum valid value)"
 
     def test_data_length_64_accepted_asil_b(self):
-        """64 is the ASIL-B maximum — must be accepted."""
+        """64 is the EDS safety rule maximum — must be accepted."""
         yaml = _VALID_BASE.replace("data_length: 4", "data_length: 64")
         rc, out = _codegen(yaml)
-        assert rc == 0, f"data_length: 64 must be accepted under ASIL-B:\n{out}"
+        assert rc == 0, f"data_length: 64 must be accepted under the EDS safety rules:\n{out}"
 
     def test_data_length_65_rejected_asil_b(self):
-        """65 exceeds the ASIL-B static buffer limit — must be rejected."""
+        """65 exceeds the EDS safety rule static buffer limit — must be rejected."""
         yaml = _VALID_BASE.replace("data_length: 4", "data_length: 65")
         rc, out = _codegen(yaml)
         assert rc != 0, "data_length: 65 must be rejected under ASIL-B"
@@ -338,12 +338,12 @@ class TestDuplicateAndReservedIDs:
 
 @_skip_no_tpl
 class TestDIDCountLimits:
-    """ASIL-B and schema both cap DID count at 64."""
+    """The EDS safety rules and the schema both cap DID count at 64."""
 
     def test_64_dids_accepted(self):
         yaml = _gen_n_dids_yaml(64)
         rc, out = _codegen(yaml)
-        assert rc == 0, f"64 DIDs (ASIL-B max) must be accepted:\n{out}"
+        assert rc == 0, f"64 DIDs (EDS safety rule max) must be accepted:\n{out}"
 
     def test_65_dids_rejected(self):
         yaml = _gen_n_dids_yaml(65)
@@ -353,12 +353,12 @@ class TestDIDCountLimits:
 
 
 # ---------------------------------------------------------------------------
-# ASIL-B write security constraints
+# EDS safety rule: write security
 # ---------------------------------------------------------------------------
 
 @_skip_no_tpl
 class TestASILBWriteSecurityConstraints:
-    """write_security_level: 0 on a write-capable DID is a fatal ASIL-B error."""
+    """write_security_level: 0 on a write-capable DID is a fatal EDS safety rule error."""
 
     def test_write_did_zero_write_security_rejected(self):
         yaml = textwrap.dedent("""\

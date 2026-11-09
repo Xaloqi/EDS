@@ -53,7 +53,7 @@ with only the OSS dependencies from `tools/requirements.txt` installed (no
 
 | Category | Count | What's needed to run it |
 |---|---|---|
-| Pure validation — codegen YAML/schema/ASIL-B checks, SOVD/CDA JSON generation, and other checks that never open a transport | ~292 | Nothing beyond `tools/requirements.txt` |
+| Pure validation — codegen YAML/schema/EDS safety rule checks, SOVD/CDA JSON generation, and other checks that never open a transport | ~292 | Nothing beyond `tools/requirements.txt` |
 | Simulator / live-transport — DID read/write, session control, security access, routine control, DTC handling (`test_did_*.py`, `test_services.py`, `test_routine_*.py`, `test_phase1_protocol_edge_cases.py`) | ~136 | The commercial `xaloqi-tester` (TestLab) package. See `examples/*/generated/tests/requirements_testgen.txt`. `pycryptodome` alone is **not** a substitute — the transport primitives (`VirtualBus`, `IsoTpEngine`, `UdsTester`) are built on `xaloqi-tester`, not just its AES-CMAC helper. |
 | Firmware-backed (`test_firmware_services.py` and firmware-gated cases in other files) | ~57 | `pytest --firmware` plus a local cross-toolchain and the `firmware_bus` harness (not included in this public repo) |
 | Codegen-output-fidelity (`test_robustness_L_codegen_output_fidelity.py` and similar) | ~107 | The commercial `tools/templates/` Jinja2 ZIP — a Developer/Professional deliverable, see [COMMERCIAL_NOTICE.md](../COMMERCIAL_NOTICE.md) |
@@ -144,7 +144,7 @@ The test suite verifies:
 - Correct UDS protocol behaviour across all 19 implemented service handlers
 - Correct ISO-TP transport: SF/FF/CF/FC framing, timing, multi-frame reassembly
 - Correct DoIP transport: header encode/decode, routing activation, diagnostic message dispatch, negative acknowledgement generation, alive check (v1.6.0)
-- Enforcement of the ASIL-B 5-step DID access safety chain
+- Enforcement of the ASIL-B-oriented 5-step DID access safety chain
 - Correct diagnostics code generation from YAML (all 18 templates)
 - Correct test generation from YAML (`testgen.py`) — verified for all examples
 - NVM DTC mirror persistence across simulated resets
@@ -683,7 +683,7 @@ All test layers run automatically in GitHub Actions on every push and pull reque
 push / PR
    │
    ├── unit-tests          63 Unity modules via build_tests.sh
-   │                       + ASIL-B assertion checks (self-test, key gate, write security)
+   │                       + safety assertion checks (self-test, key gate, write security)
    │
    ├── cmake-ctest-build   The same modules via cmake -S tests + ctest
    │                       + membership assertion vs tests/unit_runnable/
@@ -776,7 +776,7 @@ Added in v1.6.0. Three stages:
 
 | Module | Target | Rationale |
 |---|---|---|
-| Safety wrappers | 100% | ASIL-B requirement — every step must be exercised |
+| Safety wrappers | 100% | EDS safety rule — every step must be exercised |
 | UDS Core | 90% | All service handlers + session/security FSMs |
 | ISO-TP transport | 85% | All frame types + timeout paths |
 | DoIP transport | 80% | Header encode/decode, dispatch, NACK paths |

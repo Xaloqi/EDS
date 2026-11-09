@@ -215,7 +215,7 @@ name: `XALOQI_LICENSE_KEY`, value: the full JWT string).
 | UDS/ISO-TP C runtime stack | ✓ | ✓ | ✓ |
 | `codegen.py` (community mode — no templates) | ✓ | ✓ | ✓ |
 | `testgen.py` (pytest + CANoe CAPL generation) | ✓ | ✓ | ✓ |
-| Jinja2 templates (`--safety-wrappers`, ASIL-B output) | — | ✓ | ✓ |
+| Jinja2 templates (`--safety-wrappers`, ASIL-B-oriented output) | — | ✓ | ✓ |
 | License key + offline activation | — | ✓ | ✓ |
 | All 12 ECU examples with pre-committed generated output | ✓ | ✓ | ✓ |
 | GUI YAML configurator + live ECU dashboard | — | — | ✓ |
@@ -225,7 +225,7 @@ name: `XALOQI_LICENSE_KEY`, value: the full JWT string).
 
 > Community tier is the public GPL repo. It ships with pre-committed generated output for
 > all 12 ECU examples so you can build and run firmware without a license — but you cannot
-> regenerate the ASIL-B safety wrappers from your own YAML without a Developer or
+> regenerate the ASIL-B-oriented safety wrappers from your own YAML without a Developer or
 > Professional key.
 
 ---
@@ -239,12 +239,12 @@ deliverable. With a Developer or Professional license:
 |---|:---:|:---:|
 | `did_handlers.c/h` — DID lookup table | ✓ | ✓ |
 | `generated_config.h` — timing + dimension macros | ✓ | ✓ |
-| `did_safety_wrappers.c/h` — ASIL-B access validation | — | ✓ |
+| `did_safety_wrappers.c/h` — ASIL-B-oriented access validation | — | ✓ |
 | `safety_config.h` — `GEN_ASIL_LEVEL`, session check flags | — | ✓ |
 | `routine_handlers.c/h` — 0x31 RoutineControl dispatch | — | ✓ |
 | `uds_init.c/h` — full init sequence with self-test (ISO 26262-6 §9.4.3) | — | ✓ |
 
-The ASIL-B wrappers enforce session gates, security levels, and buffer-length checks on
+The ASIL-B-oriented wrappers enforce session gates, security levels, and buffer-length checks on
 every DID read/write — without them your application code calls the C handlers directly
 with no diagnostic-layer protection.
 
@@ -279,7 +279,7 @@ code --install-extension eds-diagnostics-*.vsix
 ```
 
 Open any `diagnostics_config.yaml` file in VS Code. You should see:
-- Inline red squiggles for ASIL-B violations, duplicate IDs, unknown enum values
+- Inline red squiggles for EDS safety rule violations, duplicate IDs, unknown enum values
 - Hover documentation for every YAML key (ISO 14229-1 reference included)
 - `Ctrl+Shift+P` → **EDS: Run Codegen** to regenerate without leaving the editor
 

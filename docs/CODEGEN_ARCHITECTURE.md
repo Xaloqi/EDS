@@ -35,7 +35,7 @@
 
 > **Licensing note:** this document describes the full generator pipeline, including the
 > Jinja2 templates in `tools/templates/`. `tools/codegen.py` itself is public, and its
-> YAML/schema/ASIL-B *validation* steps run standalone — but `tools/templates/` is a
+> YAML/schema/EDS safety rule *validation* steps run standalone — but `tools/templates/` is a
 > commercial Developer/Professional-tier deliverable, gitignored and not part of this
 > public repo, and is required to actually render the C/pytest/GUI output described
 > below. Every bundled example ships its generated output pre-committed, so the OSS
@@ -47,7 +47,7 @@ The Xaloqi EDS uses a configuration-driven architecture where all diagnostic beh
 This approach delivers several compounding advantages:
 
 - **No manual boilerplate** — every DID, DTC, and routine produces handlers, wrappers, tests, and GUI entries automatically
-- **Consistent safety enforcement** — no DID can be added without a corresponding ASIL-B safety wrapper
+- **Consistent safety enforcement** — no DID can be added without a corresponding ASIL-B-oriented safety wrapper
 - **Single source of truth** — changing a DID's session or security requirement in YAML propagates to C, tests, and dashboard in one codegen run
 - **Scalability** — the ARDEP example configures 35 DIDs and produces 42 test files from a single 200-line YAML; without codegen this would require days of manual work
 - **Transport-agnostic** — the same YAML and templates produce CAN/ISO-TP builds or DoIP/Ethernet builds; the transport is a one-field YAML choice, not a code branch (v1.6.0)
@@ -74,7 +74,7 @@ matching by chance.
 
 ### Safety Integration
 
-The generator automatically wraps every DID with the ASIL-B 5-step validation chain. It enforces ASIL-B constraints at generation time:
+The generator automatically wraps every DID with the ASIL-B-oriented 5-step validation chain. It enforces EDS safety rules (ASIL-B-oriented) at generation time:
 
 - Write-capable DIDs must declare `write_security_level > 0`
 - DID data length must not exceed `ASIL_B_MAX_DID_DATA_LEN` (64 bytes)
@@ -101,7 +101,7 @@ diagnostics_config.yaml
          │
          ├─── config_parser.py        Load + normalise YAML
          │
-         ├─── Validation Layer        Schema, ASIL-B constraints,
+         ├─── Validation Layer        Schema, EDS safety rules (ASIL-B-oriented),
          │                            duplicate IDs, security rules
          │
          ├─── Jinja2 Templates ───── tools/templates/*.j2
@@ -135,7 +135,7 @@ Loads the YAML file and normalises the structure into typed Python objects consu
 The main orchestrator. Responsibilities:
 
 1. Call `config_parser.py` to load the YAML
-2. Run the validation layer (schema + ASIL-B constraints)
+2. Run the validation layer (schema + EDS safety rules (ASIL-B-oriented))
 3. Build enriched data structures for each template
 4. Render all Jinja2 templates in order
 5. Write output files (only overwriting if content changed, for incremental builds)
@@ -273,7 +273,7 @@ avoid JSON-escaping issues.
 |---|---|---|
 | `did_handlers.c.j2` | `did_handlers.c` | DID callback stub implementations |
 | `did_handlers.h.j2` | `did_handlers.h` | DID callback prototypes |
-| `did_safety_wrappers.c.j2` | `did_safety_wrappers.c` | ASIL-B 5-step wrapper implementations |
+| `did_safety_wrappers.c.j2` | `did_safety_wrappers.c` | ASIL-B-oriented 5-step wrapper implementations |
 | `did_safety_wrappers.h.j2` | `did_safety_wrappers.h` | Wrapper prototypes |
 | `uds_init.c.j2` | `uds_init.c` | Full stack init sequence — CAN and DoIP build guards (v1.6.0) |
 | `uds_init.h.j2` | `uds_init.h` | `uds_generated_init()` prototype — CAN and DoIP variants (v1.6.0) |
@@ -332,7 +332,7 @@ uds_status_t uds_generated_init(
 ```
 
 Initialisation sequence:
-1. `uds_safety_init()` — ASIL-B check engine (REQ-SAFE-005)
+1. `uds_safety_init()` — ASIL-B-oriented check engine (REQ-SAFE-005)
 2. `uds_safety_self_test()` — pre-start self-test (ISO 26262-6 §9.4.3)
 3. `did_database_init()` — DID static table
 4. `dtc_database_init()` — DTC static table
@@ -394,7 +394,7 @@ Compile-time constants derived from YAML:
 
 ### `generated/safety_config.h`
 
-Compile-time ASIL-B assertions. Prevents accidental disabling of safety checks:
+Compile-time ASIL-B-oriented assertions. Prevents accidental disabling of safety checks:
 
 ```c
 #define GEN_SAFETY_DID_COUNT       (5U)
@@ -468,7 +468,7 @@ export const ROUTINE_CATALOG: RoutineInfo[] = [
 python3 tools/codegen.py \
   --config  <yaml>         Path to diagnostics_config.yaml (required)
   --out     <dir>          Output directory for C files (default: generated/)
-  --safety-wrappers        Enforce ASIL-B validation (did_safety_wrappers.c/.h
+  --safety-wrappers        Enforce the EDS safety rules (did_safety_wrappers.c/.h
                            and safety_config.h are always generated)
   --asil-level  B          ASIL level (default: B); enables stricter constraints
   --test-gen               Generate pytest suite in <out>/tests/
@@ -544,8 +544,8 @@ The generator validates the YAML configuration before writing any file. The foll
 | Duplicate DID ID | `VALIDATION ERROR: dids[2]: duplicate id 0xF190` |
 | Invalid DID ID format | `dids[0]: id must be a hex value in [0x0000, 0xFFFF]` |
 | Invalid DTC code format | `dtcs[1]: code must be a 6-digit hex value` |
-| ASIL-B: write without security | `dids[3]: write DIDs require write_security_level > 0 (ASIL-B)` |
-| ASIL-B: data length exceeded | `dids[4]: data_length 128 exceeds ASIL-B maximum of 64` |
+| Safety rule: write without security | `dids[3]: write DIDs require write_security_level > 0 (EDS safety rule)` |
+| Safety rule: data length exceeded | `dids[4]: data_length 128 exceeds the EDS safety rule maximum of 64 bytes` |
 | Missing required field | `dids[0]: required field 'name' is missing` |
 | Invalid session name | `dids[1]: min_session 'factory' is not a valid session` |
 | Routine missing 'start' | `routines[0]: 'start' must always be in support list` |

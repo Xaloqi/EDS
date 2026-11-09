@@ -12,7 +12,7 @@ Software Bill of Materials: [sbom.json](sbom.json) (CycloneDX 1.4)
 **UDS without AUTOSAR — production-grade ISO 14229 diagnostics for Zephyr RTOS and FreeRTOS, configured in YAML, generated in seconds.**
 
 No AUTOSAR Classic RTE/COM stack to adopt just to get session control,
-security access, and DTC handling. Describe your DIDs and DTCs once. Get ISO 14229-compliant C code, ASIL-B safety wrappers, a full pytest suite, and CANoe CAPL scripts — all from a single `diagnostics_config.yaml`. No boilerplate. No hand-rolled session logic. Runs on `native_sim` in CI and on real CAN hardware the same day.
+security access, and DTC handling. Describe your DIDs and DTCs once. Get ISO 14229-compliant C code, ASIL-B-oriented safety wrappers, a full pytest suite, and CANoe CAPL scripts — all from a single `diagnostics_config.yaml`. No boilerplate. No hand-rolled session logic. Runs on `native_sim` in CI and on real CAN hardware the same day.
 
 ---
 
@@ -60,7 +60,7 @@ checkout — [EDS#198](https://github.com/Xaloqi/EDS/issues/198)).
 
 ## The problem it solves
 
-Building a UDS diagnostics stack from scratch on Zephyr means solving ISO-TP framing, session state machines, security access, DID dispatch, DTC persistence, and ASIL-B safety wrappers yourself. Most teams do it once per project, inconsistently, with no reuse.
+Building a UDS diagnostics stack from scratch on Zephyr means solving ISO-TP framing, session state machines, security access, DID dispatch, DTC persistence, and ASIL-B-oriented safety wrappers yourself. Most teams do it once per project, inconsistently, with no reuse.
 
 EDS replaces that with a configuration-driven workflow. Define your ECU's diagnostic interface in YAML. Run the generator. The complete C implementation drops into your Zephyr build.
 
@@ -72,7 +72,7 @@ EDS is dual-licensed. The runtime stack is GPL v2 and the whole thing builds and
 
 | Free — GPL v2 (runtime) / Apache-2.0 (examples) | Licensed — Developer / Professional |
 |---|---|
-| Full runtime stack: UDS server, ISO-TP, DoIP, security access, ASIL-B safety chain (`core/`, `transport/`, `config/`, `platform/`) | The code generator's **templates** — `tools/codegen.py` is readable and runs, but needs the commercial `tools/templates/` to produce output |
+| Full runtime stack: UDS server, ISO-TP, DoIP, security access, ASIL-B-oriented safety chain (`core/`, `transport/`, `config/`, `platform/`) | The code generator's **templates** — `tools/codegen.py` is readable and runs, but needs the commercial `tools/templates/` to produce output |
 | Every bundled example **including its committed generated C** — `west build` and run today, no license needed | Test generator (`testgen.py`), ARXML importer, VS Code extension, MCP server, AI assistant |
 | Study, modify, and redistribute under GPL v2 | Generating code for **proprietary** firmware; shipping closed-source firmware |
 | | Safety documentation package (Professional tier) |
@@ -156,7 +156,7 @@ west build -b mr_canhubk3 examples/basic_ecu \
 west flash
 ```
 
-The generator produces: DID handler stubs, ASIL-B safety wrappers, DTC registration tables, a complete UDS init sequence, a pytest suite for every DID and DTC, and optionally CANoe CAPL scripts. Regenerate any time the YAML changes — output is deterministic and CI-verifiable.
+The generator produces: DID handler stubs, ASIL-B-oriented safety wrappers, DTC registration tables, a complete UDS init sequence, a pytest suite for every DID and DTC, and optionally CANoe CAPL scripts. Regenerate any time the YAML changes — output is deterministic and CI-verifiable.
 
 ---
 
@@ -198,7 +198,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 | **UDS stack** | 19 services: 0x10 0x11 0x14 0x19 0x22 **0x23** 0x27 0x28 **0x2A** 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 **0x3D** 0x3E 0x85 · SID 0x23: direct memory read · SID 0x2A: periodic push (SLOW/MEDIUM/FAST) · SID 0x3D: direct memory write · SID 0x19 sub-functions: 0x01-0x04 0x06-0x0E 0x14 0x15 |
 | **ISO-TP transport** | SF / FF / CF / FC · N_As / N_Bs / N_Cr timing · STmin sub-ms range |
 | **DoIP transport** | DoIP diagnostic server subset (ISO 13400-2 routing activation + diagnostic messaging) — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes. Vehicle identification, vehicle announcement, and entity status are out of scope — see the DoIP Feature Matrix in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.2. **Running a UDS tick task alongside it?** Register `eds_doip_set_lock_callbacks()` — see [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md) §5b; production builds enforce it. |
-| **ASIL-B safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
+| **ASIL-B-oriented safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
 | **Security** | AES-128-CMAC seed / 4-byte key response ([threat model](SECURITY.md#security-architecture-notes)) · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
 | **DTC persistence** | NVM mirror survives power cycles · 0x14 ClearDTC · 0x19 ReadDTCInformation |
 | **Code generation** | YAML → 18 Jinja2 templates · CLI · reproducible deterministic output |
@@ -423,7 +423,7 @@ diagnostics_config.yaml
         │
         ▼  python3 tools/codegen.py   (licensed — Developer/Professional)
 ┌─────────────────────────────────────────┐
-│  Generated C (ASIL-B)                   │
+│  Generated C (ASIL-B-oriented)          │
 │  did_handlers.c  did_safety_wrappers.c  │
 │  uds_init.c      safety_config.h        │
 └────────────────┬────────────────────────┘
@@ -431,7 +431,7 @@ diagnostics_config.yaml
 ┌────────────────▼────────────────────────┐
 │  UDS Server Core  (core/)               │
 │  19 service handlers · session FSM      │
-│  security manager · ASIL-B dispatcher   │
+│  security manager · ASIL-B-oriented dispatcher   │
 └────────────────┬────────────────────────┘
                  │
 ┌────────────────▼────────────────────────┐
@@ -450,7 +450,7 @@ diagnostics_config.yaml
 ```
 
 **No dynamic memory. No recursion. Static buffers only.**  
-Every DID access passes a 5-step ASIL-B chain generated from YAML:
+Every DID access passes a 5-step ASIL-B-oriented chain generated from YAML:
 
 ```
 Step 1  DID exists?              → NRC 0x31 requestOutOfRange
@@ -559,7 +559,7 @@ EDS targets ASIL-B candidate status (ISO 26262-6:2018). The following work produ
 | Safety Manual (EDS-SM-001) | Peer reviewed — current revision ships in the Professional package (`CUSTOMER_NOTICE.md` lists it) |
 | Requirements Traceability Matrix | Every requirement (REQ-SAFE, DFU, DTC, flash, timing, …) with its ASIL, implementation, tests and coverage status |
 | MISRA C:2012 deviation log | Complete — zero open violations |
-| ASIL-B 5-step wrapper chain | Generated, CI-verified on every codegen run |
+| ASIL-B-oriented 5-step wrapper chain | Generated, CI-verified on every codegen run |
 | `uds_safety_self_test()` | Present in every generated init sequence |
 | WCET analysis | Host x86-64 figures available; Cortex-M7 figures pending HiL |
 
@@ -628,7 +628,7 @@ Unlike alternatives that use PolyForm Noncommercial (which prohibits production 
 - [`docs/COMMERCIAL_ONBOARDING.md`](docs/COMMERCIAL_ONBOARDING.md) — license activation, ZIP contents, CI/Docker setup, tier comparison
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — full module map and design decisions
 - [the Security Notice — seed entropy requirements](docs/SECURITY_NOTICE.md) — TRNG requirements, all-zero seed rejection, development-mode LFSR fallback vs. production fail-closed behaviour (see also [`SECURITY.md`](SECURITY.md)). Full OEM key injection and HSM offload guide is included with the Professional tier (xaloqi.com).
-- [`docs/Safety_Model.md`](docs/Safety_Model.md) — ASIL-B architecture, REQ-SAFE-* traceability
+- [`docs/Safety_Model.md`](docs/Safety_Model.md) — ASIL-B-oriented architecture, REQ-SAFE-* traceability
 - [`docs/TESTING_STRATEGY.md`](docs/TESTING_STRATEGY.md) — test layers, coverage targets, HiL plan
 - [`docs/AI_CONTEXT.md`](docs/AI_CONTEXT.md) — MCP server setup, tool reference, Claude/Cursor integration guide
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution guide

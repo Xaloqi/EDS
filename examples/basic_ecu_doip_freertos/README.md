@@ -10,7 +10,7 @@
 
 ## What this example demonstrates
 
-The FreeRTOS counterpart to `basic_ecu_doip`. Identical UDS interface, ASIL-B safety wrappers,
+The FreeRTOS counterpart to `basic_ecu_doip`. Identical UDS interface, ASIL-B-oriented safety wrappers,
 security access, and YAML configuration — running on FreeRTOS + LwIP instead of Zephyr.
 
 The integration sequence is four calls:
@@ -214,7 +214,7 @@ basic_ecu_doip_freertos/
     ├── uds_init.c              EDS_DOIP_ONLY_BUILD guards — isotp_init() omitted
     ├── uds_init.h              DoIP function prototype variant
     ├── did_handlers.c/.h       DID read/write stubs
-    ├── did_safety_wrappers.c/.h   ASIL-B 5-step wrappers
+    ├── did_safety_wrappers.c/.h   ASIL-B-oriented 5-step wrappers
     ├── routine_handlers.c/.h   Routine stubs
     ├── generated_config.h      Compile-time constants
     └── safety_config.h         ASIL-B _Static_assert guards

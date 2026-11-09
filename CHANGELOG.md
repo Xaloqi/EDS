@@ -71,6 +71,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **ASIL wording: say what was checked, not what the standard says** (wording only, no behaviour
+  change; regenerated headers differ in comments). Customer-visible text no longer attributes EDS
+  rules or outcomes to ISO 26262. Level names are unchanged (`GEN_ASIL_LEVEL`'s `2 = ASIL-B`, the
+  `#error ... must be 1 for ASIL-B.` guards, `ASIL Level: B`); identifiers, YAML keys and flags are
+  unchanged. Codegen's status line `[2B]  ASIL-B safety validation passed.` is now
+  `[2B]  EDS safety rules: passed (ASIL-B-oriented checks).`, its fatal and advisory messages say
+  "EDS safety rule" instead of "ASIL-B maximum" / "ASIL-B policy (ISO 26262-6)", and the READMEs,
+  `INSTALL.md`, `docs/` and examples follow. If you regenerate, the diff in `generated/` is
+  comments and strings only. `tests/test_no_bare_asil_wording.py` fails on the old wordings.
+  Pairs with the same change in EDS-toolchain, whose templates produce the regenerated headers.
 - **The DoIP examples take their discovery config from the YAML** (#392). `basic_ecu_doip` and
   `basic_ecu_doip_freertos` are regenerated with the EDS-toolchain templates that emit
   `uds_generated_doip_discovery()`, and their `main.c` passes it to `eds_doip_set_discovery()`

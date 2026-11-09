@@ -146,7 +146,7 @@ uds_status_t uds_generated_init(
     /* ── Step 1.1: Safety module self-test ────────────────────────────────────────
      *
      * [CRIT-2 FIX] ISO 26262-6:2018 §7.4.12 (safety mechanisms) requires a pre-start
-     * self-test for ASIL-B modules.  uds_safety_self_test() exercises each
+     * self-test for the EDS safety modules.  uds_safety_self_test() exercises each
      * safety check category (NULL ptr, request length, DTC status mask,
      * session validation) with known-good and known-bad inputs to confirm
      * the safety logic is functioning correctly before any DID, DTC, or

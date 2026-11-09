@@ -310,7 +310,7 @@ K_THREAD_DEFINE(diag_task, CONFIG_DIAG_TASK_STACK_SIZE,
 int main(void)
 {
     LOG_INF("[MC] Motor Controller ECU — Xaloqi EDS v1.0.0");
-    LOG_INF("[MC] 27 DIDs | 10 DTCs | 6 Routines | ASIL-B safety wrappers");
+    LOG_INF("[MC] 27 DIDs | 10 DTCs | 6 Routines | ASIL-B-oriented safety wrappers");
 
     /* Security algorithm: register TRNG callback before any seed generation.
      * TODO: replace with real TRNG source (e.g. Zephyr entropy driver).

@@ -66,7 +66,7 @@ Bug reports, documentation improvements, and issue comments never require a CLA.
 
 ### Not accepted
 
-- Changes that remove or weaken any step of the 5-step ASIL-B safety wrapper chain
+- Changes that remove or weaken any step of the 5-step ASIL-B-oriented safety wrapper chain
 - Dynamic memory allocation (`malloc`, `free`) anywhere in the stack
 - Recursion in any safety-critical module
 - Changes that break the `native_sim` CI build or cause any unit test to fail (currently 63 — see build_tests.sh, which enforces its own count via an anti-drift check)
@@ -325,7 +325,7 @@ Every commit that touches the EDS codebase, regardless of how it was generated, 
 Changes to any of the following files or modules require explicit human sign-off in the
 PR description (`Reviewed-by: <name>`) in addition to CI passage:
 
-- `core/uds_safety.c` — ASIL-B 5-step safety check engine
+- `core/uds_safety.c` — ASIL-B-oriented 5-step safety check engine
 - `core/uds_session.c` — UDS session FSM (ISO 14229-1 §7.4)
 - `core/uds_security.c` — SecurityAccess seed/key validation (ISO 14229-1 §10.4)
 - `core/uds_services/service_0x27.c` — SecurityAccess service handler
