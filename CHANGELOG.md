@@ -8,9 +8,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.28.0] — 2026-11-09
+
 ### Added
 
-- **Bench option `DIAG_BENCH_PERMANENT_DTC`** (#580), `robot_joint_controller_ecu`, off by default.
+- **Bench option `DIAG_BENCH_PERMANENT_DTC`** (#580, PR #586), `robot_joint_controller_ecu`, off by default.
   `platform/zephyr/bench_permanent_dtc.[ch]` marks DTC 0xA00101 permanent once it is confirmed
   (live, or restored from NVM at boot, since the permanent flag is not persisted), and
   `native_sim_bench_nvs.conf` + a main.c branch keep the DTC mirror in NVS on native_sim's flash
@@ -18,7 +20,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   reported -> reboot -> still reported. `scripts/smoke_permanent_dtc.py` runs that (and `--control`,
   the same with the marking off: the DTC is cleared) and CI runs both
   (`example-robot-permanent-dtc`). No change to the default build.
-- **DoIP vehicle discovery in the transport core** (#392, part A of 3). `doip_server.c`
+- **DoIP vehicle discovery in the transport core** (#392, part A of 3, PR #573). `doip_server.c`
   answers ISO 13400-2 vehicle identification (0x0001, by EID 0x0002, by VIN 0x0003 → 0x0004),
   entity status (0x4001 → 0x4002) and diagnostic power mode (0x4003 → 0x4004) on UDP 13400,
   NACKs malformed datagrams with the generic header NACK (0x0000), and announces itself 3 times,
@@ -34,7 +36,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Behaviour changes
 
 - **DoIP builds now answer vehicle discovery on UDP 13400 and announce themselves, by
-  default** (#392, part B). Both bindings (Zephyr, FreeRTOS + lwIP) open a UDP socket on the
+  default** (#392, part B, PR #574). Both bindings (Zephyr, FreeRTOS + lwIP) open a UDP socket on the
   DoIP port next to the TCP server. Observable on the network:
   - 3 vehicle announcements (0x0004) to 255.255.255.255:13400 after start, 500 ms apart after
     a 0–500 ms wait, and again when an IPv4 address is added (Zephyr) or the integrator calls
@@ -53,7 +55,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   binding gets discovery by implementing the new optional UDP ops (part A).
 
 - **DoIP over TCP answers malformed messages with the ISO 13400-2 generic header NACK
-  (0x0000)** (#571). Before, a bad version or inverse byte closed the connection silently, an
+  (0x0000)** (#571, PR #575). Before, a bad version or inverse byte closed the connection silently, an
   unknown payload type was ignored, and an oversized message got a *diagnostic* NACK (0x8003,
   code 0x05). Now:
   - bad pattern (version/inverse; 0xFF too, which is for UDP only) → NACK 0x00, then close;
@@ -71,7 +73,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **ASIL wording: say what was checked, not what the standard says** (wording only, no behaviour
+- **ASIL wording: say what was checked, not what the standard says** (PR #590, EDS-toolchain#248; wording only, no behaviour
   change; regenerated headers differ in comments). Customer-visible text no longer attributes EDS
   rules or outcomes to ISO 26262. Level names are unchanged (`GEN_ASIL_LEVEL`'s `2 = ASIL-B`, the
   `#error ... must be 1 for ASIL-B.` guards, `ASIL Level: B`); identifiers, YAML keys and flags are
@@ -81,12 +83,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `INSTALL.md`, `docs/` and examples follow. If you regenerate, the diff in `generated/` is
   comments and strings only. `tests/test_no_bare_asil_wording.py` fails on the old wordings.
   Pairs with the same change in EDS-toolchain, whose templates produce the regenerated headers.
-- **The MISRA gate is pinned to cppcheck 2.7** (#583). The `static-analysis` job now fails unless
+- **The MISRA gate is pinned to cppcheck 2.7** (PR #587, refs #583). The `static-analysis` job now fails unless
   `cppcheck --version` is exactly `Cppcheck 2.7`, so a runner-image change cannot turn the gate red
   or green silently. "0 open violations" is a statement about cppcheck 2.7 (MISRA C:2012 addon): on
   the same code cppcheck 2.19 reports 95 open (Rule 17.3 x45 in `freertos_lwip.c`, Rule 8.7 x50).
   `docs/Safety_Model.md` and the `misra_analysis.py` header now say so. No code change.
-- **The DoIP examples take their discovery config from the YAML** (#392). `basic_ecu_doip` and
+- **The DoIP examples take their discovery config from the YAML** (#392, PR #576). `basic_ecu_doip` and
   `basic_ecu_doip_freertos` are regenerated with the EDS-toolchain templates that emit
   `uds_generated_doip_discovery()`, and their `main.c` passes it to `eds_doip_set_discovery()`
   instead of a hand-written VIN callback; behaviour is unchanged. The regeneration also brings
@@ -94,7 +96,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **`bms_ecu` answers its real values, and its README matches its YAML** (#577, #578). `src/main.c`
+- **`bms_ecu` answers its real values, and its README matches its YAML** (#577, #578, PRs #584 and EDS-toolchain#247). `src/main.c`
   defined a read handler per DID, but none was registered, so the generated zero-filled stores
   answered (pack voltage 0 mV instead of 357 120). The 20 live DIDs are now `source: app` and
   `src/bms_sim.c` defines `did_read_<name>()` / `did_write_<name>()` (the thresholds 0xD910/0xD911
@@ -102,12 +104,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `scripts/smoke_bms_ecu.py` reads them over vcan and CI runs it (`example-bms-runtime`). The README
   is rewritten from the YAML: the real DID and routine tables, P2 50 ms, no `security:` block, both
   build lines, and what the generated tests are (31 files, 334 tests).
-- **The Wireshark README loads the dissector with the right option** (#579). `-Xlua,script:<file>`
+- **The Wireshark README loads the dissector with the right option** (#579, PR #585). `-Xlua,script:<file>`
   does not load `eds.lua`, so the documented `tshark ... -Y eds_doip` line failed with "not a valid
   protocol"; the option is `-X lua_script:<file>`. Also documented: Wireshark ignores Lua plugins
   when run as root, and the command-line Decode As for CAN is `-d can.subdissector,eds_isotp`.
   Checked with TShark 4.4.19 on a DoIP and a CAN capture.
-- **`misra_analysis.py` no longer reports PASS when cppcheck fails to run** (#572). It ignored
+- **`misra_analysis.py` no longer reports PASS when cppcheck fails to run** (#572, PR #581). It ignored
   cppcheck's exit code and error output, so a broken install produced "0 findings" and
   `RESULT: PASS`. A non-zero exit, a missing or unrunnable binary (now a FAIL even without
   `--strict`; only an explicit `--gcc-only` skips cppcheck), an error line in its output, or a
@@ -116,18 +118,40 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   fire without `CONFIG_*` defines); the analysis now defines them, and the two Rule 10.8
   findings that exposed are fixed in the code (no value change). On CI's cppcheck 2.7: 1032
   findings, all justified, 0 open.
-- **`INSTALL.md` installs the `.vsix` that is actually in the ZIP** (Xaloqi/EDS-toolchain#242). It named
+- **`INSTALL.md` installs the `.vsix` that is actually in the ZIP** (Xaloqi/EDS-toolchain#242, PR #582). It named
   `eds-diagnostics-1.1.0.vsix`, the oldest of four builds the Developer ZIP used to carry; it now
   uses `eds-diagnostics-*.vsix` (the ZIP ships exactly one) and installs the Red Hat YAML extension
   the schema validation depends on. "ASIL-B compliance" / "ASIL-B violations" in the same file now
   read "ASIL-B-oriented rules" (Xaloqi/EDS-toolchain#243).
-- **Six example READMEs no longer say a licence is needed to use them** (#569). `ardep_ecu`,
+- **Six example READMEs no longer say a licence is needed to use them** (#569, PR #570). `ardep_ecu`,
   `bms_ecu`, `motor_controller_ecu`, `safeboot_ecu`, `sensor_ecu` and `sensor_ecu_freertos`
   said "Included with Developer and Professional licenses" (bms_ecu: "after purchase, extract
   your delivery ZIP"), though each is on main with its YAML, `src/` and `generated/`. Availability
   now reads as in `robot_joint_controller_ecu` (#528): free to build, run and study; only
   regenerating from a changed YAML needs a Developer licence. New
   `tests/test_example_readmes_free_to_build.py` fails if any `examples/*/README.md` claims otherwise.
+
+### EDS-toolchain (Developer and Professional ZIPs)
+
+- **The GUI bridge's real-CAN mode speaks ISO-TP, and no longer shows a false BUS-OFF** (#244,
+  EDS-toolchain#245). Multi-frame responses (the VIN, 0xF187, 0x19) work, DTCs come from a real
+  `0x19 02 FF`, and the bus is reported down only after 3 consecutive missed requests.
+- **One `.vsix` per ZIP** (#242, EDS-toolchain#245). The Developer ZIP carried four extension builds
+  and a README naming none of them; release gate 7b now fails unless each ZIP has exactly one,
+  named in its README and matching `package.json`. The extension is 1.6.0.
+- **DoIP vehicle discovery from the YAML** (#392 part C, EDS-toolchain#240): `ecu.doip.discovery`
+  generates `uds_generated_doip_discovery()`; see the Behaviour changes above for what it turns on.
+- **ASIL wording** in the extension, MCP prompts and generated headers (#243, #246; EDS-toolchain#245,
+  #248): wording only, regenerated headers differ in comments.
+
+### Known
+
+- **The MISRA result is for cppcheck 2.7, the version CI pins.** "0 open violations, 38 deviations"
+  is a statement about cppcheck 2.7 (MISRA C:2012 addon). On a current cppcheck (2.19) the same code
+  reports 95 open findings: Rule 17.3 x45 in `freertos_lwip.c` (the lwIP headers are not on the
+  analyser's include path) and Rule 8.7 x50. Fixing that for newer cppcheck versions is #583, planned
+  for the next release.
+- **DoIP periodic messages (SID 0x2A)** are unchanged and not covered (#546 stays open for them).
 
 ## [1.27.0] — 2026-11-02
 
