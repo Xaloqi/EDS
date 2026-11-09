@@ -270,7 +270,8 @@ command.
 Install the pre-built extension:
 
 ```bash
-code --install-extension ide/vscode-extension/eds-diagnostics-1.1.0.vsix
+code --install-extension redhat.vscode-yaml   # dependency: schema validation is served by the Red Hat YAML extension
+code --install-extension ide/vscode-extension/eds-diagnostics-*.vsix
 ```
 
 Or open `ide/vscode-extension/` in VS Code and press F5 to run in development mode.
@@ -279,7 +280,7 @@ Features:
 - YAML schema validation as you type
 - Hover documentation for every YAML field
 - Command palette: `EDS: Run Codegen` — one-click generation
-- Inline error messages for ASIL-B violations in your config
+- Inline error messages for violations of the ASIL-B-oriented rules in your config
 
 ---
 
@@ -434,7 +435,7 @@ python3 tools/mcp_server.py
 Exposed tools:
 - `generate_did_config` — generate a DID YAML block from a description
 - `run_codegen` — run codegen and return generated file paths
-- `validate_asil_b` — check a YAML config for ASIL-B compliance
+- `validate_asil_b` — check a YAML config against the ASIL-B-oriented rules
 - `explain_uds_error` — decode any UDS NRC code with context
 
 See `tools/templates/CLAUDE.md` for the full AI workflow context document.
@@ -517,7 +518,7 @@ python3 tools/eds_ai.py explain \
 
 The NRC table (all standard ISO 14229 codes) is embedded in the tool and works offline. The AI explanation requires an API connection.
 
-### validate — ASIL-B review of a config file
+### validate — ASIL-B-oriented review of a config file
 
 Two-pass review: structural (codegen dry-run) then AI semantic analysis.
 
