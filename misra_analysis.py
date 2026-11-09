@@ -24,7 +24,8 @@
 #     platform/      — Zephyr RTOS platform wrappers (third-party boundary)
 #
 # MISRA CHECKER STRATEGY:
-#   Primary:   cppcheck >= 2.6 with --addon=misra
+#   Primary:   cppcheck >= 2.6 with --addon=misra. CI pins 2.7, and the "0 open
+#              violations" claim holds for 2.7 only (2.19: 95 open, EDS#583).
 #              Requires: pip install cppcheck-misra  OR  apt install cppcheck
 #   Secondary: GCC MISRA-relevant warning flags (always available)
 #
