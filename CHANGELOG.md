@@ -87,6 +87,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `scripts/smoke_bms_ecu.py` reads them over vcan and CI runs it (`example-bms-runtime`). The README
   is rewritten from the YAML: the real DID and routine tables, P2 50 ms, no `security:` block, both
   build lines, and what the generated tests are (31 files, 334 tests).
+- **The Wireshark README loads the dissector with the right option** (#579). `-Xlua,script:<file>`
+  does not load `eds.lua`, so the documented `tshark ... -Y eds_doip` line failed with "not a valid
+  protocol"; the option is `-X lua_script:<file>`. Also documented: Wireshark ignores Lua plugins
+  when run as root, and the command-line Decode As for CAN is `-d can.subdissector,eds_isotp`.
+  Checked with TShark 4.4.19 on a DoIP and a CAN capture.
 - **`misra_analysis.py` no longer reports PASS when cppcheck fails to run** (#572). It ignored
   cppcheck's exit code and error output, so a broken install produced "0 findings" and
   `RESULT: PASS`. A non-zero exit, a missing or unrunnable binary (now a FAIL even without

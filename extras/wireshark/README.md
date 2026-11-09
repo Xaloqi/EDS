@@ -13,8 +13,14 @@ Decodes UDS (ISO 14229-1), ISO-TP (ISO 15765-2), and DoIP (ISO 13400-2) traffic 
 Alternatively, load it without installing:
 
 ```bash
-wireshark -Xlua,script:extras/wireshark/eds.lua
+wireshark -X lua_script:extras/wireshark/eds.lua
 ```
+
+The option is `-X lua_script:<file>`. `-Xlua,script:<file>` does not load the script, and the
+`eds_*` protocols are then unknown.
+
+Wireshark does not load Lua plugins when it runs as root (it prints "Running as user root … This
+could be dangerous" and `eds_*` is missing). Capture as root if you need to, decode as a normal user.
 
 ## Usage
 
@@ -33,9 +39,16 @@ ISO-TP frames on CAN require manual `Decode As` because CAN arbitration IDs are 
 3. **Analyze → Decode As…** → set the `can.subdissector` row to `eds_isotp`.
 4. Click **OK** — all frames decode as ISO-TP with UDS payload for Single Frames.
 
+On the command line the same Decode As is `-d can.subdissector,eds_isotp` (no `==` selector: the
+table has none):
+
+```bash
+tshark -X lua_script:extras/wireshark/eds.lua -d can.subdissector,eds_isotp -r capture.pcap -Y eds_isotp
+```
+
 ### Command-line / automated
 
 ```bash
 # Decode a DoIP capture non-interactively and print the decode tree
-tshark -Xlua,script:extras/wireshark/eds.lua -r capture.pcap -V -Y eds_doip
+tshark -X lua_script:extras/wireshark/eds.lua -r capture.pcap -V -Y eds_doip
 ```
