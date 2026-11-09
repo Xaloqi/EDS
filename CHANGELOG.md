@@ -76,8 +76,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   or green silently. "0 open violations" is a statement about cppcheck 2.7 (MISRA C:2012 addon): on
   the same code cppcheck 2.19 reports 95 open (Rule 17.3 x45 in `freertos_lwip.c`, Rule 8.7 x50).
   `docs/Safety_Model.md` and the `misra_analysis.py` header now say so. No code change.
-
-
 - **The DoIP examples take their discovery config from the YAML** (#392). `basic_ecu_doip` and
   `basic_ecu_doip_freertos` are regenerated with the EDS-toolchain templates that emit
   `uds_generated_doip_discovery()`, and their `main.c` passes it to `eds_doip_set_discovery()`
