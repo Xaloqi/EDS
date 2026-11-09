@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.28.0] — 2026-11-09
+
 ### Added
 
 - **Bench option `DIAG_BENCH_PERMANENT_DTC`** (#580, PR #586), `robot_joint_controller_ecu`, off by default.
