@@ -1863,6 +1863,89 @@ jobs:
           sudo ip link set up zcan0
           python3 EDS/scripts/smoke_robot_periodic_2a.py build/zephyr/zephyr.exe zcan0
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job: example-bms-runtime
+  #
+  # EDS#577. examples/bms_ecu declares its live DIDs `source: app`, and
+  # src/bms_sim.c defines their handlers. Until #577 nothing registered those
+  # handlers and the ECU answered zero for every value, with every CI job green:
+  # the Zephyr Build matrix only compiles it (can_loopback0) and the generated
+  # tests run against a simulator. This job builds the host-reachable variant,
+  # runs it on a vcan interface and reads the 20 app-owned DIDs: each must
+  # answer its bms_sim.c boot value.
+  #
+  # New job, not a rename. Not a required status check.
+  # ──────────────────────────────────────────────────────────────────────────
+  example-bms-runtime:
+    name: "BMS ECU — native_sim runtime smoke (SocketCAN, app-owned DIDs)"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget
+
+      - name: Install west
+        run: pip install west
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: West build — native_sim, SocketCAN variant
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          B="${GITHUB_WORKSPACE}/EDS/boards/native_sim"
+          west build \
+            --pristine \
+            -b native_sim \
+            EDS/examples/bms_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${B}/native_sim.conf;${B}/native_sim_realcan.conf" \
+            "-DDTC_OVERLAY_FILE=${B}/native_sim.overlay;${B}/native_sim_realcan.overlay"
+          test -f build/zephyr/zephyr.exe
+
+      # EDS#536: this step used to apt-get install with no `apt-get update`
+      # and no timeout (8-26 min on bad runs). The module is usually already
+      # there, so try modprobe first; install only if that fails, bounded, and
+      # fail loudly if vcan still cannot be loaded.
+      - name: Load vcan
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
+            echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
+            sudo timeout 120 apt-get update -qq
+            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            sudo modprobe vcan
+            sudo modprobe can_raw
+          fi
+          lsmod | grep -E '^(vcan|can_raw) '
+
+      - name: Runtime smoke — the app-owned DIDs answer their boot values
+        run: |
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set up zcan0
+          python3 EDS/scripts/smoke_bms_ecu.py build/zephyr/zephyr.exe zcan0
+
   # [EDS#557][EDS#546] CAN FD end to end: examples/canfd_ecu (can.fd: true) on
   # native_sim over an MTU-72 vcan, tested by the Linux kernel's own ISO-TP
   # stack (can-isotp, net/can/isotp.c) set to CAN FD, plus a raw FD socket on

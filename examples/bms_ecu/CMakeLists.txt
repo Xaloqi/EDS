@@ -164,6 +164,7 @@ include(${DIAG_ROOT}/cmake/eds_service_sources.cmake)
 target_sources(app PRIVATE
     # Application
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/bms_sim.c
 
     # UDS core
     ${DIAG_ROOT}/core/uds_server.c

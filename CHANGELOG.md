@@ -71,6 +71,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`bms_ecu` answers its real values, and its README matches its YAML** (#577, #578). `src/main.c`
+  defined a read handler per DID, but none was registered, so the generated zero-filled stores
+  answered (pack voltage 0 mV instead of 357 120). The 20 live DIDs are now `source: app` and
+  `src/bms_sim.c` defines `did_read_<name>()` / `did_write_<name>()` (the thresholds 0xD910/0xD911
+  keep their write ranges); the identity DIDs get fixed `default_value`s (VIN, serial, version).
+  `scripts/smoke_bms_ecu.py` reads them over vcan and CI runs it (`example-bms-runtime`). The README
+  is rewritten from the YAML: the real DID and routine tables, P2 50 ms, no `security:` block, both
+  build lines, and what the generated tests are (31 files, 334 tests).
 - **`misra_analysis.py` no longer reports PASS when cppcheck fails to run** (#572). It ignored
   cppcheck's exit code and error output, so a broken install produced "0 findings" and
   `RESULT: PASS`. A non-zero exit, a missing or unrunnable binary (now a FAIL even without

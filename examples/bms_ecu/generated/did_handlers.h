@@ -5,7 +5,7 @@
  *
  * ECU       : BMS_MainController
  * Version   : 1.0.0
- * Generated : 2026-08-30T13:15:22Z
+ * Generated : 2026-11-09T12:29:04Z
  *
  * PURPOSE: Declarations for all generated DID read/write handler functions
  *          and the generated DID registration entry point.
@@ -135,7 +135,9 @@ uds_status_t did_read_ecusoftwareversionnumber(
  * Security level: 0
  * Data length  : 4 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_PackVoltage_mV.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_packvoltage_mv() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 4).
@@ -154,7 +156,9 @@ uds_status_t did_read_bms_packvoltage_mv(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_PackCurrent_100mA.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_packcurrent_100ma() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -173,7 +177,9 @@ uds_status_t did_read_bms_packcurrent_100ma(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_PackPower_10W.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_packpower_10w() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -192,7 +198,9 @@ uds_status_t did_read_bms_packpower_10w(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_ContactorState.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_contactorstate() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -211,7 +219,9 @@ uds_status_t did_read_bms_contactorstate(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_InsulationResistance_kOhm.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_insulationresistance_kohm() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -230,7 +240,9 @@ uds_status_t did_read_bms_insulationresistance_kohm(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_CellGroup1_Voltage_mV.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_cellgroup1_voltage_mv() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -249,7 +261,9 @@ uds_status_t did_read_bms_cellgroup1_voltage_mv(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_CellGroup2_Voltage_mV.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_cellgroup2_voltage_mv() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -268,7 +282,9 @@ uds_status_t did_read_bms_cellgroup2_voltage_mv(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_CellGroup3_Voltage_mV.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_cellgroup3_voltage_mv() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -287,7 +303,9 @@ uds_status_t did_read_bms_cellgroup3_voltage_mv(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_CellGroup4_Voltage_mV.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_cellgroup4_voltage_mv() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -306,7 +324,9 @@ uds_status_t did_read_bms_cellgroup4_voltage_mv(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_MaxCellTemperature_degC.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_maxcelltemperature_degc() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -325,7 +345,9 @@ uds_status_t did_read_bms_maxcelltemperature_degc(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_MinCellTemperature_degC.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_mincelltemperature_degc() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -344,7 +366,9 @@ uds_status_t did_read_bms_mincelltemperature_degc(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_CoolantInletTemperature_degC.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_coolantinlettemperature_degc() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -363,7 +387,9 @@ uds_status_t did_read_bms_coolantinlettemperature_degc(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_BMSBoardTemperature_degC.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_bmsboardtemperature_degc() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -382,7 +408,9 @@ uds_status_t did_read_bms_bmsboardtemperature_degc(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_StateOfCharge_04pct.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_stateofcharge_04pct() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -401,7 +429,9 @@ uds_status_t did_read_bms_stateofcharge_04pct(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_StateOfHealth_04pct.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_stateofhealth_04pct() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -420,7 +450,9 @@ uds_status_t did_read_bms_stateofhealth_04pct(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_BalancingStateBitmask.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_balancingstatebitmask() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -439,7 +471,9 @@ uds_status_t did_read_bms_balancingstatebitmask(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_FaultFlagsBitmask.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_faultflagsbitmask() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -458,7 +492,9 @@ uds_status_t did_read_bms_faultflagsbitmask(
  * Security level: 0
  * Data length  : 4 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_FullChargeCapacity_Wh.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_fullchargecapacity_wh() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 4).
@@ -477,7 +513,9 @@ uds_status_t did_read_bms_fullchargecapacity_wh(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_OVThreshold_mV.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_ovthreshold_mv() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -496,7 +534,9 @@ uds_status_t did_read_bms_ovthreshold_mv(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for BMS_UVThreshold_mV.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_bms_uvthreshold_mv() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -536,7 +576,10 @@ uds_status_t did_write_vehiclemanufacturersparepartnumber(
  * Security level: 1
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to apply new value for BMS_OVThreshold_mV.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_write_bms_ovthreshold_mv() has checked session, security and
+ * length.
  *
  * @param[in] buf  Buffer containing new DID data (2 byte(s)).
  * @param[in] len  Number of bytes in buf.
@@ -553,7 +596,10 @@ uds_status_t did_write_bms_ovthreshold_mv(
  * Security level: 1
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to apply new value for BMS_UVThreshold_mV.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_write_bms_uvthreshold_mv() has checked session, security and
+ * length.
  *
  * @param[in] buf  Buffer containing new DID data (2 byte(s)).
  * @param[in] len  Number of bytes in buf.
