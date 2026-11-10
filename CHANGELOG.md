@@ -17,6 +17,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `test_no_maintenance_only_severity` checks for `0x21U` (its comment had 0x40 and 0x20 swapped). It went
   unseen because public CI skips the template-dependent phases; EDS-toolchain now runs them.
 
+- **Four examples shipped stale `generated/`** (#588): `basic_ecu`, `basic_ecu_freertos`,
+  `basic_ecu_cda_demo`, `vehicle_state_ecu` lacked the #546 periodic-TX lines (`#include "uds_periodic.h"`,
+  `uds_periodic_set_tx_can_id()`, `isotp_cfg.periodic_tx_can_id` in `uds_init.c`, `GEN_CAN_PERIODIC_TX_ID`
+  in `generated_config.h`). Regenerated with EDS-toolchain's templates; the diff is those lines only.
+  EDS-toolchain's freshness test now covers all four, and fails for any example that commits `generated/`
+  without being tracked.
+
 ## [1.28.0] — 2026-11-09
 
 ### Added
