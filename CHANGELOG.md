@@ -8,6 +8,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **Robustness phase L `test_dtc_severity_check_at_next_halt` asserted the wrong byte** (#589). It expected
+  `0x20U`; the generated `uds_init.c` registers a `check_at_next_halt` DTC with `0x41U` (severity 0x40 +
+  class 0x01, ISO 14229-1 Annex D.3, `_DTC_SEVERITY_BYTES` since #145), which is correct. The test dated
+  from before #145. It now checks the register call of 0xC00100 for `0x41U`, and the companion
+  `test_no_maintenance_only_severity` checks for `0x21U` (its comment had 0x40 and 0x20 swapped). It went
+  unseen because public CI skips the template-dependent phases; EDS-toolchain now runs them.
+
 ## [1.28.0] — 2026-11-09
 
 ### Added

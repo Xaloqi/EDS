@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -256,8 +257,14 @@ class TestDTCUDSInit:
         assert "12583168UL" in _read("uds_init.c"), "0xC00100 should appear as 12583168UL"
 
     def test_dtc_severity_check_at_next_halt(self):
-        # check_at_next_halt encodes as SAE J2012-DA 0x20
-        assert "0x20U" in _read("uds_init.c")
+        # DTCSeverity byte (ISO 14229-1 Annex D.3; tools/codegen.py
+        # _DTC_SEVERITY_BYTES, EDS#145): bits 7-5 = severity, 4-0 = class.
+        # check_at_next_halt is 0x40, plus class bit 0x01 = 0x41. Checked in
+        # the register call of 0xC00100, not as a bare substring (EDS#589).
+        assert re.search(
+            r"dtc_database_register\(\s*\(uint32_t\)12583168UL,\s*\(uint8_t\)0x41U,",
+            _read("uds_init.c"),
+        )
 
     def test_dtc_description_present(self):
         assert '"CAN bus loss"' in _read("uds_init.c")
@@ -267,8 +274,9 @@ class TestDTCUDSInit:
         assert _read("uds_init.c").count("status = dtc_database_register(") == 1
 
     def test_no_maintenance_only_severity(self):
-        # 0x40U is maintenance_only — not in our YAML, must not appear in the DTC section
-        assert "0x40U" not in _read("uds_init.c")
+        # maintenance_only is 0x20 (+ class 0x01 = 0x21) — not in our YAML, so
+        # no DTC may be registered with it.
+        assert "(uint8_t)0x21U" not in _read("uds_init.c")
 
 
 # ── Class 6: routine_handlers.c ──────────────────────────────────────────────
