@@ -8,6 +8,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **The six native_sim/SocketCAN runtime jobs no longer run on every PR and push to main.** They run weekly
+  (Tuesdays 03:41 UTC), via `workflow_dispatch`, and on a PR only when it touches `core/`, `transport/`,
+  `platform/`, `boards/`, `cmake/`, `Kconfig`, `west.yml`, the four examples they build (`robot_joint_controller_ecu`,
+  `bms_ecu`, `canfd_ecu`, `basic_ecu`), their `scripts/smoke_*` / `scripts/e2e_*` files, or `ci.yml`. All other jobs
+  skip the scheduled run. The "Load vcan" step now retries the `linux-modules-extra` install three times (180 s
+  each, step limit 12 min) instead of one 240 s attempt that timed out on a slow runner.
+
 ### Fixed
 
 - **Robustness phase L `test_dtc_severity_check_at_next_halt` asserted the wrong byte** (#589). It expected
