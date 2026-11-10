@@ -231,6 +231,11 @@ on:
     branches: ["main", "develop", "phase-*"]
   pull_request:
     branches: ["main"]
+  # Weekly run of the six host-reachable runtime jobs (see `changes` below), and
+  # nothing else: every other job's `if` excludes `schedule`.
+  schedule:
+    - cron: "41 3 * * 2"   # Tuesdays 03:41 UTC (zephyr-main-weekly: Mondays 03:17)
+  workflow_dispatch:
 
 env:
   ZEPHYR_SDK_VERSION: "0.16.8"
@@ -256,6 +261,43 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+
+  # ── Runtime-smoke path filter ───────────────────────────────────────────────
+  # The six native_sim/SocketCAN jobs (example-robot-runtime, example-bms-runtime,
+  # example-robot-permanent-dtc, example-canfd-runtime, response-pending-e2e,
+  # isotp-burst-e2e) take 10-15 min each and are the flakiest jobs here. They run
+  # weekly (`schedule`, Tuesdays), on demand (`workflow_dispatch`), and on a PR only
+  # when that PR touches what they run: the server core, transports, platform,
+  # boards, build files, the four examples they build, their smoke scripts, or this
+  # file. Not on every push to main: the weekly run covers main. Plain git diff, no
+  # third-party action. A job skipped by `if` reports as skipped, which a ruleset
+  # counts as passing, should one of them ever become a required check.
+  changes:
+    name: "Changes — do runtime-smoke jobs apply?"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      runtime: ${{ steps.filter.outputs.runtime }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "runtime=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git diff --name-only "$BASE...$HEAD" > changed.txt
+          cat changed.txt
+          if grep -E -q '^(core/|transport/|platform/|boards/|cmake/|examples/(robot_joint_controller_ecu|bms_ecu|canfd_ecu|basic_ecu)/|scripts/(smoke_|e2e_)[a-z0-9_]+\.py$|Kconfig$|west\.yml$|\.github/workflows/ci\.yml$)' changed.txt; then
+            echo "runtime=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "runtime=false" >> "$GITHUB_OUTPUT"
+          fi
 
   # ── Job 0: Commit message lint ──────────────────────────────────────────────
   # Mechanical, unconditional gate for two independent GitHub closing-keyword
@@ -289,6 +331,7 @@ jobs:
   unit-tests:
     name: "Unit Tests"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -493,6 +536,7 @@ jobs:
   cmake-ctest-build:
     name: "CMake/CTest Build (parity with build_tests.sh)"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -569,6 +613,7 @@ jobs:
   sanitizers:
     name: "Sanitizers — ASan + UBSan (host unit tests)"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -627,6 +672,7 @@ jobs:
   integration-tests:
     name: "Integration Tests (generated, simulator mode)"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -774,6 +820,7 @@ jobs:
   static-analysis:
     name: "Static Analysis + MISRA C:2012 (zero open violations)"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -874,7 +921,7 @@ jobs:
   zephyr-native:
     name: "Zephyr Build — native_sim"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     steps:
       # Checkout into a named subdirectory so west can use it as the manifest
@@ -1024,7 +1071,7 @@ jobs:
 
     name: "Zephyr Build — nucleo_h743zi (cross-compile)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     steps:
       - uses: actions/checkout@v4
@@ -1147,7 +1194,7 @@ jobs:
 
     name: "Zephyr Build — safeboot_ecu / nucleo_h743zi (cross-compile)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     steps:
       - uses: actions/checkout@v4
@@ -1242,7 +1289,7 @@ jobs:
 
     name: "Zephyr Build — frdm_mcxn947/mcxn947/cpu0 (cross-compile)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     steps:
       - uses: actions/checkout@v4
@@ -1305,7 +1352,7 @@ jobs:
 
     name: "Zephyr Build — mr_canhubk3 / S32K344 (cross-compile)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     steps:
       - uses: actions/checkout@v4
@@ -1388,7 +1435,7 @@ jobs:
   example-ardep:
     name: "ARDEP ECU — generated file validation (35 DIDs)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@v4
       - name: Install Python dependencies
@@ -1455,7 +1502,7 @@ jobs:
   example-bms:
     name: "BMS ECU — generated file validation (24 DIDs)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@v4
       - name: Install Python dependencies
@@ -1520,7 +1567,7 @@ jobs:
   example-motor:
     name: "Motor Controller ECU — generated file validation (27 DIDs)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@v4
       - name: Install Python dependencies
@@ -1585,7 +1632,7 @@ jobs:
   example-sensor:
     name: "Sensor ECU — generated file validation (7 DIDs)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@v4
       - name: Install Python dependencies
@@ -1650,7 +1697,7 @@ jobs:
   example-sensor-frtos:
     name: "Sensor ECU FreeRTOS — generated file validation (7 DIDs)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@v4
       - name: Install Python dependencies
@@ -1715,7 +1762,7 @@ jobs:
   example-robot:
     name: "Robot Joint Controller ECU — generated file validation (11 DIDs)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@v4
       - name: Install Python dependencies
@@ -1797,7 +1844,10 @@ jobs:
     name: "Robot Joint Controller ECU — native_sim runtime smoke (SocketCAN)"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    needs: changes
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.runtime == 'true')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1845,13 +1895,17 @@ jobs:
       # there, so try modprobe first; install only if that fails, bounded, and
       # fail loudly if vcan still cannot be loaded.
       - name: Load vcan
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
             echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
             sudo timeout 120 apt-get update -qq
-            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            for attempt in 1 2 3; do
+              sudo timeout 180 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" && break
+              [ "$attempt" = 3 ] && exit 1
+              echo "apt-get install attempt $attempt failed or timed out; retrying"
+            done
             sudo modprobe vcan
             sudo modprobe can_raw
           fi
@@ -1887,7 +1941,10 @@ jobs:
     name: "BMS ECU — native_sim runtime smoke (SocketCAN, app-owned DIDs)"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    needs: changes
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.runtime == 'true')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1935,13 +1992,17 @@ jobs:
       # there, so try modprobe first; install only if that fails, bounded, and
       # fail loudly if vcan still cannot be loaded.
       - name: Load vcan
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
             echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
             sudo timeout 120 apt-get update -qq
-            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            for attempt in 1 2 3; do
+              sudo timeout 180 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" && break
+              [ "$attempt" = 3 ] && exit 1
+              echo "apt-get install attempt $attempt failed or timed out; retrying"
+            done
             sudo modprobe vcan
             sudo modprobe can_raw
           fi
@@ -1969,7 +2030,10 @@ jobs:
     name: "Robot Joint Controller ECU — bench: permanent DTC survives 14 FFFFFF and a reboot"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    needs: changes
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.runtime == 'true')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -2018,13 +2082,17 @@ jobs:
       # there, so try modprobe first; install only if that fails, bounded, and
       # fail loudly if vcan still cannot be loaded.
       - name: Load vcan
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
             echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
             sudo timeout 120 apt-get update -qq
-            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            for attempt in 1 2 3; do
+              sudo timeout 180 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" && break
+              [ "$attempt" = 3 ] && exit 1
+              echo "apt-get install attempt $attempt failed or timed out; retrying"
+            done
             sudo modprobe vcan
             sudo modprobe can_raw
           fi
@@ -2053,7 +2121,10 @@ jobs:
     name: "CAN FD ECU — native_sim vs Linux can-isotp (MTU-72 vcan)"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    needs: changes
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.runtime == 'true')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -2093,13 +2164,17 @@ jobs:
           test -f build/zephyr/zephyr.exe
 
       - name: Load vcan and can-isotp
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           if ! { sudo modprobe vcan && sudo modprobe can_raw && sudo modprobe can_isotp; } 2>/dev/null; then
             echo "vcan/can_raw/can_isotp not loadable; installing linux-modules-extra-$(uname -r)"
             sudo timeout 120 apt-get update -qq
-            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            for attempt in 1 2 3; do
+              sudo timeout 180 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" && break
+              [ "$attempt" = 3 ] && exit 1
+              echo "apt-get install attempt $attempt failed or timed out; retrying"
+            done
             sudo modprobe vcan
             sudo modprobe can_raw
             sudo modprobe can_isotp
@@ -2122,7 +2197,10 @@ jobs:
     name: "Response pending (NRC 0x78) — native_sim end to end (SocketCAN)"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    needs: changes
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.runtime == 'true')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -2173,13 +2251,17 @@ jobs:
           test -f build/zephyr/zephyr.exe
 
       - name: Load vcan
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
             echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
             sudo timeout 120 apt-get update -qq
-            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            for attempt in 1 2 3; do
+              sudo timeout 180 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" && break
+              [ "$attempt" = 3 ] && exit 1
+              echo "apt-get install attempt $attempt failed or timed out; retrying"
+            done
             sudo modprobe vcan
             sudo modprobe can_raw
           fi
@@ -2201,7 +2283,10 @@ jobs:
     name: "ISO-TP burst RX (4000 B, STmin 0) — native_sim, classic + FD (SocketCAN)"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    needs: changes
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.runtime == 'true')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -2247,13 +2332,17 @@ jobs:
           done
 
       - name: Load vcan
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           if ! { sudo modprobe vcan && sudo modprobe can_raw; } 2>/dev/null; then
             echo "vcan/can_raw not loadable; installing linux-modules-extra-$(uname -r)"
             sudo timeout 120 apt-get update -qq
-            sudo timeout 240 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            for attempt in 1 2 3; do
+              sudo timeout 180 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" && break
+              [ "$attempt" = 3 ] && exit 1
+              echo "apt-get install attempt $attempt failed or timed out; retrying"
+            done
             sudo modprobe vcan
             sudo modprobe can_raw
           fi
@@ -2270,7 +2359,7 @@ jobs:
   example-safeboot:
     name: "SafeBoot ECU — generated file validation (5 DIDs)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@v4
       - name: Install Python dependencies
@@ -2344,6 +2433,7 @@ jobs:
   freertos-qemu:
     name: "FreeRTOS Build — QEMU ARM Cortex-M4"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
 
     steps:
       - uses: actions/checkout@v4
@@ -2428,6 +2518,7 @@ jobs:
   freertos-safeboot:
     name: "FreeRTOS Safeboot Build — QEMU Cortex-M4 (RAM stub flash)"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
 
     steps:
       - uses: actions/checkout@v4
@@ -2524,6 +2615,7 @@ jobs:
   freertos-examples:
     name: "FreeRTOS Build — ${{ matrix.example }} (QEMU Cortex-M4)"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
     strategy:
       fail-fast: false
       matrix:
@@ -2609,7 +2701,7 @@ jobs:
   zephyr-examples-native:
     name: "Zephyr Build — ${{ matrix.example }} (native_sim)"
     runs-on: ubuntu-22.04
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     strategy:
       fail-fast: false
       matrix:
@@ -2736,6 +2828,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
   doip-integration:
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     name: "DoIP ECU Build + Boot (native_sim)"
 
     steps:
@@ -2894,6 +2987,7 @@ jobs:
   sovd-codegen:
     name: "SOVD CDA Generation"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
 
     steps:
       - uses: actions/checkout@v4
@@ -3000,6 +3094,7 @@ jobs:
   robustness-tests:
     name: "Robustness Campaign"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
 
     steps:
       - uses: actions/checkout@v4
@@ -3150,6 +3245,7 @@ jobs:
   harness-tests:
     name: "Harness Integration Tests (MISRA-clean build)"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
     env:
       # ADR-005 rule 3: PASS requires a declared minimum executed floor.
       # This job cannot report PASS below this many executed harness cases.
@@ -3232,6 +3328,7 @@ jobs:
   canonical-python-suite:
     name: "Canonical Python Suite (ADR-005 floors)"
     runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
