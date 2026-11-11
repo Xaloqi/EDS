@@ -22,8 +22,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   so generated write tests sent an arbitrary pattern and got `7F 2E 31` from the real handler. Validation: both
   bounds integers, min <= max, max fits `data_length`, only with `write` access and `source: app`. Codegen does
   not enforce it and the generated C is unchanged; EDS-toolchain's testgen reads it. `examples/bms_ecu` declares
-  both ranges, and `tests/test_did_write_range.py` checks them against the `BMS_*_MIN/MAX_MV` constants in
-  `bms_sim.c`.
+  both ranges (its `generated/tests/` carry the toolchain's regenerated write tests: an in-range value
+  instead of 0xAA..), and `tests/test_did_write_range.py` checks the ranges against the `BMS_*_MIN/MAX_MV`
+  constants in `bms_sim.c`.
 
 ### Fixed
 
