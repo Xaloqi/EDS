@@ -4,7 +4,7 @@
 #
 # ECU       : BMS_MainController
 # Version   : 1.0.0
-# Generated : 2026-10-16T12:00:00Z
+# Generated : 2026-11-11T13:19:08Z
 #
 # DID       : 0xD911  (BMS_UVThreshold_mV)
 # Access    : read + write
@@ -239,7 +239,8 @@ class TestWriteBmsuvthresholdmv:
         Expected: [0x6E, 0xD9, 0x11]
         """
         _setup_preconditions(uds_bus, aes_keys, for_write=True)
-        data = bytes([0xAA] * DATA_LENGTH)
+        # write_range declared: send a value the handler accepts (EDS-toolchain#253)
+        data = bytes([0x0B, 0x22])
         pdu = _write_did(uds_bus, data)
 
         assert pdu is not None, f"No response writing DID 0xD911"
@@ -258,7 +259,7 @@ class TestWriteBmsuvthresholdmv:
         Verifies the ECU stores and returns the written value.
         """
         _setup_preconditions(uds_bus, aes_keys, for_write=True)
-        sentinel = bytes([(0x55 + i) & 0xFF for i in range(DATA_LENGTH)])
+        sentinel = bytes([0x0C, 0x80])
         write_pdu = _write_did(uds_bus, sentinel)
         assert write_pdu is not None
         assert write_pdu[0] == (SID_WRITE_DATA_BY_ID + POSITIVE_RESPONSE_OFFSET), (

@@ -99,6 +99,23 @@ DID_ENTRY_SCHEMA = {
                 "data_length. Optional — defaults to all-zero when absent."
             )
         },
+        "write_range": {
+            "type": "object",
+            "required": ["min", "max"],
+            "properties": {
+                "min": {"type": "integer", "minimum": 0},
+                "max": {"type": "integer", "minimum": 0},
+            },
+            "additionalProperties": False,
+            "description": (
+                "Inclusive range of the value the application's did_write_<name>() "
+                "accepts, read as an unsigned big-endian integer over data_length "
+                "bytes. Only for 'source: app' DIDs with write access: it is what "
+                "the generated write tests use to pick a value the handler will "
+                "take instead of an arbitrary pattern (EDS-toolchain#253). Codegen "
+                "does not enforce it; the handler does."
+            )
+        },
         "source": {
             "enum": ["stub", "app"],
             "default": "stub",
@@ -401,6 +418,37 @@ def validate_config(config: dict) -> list:
                         f"{dv_bytes} byte(s) but data_length is "
                         f"{did['data_length']}."
                     )
+            if "write_range" in did:
+                wr = did["write_range"]
+                if "write" not in did.get("access", []):
+                    errors.append(
+                        f"dids[{idx}] ({did_id}): 'write_range' needs 'write' in 'access'."
+                    )
+                if did.get("source") != "app":
+                    errors.append(
+                        f"dids[{idx}] ({did_id}): 'write_range' is only for "
+                        f"'source: app' DIDs; generated handlers do not enforce a range."
+                    )
+                dl = did.get("data_length")
+                ok = (isinstance(wr, dict) and set(wr) == {"min", "max"}
+                      and all(isinstance(wr[k], int) and not isinstance(wr[k], bool)
+                              and wr[k] >= 0 for k in wr))
+                if not ok:
+                    errors.append(
+                        f"dids[{idx}] ({did_id}): 'write_range' must be "
+                        f"{{min: <int >= 0>, max: <int >= 0>}} and nothing else."
+                    )
+                else:
+                    if wr["min"] > wr["max"]:
+                        errors.append(
+                            f"dids[{idx}] ({did_id}): 'write_range' min "
+                            f"{wr['min']} is above max {wr['max']}."
+                        )
+                    if isinstance(dl, int) and wr["max"] >= 256 ** dl:
+                        errors.append(
+                            f"dids[{idx}] ({did_id}): 'write_range' max {wr['max']} "
+                            f"does not fit in data_length {dl} byte(s)."
+                        )
             if did.get("source") == "app" and "default_value" in did:
                 errors.append(
                     f"dids[{idx}] ({did_id}): 'default_value' cannot be combined "

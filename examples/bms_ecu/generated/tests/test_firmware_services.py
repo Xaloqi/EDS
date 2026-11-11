@@ -4,7 +4,7 @@
 #
 # ECU       : BMS_MainController
 # Version   : 1.0.0
-# Generated : 2026-10-19T10:30:11Z
+# Generated : 2026-11-11T13:19:08Z
 #
 # PURPOSE: Integration tests running against REAL COMPILED FIRMWARE.
 #
@@ -1510,7 +1510,7 @@ class TestFirmwareWriteDID:
         Proves C handler persists the value across request/response boundary.
         """
         _setup_for_did(firmware_bus, DID_CATALOGUE[22], for_write=True)
-        sentinel = bytes([(0x41 + i) & 0xFF for i in range(2)])
+        sentinel = bytes([0x10, 0xFE])  # inside write_range
         pdu_w = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 217, 16]) + sentinel
         )
@@ -1565,7 +1565,7 @@ class TestFirmwareWriteDID:
         Proves C handler persists the value across request/response boundary.
         """
         _setup_for_did(firmware_bus, DID_CATALOGUE[23], for_write=True)
-        sentinel = bytes([(0x41 + i) & 0xFF for i in range(2)])
+        sentinel = bytes([0x0C, 0x80])  # inside write_range
         pdu_w = firmware_bus.request(
             bytes([SID_WRITE_DATA_BY_ID, 217, 17]) + sentinel
         )
