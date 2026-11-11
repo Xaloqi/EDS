@@ -828,7 +828,36 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            gcc python3 python3-pip cppcheck lua5.4
+            gcc g++ cmake python3 python3-pip lua5.4
+
+      # EDS#583: the MISRA result is a statement about one cppcheck version, so
+      # the job builds exactly that one. The runner image's package (2.7 on
+      # 22.04) is not installed and not used. The source tarball is checked
+      # against a pinned SHA-256; the build is cached per version.
+      - name: Cache cppcheck
+        id: cppcheck-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/cppcheck
+          key: cppcheck-2.19.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build cppcheck 2.19.0
+        if: steps.cppcheck-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/cppcheck.tar.gz \
+            https://github.com/danmar/cppcheck/archive/refs/tags/2.19.0.tar.gz
+          echo "c6cff9d3bbcb3da941bf7f525ae974b6c7af3d610c4c5519fcd1be3f21f5ae09  /tmp/cppcheck.tar.gz" \
+            | sha256sum -c -
+          mkdir /tmp/cppcheck-src
+          tar -xzf /tmp/cppcheck.tar.gz -C /tmp/cppcheck-src --strip-components=1
+          cmake -S /tmp/cppcheck-src -B /tmp/cppcheck-build \
+            -DCMAKE_BUILD_TYPE=Release -DUSE_MATCHCOMPILER=ON -DBUILD_TESTING=OFF \
+            -DCMAKE_INSTALL_PREFIX="$HOME/cppcheck"
+          cmake --build /tmp/cppcheck-build -j"$(nproc)"
+          cmake --install /tmp/cppcheck-build
+
+      - name: Put cppcheck 2.19.0 on PATH
+        run: echo "$HOME/cppcheck/bin" >> "$GITHUB_PATH"
 
       # [P1-4] Hard-fail immediately if cppcheck did not install correctly.
       #
@@ -852,12 +881,13 @@ jobs:
           cppcheck --version \
             || (echo "FAIL: cppcheck not available — MISRA analysis would silently degrade to GCC-only mode" \
                 && exit 1)
-          # The "0 open violations" claim is a statement about cppcheck 2.7 (EDS#583:
-          # 2.19 reports 95 open on the same code). Fail on any other version so a
-          # runner-image change cannot turn the gate red or green silently.
-          # Moving to a newer cppcheck is a deliberate change: see EDS#583.
-          [ "$(cppcheck --version)" = "Cppcheck 2.7" ] \
-            || (echo "FAIL: MISRA gate is pinned to cppcheck 2.7, runner has: $(cppcheck --version)" \
+          # The "0 open violations" claim is a statement about cppcheck 2.19.0
+          # (EDS#583). Fail on any other version so a change here cannot turn
+          # the gate red or green silently. Moving to another cppcheck is a
+          # deliberate change: re-run the gate, update every place that names
+          # the version (grep "cppcheck 2.19").
+          [ "$(cppcheck --version)" = "Cppcheck 2.19.0" ] \
+            || (echo "FAIL: MISRA gate is pinned to cppcheck 2.19.0, runner has: $(cppcheck --version)" \
                 && exit 1)
 
       - name: Install Python dependencies

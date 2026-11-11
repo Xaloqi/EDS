@@ -420,14 +420,14 @@ static void doip_ipv4_event(struct net_mgmt_event_callback *cb,
 static void zephyr_doip_ecu_reset(uint8_t reset_type)
 {
     (void)eds_platform_nvm_flush();
-    k_msleep((int32_t)DOIP_RESET_TX_GRACE_MS);
+    (void)k_msleep((int32_t)DOIP_RESET_TX_GRACE_MS);
     (void)eds_platform_ecu_reset(reset_type);
 }
 
 /* [EDS#282] Wait between polls of a pending job. */
 static void zephyr_doip_sleep_ms(uint32_t ms)
 {
-    k_msleep((int32_t)ms);
+    (void)k_msleep((int32_t)ms);
 }
 
 static const eds_doip_platform_ops_t s_zephyr_doip_ops = {
@@ -462,7 +462,7 @@ static void doip_thread_entry(void *p1, void *p2, void *p3)
      * and registered platform ops, rather than assuming a fixed delay is
      * always enough. A slower init path (more DIDs, a different NVM
      * backend, a debug build) no longer silently races this thread. */
-    k_sem_take(&s_doip_ready_sem, K_FOREVER);
+    (void)k_sem_take(&s_doip_ready_sem, K_FOREVER);
 
     LOG_INF("DoIP server thread starting (logical_addr=0x%04X port=%u)",
             (unsigned)s_doip_state.logical_address, (unsigned)s_port);

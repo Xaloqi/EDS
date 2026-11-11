@@ -8,8 +8,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **`scripts/e2e_dfu_download.py` and a bench measurement of the `safeboot_ecu` Flow Control change** (#562, PR #595).
+  The BS 4 / STmin 1 override was removed in 1.27.0 (#567, above); this is the timed record of what that
+  bought. NUCLEO-H753ZI over real CAN at 500 kbit/s, a 135,708-byte image driven from the Pi 5 DomD:
+  **5.31 KiB/s with the override, 10.90 KiB/s without it, 2.05x**, with no `Msgq overflowed` line either way
+  (Flow Control seen: BS 4 / STmin 1 before, BS 16 / STmin 0 after). The script runs the
+  `0x10`/`0x27`/`0x34`/`0x36`/`0x37` sequence over the kernel ISO-TP socket and counts overflow lines in a
+  console log.
+
 ### Changed
 
+- **The MISRA gate holds on a current cppcheck, and CI now runs cppcheck 2.19.0** (#583). On 2.19 the gate reported
+  133 open on main: Rule 17.3 x83 (`freertos_lwip.c` x45, `zephyr_lwip.c` x38) and Rule 8.7 x50. Rule 17.3
+  is mandatory and takes no deviation, so `misra_analysis.py` now puts declaration-only stand-ins for the
+  lwIP, FreeRTOS and Zephyr headers (`tools/misra_stubs/`, never compiled into a build) on cppcheck's
+  include path; findings inside that directory are not reported. The calls that became visible: three
+  ignored return values in `zephyr_lwip.c` (`k_msleep` x2, `k_sem_take`; Rule 17.7) now carry a
+  `(void)` cast, with no behaviour change, and seven `struct sockaddr_in *` to `struct sockaddr *` socket
+  arguments (Rule 11.3) are covered by the new deviation DEV-NET-01. The 50 Rule 8.7 hits are
+  header-declared API called from other translation units (generated `uds_init.c`, `main.c`, the
+  platform layer, the test builds): new deviation DEV-ACCS-02. Result on cppcheck 2.19.0: 1033 findings,
+  all justified, 0 open; deviation records 40 -> 42 in the analyser, 39 -> 41 in the MISRA Deviation Log
+  (Professional tier). The `static-analysis` job builds cppcheck 2.19.0 from a SHA-256-checked source
+  tarball (cached) and fails unless `cppcheck --version` is exactly `Cppcheck 2.19.0`; "0 open violations" is a
+  statement about that version (MISRA C:2012 addon). `tests/test_misra_version_pin.py` fails if the CI pin and the
+  docs that name it disagree.
 - **The six native_sim/SocketCAN runtime jobs no longer run on every PR and push to main.** They run weekly
   (Tuesdays 03:41 UTC), via `workflow_dispatch`, and on a PR only when it touches `core/`, `transport/`,
   `platform/`, `boards/`, `cmake/`, `Kconfig`, `west.yml`, the four examples they build (`robot_joint_controller_ecu`,
