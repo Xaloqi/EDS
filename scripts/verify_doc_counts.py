@@ -254,9 +254,75 @@ def check_execution_figures(all_docs) -> list:
     return problems
 
 
+# ---------------------------------------------------------------------------
+# Deviation-count guard (EDS#583, EDS-Safety#54, EDS#598)
+#
+# One number, three homes: the analyser's MISRA_DEVIATIONS registry, the
+# MISRA Deviation Log (EDS-Safety, Professional tier) and the prose docs. They
+# drifted apart twice (38 -> 39 in the log, DEV-FD-01 never transcribed, an
+# "10 deviations" row that was Rev 1.0). Prose is checked against the registry
+# always; the log is checked, by DEV- id, when a checkout is reachable
+# (EDS_SAFETY_ROOT, else a sibling ../EDS-Safety). The log is private, so
+# public CI cannot see it: the check then says so instead of passing silently.
+DEVIATION_COUNT_RE = re.compile(r"(?<![\w:.])(\d+)\s+(?:documented\s+|justified\s+)?deviations?\b", re.I)
+
+
+def registry_ids() -> list:
+    sys.path.insert(0, str(ROOT))
+    try:
+        import misra_analysis
+    finally:
+        sys.path.pop(0)
+    return [d["id"] for d in misra_analysis.MISRA_DEVIATIONS]
+
+
+def log_path():
+    import os
+    for cand in (os.environ.get("EDS_SAFETY_ROOT"), str(ROOT.parent / "EDS-Safety")):
+        if cand and (Path(cand) / "MISRA_DEVIATION_LOG.md").is_file():
+            return Path(cand) / "MISRA_DEVIATION_LOG.md"
+    return None
+
+
+def check_deviation_counts(all_docs, notes) -> list:
+    ids = registry_ids()
+    n = len(ids)
+    problems = []
+    for rel, text in all_docs:
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for m in DEVIATION_COUNT_RE.finditer(line):
+                if int(m.group(1)) != n:
+                    problems.append(
+                        f"{rel}:{lineno}: states {m.group(1)} MISRA deviations, "
+                        f"misra_analysis.py registers {n} — {m.group(0)!r}"
+                    )
+    log = log_path()
+    if log is None:
+        notes.append("MISRA Deviation Log not reachable (set EDS_SAFETY_ROOT): "
+                     "log/registry parity not checked")
+        return problems
+    text = log.read_text(encoding="utf-8")
+    in_log = re.findall(r"^### (DEV-[A-Z0-9-]+)\s*$", text, re.M)
+    if sorted(in_log) != sorted(ids):
+        problems.append(
+            f"{log}: DEV ids differ from misra_analysis.py "
+            f"(only in log: {sorted(set(in_log) - set(ids))}, "
+            f"only in registry: {sorted(set(ids) - set(in_log))})"
+        )
+    # Only the log's two standing totals; its history ("Rev 1.0 documented 10")
+    # quotes past counts on purpose.
+    for pat in (r"Total justified deviations:\s*(\d+)", r"All\s+(\d+)\s+deviations"):
+        for m in re.finditer(pat, text):
+            if int(m.group(1)) != n:
+                line = text.count("\n", 0, m.start()) + 1
+                problems.append(f"{log}:{line}: states {m.group(1)} deviations, registry has {n}")
+    return problems
+
+
 def main() -> int:
     expected = real_module_count()
     problems = []
+    notes = []
 
     for rel, text in docs():
         in_fence = False
@@ -306,6 +372,7 @@ def main() -> int:
                 )
 
     problems.extend(check_execution_figures(list(docs())))
+    problems.extend(check_deviation_counts(list(docs()), notes))
 
     if problems:
         print("FAIL: stale references in prose docs (#119 / #262 guards)\n")
@@ -317,6 +384,8 @@ def main() -> int:
         )
         return 1
 
+    for note in notes:
+        print(f"NOTE: {note}")
     totals = declared_floor_totals()
     print(f"PASS: prose docs agree with the real unit-test count ({expected}), "
           f"state execution figures matching the declared floor totals "

@@ -22,7 +22,7 @@ integration reviews ask questions these libraries cannot answer:
 | Question | `driftregion/iso14229` | Xaloqi EDS |
 |---|---|---|
 | ASIL-B-oriented safety documentation? | None | ASIL-B-oriented safety wrappers, 5-step validation chain, `docs/Safety_Model.md` |
-| MISRA C:2012 compliance? | Not stated | the MISRA Deviation Log (Professional tier — xaloqi.com) — 10 deviations, 0 open violations |
+| MISRA C:2012 compliance? | Not stated | the MISRA Deviation Log (Professional tier — xaloqi.com) — 44 deviations, 0 open violations (cppcheck 2.19.0) |
 | Automated test generation? | Manual tests only | `--test-gen` generates pytest suite from YAML config |
 | ISO 26262 work products? | None | MISRA deviation log (Table 1 Method 1b, Table 4 Row 1) |
 | AES-128-CMAC security? | Not included | Phase 1 hardening: RFC 4493 AES-CMAC + TRNG seed generation |

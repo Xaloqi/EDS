@@ -28,13 +28,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   ignored return values in `zephyr_lwip.c` (`k_msleep` x2, `k_sem_take`; Rule 17.7) now carry a
   `(void)` cast, with no behaviour change, and seven `struct sockaddr_in *` to `struct sockaddr *` socket
   arguments (Rule 11.3) are covered by the new deviation DEV-NET-01. The 50 Rule 8.7 hits are
-  header-declared API called from other translation units (generated `uds_init.c`, `main.c`, the
-  platform layer, the test builds): new deviation DEV-ACCS-02. Result on cppcheck 2.19.0: 1033 findings,
-  all justified, 0 open; deviation records 40 -> 42 in the analyser, 39 -> 41 in the MISRA Deviation Log
-  (Professional tier). The `static-analysis` job builds cppcheck 2.19.0 from a SHA-256-checked source
-  tarball (cached) and fails unless `cppcheck --version` is exactly `Cppcheck 2.19.0`; "0 open violations" is a
+  split by function, not justified together: 38 are documented API or called from generated, example,
+  platform or core code (DEV-ACCS-02), 12 are accessors that only the unit tests call (DEV-ACCS-03, to be
+  removed by #599). Both records name their functions, so a new externally-linked function in those
+  files is an OPEN violation until classified. Result on cppcheck 2.19.0: 1033 findings,
+  all justified, 0 open; 44 deviation records in the analyser and in the MISRA Deviation Log
+  (Professional tier), the same 44 ids; each list had been missing records the other had (DEV-FD-01, DEV-GOTO-01 and DEV-MEM-01, Xaloqi/EDS-Safety#54). The `static-analysis` job
+  builds cppcheck 2.19.0 from a source tarball (cached) whose SHA-256 was checked against
+  SourceForge's copy and against `git archive` of the 2.19.0 tag, and fails unless `cppcheck --version` is exactly `Cppcheck 2.19.0`; "0 open violations" is a
   statement about that version (MISRA C:2012 addon). `tests/test_misra_version_pin.py` fails if the CI pin and the
-  docs that name it disagree.
+  docs that name it disagree, and `scripts/verify_doc_counts.py` now fails if a doc states a deviation count that
+  differs from the analyser's (and, when `EDS_SAFETY_ROOT` points at an EDS-Safety checkout, if the log's `DEV-` ids
+  differ). `docs/ARDEP_UPGRADE_GUIDE.md` said 10 deviations (#598).
 - **The six native_sim/SocketCAN runtime jobs no longer run on every PR and push to main.** They run weekly
   (Tuesdays 03:41 UTC), via `workflow_dispatch`, and on a PR only when it touches `core/`, `transport/`,
   `platform/`, `boards/`, `cmake/`, `Kconfig`, `west.yml`, the four examples they build (`robot_joint_controller_ecu`,

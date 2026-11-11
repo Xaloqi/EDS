@@ -1466,22 +1466,43 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
         "date":        "2026-11-11",
     },
     {
+        "id":          "DEV-MEM-01",
+        "rule":        "10.3",
+        "category":    "required",
+        "description": "Address/length parsing and echo in the SID 0x23 and SID 0x3D handlers",
+        "rationale":   (
+            "SID 0x23 and SID 0x3D parse addressAndLengthFormatIdentifier, memoryAddress and "
+            "memorySize with the same shift-and-mask operations as service_0x34.c and "
+            "service_0x35.c; service_0x3D.c echoes the address and size bytes into the "
+            "response by index arithmetic on uint8_t arrays promoted to int. Same rationale "
+            "as DEV-CONV-01 and DEV-TYPE-01: indices are bounded by the ALFID-decoded field "
+            "lengths (1-4) checked in uds_transfer_parse_alfid(), all arithmetic stays "
+            "within uint16_t and is value-preserving. Registered here so the analyser and "
+            "the MISRA Deviation Log list the same records (it was log-only until #583). "
+            "Risk: LOW — identical to DEV-CONV-01 and DEV-TYPE-01."
+        ),
+        "files":       [
+            "core/uds_services/service_0x23.c",
+            "core/uds_services/service_0x3D.c",
+            "core/uds_services/service_transfer_common.h",
+        ],
+        "approved_by": "Lead Software Engineer",
+        "date":        "2026-06-29",
+    },
+    {
         "id":          "DEV-ACCS-02",
         "rule":        "8.7",
         "category":    "advisory",
-        "description": "External linkage for the public API of the core and ISO-TP layers",
+        "description": "External linkage for the documented API of the core and ISO-TP layers",
         "rationale":   (
-            "Every function reported was defined here, declared in a public header "
-            "(uds_safety.h, uds_security.h, uds_security_algo.h, uds_security_nvm.h, "
-            "uds_server.h, uds_session.h, uds_session_stats.h, uds_periodic.h, services.h, "
-            "isotp.h, can_transport.h) and is called from another translation unit: the "
-            "generated uds_init.c, the example and customer main.c files, the platform "
-            "layer, or the unit-test and integration builds that link the stack as a "
-            "library. cppcheck analyses each translation unit alone, so it sees a single "
-            "referencing unit. Making them static would remove the declared API and fail "
-            "to link. "
-            "[EDS#583] First reported by cppcheck 2.19.0 (2.7 did not run this check on "
-            "these); 50 functions, each listed in the PR that added this record. "
+            "Each function listed in `symbols` is declared in a header the application "
+            "includes and is either documented for the application to call (INTEGRATION_GUIDE, "
+            "threading_guide, SECURITY_NOTICE, AI_CONTEXT or its own header comment as an "
+            "integration hook) or called from generated or example code, the platform "
+            "layer or another core file. cppcheck analyses each translation unit alone, so it "
+            "sees a single referencing unit. Making them static would remove the declared API "
+            "and fail to link. The per-function basis is in the MISRA Deviation Log. "
+            "[EDS#583] Reported by cppcheck 2.19.0 only. "
             "Risk: NONE — external linkage is the architectural boundary."
         ),
         "files":       [
@@ -1495,6 +1516,87 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "core/uds_services/service_0x34.c",
             "transport/can_transport.c",
             "transport/isotp.c",
+        ],
+        "symbols":     [
+            "uds_safety_init",
+            "uds_safety_get_ctx",
+            "uds_safety_verify_did_database",
+            "uds_safety_self_test",
+            "uds_security_init",
+            "uds_security_algo_set_rng_cb",
+            "uds_security_algo_get_rng_cb",
+            "uds_security_algo_set_derive_cb",
+            "uds_security_algo_set_level_key",
+            "uds_security_algo_reset",
+            "uds_security_algo_get_trng_fallback_count",
+            "uds_security_algo_generate_seed",
+            "uds_security_algo_validate_key",
+            "uds_security_algo_keys_are_placeholder",
+            "uds_security_nvm_load",
+            "uds_security_nvm_save",
+            "uds_security_nvm_clear",
+            "uds_server_init",
+            "uds_server_tick_1ms",
+            "uds_service_0x34_pending_tick",
+            "uds_session_init",
+            "uds_session_register_change_cb",
+            "uds_session_set_strict_programming",
+            "uds_session_set_safety_system_enabled",
+            "uds_session_stats_flush",
+            "can_transport_receive",
+            "can_transport_get_status",
+            "isotp_init",
+            "isotp_process_rx_frame",
+            "isotp_transmit_uudt",
+            "isotp_transmit",
+            "isotp_tick_1ms",
+            "isotp_reset_rx",
+            "isotp_reset_tx",
+            "isotp_get_state",
+            "isotp_get_rx_state",
+            "isotp_get_rx_addressing",
+            "isotp_get_tx_state",
+        ],
+        "approved_by": "Pending: Xaloqi review (EDS#583)",
+        "date":        "2026-11-11",
+    },
+    {
+        "id":          "DEV-ACCS-03",
+        "rule":        "8.7",
+        "category":    "advisory",
+        "description": "External linkage for internal accessors that only the unit tests call",
+        "rationale":   (
+            "The functions listed in `symbols` are not documented for the application to "
+            "call and have no caller in generated, example, platform or core code: only "
+            "tests/ use them (cross-file, as the stack is linked as a library there). They "
+            "have external linkage because the tests need it. This is a deviation to be "
+            "removed, not an architectural boundary: the follow-up is to compile them only "
+            "under a test-hooks macro (EDS#599), after which this record is deleted. "
+            "[EDS#583] "
+            "Risk: LOW — each is a read accessor or reset, but a production build still "
+            "exports it; see the issue for the two that touch SecurityAccess state."
+        ),
+        "files":       [
+            "core/uds_safety.c",
+            "core/uds_security_algo.c",
+            "core/uds_server.c",
+            "core/uds_session.c",
+            "core/uds_session_stats.c",
+            "transport/isotp.c",
+        ],
+        "symbols":     [
+            "isotp_reset",
+            "uds_safety_check_service_in_session",
+            "uds_safety_reset_counters",
+            "uds_security_algo_derive_key",
+            "uds_security_algo_get_sequence",
+            "uds_server_get_counters",
+            "uds_server_pending_active",
+            "uds_session_is_default",
+            "uds_session_stats_get",
+            "uds_session_stats_init",
+            "uds_session_stats_on_change",
+            "uds_session_stats_record_security",
         ],
         "approved_by": "Pending: Xaloqi review (EDS#583)",
         "date":        "2026-11-11",
@@ -1588,14 +1690,33 @@ def _collect_sources(root: Path, src_dirs: List[str]) -> List[Path]:
     return sources
 
 
-def _deviation_for(rule: str, filepath: str) -> Optional[Dict[str, Any]]:
-    """Return the approved deviation record if this (rule, file) is justified."""
+_FUNC_NAME_RE = re.compile(r"(\w+)\s*\(")
+
+
+def _symbol_at(filepath: str, line: int) -> Optional[str]:
+    """Name of the function defined at filepath:line (the first identifier
+    before '(' on that line or the next: a definition may wrap)."""
+    try:
+        lines = Path(filepath).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    m = _FUNC_NAME_RE.search(" ".join(lines[line - 1:line + 1]))
+    return m.group(1) if m else None
+
+
+def _deviation_for(rule: str, filepath: str,
+                   line: int = 0) -> Optional[Dict[str, Any]]:
+    """Return the approved deviation record if this (rule, file[, symbol]) is
+    justified. A record with `symbols` covers only those functions, so a new
+    function in the same file is an OPEN violation until classified."""
     for dev in MISRA_DEVIATIONS:
         if dev["rule"] == rule:
             for pat in dev["files"]:
                 # Normalize path separators for matching
                 fp = filepath.replace("\\", "/")
                 if pat in fp or fp.endswith(pat):
+                    if "symbols" in dev and _symbol_at(filepath, line) not in dev["symbols"]:
+                        break
                     return dev
     return None
 
@@ -1843,7 +1964,7 @@ def run_cppcheck_analysis(
         except ValueError:
             line_no = 0
 
-        deviation = _deviation_for(rule, rel_file)
+        deviation = _deviation_for(rule, rel_file, line_no)
         status    = "JUSTIFIED" if deviation else "OPEN"
 
         findings.append({
