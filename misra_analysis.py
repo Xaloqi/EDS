@@ -24,8 +24,8 @@
 #     platform/      — Zephyr RTOS platform wrappers (third-party boundary)
 #
 # MISRA CHECKER STRATEGY:
-#   Primary:   cppcheck >= 2.6 with --addon=misra. CI pins 2.7, and the "0 open
-#              violations" claim holds for 2.7 only (2.19: 95 open, EDS#583).
+#   Primary:   cppcheck >= 2.6 with --addon=misra. CI pins cppcheck 2.19.0, and the "0 open
+#              violations" claim is a statement about that version (EDS#583).
 #              Requires: pip install cppcheck-misra  OR  apt install cppcheck
 #   Secondary: GCC MISRA-relevant warning flags (always available)
 #
@@ -102,6 +102,13 @@ INCLUDE_DIRS: List[str] = [
     "platform",
     "generated",
     "tests/mocks",
+]
+
+#: Declaration-only stand-ins for the lwIP / FreeRTOS / Zephyr headers (EDS#583).
+#: cppcheck only: without them every RTOS socket call is Rule 17.3 (mandatory,
+#: no deviation possible). Searched after INCLUDE_DIRS, so a real header wins.
+CPPCHECK_STUB_DIRS: List[str] = [
+    "tools/misra_stubs",
 ]
 
 #: Preprocessor defines for host-side compilation
@@ -1433,6 +1440,65 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
         "approved_by": "Lead Software Engineer",
         "date":        "2026-05-12",
     },
+    {
+        "id":          "DEV-NET-01",
+        "rule":        "11.3",
+        "category":    "required",
+        "description": "struct sockaddr_in * passed as struct sockaddr * to the BSD socket calls",
+        "rationale":   (
+            "bind(), accept(), recvfrom() and sendto() (lwip_* on FreeRTOS, zsock_* on "
+            "Zephyr) take a struct sockaddr *; the IPv4 address is a struct sockaddr_in. "
+            "Passing the latter through the former is the interface the socket API "
+            "defines: the two share a common initial member sequence and the callee "
+            "dispatches on sa_family. A union of the two types would only move the "
+            "conversion into the library. "
+            "[EDS#583] These casts were not visible to cppcheck before the RTOS "
+            "declarations were stubbed (the calls were reported as Rule 17.3 instead). "
+            "The deviation is bounded to the two RTOS socket bindings. "
+            "Risk: LOW — fixed-size objects of sockaddr_in type, alignment is that of "
+            "the stricter type, verified on native_sim and ARM Cortex-M."
+        ),
+        "files":       [
+            "transport/doip/zephyr_lwip.c",
+            "transport/doip/freertos_lwip.c",
+        ],
+        "approved_by": "Pending: Xaloqi review (EDS#583)",
+        "date":        "2026-11-11",
+    },
+    {
+        "id":          "DEV-ACCS-02",
+        "rule":        "8.7",
+        "category":    "advisory",
+        "description": "External linkage for the public API of the core and ISO-TP layers",
+        "rationale":   (
+            "Every function reported was defined here, declared in a public header "
+            "(uds_safety.h, uds_security.h, uds_security_algo.h, uds_security_nvm.h, "
+            "uds_server.h, uds_session.h, uds_session_stats.h, uds_periodic.h, services.h, "
+            "isotp.h, can_transport.h) and is called from another translation unit: the "
+            "generated uds_init.c, the example and customer main.c files, the platform "
+            "layer, or the unit-test and integration builds that link the stack as a "
+            "library. cppcheck analyses each translation unit alone, so it sees a single "
+            "referencing unit. Making them static would remove the declared API and fail "
+            "to link. "
+            "[EDS#583] First reported by cppcheck 2.19.0 (2.7 did not run this check on "
+            "these); 50 functions, each listed in the PR that added this record. "
+            "Risk: NONE — external linkage is the architectural boundary."
+        ),
+        "files":       [
+            "core/uds_safety.c",
+            "core/uds_security.c",
+            "core/uds_security_algo.c",
+            "core/uds_security_nvm.c",
+            "core/uds_server.c",
+            "core/uds_session.c",
+            "core/uds_session_stats.c",
+            "core/uds_services/service_0x34.c",
+            "transport/can_transport.c",
+            "transport/isotp.c",
+        ],
+        "approved_by": "Pending: Xaloqi review (EDS#583)",
+        "date":        "2026-11-11",
+    },
 ]
 
 # =============================================================================
@@ -1697,7 +1763,7 @@ def run_cppcheck_analysis(
     exit, an unrunnable binary, an error line in its output, or a failed
     canary. "Zero findings" is only returned when the checker demonstrably ran.
     """
-    include_args = [f"-I{root / d}" for d in INCLUDE_DIRS]
+    include_args = [f"-I{root / d}" for d in INCLUDE_DIRS + CPPCHECK_STUB_DIRS]
     define_args  = [f"-D{d}" for d in DEFINES]
 
     # Check cppcheck version
@@ -1755,6 +1821,11 @@ def run_cppcheck_analysis(
         filepath = parts[0].strip()
         line_no_str = parts[1].strip() if len(parts) > 1 else "0"
         rest = ":".join(parts[2:])
+
+        # The stub headers stand in for third-party code; what they would
+        # report is not EDS code (EDS#583).
+        if any(d + "/" in filepath.replace("\\", "/") for d in CPPCHECK_STUB_DIRS):
+            continue
 
         # Extract MISRA rule from the id field
         rule_match = re.search(r"misra-c2012-(\d+\.\d+)", rest)

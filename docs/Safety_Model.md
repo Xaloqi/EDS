@@ -369,7 +369,7 @@ integrator-facing detail.
 
 ## 11. MISRA C:2012 Alignment
 
-The production codebase (`core/`, `transport/`, `config/`, `generated/`) is analysed against MISRA C:2012 in CI via `misra_analysis.py` with cppcheck. The CI static-analysis job (pinned to cppcheck 2.7; it fails on any other version) enforces zero open violations (cppcheck 2.7 MISRA C:2012 addon) — any new finding requires a documented deviation entry in the MISRA Deviation Log (Professional tier — xaloqi.com) before CI will pass.
+The production codebase (`core/`, `transport/`, `config/`, `generated/`) is analysed against MISRA C:2012 in CI via `misra_analysis.py` with cppcheck. The CI static-analysis job (pinned to cppcheck 2.19.0; it fails on any other version) enforces zero open violations (cppcheck 2.19.0 MISRA C:2012 addon) — any new finding requires a documented deviation entry in the MISRA Deviation Log (Professional tier — xaloqi.com) before CI will pass.
 
 Key design choices that eliminate common MISRA violations:
 
@@ -389,7 +389,7 @@ Current status of ISO 26262-6:2018 Part 6 work products:
 |---|---|---|
 | Software safety requirements (ASIL-B) | Present | `EDS_Requirements_Traceability_Matrix.csv` — included in Professional tier safety package |
 | Software architectural design | Present | `docs/ARCHITECTURE.md`, this document |
-| MISRA C:2012 deviation log | Complete | the MISRA Deviation Log (Professional tier — xaloqi.com) (every deviation justified, 0 open violations (cppcheck 2.7 MISRA C:2012 addon) — counts in the log itself) |
+| MISRA C:2012 deviation log | Complete | the MISRA Deviation Log (Professional tier — xaloqi.com) (every deviation justified, 0 open violations (cppcheck 2.19.0 MISRA C:2012 addon) — counts in the log itself) |
 | Unit testing (ISO 26262-6 Table 10) | Present | every module under `tests/unit_runnable/`, run by `build_tests.sh` |
 | Integration testing | Present | Firmware harness (68 tests) + generated pytest suite |
 | Safety manual | Complete | EDS-SM-001 — delivered to Professional tier licensees via xaloqi.com (revision in `CUSTOMER_NOTICE.md`) |

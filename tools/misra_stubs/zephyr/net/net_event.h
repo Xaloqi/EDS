@@ -1,0 +1,5 @@
+/* MISRA analysis stub (EDS#583). */
+#ifndef MISRA_STUB_ZEPHYR_NET_EVENT_H
+#define MISRA_STUB_ZEPHYR_NET_EVENT_H
+#define NET_EVENT_IPV4_ADDR_ADD 1U
+#endif

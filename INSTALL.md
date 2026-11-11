@@ -37,7 +37,7 @@ It installs by extracting into the public EDS repo you already cloned.
   - Hazard Analysis and Risk Assessment (EDS-HARA-001)
   - Tool Qualification Argument (EDS-TQA-001)
   - Requirements Traceability Matrix — every requirement with its ASIL, implementation, tests and coverage status
-  - MISRA C:2012 Deviation Log — 39 deviations, 0 open violations
+  - MISRA C:2012 Deviation Log — 41 deviations, 0 open violations
   - Security Integration Guide
   - Customer Notice (integration responsibilities, ASIL-B candidate status)
 
@@ -576,7 +576,7 @@ The `safety_docs/` directory contains the complete ISO 26262-aligned documentati
 | HARA | `EDS-HARA-001.md` | 6 hazard events, ASIL decomposition argument |
 | TQA | `EDS-TQA-001.md` | Tool qualification argument (TCL1 per ISO 26262-8 §11) |
 | RTM | `EDS_Requirements_Traceability_Matrix.csv` | Every requirement with its ASIL, implementation files, tests and coverage status (COVERED / PARTIAL) — the CSV is the source of truth for its counts |
-| MISRA log | `MISRA_DEVIATION_LOG.md` | 39 documented deviations, 0 open violations |
+| MISRA log | `MISRA_DEVIATION_LOG.md` | 41 documented deviations, 0 open violations |
 | Security guide | `SECURITY_INTEGRATION.md` | OEM key provisioning for AES-128-CMAC |
 | Customer notice | `CUSTOMER_NOTICE.md` | ASIL-B candidate status, integrator responsibilities |
 
