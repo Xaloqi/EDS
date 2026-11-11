@@ -41,7 +41,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `bms_ecu`, `canfd_ecu`, `basic_ecu`), their `scripts/smoke_*` / `scripts/e2e_*` files, or `ci.yml`. All other jobs
   skip the scheduled run. The "Load vcan" step now retries the `linux-modules-extra` install three times (180 s
   each, step limit 12 min) instead of one 240 s attempt that timed out on a slow runner.
-- **`write_range` on a DID** (EDS-toolchain#253). A writable `source: app` DID whose handler rejects some
+- **`write_range` on a DID** (EDS-toolchain#253). Used by the generated tests; your write handler still enforces the range. A writable `source: app` DID whose handler rejects some
   values (bms_ecu 0xD910/0xD911: 3800-4350 mV and 2500-3200 mV) can now declare `write_range: { min, max }`
   (inclusive, the unsigned big-endian value over `data_length` bytes). Until now the range lived in a YAML comment,
   so generated write tests sent an arbitrary pattern and got `7F 2E 31` from the real handler. Validation: both

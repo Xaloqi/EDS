@@ -108,12 +108,12 @@ DID_ENTRY_SCHEMA = {
             },
             "additionalProperties": False,
             "description": (
-                "Inclusive range of the value the application's did_write_<name>() "
-                "accepts, read as an unsigned big-endian integer over data_length "
-                "bytes. Only for 'source: app' DIDs with write access: it is what "
-                "the generated write tests use to pick a value the handler will "
-                "take instead of an arbitrary pattern (EDS-toolchain#253). Codegen "
-                "does not enforce it; the handler does."
+                "Used by the generated tests; your write handler still enforces the "
+                "range. Inclusive range of the value the application's "
+                "did_write_<name>() accepts, read as an unsigned big-endian integer "
+                "over data_length bytes. Only for 'source: app' DIDs with write "
+                "access: the generated write tests send a value inside it instead of "
+                "an arbitrary pattern (EDS-toolchain#253). Codegen does not enforce it."
             )
         },
         "source": {
