@@ -696,6 +696,10 @@ the DID gets a generated stub that returns its `default_value` or zeros; the
 only way to change that value from app code is a UDS-writable DID, so use
 `source: app` for live measurements instead of adding `write`
 (EDS-toolchain#201). `source: app` cannot be combined with `default_value`.
+A writable `source: app` DID whose `did_write_<name>()` rejects some values can say
+which it accepts with `write_range: { min: 3800, max: 4350 }` (inclusive, the unsigned
+big-endian value of the `data_length` bytes). Codegen does not enforce it; the generated
+tests use it to write a value inside it (EDS-toolchain#253).
 
 ```c
 #include "did_handlers.h"

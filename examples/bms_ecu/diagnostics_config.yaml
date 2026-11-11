@@ -386,6 +386,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 2
+    write_range: { min: 3800, max: 4350 }   # enforced by src/bms_sim.c; generated tests write inside it (EDS-toolchain#253)
     # uint16 mV. Cell overvoltage protection threshold.
     # OEM default: 4200 mV (NMC chemistry). Range: 3800–4350 mV.
     # Write requires security level 1 to prevent accidental modification.
@@ -400,6 +401,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 2
+    write_range: { min: 2500, max: 3200 }   # enforced by src/bms_sim.c; generated tests write inside it (EDS-toolchain#253)
     # uint16 mV. Cell undervoltage protection threshold.
     # OEM default: 2800 mV (NMC chemistry). Range: 2500–3200 mV.
 
