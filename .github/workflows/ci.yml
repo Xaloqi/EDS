@@ -834,6 +834,14 @@ jobs:
       # the job builds exactly that one. The runner image's package (2.7 on
       # 22.04) is not installed and not used. The source tarball is checked
       # against a pinned SHA-256; the build is cached per version.
+      #
+      # Where the hash comes from (checked 2026-11-11, not taken from one
+      # download): the GitHub tag archive and SourceForge's
+      # cppcheck/2.19/cppcheck-2.19.0.tar.gz are byte-identical (both hash to the
+      # value below), and the extracted tree equals `git archive` of tag 2.19.0
+      # (commit 9730a448fb7e9c205b7ec47b7ba88c5406954538), 1100 files, diff -r
+      # clean. The upstream GitHub release publishes only a Windows MSI, so
+      # there is no upstream-signed source checksum to quote.
       - name: Cache cppcheck
         id: cppcheck-cache
         uses: actions/cache@v4
