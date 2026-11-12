@@ -1462,8 +1462,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "transport/doip/zephyr_lwip.c",
             "transport/doip/freertos_lwip.c",
         ],
-        "approved_by": "Pending: Xaloqi review (EDS#583)",
-        "date":        "2026-11-11",
+        "approved_by": "Xaloqi engineering review",
+        "date":        "2026-11-12",
     },
     {
         "id":          "DEV-MEM-01",
@@ -1557,8 +1557,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "isotp_get_rx_addressing",
             "isotp_get_tx_state",
         ],
-        "approved_by": "Pending: Xaloqi review (EDS#583)",
-        "date":        "2026-11-11",
+        "approved_by": "Xaloqi engineering review",
+        "date":        "2026-11-12",
     },
     {
         "id":          "DEV-ACCS-03",
@@ -1598,8 +1598,8 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "uds_session_stats_on_change",
             "uds_session_stats_record_security",
         ],
-        "approved_by": "Pending: Xaloqi review (EDS#583)",
-        "date":        "2026-11-11",
+        "approved_by": "Xaloqi engineering review",
+        "date":        "2026-11-12",
     },
 ]
 
