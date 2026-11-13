@@ -90,6 +90,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   re-export (EDS-toolchain#258).
 - **UDS 0x19 sub-function 0x55** (reportWWHOBDDTCWithPermanentStatus) is not implemented yet: #602, planned for
   the next release.
+- **The test simulator does not model `write_range`.** For bms_ecu 0xD910/0xD911 it accepts an out-of-range write that
+  the real handler rejects with NRC 0x31 (`7F 2E 31`). The generated tests only write in-range values, so none of them
+  is affected. EDS-toolchain's release gate lists the two cases as a known difference; it goes away with
+  EDS-toolchain#257, planned for the next release.
 
 ## [1.28.0] — 2026-11-09
 
