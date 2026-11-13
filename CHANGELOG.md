@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.29.0] — 2026-11-13
+
 ### Added
 
 - **`scripts/e2e_dfu_download.py` and a bench measurement of the `safeboot_ecu` Flow Control change** (#562, PR #595).
@@ -29,11 +31,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `(void)` cast, with no behaviour change, and seven `struct sockaddr_in *` to `struct sockaddr *` socket
   arguments (Rule 11.3) are covered by the new deviation DEV-NET-01. The 50 Rule 8.7 hits are
   split by function, not justified together: 38 are documented API or called from generated, example,
-  platform or core code (DEV-ACCS-02), 12 are accessors that only the unit tests call (DEV-ACCS-03, to be
-  removed by #599). Both records name their functions, so a new externally-linked function in those
+  platform or core code (DEV-ACCS-02), 12 are accessors that only the unit tests call (DEV-ACCS-03; #599 tracks compiling them
+  only under a test-hooks macro). Both records name their functions, so a new externally-linked function in those
   files is an OPEN violation until classified. Result on cppcheck 2.19.0: 1033 findings,
   all justified, 0 open; 44 deviation records in the analyser and in the MISRA Deviation Log
-  (Professional tier), the same 44 ids; each list had been missing records the other had (DEV-FD-01, DEV-GOTO-01 and DEV-MEM-01, Xaloqi/EDS-Safety#54). The `static-analysis` job
+  (EDS-MISRA-DEV-001, Professional tier), the same 44 ids; each list had been missing records the other had (DEV-FD-01, DEV-GOTO-01 and DEV-MEM-01, Xaloqi/EDS-Safety#54). The `static-analysis` job
   builds cppcheck 2.19.0 from a source tarball (cached) whose SHA-256 was checked against
   SourceForge's copy and against `git archive` of the 2.19.0 tag, and fails unless `cppcheck --version` is exactly `Cppcheck 2.19.0`; "0 open violations" is a
   statement about that version (MISRA C:2012 addon). `tests/test_misra_version_pin.py` fails if the CI pin and the
@@ -71,6 +73,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   in `generated_config.h`). Regenerated with EDS-toolchain's templates; the diff is those lines only.
   EDS-toolchain's freshness test now covers all four, and fails for any example that commits `generated/`
   without being tracked.
+
+### EDS-toolchain (Developer and Professional ZIPs)
+
+- **Generated write tests stay inside a DID's `write_range`** (EDS-toolchain#256) and the **VS Code
+  validator and hover know the key** (EDS-toolchain#259); see `write_range` above.
+- **CI runs EDS's robustness campaign with the toolchain's templates** (EDS-toolchain#254), which is how the
+  wrong DTC-severity assertion (#589) is now caught before a release.
+- **The example freshness check covers the four examples it missed** (EDS-toolchain#255).
+
+### Known
+
+- **`write_range` is not enforced by generated code.** The generated tests write in-range values and your
+  handler still enforces the range; generating the NRC 0x31 check and out-of-range test writes is
+  EDS-toolchain#257. The configurator GUI drops the `write_range` and `source` keys on import and
+  re-export (EDS-toolchain#258).
+- **UDS 0x19 sub-function 0x55** (reportWWHOBDDTCWithPermanentStatus) is not implemented yet: #602, planned for
+  the next release.
 
 ## [1.28.0] — 2026-11-09
 
