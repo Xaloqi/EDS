@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **The DID validation chain is described once, from the code** (#612). The README listed a fourth step "Access type
+  permitted → NRC 0x6F conditionsNotCorrect": 0x6F is not an ISO 14229-1 NRC, and conditionsNotCorrect is 0x22.
+  `docs/Safety_Model.md` §5 listed different steps, named status codes that do not exist, and showed the service
+  handlers calling the generated wrappers (they run the same checks through the DID database). Both now give the
+  order the stack uses: pointer guards; DID supported for this access in the active session (0x31); security
+  (0x33); length (0x13); callback. §6's NRC table is what the compiled stack answered on the `bms_ecu` harness.
+  `tests/test_doc_nrc_pairs.py` checks every NRC number and name pair in the docs against `uds_nrc_t`.
+- **INSTALL.md names the Safety Manual the Professional package ships** (#611): Rev 1.5,
+  `safety_docs/EDS_Safety_Manual_EDS-SM-001_Rev1.5.pdf`. It said Rev 1.3, a file that left the package on
+  2026-10-18.
+
 ## [1.29.0] — 2026-11-13
 
 ### Added

@@ -450,15 +450,24 @@ diagnostics_config.yaml
 ```
 
 **No dynamic memory. No recursion. Static buffers only.**  
-Every DID access passes a 5-step ASIL-B-oriented chain generated from YAML:
+Every DID read or write passes the same ordered checks before its callback runs
+(`core/uds_safety.c`; the service handlers and the generated `did_safe_*()` wrappers both call them):
 
 ```
-Step 1  DID exists?              → NRC 0x31 requestOutOfRange
-Step 2  Session allows it?       → NRC 0x7F serviceNotSupportedInActiveSession
-Step 3  Security level met?      → NRC 0x33 securityAccessDenied
-Step 4  Access type permitted?   → NRC 0x6F conditionsNotCorrect
-Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFormat
+Step 1  Pointers valid?                                  → internal error, no DID access
+Step 2  DID exists and supports this access
+        (read / write) in the active session?            → NRC 0x31 requestOutOfRange
+Step 3  Security level unlocked?                         → NRC 0x33 securityAccessDenied
+Step 4  Length: write data equals the DID length,
+        read buffer holds the DID?                       → NRC 0x13 incorrectMessageLengthOrInvalidFormat
+Step 5  The DID callback runs
 ```
+
+For a write, the length check runs before the security check (ISO 14229-1:2026
+Figure 27). A service that the active session or security level does not allow
+at all is refused before this chain, by the service access table (NRC 0x7F or
+0x33). Details and the requirement behind each step:
+[`docs/Safety_Model.md`](docs/Safety_Model.md) §5.
 
 | Directory | Contents |
 |---|---|
