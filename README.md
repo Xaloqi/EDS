@@ -218,7 +218,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 | **SOVD CDA** | `--sovd` flag: YAML → `sovd_cda.json` — DIDs, DTCs, routines, transport, all 19 services · SOVD-inspired field names, not a conformant ASAM SOVD / ISO 17978-3 capability description · DoIP ECUs include `logicalAddress` and `port` |
 | **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
-| **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |
+| **ECU examples** | 15 in `examples/`: basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · basic\_cda\_demo · CAN FD · BMS · motor controller · ARDEP · sensor · sensor\_freertos · safeboot · safeboot\_freertos · robot joint · vehicle state — 5–35 DIDs each, Zephyr and FreeRTOS |
 | **Wireshark dissector** | `extras/wireshark/eds.lua` — UDS service names · NRC descriptions · ISO-TP frame types · DoIP payload decode · load in 3 steps |
 | **CI pipeline** | GitHub Actions — unit tests · integration tests · Zephyr builds (native_sim + STM32) · FreeRTOS ARM · MISRA analysis · DoIP integration · SOVD CDA · full robustness campaign |
 
@@ -491,7 +491,7 @@ at all is refused before this chain, by the service access table (NRC 0x7F or
 | `platform/` | Platform abstraction layer — `platform/zephyr/` (Zephyr HAL) · `platform/freertos/` (FreeRTOS HAL) · `platform_api.h` (shared interface) |
 | `tools/` | `codegen.py`, `testgen.py`, 18 Jinja2 templates |
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command *(Developer/Professional tier)* |
-| `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · safeboot\_freertos\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
+| `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · basic\_ecu\_cda\_demo · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · safeboot\_freertos\_ecu · robot\_joint\_controller\_ecu · canfd\_ecu · vehicle\_state\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu (15) · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard *(Developer/Professional tier)* |
 | `tests/` | 63 Unity unit tests, harness, Python integration tests |
 
@@ -523,20 +523,23 @@ inspect without a license.
 | `bms_ecu` | 24 | 10 | 5 | native\_sim | **compile-verified** (native\_sim) |
 | `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | **compile-verified** (native\_sim) |
 | `ardep_ecu` | 35 | 19 | 6 | ardep (custom board, ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim) |
-
-**What the Evidence column means** (added for
+| `basic_ecu_cda_demo` | 6 | 2 | 4 | native\_sim (host SocketCAN) | **compile-verified** (native\_sim); the CDA interop script above drives it, run by hand, not in CI |
+| `vehicle_state_ecu` | 5 | 2 | 2 | native\_sim (loopback) | **compile-verified** (native\_sim) |
 [#329](https://github.com/Xaloqi/EDS/issues/329) — before it, nothing in this
 repo said which targets had ever been flashed). Each example carries the
 strongest label that is true of it:
 
 | Label | Means | Proof |
 |---|---|---|
+
+**What the Evidence column means** (added for
 | **hardware-validated** | Flashed onto real silicon and exercised, with measurements recorded | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — DWT cycle-counter figures from a NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, `-Os`): `safeboot_ecu` over CAN/ISO-TP, `basic_ecu_doip` over the board's onboard MAC+PHY |
 | **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
 
-**All thirteen examples are now at least compile-verified, and two have been on a
-bench.** That became true on 2026-10-02 and was not true before, which is worth
-stating rather than quietly presenting as always-so:
+**All fifteen examples are now at least compile-verified, and two have been on a
+bench.** For the first thirteen that became true on 2026-10-02 and was not true
+before (`basic_ecu_cda_demo` and `vehicle_state_ecu` were added to the CI matrix
+later), which is worth stating rather than quietly presenting as always-so:
 
 - Until then, **six of the twelve had never been compiled for any target** and a
   seventh, `basic_ecu_doip_freertos`, had no CI coverage at all. Their
@@ -554,7 +557,7 @@ stating rather than quietly presenting as always-so:
 Read **compile-verified** literally: it means the committed generated code
 compiles and links against the stack on that target. It is not a claim that the
 example has run anywhere, and for the `native_sim` entries it is not a claim
-about the physical board named in the Boards column. All thirteen ship complete,
+about the physical board named in the Boards column. All fifteen ship complete,
 committed generated code and are architecturally identical in how they wire the
 stack — that is why they are useful as references — but only two have been on a
 bench.
