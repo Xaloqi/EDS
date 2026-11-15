@@ -22,9 +22,8 @@
  *
  *   3. The latest readings are stored in s_sensor_state (protected by
  *      s_sensor_lock). sensor_state_get() below is called directly from
- *      the [APP HOOK] bodies in generated/did_handlers.c's DID
- *      0xD001/0xD002/0xD003 read callbacks and generated/
- *      routine_handlers.c's SensorSelfTest routine — [EDS#339], fixed.
+ *      src/diag_app.c's DID 0xD001/0xD002/0xD003 read callbacks and its
+ *      SensorSelfTest routine ('source: app', EDS#339/EDS#613).
  *      The threshold setters below (sensor_set_temp_threshold_high/low)
  *      are likewise called from DID 0xD010/0xD011's write callbacks and
  *      the ResetSensorCalibration routine.

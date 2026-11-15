@@ -112,8 +112,8 @@ python3 tools/codegen.py --config examples/vehicle_state_ecu/diagnostics_config.
                           --safety-wrappers --asil-level B --no-manifest
 ```
 
-then reapply the four `[APP HOOK]` bodies in `generated/routine_handlers.c` (a configure-time
-check fails the build loudly if you forget — see `CMakeLists.txt`).
+Both routines are `source: app`: their callbacks are in `src/diag_app.c`, delegating to
+`src/vehicle_state.c`, and codegen leaves them alone (EDS#613).
 
 ## Running the campaign
 

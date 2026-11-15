@@ -10,20 +10,25 @@
 # customers to run pytest. Keep this file and the tools it serves in sync;
 # do not reintroduce a second copy in EDS-toolchain.
 #
+# Floors are the first release with no known advisory (OSV, checked
+# 2026-11-15), not the latest. Exceptions: pytest's fix (9.0.3) needs Python
+# 3.10 and EDS supports 3.9, and PyJWT's CVE-2025-45768 is disputed with no
+# fixed release.
+#
 # Required for codegen.py:
 pyyaml>=6.0
-jinja2>=3.1
+jinja2>=3.1.6
 #
 # Required for license verification (_license.py, activate.py) and key
 # generation (keygen.py). These are the ONLY additional dependencies beyond
 # standard codegen requirements:
-cryptography>=41.0.0
-PyJWT>=2.8.0
+cryptography>=49.0.0
+PyJWT>=2.15.0
 #
 # Required for test generation (testgen.py) and the generated integration
 # tests (commercial tiers; harmless to install otherwise):
 pytest>=7.4
-pycryptodome>=3.18
+pycryptodome>=3.19.1
 pyelftools>=0.29
 #
 # Required for eds_ai.py, the AI configuration assistant (commercial tiers).

@@ -163,6 +163,7 @@ routines:
     min_session:    "extended"
     security_level: 0
     support:        ["start", "results"]
+    source: app                      # body in src/diag_app.c (EDS#613)
 
   - id:   "0xC101"
     name: "IndicatorLampCheck"
@@ -174,3 +175,4 @@ routines:
     min_session:    "extended"
     security_level: 1
     support:        ["start", "stop"]
+    source: app                      # body in src/diag_app.c (EDS#613)

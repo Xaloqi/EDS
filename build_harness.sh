@@ -163,6 +163,12 @@ APP_STUB_SRCS=()
 if [[ -f "$ROOT/harness/app_stubs/${EXAMPLE}.c" ]]; then
     APP_STUB_SRCS=("$ROOT/harness/app_stubs/${EXAMPLE}.c")
 fi
+# The example's 'source: app' DID and routine bodies (EDS#613). They are the
+# application's diagnostic handlers, written against its own API, which the
+# stand-in above provides on the host.
+if [[ -f "$ROOT/examples/${EXAMPLE}/src/diag_app.c" ]]; then
+    APP_STUB_SRCS+=("$ROOT/examples/${EXAMPLE}/src/diag_app.c")
+fi
 HARNESS_SRCS=(
     "$ROOT/harness/harness_main.c"
     "$ROOT/harness/harness_ecu.c"

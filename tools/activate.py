@@ -43,6 +43,8 @@ EXIT CODES:
 from __future__ import annotations
 
 import argparse
+import base64
+import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -75,6 +77,41 @@ def _require_license_module() -> None:
         sys.exit(1)
 
 
+# A Xaloqi TestLab key is signed with TestLab's key pair, so EDS verification
+# fails on the signature and used to call it "tampered" (2026-11-13 campaign).
+# The bundle sends two keys; say which one this is and where it goes.
+TESTLAB_PRODUCT_ID = "xaloqi-testlab"
+
+
+def _unverified_product(key: str) -> "str | None":
+    """The `product` claim of a JWT, read WITHOUT verifying it, or None.
+
+    Only ever used to word an error message for a key that already failed
+    verification; never to accept one.
+    """
+    parts = key.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        payload = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
+        product = json.loads(payload).get("product")
+    except (ValueError, AttributeError):
+        return None
+    return product if isinstance(product, str) else None
+
+
+def _wrong_product_hint(key: str) -> "str | None":
+    if _unverified_product(key) != TESTLAB_PRODUCT_ID:
+        return None
+    return (
+        "This is a Xaloqi TestLab licence key, not an EDS key.\n"
+        "  Activate it in TestLab instead:  testlab-activate --key <YOUR_TESTLAB_KEY>\n"
+        "  (or set XALOQI_TESTLAB_KEY). A bundle comes with two keys: the EDS\n"
+        "  key goes here, in python3 tools/activate.py --key ...; check your\n"
+        "  purchase email for the other one."
+    )
+
+
 def cmd_activate(key: str, quiet: bool = False) -> None:
     """Validate and install a license key."""
     _require_license_module()
@@ -94,7 +131,7 @@ def cmd_activate(key: str, quiet: bool = False) -> None:
     try:
         claims = _license._verify_jwt(key)
     except ValueError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        print(f"ERROR: {_wrong_product_hint(key) or exc}", file=sys.stderr)
         sys.exit(1)
 
     tier       = claims.get("tier", "unknown")
@@ -188,9 +225,18 @@ def cmd_check() -> None:
 
     if result.message:
         print()
-        print(result.message)
+        print(_wrong_product_hint(_installed_key(env_key)) or result.message)
 
     sys.exit(0 if result.is_usable else 1)
+
+
+def _installed_key(env_key: str) -> str:
+    if env_key:
+        return env_key
+    try:
+        return _license.LICENSE_FILE_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def cmd_deactivate() -> None:

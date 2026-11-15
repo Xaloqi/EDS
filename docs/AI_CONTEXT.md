@@ -721,6 +721,14 @@ A writable DID with `source: app` works the same way: you also define
 `did_write_<name>(const uint8_t *buf, uint16_t len)`, called only after the
 0x2E gate and the safety wrapper pass.
 
+A routine takes `source: app` too (EDS#613): codegen declares
+`routine_start_<name>()` (and `routine_stop_<name>()` / `routine_results_<name>()`
+for the sub-functions in `support`) and registers them behind the routine's
+session and security gates, and your code defines them. `examples/sensor_ecu` and
+`examples/vehicle_state_ecu` do this in `src/diag_app.c`. Never put application
+code in `generated/`: codegen refuses (exit 1) to overwrite a file there that
+contains `[APP HOOK]`, unless `--force`.
+
 ---
 
 ### Pattern 2: Add a secured write DID

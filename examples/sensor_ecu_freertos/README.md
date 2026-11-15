@@ -11,9 +11,10 @@ instead of Zephyr.
 read+write previously returned static mock data — `src/did_handlers_impl.c` had
 the real implementation, but it was wired to a CI step ("Install sensor DID
 implementations") that never existed, so no build (including CI) ever used it.
-That logic now lives directly in `generated/did_handlers.c`'s `[APP HOOK]`
-bodies (same pattern as `examples/sensor_ecu`, EDS#339); `did_handlers_impl.c`
-is deleted.
+That logic now lives in `src/diag_app.c`: the five DIDs and two routines are
+`source: app` in `diagnostics_config.yaml`, so codegen declares and registers
+them and emits no body (EDS#613, same as `examples/sensor_ecu`);
+`did_handlers_impl.c` is deleted.
 
 The reference for FreeRTOS teams who want live sensor data exposed over UDS diagnostics.
 
@@ -34,8 +35,8 @@ sensor_monitor task (FreeRTOS, 100 ms, priority 4)
     └── sensor_state_get() / sensor_set_temp_threshold_*()
             │
             ▼
-    generated/did_handlers.c [APP HOOK] bodies  ← UDS 0x22/0x2E read/write
-                                                    that same live state
+    src/diag_app.c ('source: app' handlers)  ← UDS 0x22/0x2E/0x31 read/write
+                                                that same live state
 ```
 
 ---
@@ -47,6 +48,7 @@ sensor_ecu_freertos/
 ├── diagnostics_config.yaml      Same YAML as sensor_ecu (RTOS-agnostic)
 ├── src/main.c                   FreeRTOS entry point (main())
 ├── src/sensor_monitor_freertos.c 100 ms monitoring task (cyclic sim)
+├── src/diag_app.c               The 'source: app' DID and routine handlers
 ├── boards/qemu_cortex_m4/       QEMU Cortex-M4 configuration
 └── generated/                   Pre-committed codegen output — NOT regenerated
                                   by CI (CI only verifies these files exist;
@@ -80,9 +82,8 @@ working one (EDS issue #268).
 **Platform:** Builds for QEMU ARM Cortex-M4 in CI.  
 **Note:** `generated/` is pre-committed, same as every other example — CI does
 not regenerate it, only verifies the files are present. If you edit
-`diagnostics_config.yaml`, regenerate locally and reapply the `[APP HOOK]`
-bodies in `generated/did_handlers.c`/`generated/routine_handlers.c` (EDS#349)
-before committing.
+`diagnostics_config.yaml`, regenerate locally before committing; the handlers
+in `src/diag_app.c` are not touched by codegen.
 
 ---
 

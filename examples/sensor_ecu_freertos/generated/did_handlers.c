@@ -3,36 +3,14 @@
  * Xaloqi EDS
  * FILE: GENERATED — did_handlers.c
  *
- * ECU       : SensorECU (FreeRTOS)
+ * ECU       : SensorECU
  * Version   : 1.0.0
- * Generated : 2026-08-30T13:16:46Z
+ * Generated : 2026-11-15T10:18:13Z
  *
- * [APP HOOK] This file normally regenerates as pure TODO stubs (see every
- * other example's generated/did_handlers.c). This one departs from that,
- * intentionally, same as examples/sensor_ecu/generated/did_handlers.c
- * (EDS#339) and examples/vehicle_state_ecu/generated/routine_handlers.c
- * (EDS#341): the 7 bodies marked [APP HOOK] below (3 live-sensor reads,
- * TemperatureThresholdHigh/Low read+write) delegate to
- * sensor_monitor_freertos.c's real state instead of a static mock array.
- *
- * [EDS#349] This example previously had a *second*, separate copy of this
- * same real logic in src/did_handlers_impl.c, wired to a CI step
- * ("Install sensor DID implementations") that never existed — so it was
- * dead code, never compiled, and this file's stub bodies are what every
- * build (including CI) actually ran. Ported that logic directly into the
- * [APP HOOK] bodies below instead (the only mechanism that actually
- * works — did_database_register() copies the did_entry_t, including its
- * bare read_cb/write_cb function pointers, by value into a fixed-capacity
- * array at init, so nothing can re-point a callback at runtime) and
- * deleted did_handlers_impl.c. Reapply these [APP HOOK] markers if this
- * file is ever regenerated (CMakeLists.txt's codegen invocation is manual
- * for this example, not a CMake step, so there is no automatic guard here
- * — see CMakeLists.txt's USAGE comment).
- *
- * PURPOSE: DID read/write handlers and static DID registration table.
- *          VehicleIdentificationNumber/ECUSerialNumber remain stub mocks
- *          (out of EDS#349's scope — no real VIN/serial source in this
- *          example). The other 7 are [APP HOOK] bodies, not stubs.
+ * PURPOSE: DID read/write handler stubs and static DID registration table.
+ *          Each handler returns deterministic stub data (zeros) until the
+ *          application developer replaces the stub body with real sensor or
+ *          NVM access code.
  *
  *          Architecture:
  *            diagnostics_config.yaml (dids section)
@@ -43,14 +21,13 @@
  *          This design allows the DID table to be YAML-driven without
  *          modifying the core DID database engine (config/did_database.c).
  *
- * WARNING: DO NOT EDIT MANUALLY, WITH ONE DOCUMENTED EXCEPTION ABOVE.
+ * WARNING: DO NOT EDIT MANUALLY.
  *          Regenerate: python3 tools/codegen.py --config <yaml> --out generated/
- *          then reapply the 7 [APP HOOK] bodies before committing.
  *
- * SAFETY  : VehicleIdentificationNumber/ECUSerialNumber stub implementations
- *           return zeros, which is safe but not functionally correct.
- *           Handlers that expose safety-relevant signals must be assessed
- *           for the required ASIL level.
+ * SAFETY  : Stub implementations return zeros, which is safe but not
+ *           functionally correct. Replace each handler body before integration
+ *           testing. Handlers that expose safety-relevant signals must be
+ *           assessed for the required ASIL level.
  * STANDARD: MISRA C:2012 alignment intended.
  * =============================================================================
  */
@@ -59,7 +36,6 @@
 #include "did_database.h"
 #include "uds_types.h"
 #include "generated_config.h"
-#include "sensor_ecu.h"
 
 #include <string.h>
 #include <stddef.h>
@@ -83,13 +59,19 @@ static uint8_t s_mock_vehicleidentificationnumber[17U] = { 0U };
 /* TODO [APPLICATION]: Replace with real data source for 'ECUSerialNumber'. */
 static uint8_t s_mock_ecuserialnumber[8U] = { 0U };
 
-/*
- * [APP HOOK] DIDs 0xD001/0xD002/0xD003/0xD010/0xD011 no longer have mock
- * backing arrays — their read/write handlers below delegate directly to
- * sensor_monitor_freertos.c's real sensor_state_t via sensor_state_get() /
- * sensor_set_temp_threshold_high() / sensor_set_temp_threshold_low().
- * See EDS#349.
- */
+/* =============================================================================
+ * Application-owned DIDs (source: app, EDS-toolchain#201)
+ *
+ * No backing store and no handler body is generated for these. The
+ * application defines the functions declared in did_handlers.h; a missing
+ * definition is a link error. The registration table and the safety wrappers
+ * below still reference them, so session and security gating is unchanged.
+ * ============================================================================= */
+/*   DID 0xD001 — AmbientTemperature: did_read_ambienttemperature() */
+/*   DID 0xD002 — SupplyVoltage: did_read_supplyvoltage() */
+/*   DID 0xD003 — SensorStatusBitmask: did_read_sensorstatusbitmask() */
+/*   DID 0xD010 — TemperatureThresholdHigh: did_read_temperaturethresholdhigh() did_write_temperaturethresholdhigh() */
+/*   DID 0xD011 — TemperatureThresholdLow: did_read_temperaturethresholdlow() did_write_temperaturethresholdlow() */
 
 
 /* =============================================================================
@@ -185,228 +167,6 @@ uds_status_t did_read_ecuserialnumber(
     return UDS_STATUS_OK;
 }
 
-/**
- * @brief Read handler for DID 0xD001 — AmbientTemperature.
- *
- * Stub: copies 1 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_DEFAULT
- * SEC LEVEL    : 0
- * DATA LENGTH  : 1 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_ambienttemperature, 1U);
- *     *out_len = 1U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 1.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
- */
-/* [APP HOOK] Delegates to sensor_monitor_freertos.c's real sensor_state_get(). */
-uds_status_t did_read_ambienttemperature(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    sensor_state_t state;
-
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)1U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    sensor_state_get(&state);
-    buf[0]   = SENSOR_TEMP_ENCODE(state.temp_deg_c);
-    *out_len = (uint16_t)1U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xD002 — SupplyVoltage.
- *
- * Stub: copies 2 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_DEFAULT
- * SEC LEVEL    : 0
- * DATA LENGTH  : 2 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_supplyvoltage, 2U);
- *     *out_len = 2U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 2.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 2.
- */
-/* [APP HOOK] Delegates to sensor_monitor_freertos.c's real sensor_state_get(). */
-uds_status_t did_read_supplyvoltage(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    sensor_state_t state;
-
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)2U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    sensor_state_get(&state);
-    /* uint16 big-endian, LSB = 1 mV (diagnostics_config.yaml 0xD002). */
-    buf[0]   = (uint8_t)(state.voltage_mv >> 8U);
-    buf[1]   = (uint8_t)(state.voltage_mv & 0xFFU);
-    *out_len = (uint16_t)2U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xD003 — SensorStatusBitmask.
- *
- * Stub: copies 1 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_DEFAULT
- * SEC LEVEL    : 0
- * DATA LENGTH  : 1 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_sensorstatusbitmask, 1U);
- *     *out_len = 1U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 1.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
- */
-/* [APP HOOK] Delegates to sensor_monitor_freertos.c's real sensor_state_get(). */
-uds_status_t did_read_sensorstatusbitmask(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    sensor_state_t state;
-
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)1U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    sensor_state_get(&state);
-    buf[0]   = state.status;
-    *out_len = (uint16_t)1U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xD010 — TemperatureThresholdHigh.
- *
- * Stub: copies 1 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_EXTENDED
- * SEC LEVEL    : 0
- * DATA LENGTH  : 1 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_temperaturethresholdhigh, 1U);
- *     *out_len = 1U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 1.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
- */
-/* [APP HOOK] Delegates to sensor_monitor_freertos.c's real sensor_state_get(). */
-uds_status_t did_read_temperaturethresholdhigh(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    sensor_state_t state;
-
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)1U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    sensor_state_get(&state);
-    buf[0]   = SENSOR_TEMP_ENCODE(state.temp_threshold_high_deg_c);
-    *out_len = (uint16_t)1U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xD011 — TemperatureThresholdLow.
- *
- * Stub: copies 1 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_EXTENDED
- * SEC LEVEL    : 0
- * DATA LENGTH  : 1 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_temperaturethresholdlow, 1U);
- *     *out_len = 1U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 1.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
- */
-/* [APP HOOK] Delegates to sensor_monitor_freertos.c's real sensor_state_get(). */
-uds_status_t did_read_temperaturethresholdlow(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    sensor_state_t state;
-
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)1U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    sensor_state_get(&state);
-    buf[0]   = SENSOR_TEMP_ENCODE(state.temp_threshold_low_deg_c);
-    *out_len = (uint16_t)1U;
-
-    return UDS_STATUS_OK;
-}
-
 
 /* =============================================================================
  * DID Write handlers
@@ -418,84 +178,6 @@ uds_status_t did_read_temperaturethresholdlow(
  * Production implementations must validate the incoming data and write to NVM
  * or apply the value to the appropriate actuator or calibration record.
  * ============================================================================= */
-
-/**
- * @brief Write handler for DID 0xD010 — TemperatureThresholdHigh.
- *
- * Stub: copies buf into the mock backing store.
- *
- * MIN SESSION  : UDS_SESSION_EXTENDED
- * SEC LEVEL    : 1
- * DATA LENGTH  : 1 byte(s) (exact length required)
- *
- * TODO [APPLICATION]: Replace stub body with NVM write, actuator command,
- *                     or calibration record update for 'TemperatureThresholdHigh'.
- *
- * SAFETY: Write handlers that affect persistent calibration or actuators
- *         must include range checks and error handling. Review required.
- *
- * @param[in] buf  Pointer to new DID data (1 byte(s)).
- * @param[in] len  Number of bytes in buf. Must equal 1.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf is NULL.
- * @return UDS_STATUS_ERR_INVALID_PARAM if len != 1.
- */
-/* [APP HOOK] Delegates to sensor_monitor_freertos.c's real sensor_set_temp_threshold_high(). */
-uds_status_t did_write_temperaturethresholdhigh(
-    const uint8_t *buf,
-    uint16_t       len)
-{
-    if (buf == NULL) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (len != (uint16_t)1U) {
-        return UDS_STATUS_ERR_INVALID_PARAM;
-    }
-
-    sensor_set_temp_threshold_high((int8_t)SENSOR_TEMP_DECODE(buf[0]));
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Write handler for DID 0xD011 — TemperatureThresholdLow.
- *
- * Stub: copies buf into the mock backing store.
- *
- * MIN SESSION  : UDS_SESSION_EXTENDED
- * SEC LEVEL    : 1
- * DATA LENGTH  : 1 byte(s) (exact length required)
- *
- * TODO [APPLICATION]: Replace stub body with NVM write, actuator command,
- *                     or calibration record update for 'TemperatureThresholdLow'.
- *
- * SAFETY: Write handlers that affect persistent calibration or actuators
- *         must include range checks and error handling. Review required.
- *
- * @param[in] buf  Pointer to new DID data (1 byte(s)).
- * @param[in] len  Number of bytes in buf. Must equal 1.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf is NULL.
- * @return UDS_STATUS_ERR_INVALID_PARAM if len != 1.
- */
-/* [APP HOOK] Delegates to sensor_monitor_freertos.c's real sensor_set_temp_threshold_low(). */
-uds_status_t did_write_temperaturethresholdlow(
-    const uint8_t *buf,
-    uint16_t       len)
-{
-    if (buf == NULL) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (len != (uint16_t)1U) {
-        return UDS_STATUS_ERR_INVALID_PARAM;
-    }
-
-    sensor_set_temp_threshold_low((int8_t)SENSOR_TEMP_DECODE(buf[0]));
-
-    return UDS_STATUS_OK;
-}
 
 
 /* =============================================================================

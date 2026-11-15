@@ -31,8 +31,8 @@
  *
  *   diag_task thread (priority 5, 1 ms tick):
  *     can_transport_receive() → isotp_process_rx_frame() → uds_server_process_request()
- *     DID 0xD001/0xD002/0xD003 handlers — generated/did_handlers.c's
- *     [APP HOOK] bodies call sensor_state_get() directly [EDS#339, fixed].
+ *     DID 0xD001/0xD002/0xD003 handlers — src/diag_app.c ('source: app')
+ *     calls sensor_state_get() directly [EDS#339, EDS#613].
  *     See sensor_monitor.c's header comment for the native_sim driver.
  *
  * SPDX-License-Identifier: Apache-2.0

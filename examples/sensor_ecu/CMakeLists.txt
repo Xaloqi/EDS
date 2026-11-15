@@ -62,18 +62,11 @@ set(DIAG_CODEGEN_SCRIPT "${DIAG_ROOT}/tools/codegen.py")
 set(DIAG_GENERATED_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/generated")
 set(CODEGEN_SENTINEL    "${DIAG_GENERATED_DIR}/generated_config.h")
 
-# [EDS#339] Defaulted ON for this example (the one difference from most
-# other examples' CMakeLists.txt pattern, shared with vehicle_state_ecu).
-# generated/did_handlers.c and generated/routine_handlers.c carry
-# hand-written [APP HOOK] bodies that delegate to sensor_monitor.c's real
-# state — did_entry_t.read_cb/write_cb and routine_entry_t's callbacks are
-# bare function pointers copied by value into a fixed-capacity array at
-# init (did_database_register()/routine_database_register()), so there is
-# no way to re-point them at runtime; the callback bodies in the
-# generated files are the only place this application's live behaviour
-# can run. Re-running codegen would silently overwrite them with empty
-# TODO stubs — the guard below fails loudly, at configure time, if that
-# ever happens without the hooks being reapplied.
+# Defaulted ON for this example (shared with vehicle_state_ecu), so a forker
+# without the commercial templates builds from the committed generated/.
+# The DIDs and routines that read sensor_monitor.c's live state are
+# 'source: app' in diagnostics_config.yaml: their bodies are in
+# src/diag_app.c, and regenerating does not touch them (EDS#613).
 option(DIAG_SKIP_CODEGEN "Skip auto-running codegen (use existing generated/ files)" ON)
 
 # ---------------------------------------------------------------------------
@@ -100,10 +93,7 @@ if(NOT DIAG_SKIP_CODEGEN)
             "${DIAG_CONFIG_YAML}"
             "${DIAG_CODEGEN_SCRIPT}"
             ${DIAG_TEMPLATES}
-        COMMENT "[sensor_ecu] Generating sources from diagnostics_config.yaml... "
-                "NOTE: this will overwrite the hand-written [APP HOOK] bodies in "
-                "generated/did_handlers.c and generated/routine_handlers.c -- "
-                "reapply them before committing."
+        COMMENT "[sensor_ecu] Generating sources from diagnostics_config.yaml..."
         VERBATIM
     )
 
@@ -137,6 +127,7 @@ target_sources(app PRIVATE
     # Application
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor_monitor.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/diag_app.c   # the 'source: app' handlers (EDS#613)
 
     # [EDS#339] native_sim-only stub sensor driver backing the devicetree
     # nodes in boards/native_sim/native_sim.overlay (DTS_ROOT above).
@@ -204,39 +195,6 @@ endif()
 
 if(NOT DIAG_SKIP_CODEGEN AND TARGET run_codegen)
     add_dependencies(app run_codegen)
-endif()
-
-# ---------------------------------------------------------------------------
-# [APP HOOK] guard — fail loudly, at configure time, if generated/
-# did_handlers.c or generated/routine_handlers.c were ever regenerated
-# without reapplying the hand-written delegations to sensor_monitor.c.
-# ---------------------------------------------------------------------------
-file(STRINGS "${DIAG_GENERATED_DIR}/did_handlers.c" DIAG_DID_APP_HOOK_LINES
-     REGEX "\\[APP HOOK\\]")
-list(LENGTH DIAG_DID_APP_HOOK_LINES DIAG_DID_APP_HOOK_COUNT)
-if(DIAG_DID_APP_HOOK_COUNT LESS 5)
-    message(FATAL_ERROR
-        "\n"
-        "[sensor_ecu] ERROR: generated/did_handlers.c is missing its\n"
-        "       [APP HOOK] markers (found ${DIAG_DID_APP_HOOK_COUNT}, expected >= 5).\n"
-        "       This file was regenerated and the hand-written delegations to\n"
-        "       sensor_monitor.c were lost. See EDS#339 and reapply them\n"
-        "       before building.\n"
-    )
-endif()
-
-file(STRINGS "${DIAG_GENERATED_DIR}/routine_handlers.c" DIAG_RTN_APP_HOOK_LINES
-     REGEX "\\[APP HOOK\\]")
-list(LENGTH DIAG_RTN_APP_HOOK_LINES DIAG_RTN_APP_HOOK_COUNT)
-if(DIAG_RTN_APP_HOOK_COUNT LESS 2)
-    message(FATAL_ERROR
-        "\n"
-        "[sensor_ecu] ERROR: generated/routine_handlers.c is missing its\n"
-        "       [APP HOOK] markers (found ${DIAG_RTN_APP_HOOK_COUNT}, expected >= 2).\n"
-        "       This file was regenerated and the hand-written delegations to\n"
-        "       sensor_monitor.c were lost. See EDS#339 and reapply them\n"
-        "       before building.\n"
-    )
 endif()
 
 # Suppress the uds_msg_buf_t _Static_assert for all Zephyr example builds.

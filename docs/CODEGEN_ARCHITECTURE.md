@@ -315,6 +315,13 @@ One wrapper function per DID per access direction. Implements the full 5-step va
 ### `generated/routine_handlers.c/.h`
 
 One start/stop/results stub per routine. Same `TODO [APPLICATION]` pattern as DID handlers.
+A routine with `source: app` gets prototypes and its registration row but no body: the
+application defines `routine_start_<name>()` and, if supported, `routine_stop_<name>()` /
+`routine_results_<name>()` (EDS#613).
+
+Codegen never overwrites hand-written code in its output directory: if a file it would write
+or prune contains `[APP HOOK]`, it exits 1 and names the file, unless `--force` is given.
+Put application code outside `generated/` and use `source: app` instead.
 
 ### `generated/uds_init.c`
 
