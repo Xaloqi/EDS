@@ -165,7 +165,16 @@ def cmd_activate(key: str, quiet: bool = False) -> None:
         print(f"  Tier     : {tier.capitalize()}")
         print(f"  Expires  : {exp_str}", end="")
 
-        if days_left < 0:
+        # A trial is the start of a subscription, not a licence to renew: if it
+        # continues, the first payment brings a full key by email
+        # (EDS-toolchain#270).
+        if tier == "trial":
+            if days_left < 0:
+                print(f"  ✗  TRIAL ENDED — buy a licence at {_license.PURCHASE_URL}")
+            else:
+                print(f"  ({days_left} days of trial remaining; if your subscription "
+                      f"continues, the full key arrives by email)")
+        elif days_left < 0:
             days_expired = abs(days_left)
             grace_left   = _license.GRACE_PERIOD_DAYS - days_expired
             if grace_left > 0:

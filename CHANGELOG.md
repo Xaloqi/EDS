@@ -39,6 +39,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **INSTALL.md names the Safety Manual the Professional package ships** (#611): Rev 1.5,
   `safety_docs/EDS_Safety_Manual_EDS-SM-001_Rev1.5.pdf`. It said Rev 1.3, a file that left the package on
   2026-10-18.
+- **`tools/activate.py` no longer tells a trial key to renew.** Activating a 30-day trial said "(29 days
+  remaining — renewal recommended)"; it now says how many trial days remain and that the full key arrives by email
+  if the subscription continues. An expired trial is pointed at the purchase page (EDS-toolchain#270, the
+  matching `_license.py` wording ships in the toolchain).
 
 ### Security
 
