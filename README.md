@@ -190,15 +190,17 @@ manifest:
 
 Then run `west update`. Zephyr picks up the Kconfig symbols from `zephyr/module.yml` automatically — `CONFIG_UDS_*`, `CONFIG_ISOTP_*`, and `CONFIG_DIAG_*` are available in your `prj.conf` without any manual include path changes.
 
-Each EDS example has its own self-contained `CMakeLists.txt`. To add EDS to your own app, add the EDS sources directly:
+The module registers Kconfig only; it does not build any sources for you, and `core/` and `transport/` have no `CMakeLists.txt`. Each EDS example has its own self-contained `CMakeLists.txt` that lists the runtime sources. To add EDS to your own app, list them the same way:
 
 ```cmake
 # In your app's CMakeLists.txt, after find_package(Zephyr):
-add_subdirectory(${ZEPHYR_EDS_MODULE_DIR}/core eds_core)
-add_subdirectory(${ZEPHYR_EDS_MODULE_DIR}/transport eds_transport)
+set(EDS_ROOT ${ZEPHYR_XALOQI_EDS_MODULE_DIR})   # Zephyr sets this from `name: xaloqi-eds` in zephyr/module.yml
+include(${EDS_ROOT}/cmake/eds_service_sources.cmake)
+target_sources(app PRIVATE ${EDS_SERVICE_SRCS})
+# ...plus the include directories and the rest of the target_sources() list.
 ```
 
-The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the module is registered.
+Start from [`examples/basic_ecu/CMakeLists.txt`](examples/basic_ecu/CMakeLists.txt) (the `DIAG_ROOT` block and `target_sources(app PRIVATE ...)`) or [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md) Step 3; the file list there is the one that links.
 
 ---
 

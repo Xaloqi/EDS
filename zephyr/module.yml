@@ -10,7 +10,7 @@
 #
 #      With this file in place and the repo in west.yml, build with:
 #        west build -b native_sim  examples/basic_ecu
-#        west build -b nucleo_h743zi2 examples/basic_ecu
+#        west build -b nucleo_h743zi examples/basic_ecu
 #
 #   2. ECOSYSTEM SUBMISSION (E2 — when repo is public):
 #      This file satisfies the zephyr/module.yml requirement for third-party
@@ -33,8 +33,8 @@
 #        projects:
 #          - name: EDS
 #            remote: xaloqi
-#            revision: delivery-v1.7.3
-#            path: modules/diag/xaloqi-eds
+#            revision: v1.29.0   # a release tag
+#            path: modules/eds
 #
 #      Verified against: Zephyr v3.7.0, west v1.5.0
 #
@@ -90,7 +90,7 @@ build:
 #
 # Keywords: automotive, diagnostics, UDS, ISO-TP, CAN, ASIL, codegen, safety
 #
-# Supported boards: native_sim, nucleo_h743zi2, any Zephyr CAN-capable board
+# Supported boards: native_sim, nucleo_h743zi, any Zephyr CAN-capable board
 # Zephyr version:   v3.7.0+
 # License:          GPL-2.0-only (runtime); Apache-2.0 (examples)
 #
