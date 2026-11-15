@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.29.1] — 2026-11-15
+
 ### Added
 
 - **`source: app` on a routine** (#613). As for DIDs: codegen declares `routine_start_<name>()` (and
@@ -58,6 +60,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `PyJWT>=2.15.0`, `pycryptodome>=3.19.1`, the first releases with no known advisory (OSV, 2026-11-15). `pytest`
   stays at `>=7.4`: its fix, 9.0.3, needs Python 3.10 and EDS supports 3.9. PyJWT's CVE-2025-45768 is disputed and
   has no fixed release.
+
+### EDS-toolchain (Developer and Professional ZIPs)
+
+- **No keyless unlock in the shipped licence code** (EDS-toolchain#266, #274). The unlock path is removed from the
+  `_license.py` that ships; the release gate proves on the extracted install that codegen refuses with no key even
+  when an unlock module is importable.
+- **The VS Code extension loads** (EDS-toolchain#267, #274). The 1.29.0 `.vsix` failed on activation with
+  `Cannot find module 'js-yaml'`. The extension (1.6.1) is one bundle with its dependency inside, and the release gate
+  now loads the shipped `.vsix` under Node and runs `activate()`.
+- **Trial keys are told about their trial** (EDS-toolchain#270, #274), not asked to renew a subscription; see
+  `tools/activate.py` above.
+- **Professional ZIP: Safety Manual Rev 1.5** (EDS-Safety#61). `CUSTOMER_NOTICE.md`, the manual, HARA and TQA no longer
+  restate requirement or deviation counts (the RTM CSV and the MISRA log are the source), the manual points to
+  `safety_docs/` for the RTM, and revisions agree across the package. The release build now fails if INSTALL.md or
+  the notice names another manual revision or a count that differs from the shipped RTM or log (#274).
+- **ARXML import says what it changes** (EDS-toolchain#268, #276): out-of-range `DATA-LENGTH` and duplicate IDs
+  are reported, invalid IDs stop the import, a non-UTF-8 file imports. `eds_ai.py explain` works offline first (#269).
+- **The example generators match the YAML** after the `source: app` move (EDS-toolchain#275); the generated
+  `requirements_testgen.txt` header is regenerated (EDS-toolchain#277, #278).
+
+### Known
+
+- **`write_range` is not generated into handlers** (EDS-toolchain#257): generated tests write in-range values and your
+  handler enforces the range; the test simulator does not model it (see 1.29.0 below). Planned with the next release.
+- **UDS 0x19 sub-function 0x55** is not implemented yet (#602), planned for the next release.
+- **`build_harness.sh --example vehicle_state_ecu` does not link** in the Professional harness (EDS-toolchain#273):
+  the harness has no app stub for that example. The other examples are unaffected.
+- **`pytest` stays at `>=7.4`** (above): its fixed release needs Python 3.10 and EDS supports 3.9.
 
 ## [1.29.0] — 2026-11-13
 
