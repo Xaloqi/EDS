@@ -553,7 +553,7 @@ Cross-transport behaviour against a real bus is proven separately, not here:
 runs the UDS matrix over a real host `vcan0` and a real DoIP/TCP bridge on
 Zephyr targets, and its `COVERAGE.md` states exactly what is and is not claimed.
 
-Each example ships with a complete generated test suite. Run `pytest` against the simulator in under 60 seconds, no CAN hardware needed.
+Thirteen of the fifteen examples ship a generated test suite (`generated/tests/`); `basic_ecu_cda_demo` and `vehicle_state_ecu` do not (the latter has a TestLab campaign in `campaigns/` instead). Run `pytest` against the simulator in under 60 seconds, no CAN hardware needed.
 
 **`TODO [APPLICATION]` convention:** every hardware/NVM-backed DID or routine accessor in these examples is tagged in-code, e.g. `/* TODO [APPLICATION]: Read VIN from NVM. */` in `examples/basic_ecu/src/main.c`. This marks exactly where a customer's application must supply real hardware I/O. The examples demonstrate integration architecture, not complete or certified ECU functionality — do not treat them as evidence that final vehicle behavior is correct.
 
