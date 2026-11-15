@@ -18,8 +18,8 @@
 #              └─ sensor_state_get() / sensor_set_temp_threshold_*()
 #                   │                        │
 #                   ▼                        ▼
-#            UDS tester sends          generated/did_handlers.c [APP HOOK]
-#            0x19 ReadDTCInformation    bodies — UDS 0x22/0x2E read/write
+#            UDS tester sends          src/diag_app.c ('source: app'
+#            0x19 ReadDTCInformation    below) — UDS 0x22/0x2E/0x31 on
 #              └─ active DTCs           the same live sensor_monitor state
 #
 # TARGET HARDWARE:
@@ -109,6 +109,7 @@ dids:
     read_security_level:  0
     write_security_level: 0
     data_length: 1                   # int8 offset-encoded: raw = T_°C + 40
+    source: app                      # body in src/diag_app.c (EDS#613)
 
   - id:   "0xD002"
     name: "SupplyVoltage"
@@ -123,6 +124,7 @@ dids:
     read_security_level:  0
     write_security_level: 0
     data_length: 2                   # uint16 big-endian, mV
+    source: app                      # body in src/diag_app.c (EDS#613)
 
   - id:   "0xD003"
     name: "SensorStatusBitmask"
@@ -140,6 +142,7 @@ dids:
     read_security_level:  0
     write_security_level: 0
     data_length: 1                   # uint8 bitmask
+    source: app                      # body in src/diag_app.c (EDS#613)
 
   # ── Calibration (writable, extended session + security) ────────────────────
 
@@ -157,6 +160,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 1
+    source: app                      # body in src/diag_app.c (EDS#613)
 
   - id:   "0xD011"
     name: "TemperatureThresholdLow"
@@ -171,6 +175,7 @@ dids:
     read_security_level:  0
     write_security_level: 1
     data_length: 1
+    source: app                      # body in src/diag_app.c (EDS#613)
 
 # =============================================================================
 # DTCs — Diagnostic Trouble Codes
@@ -211,6 +216,7 @@ routines:
     min_session:    "extended"
     security_level: 1
     support:        ["start", "results"]
+    source: app                      # body in src/diag_app.c (EDS#613)
 
   - id:   "0xFF01"
     name: "SensorSelfTest"
@@ -221,6 +227,7 @@ routines:
     min_session:    "extended"
     security_level: 0
     support:        ["start", "results"]
+    source: app                      # body in src/diag_app.c (EDS#613)
 
 # =============================================================================
 # Jobs — Xaloqi Job Engine (Developer and Professional tiers)

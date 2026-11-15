@@ -63,9 +63,8 @@ void vehicle_state_monitor_tick(void);
 void vehicle_state_release_override(void);
 
 /* --------------------------------------------------------------------------
- * RoutineControl bodies — called from generated/routine_handlers.c's four
- * stub bodies (the one hand-edited "generated/ delta" this example makes;
- * see CMakeLists.txt and the banner at the top of that file).
+ * RoutineControl bodies — called from src/diag_app.c's routine callbacks
+ * (both routines are 'source: app' in diagnostics_config.yaml, EDS#613).
  * -------------------------------------------------------------------------- */
 
 /** RID 0xC100 startRoutine — begin the asynchronous output self-test walk. */

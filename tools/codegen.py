@@ -124,6 +124,15 @@ SESSION_ORDINAL: Dict[str, int] = {
 # backing store, or the application's own did_read_*/did_write_* functions.
 DID_SOURCES = ("stub", "app")
 
+# Who implements a routine (routines[].source, EDS#613): generated stub
+# callbacks, or the application's own routine_start_*/stop_*/results_*.
+ROUTINE_SOURCES = ("stub", "app")
+
+# A file in the output directory carrying this marker holds hand-written code
+# (the pre-EDS#613 way to give a generated handler a real body). Codegen
+# refuses to overwrite it unless --force is given.
+APP_HOOK_MARKER = "[APP HOOK]"
+
 # =============================================================================
 # SOVD CDA — static service list (all 14 EDS services)
 # =============================================================================
@@ -979,6 +988,16 @@ def validate_config(cfg: Dict[str, Any]) -> None:
         if "start" not in support:
             _fatal(f"{pfx}: 'start' must always be in 'support' — it is mandatory per ISO 14229-1.")
 
+        # source (optional) — who implements the callbacks (EDS#613), as for
+        # DIDs: 'app' means codegen emits the prototypes and the registration
+        # row only, and a missing implementation is a link error.
+        source = routine.get("source", "stub")
+        if source not in ROUTINE_SOURCES:
+            _fatal(
+                f"{pfx}: invalid 'source' value {source!r}. "
+                f"Valid values: {list(ROUTINE_SOURCES)}"
+            )
+
     # ── ecu.sessions (optional) — safetySystemDiagnosticSession opt-in ───────
     # [EDS#494] 0x04 is off unless enabled; a DID or routine gated on it while
     # it is off could never be reached.
@@ -1159,6 +1178,7 @@ def _build_routine_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
       security_level, security_level_label,
       support_start, support_stop, support_results,
       support_flags_c  (C bitfield expression for routine_database_register)
+      app_owned        (source: app — the application implements the callbacks)
     """
     result = []
     for routine in cfg.get("routines", []):
@@ -1203,6 +1223,7 @@ def _build_routine_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "support_flags_c":         " | ".join(flags_parts) if flags_parts
                                        else "ROUTINE_SUPPORT_START",
             "description":             _c_safe_text(routine.get("description", "")),
+            "app_owned":               routine.get("source", "stub") == "app",
         })
     return result
 
@@ -2351,13 +2372,31 @@ def _write_routine_handlers_inline(
             '#include "routine_database.h"',
             '#include "uds_types.h"',
             "",
-            "/* =============================================================",
-            " * Routine callback stubs",
-            " * Replace each stub body with your ECU application logic.",
-            " * ============================================================= */",
-            "",
         ]
+        if not routines or any(not r["app_owned"] for r in routines):
+            lines += [
+                "/* =============================================================",
+                " * Routine callback stubs",
+                " * Replace each stub body with your ECU application logic.",
+                " * ============================================================= */",
+                "",
+            ]
+        app_owned = [r for r in routines if r["app_owned"]]
+        if app_owned:
+            lines += [
+                "/* Defined by the application (source: app), not here:",
+            ]
+            for r in app_owned:
+                fns = [f"routine_start_{r['c_name']}()"]
+                if r["support_stop"]:
+                    fns.append(f"routine_stop_{r['c_name']}()")
+                if r["support_results"]:
+                    fns.append(f"routine_results_{r['c_name']}()")
+                lines.append(f" *   RID {r['id']} — {r['name']}: {', '.join(fns)}")
+            lines += [" */", ""]
         for r in routines:
+            if r["app_owned"]:
+                continue
             rid  = r["id"]
             name = r["name"]
             cn   = r["c_name"]
@@ -2498,6 +2537,40 @@ def _read_previous_manifest(output_dir: Path) -> List[Path]:
             if candidate.is_file():
                 recorded.append(candidate.resolve())
     return recorded
+
+
+def find_app_hook_targets(
+    output_dir: Path,
+    test_gen:   bool = False,
+    sovd:       bool = False,
+) -> List[Path]:
+    """Files this run would overwrite or prune that contain APP_HOOK_MARKER.
+
+    The candidates are every file name the render plans write, tests/ when
+    --test-gen is given, sovd_cda.json with --sovd, and whatever the previous
+    manifest recorded (reconcile_output_dir() may delete those). A file
+    codegen never writes is not a candidate: hand-written code next to the
+    generated files is left alone, as reconcile_output_dir() leaves it.
+    """
+    if not output_dir.is_dir():
+        return []
+    names = [n for _, _, n in RENDER_PLAN + SAFETY_RENDER_PLAN + ROUTINE_RENDER_PLAN]
+    if sovd:
+        names.append("sovd_cda.json")
+    candidates = {(output_dir / n).resolve() for n in names}
+    tests_dir = output_dir / "tests"
+    if test_gen and tests_dir.is_dir():
+        candidates.update(p.resolve() for p in tests_dir.rglob("*") if p.is_file())
+    candidates.update(_read_previous_manifest(output_dir))
+
+    hooked: List[Path] = []
+    for path in sorted(candidates):
+        try:
+            if APP_HOOK_MARKER in path.read_text(encoding="utf-8", errors="replace"):
+                hooked.append(path)
+        except OSError:
+            continue
+    return hooked
 
 
 def reconcile_output_dir(
@@ -2893,6 +2966,17 @@ def main() -> None:
             "Output: <out>/sovd_cda.json"
         ),
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help=(
+            f"Overwrite output files that contain the {APP_HOOK_MARKER} marker "
+            "(hand-written code in generated/). Without it codegen refuses and "
+            "exits 1. Move that code to the application with 'source: app' "
+            "instead (EDS#613)."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -3082,6 +3166,23 @@ def main() -> None:
         print("\nDry run complete. Config is valid.")
         return
 
+    # ── Step 2C: Never overwrite hand-written code ───────────────────────────
+    # EDS#613: two examples kept 13 [APP HOOK] bodies in generated/, and a
+    # regeneration replaced them with TODO stubs without a word.
+    hooked = find_app_hook_targets(output_dir, test_gen=test_gen, sovd=args.sovd)
+    if hooked and not args.force:
+        names = "\n".join(f"         {p}" for p in hooked)
+        _fatal(
+            f"refusing to overwrite hand-written code: these files in {output_dir} "
+            f"contain {APP_HOOK_MARKER} and this run would replace them:\n{names}\n"
+            "       Move that code into your application and mark the DID or routine "
+            "'source: app' (docs/INTEGRATION_GUIDE.md), or pass --force to "
+            "overwrite it.",
+            code=1,
+        )
+    if hooked:
+        _warn(f"--force: overwriting {len(hooked)} file(s) containing {APP_HOOK_MARKER}.")
+
     # ── Step 3: Render standard files ────────────────────────────────────────
     print("[3/5] Rendering standard templates...")
     written = render_and_write(cfg, template_dir, output_dir)
@@ -3171,9 +3272,9 @@ def main() -> None:
     else:
         print("[4B] Test generation skipped (pass --test-gen to enable).")
 
-    # ── Step 4C: GUI TypeScript catalog (--gui-types) ─────────────────────────
+    # ── Step 4F: GUI TypeScript catalog (--gui-types) ─────────────────────────
     if gui_types and not args.dry_run:
-        print("[4C] Generating GUI TypeScript catalog (--gui-types)...")
+        print("[4F] Generating GUI TypeScript catalog (--gui-types)...")
         _gui_out_default = output_dir.parent / "gui" / "src" / "generated"
         _gui_out_dir = Path(args.gui_out).resolve() if args.gui_out else _gui_out_default
         gui_written = generate_gui_types(cfg, _gui_out_dir)
@@ -3181,9 +3282,9 @@ def main() -> None:
         print(f"\n      {len(gui_written)} GUI catalog file(s) written to {_gui_out_dir}")
         print(f"\n      Import: import {{ DID_CATALOG, ROUTINE_CATALOG }} from '../generated/catalog';")
     elif gui_types and args.dry_run:
-        print("[4C] GUI TypeScript catalog skipped (dry-run).")
+        print("[4F] GUI TypeScript catalog skipped (dry-run).")
     else:
-        print("[4C] GUI TypeScript catalog skipped (pass --gui-types to enable).")
+        print("[4F] GUI TypeScript catalog skipped (pass --gui-types to enable).")
 
     # ── Step 4E: Reconcile the output directory ──────────────────────────────
     # Remove what a previous run generated here and this run did not, so the

@@ -6,11 +6,12 @@
 for the devicetree stub nodes) and the three live-sensor DIDs plus the two calibration
 DIDs returned static mock data disconnected from `sensor_monitor.c`'s real state. Both
 are fixed: a minimal native_sim-only driver (`drivers/sensor_stub/`) now backs the
-devicetree nodes, and `generated/did_handlers.c`/`generated/routine_handlers.c` carry
-hand-written `[APP HOOK]` bodies (same pattern as `examples/vehicle_state_ecu`) that
-delegate to `sensor_monitor.c`'s `sensor_state_get()` / threshold setters instead of a
-mock array. See `src/sensor_monitor.c`'s header comment for the driver, and
-`generated/did_handlers.c`'s header comment for the DID wiring.
+devicetree nodes, and the five DIDs and two routines are `source: app` in
+`diagnostics_config.yaml`: their handlers are in `src/diag_app.c`, delegating to
+`sensor_monitor.c`'s `sensor_state_get()` / threshold setters instead of a mock array.
+Codegen declares and registers them and emits no body, so regenerating leaves them
+alone (EDS#613; before that they were hand edits in `generated/`). See
+`src/sensor_monitor.c`'s header comment for the driver.
 
 This example demonstrates one real, working pattern end to end — Zephyr sensor API →
 100 ms monitoring thread → automatic DTC activation/clear via
@@ -33,7 +34,7 @@ sensor_monitor thread  (100 ms cycle, priority 7)
 sensor_state_get() / sensor_set_temp_threshold_*()
     │
     ▼
-generated/did_handlers.c [APP HOOK] bodies  ← UDS 0x22/0x2E read/write the same state
+src/diag_app.c ('source: app' handlers)  ← UDS 0x22/0x2E/0x31 read/write the same state
 ```
 
 **DIDs** (`diagnostics_config.yaml`): VIN, ECU serial number (still static mocks —
@@ -80,10 +81,9 @@ west build -b native_sim examples/sensor_ecu \
 
 The explicit `-DEXTRA_CONF_FILE`/`-DDTC_OVERLAY_FILE` are required — Zephyr does not
 auto-discover this nested `boards/native_sim/native_sim.{conf,overlay}` layout (same
-gap O-132 found and documented for `examples/bms_ecu`). `-DDIAG_SKIP_CODEGEN=ON` keeps
-the hand-written `[APP HOOK]` bodies in `generated/did_handlers.c` and
-`generated/routine_handlers.c` intact (it's the default, so this flag is actually
-redundant — included for clarity and to match CI's own invocation).
+gap O-132 found and documented for `examples/bms_ecu`). `-DDIAG_SKIP_CODEGEN=ON` builds
+from the committed `generated/` (it's the default here, so the flag is redundant —
+included to match CI's own invocation).
 
 ---
 

@@ -6,7 +6,7 @@
  * PURPOSE: Shared definitions for the SensorECU FreeRTOS example.
  *          Physical encoding constants, threshold defaults, and sensor
  *          status bitmask bit definitions used across main.c,
- *          generated/did_handlers.c's [APP HOOK] bodies, and
+ *          diag_app.c's DID and routine handlers, and
  *          sensor_monitor_freertos.c.
  *
  * SPDX-License-Identifier: Apache-2.0

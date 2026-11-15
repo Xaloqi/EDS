@@ -259,6 +259,11 @@ This produces under `your_ecu/generated/`:
 - `did_handlers.h/.c` — one handler stub per DID, except DIDs with `source: app`, whose
   `did_read_<name>()` / `did_write_<name>()` your application defines (see `docs/AI_CONTEXT.md`
   Pattern 1). Do not edit the stubs in `generated/`; declare `source: app` instead.
+- `routine_handlers.h/.c` — the routine table and a stub per routine callback, except routines
+  with `source: app`, whose `routine_start_<name>()` (and `routine_stop_<name>()` /
+  `routine_results_<name>()` when supported) your application defines. Codegen refuses (exit 1)
+  to overwrite a `generated/` file that contains `[APP HOOK]` unless you pass `--force`
+  (EDS#613).
 - `did_safety_wrappers.h/.c` — ASIL-B-oriented 5-step validation before every DID access
 - `uds_init.h/.c` — full stack wiring: databases → session → security → server → ISO-TP
 - `safety_config.h` — compile-time ASIL-B-oriented assertions

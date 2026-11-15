@@ -5,7 +5,7 @@
  *
  * ECU       : SensorECU
  * Version   : 1.0.0
- * Generated : 2026-08-30T13:16:46Z
+ * Generated : 2026-11-15T10:18:13Z
  *
  * PURPOSE: Declarations for all generated DID read/write handler functions
  *          and the generated DID registration entry point.
@@ -97,7 +97,9 @@ uds_status_t did_read_ecuserialnumber(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for AmbientTemperature.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_ambienttemperature() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -116,7 +118,9 @@ uds_status_t did_read_ambienttemperature(
  * Security level: 0
  * Data length  : 2 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for SupplyVoltage.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_supplyvoltage() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 2).
@@ -135,7 +139,9 @@ uds_status_t did_read_supplyvoltage(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for SensorStatusBitmask.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_sensorstatusbitmask() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -154,7 +160,9 @@ uds_status_t did_read_sensorstatusbitmask(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for TemperatureThresholdHigh.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_temperaturethresholdhigh() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -173,7 +181,9 @@ uds_status_t did_read_temperaturethresholdhigh(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for TemperatureThresholdLow.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_temperaturethresholdlow() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).
@@ -196,7 +206,10 @@ uds_status_t did_read_temperaturethresholdlow(
  * Security level: 1
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to apply new value for TemperatureThresholdHigh.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_write_temperaturethresholdhigh() has checked session, security and
+ * length.
  *
  * @param[in] buf  Buffer containing new DID data (1 byte(s)).
  * @param[in] len  Number of bytes in buf.
@@ -213,7 +226,10 @@ uds_status_t did_write_temperaturethresholdhigh(
  * Security level: 1
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to apply new value for TemperatureThresholdLow.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_write_temperaturethresholdlow() has checked session, security and
+ * length.
  *
  * @param[in] buf  Buffer containing new DID data (1 byte(s)).
  * @param[in] len  Number of bytes in buf.

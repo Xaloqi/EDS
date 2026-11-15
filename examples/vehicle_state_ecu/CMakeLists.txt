@@ -60,24 +60,18 @@ set(CODEGEN_SENTINEL     "${DIAG_GENERATED_DIR}/safety_config.h")
 
 # ---------------------------------------------------------------------------
 # Codegen — OFF by default for this example (the one difference from
-# basic_ecu's CMakeLists.txt pattern).
+# basic_ecu's CMakeLists.txt pattern), so a forker without the commercial
+# codegen tool (pyyaml/jinja2, tools/templates/) can still build — same
+# OD-14 Option 2 mechanism every other example's pre-committed generated/
+# relies on, just defaulted ON here instead of opted into with
+# -DDIAG_SKIP_CODEGEN=ON.
 #
-# generated/routine_handlers.c carries four hand-written [APP HOOK] bodies
-# that delegate to src/vehicle_state.c — the actuation path's only
-# attachment point (routine_database_find() returns `const`, so nothing
-# can re-point a callback at runtime; see the banner at the top of that
-# file and EDS#340). Re-running codegen would silently overwrite them with
-# empty TODO stubs. This also means a forker without the commercial codegen
-# tool (pyyaml/jinja2, tools/templates/) can still build — same OD-14
-# Option 2 mechanism every other example's pre-committed generated/ relies
-# on, just defaulted ON here instead of opted into with -DDIAG_SKIP_CODEGEN=ON.
-#
-# Regenerate deliberately (after editing diagnostics_config.yaml) with:
+# Both routines are 'source: app' in diagnostics_config.yaml: their
+# callbacks are in src/diag_app.c, delegating to src/vehicle_state.c, and
+# regenerating does not touch them (EDS#613). Regenerate with:
 #   python3 tools/codegen.py --config examples/vehicle_state_ecu/diagnostics_config.yaml \
 #                            --out    examples/vehicle_state_ecu/generated/ \
 #                            --safety-wrappers --asil-level B --no-manifest
-# then reapply the four [APP HOOK] bodies in generated/routine_handlers.c
-# before committing.
 # ---------------------------------------------------------------------------
 option(DIAG_SKIP_CODEGEN
     "Skip auto-running tools/codegen.py (use pre-existing generated/ files)"
@@ -118,9 +112,7 @@ if(NOT DIAG_SKIP_CODEGEN)
             "${DIAG_CONFIG_YAML}"
             "${DIAG_CODEGEN_SCRIPT}"
             ${DIAG_TEMPLATES}
-        COMMENT  "[DIAG] Generating sources from diagnostics_config.yaml (ASIL-B-oriented)... "
-                 "NOTE: this will overwrite the hand-written [APP HOOK] bodies in "
-                 "generated/routine_handlers.c -- reapply them before committing."
+        COMMENT  "[DIAG] Generating sources from diagnostics_config.yaml (ASIL-B-oriented)..."
         VERBATIM
     )
 
@@ -136,25 +128,6 @@ else()
         "using pre-committed files in ${DIAG_GENERATED_DIR}"
     )
 
-endif()
-
-# ---------------------------------------------------------------------------
-# [APP HOOK] guard — fail loudly, at configure time, if
-# generated/routine_handlers.c was ever regenerated without reapplying the
-# four hand-written delegations to src/vehicle_state.c (see above).
-# ---------------------------------------------------------------------------
-file(STRINGS "${DIAG_GENERATED_DIR}/routine_handlers.c" DIAG_APP_HOOK_LINES
-     REGEX "\\[APP HOOK\\]")
-list(LENGTH DIAG_APP_HOOK_LINES DIAG_APP_HOOK_COUNT)
-if(DIAG_APP_HOOK_COUNT LESS 4)
-    message(FATAL_ERROR
-        "\n"
-        "[DIAG] ERROR: generated/routine_handlers.c is missing its [APP HOOK]\n"
-        "       markers (found ${DIAG_APP_HOOK_COUNT}, expected >= 4).\n"
-        "       This file was regenerated and the hand-written delegations to\n"
-        "       src/vehicle_state.c were lost. See the banner at the top of\n"
-        "       generated/routine_handlers.c and reapply them before building.\n"
-    )
 endif()
 
 # ---------------------------------------------------------------------------
@@ -181,6 +154,7 @@ target_sources(app PRIVATE
     # ── Application ─────────────────────────────────────────────────────
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vehicle_state.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/diag_app.c   # the 'source: app' routines (EDS#613)
 
     # ── UDS core ─────────────────────────────────────────────────────────
     ${DIAG_ROOT}/core/uds_server.c

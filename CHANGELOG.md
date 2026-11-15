@@ -8,6 +8,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **`source: app` on a routine** (#613). As for DIDs: codegen declares `routine_start_<name>()` (and
+  `routine_stop_`/`routine_results_` for the sub-functions in `support`) and registers them behind the routine's
+  session and security gates, and the application defines them. A missing definition is a link error.
+
+### Fixed
+
+- **Regenerating `sensor_ecu`, `sensor_ecu_freertos` or `vehicle_state_ecu` no longer deletes their behaviour**
+  (#613). Their live DID and routine handlers were hand edits in `generated/`, marked `[APP HOOK]`, and one codegen
+  run replaced them with TODO stubs. They now live in each example's `src/diag_app.c`, and the YAML marks those DIDs
+  and routines `source: app`. Behaviour is unchanged: every moved function compiles to the same instructions
+  (native_sim and the FreeRTOS Cortex-M4 build), and the harness and generated test verdicts are identical. The
+  configure-time `[APP HOOK]` checks in the three `CMakeLists.txt` are gone; `build_harness.sh` compiles an
+  example's `src/diag_app.c`.
+- **Codegen refuses to overwrite hand-written code** (#613). If a file it would write or prune contains
+  `[APP HOOK]`, it exits 1 and names the file, unless `--force` is given. No shipped example trips it.
+- **`activate.py` names a TestLab key** (#614). A TestLab key pasted into `tools/activate.py` was reported as
+  "invalid signature ... tampered with"; it now says it is a TestLab key, to activate with `testlab-activate`, and
+  that a bundle comes with two keys. `--check` says the same for a TestLab key in `XALOQI_LICENSE_KEY`.
+- **Codegen printed `[4C]` for two steps** (#614). The GUI catalog step is now `[4F]`.
+
+### Security
+
+- **Requirement floors raised past their advisories** (#614): `jinja2>=3.1.6`, `cryptography>=49.0.0`,
+  `PyJWT>=2.15.0`, `pycryptodome>=3.19.1`, the first releases with no known advisory (OSV, 2026-11-15). `pytest`
+  stays at `>=7.4`: its fix, 9.0.3, needs Python 3.10 and EDS supports 3.9. PyJWT's CVE-2025-45768 is disputed and
+  has no fixed release.
+
 ## [1.29.0] — 2026-11-13
 
 ### Added
