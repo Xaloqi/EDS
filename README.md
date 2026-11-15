@@ -374,12 +374,13 @@ bash build_tests.sh
 # 68 harness integration tests (Professional tier — requires harness/ sources)
 # bash build_harness.sh
 
-# Generated pytest suite (simulator mode) — requires the commercial xaloqi-tester
-# (TestLab) package for the simulator/live-transport tests below; see
+# Generated pytest suite (simulator mode) — needs the free xaloqi-tester package
+# (Apache-2.0, `pip install xaloqi-tester`). Live-transport runs (real CAN/DoIP,
+# SOVD) need the commercial xaloqi-tester-pro on top; see
 # docs/TESTING_STRATEGY.md for what pytest --collect-only's full count breaks down into
 # and which subset runs with only tools/requirements.txt installed.
 cd examples/basic_ecu/generated/tests
-pip install -r requirements_testgen.txt   # xaloqi-tester — separate from tools/requirements.txt
+pip install -r requirements_testgen.txt   # xaloqi-tester (free) — separate from tools/requirements.txt
 pytest test_services.py test_did_*.py -v --can-interface=simulator
 
 # Whole Python suite (repo tests/ + every example, each correctly scoped) —
@@ -394,7 +395,9 @@ bash run_python_tests.sh
 > self-contained pytest project and must be run scoped to its own
 > directory, exactly as shown above. `run_python_tests.sh` runs all of them
 > for you. It executes **2,087 of 3,198** collected cases in a Developer-tier
-> checkout (this repo, as cloned) and **3,143 of 3,198** with the
+> checkout (the Developer ZIP unpacked into this repo; a plain clone is the
+> Community tier, has no `tools/templates` or `testgen.py`, and executes fewer)
+> and **3,143 of 3,198** with the
 > Professional-tier `harness/` build present — the gap is cases gated on
 > commercial prerequisites (TestLab, the firmware harness, or the
 > `tools/templates` codegen ZIP), not failures. Not every executed case
@@ -624,7 +627,7 @@ The runtime stack (`core/`, `transport/`, `config/`, `platform/`) is GPL v2.
 ECU examples (`examples/`) are Apache 2.0.  
 Code generation tools and Safety Manual require a commercial license.
 
-Unlike alternatives that use PolyForm Noncommercial (which prohibits production use without a paid license), the EDS runtime is GPL v2 — you can ship it in a commercial product for free.
+The runtime is GPL v2, so you can use it in a product under GPL v2's terms, including its source-disclosure obligations. Shipping it inside closed-source firmware needs a commercial license (see the open-core table above and [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md)).
 
 → **[Commercial licenses](https://xaloqi.com)**  
 → **[License activation & tier details](docs/COMMERCIAL_ONBOARDING.md)**
