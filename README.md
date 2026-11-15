@@ -24,12 +24,13 @@ Zephyr's `native_sim`. No CAN hardware, no commercial license:
 ```bash
 pip install west
 west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 eds-workspace
-cd eds-workspace && west update
+cd eds-workspace && west update   # ~7 GB, about 5 minutes
+cd EDS                            # tools/ and examples/ live here, not in eds-workspace/
 pip install -r tools/requirements.txt
 
-west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
-     -DDIAG_SKIP_CODEGEN=ON
+west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON \
+  -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+  -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 west build -t run
 ```
 
@@ -89,8 +90,19 @@ EDS is dual-licensed. The runtime stack is GPL v2 and the whole thing builds and
 
 ```yaml
 # diagnostics_config.yaml
-ecu:
-  name: "body_controller"
+schema_version: 1
+metadata:
+  ecu_name: "body_controller"
+  version: "1.0.0"
+
+can:
+  rx_can_id: "0x7E0"   # physical request to this ECU (ASIL-B builds must set both IDs)
+  tx_can_id: "0x7E8"
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
 
 dids:
   - id: "0xF190"
@@ -132,27 +144,27 @@ python3 tools/codegen.py \
 
 ```bash
 # Simulator (CI, no hardware)
-west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
-     -DDIAG_SKIP_CODEGEN=ON
+west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON \
+  -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+  -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 west build -t run
 
 # STM32 Nucleo-H743ZI2
 west build -b nucleo_h743zi examples/basic_ecu \
-  -- -DEXTRA_CONF_FILE=boards/nucleo_h743zi/nucleo_h743zi.conf \
-     -DDTC_OVERLAY_FILE=boards/nucleo_h743zi/nucleo_h743zi.overlay
+  -- -DEXTRA_CONF_FILE=$PWD/boards/nucleo_h743zi/nucleo_h743zi.conf \
+     -DDTC_OVERLAY_FILE=$PWD/boards/nucleo_h743zi/nucleo_h743zi.overlay
 west flash
 
 # NXP FRDM-MCXN947
 west build -b frdm_mcxn947/mcxn947/cpu0 examples/basic_ecu \
-  -- -DEXTRA_CONF_FILE=boards/frdm_mcxn947/frdm_mcxn947.conf \
-     -DDTC_OVERLAY_FILE=boards/frdm_mcxn947/frdm_mcxn947.overlay
+  -- -DEXTRA_CONF_FILE=$PWD/boards/frdm_mcxn947/frdm_mcxn947.conf \
+     -DDTC_OVERLAY_FILE=$PWD/boards/frdm_mcxn947/frdm_mcxn947.overlay
 west flash
 
 # NXP MR-CANHUBK3 (S32K344 — also covers S32K312, S32K396)
 west build -b mr_canhubk3 examples/basic_ecu \
-  -- -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf \
-     -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay
+  -- -DEXTRA_CONF_FILE=$PWD/boards/mr_canhubk3/mr_canhubk3.conf \
+     -DDTC_OVERLAY_FILE=$PWD/boards/mr_canhubk3/mr_canhubk3.overlay
 west flash
 ```
 
@@ -179,15 +191,17 @@ manifest:
 
 Then run `west update`. Zephyr picks up the Kconfig symbols from `zephyr/module.yml` automatically — `CONFIG_UDS_*`, `CONFIG_ISOTP_*`, and `CONFIG_DIAG_*` are available in your `prj.conf` without any manual include path changes.
 
-Each EDS example has its own self-contained `CMakeLists.txt`. To add EDS to your own app, add the EDS sources directly:
+The module registers Kconfig only; it does not build any sources for you, and `core/` and `transport/` have no `CMakeLists.txt`. Each EDS example has its own self-contained `CMakeLists.txt` that lists the runtime sources. To add EDS to your own app, list them the same way:
 
 ```cmake
 # In your app's CMakeLists.txt, after find_package(Zephyr):
-add_subdirectory(${ZEPHYR_EDS_MODULE_DIR}/core eds_core)
-add_subdirectory(${ZEPHYR_EDS_MODULE_DIR}/transport eds_transport)
+set(EDS_ROOT ${ZEPHYR_XALOQI_EDS_MODULE_DIR})   # Zephyr sets this from `name: xaloqi-eds` in zephyr/module.yml
+include(${EDS_ROOT}/cmake/eds_service_sources.cmake)
+target_sources(app PRIVATE ${EDS_SERVICE_SRCS})
+# ...plus the include directories and the rest of the target_sources() list.
 ```
 
-The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the module is registered.
+Start from [`examples/basic_ecu/CMakeLists.txt`](examples/basic_ecu/CMakeLists.txt) (the `DIAG_ROOT` block and `target_sources(app PRIVATE ...)`) or [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md) Step 3; the file list there is the one that links.
 
 ---
 
@@ -207,7 +221,7 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 | **SOVD CDA** | `--sovd` flag: YAML → `sovd_cda.json` — DIDs, DTCs, routines, transport, all 19 services · SOVD-inspired field names, not a conformant ASAM SOVD / ISO 17978-3 capability description · DoIP ECUs include `logicalAddress` and `port` |
 | **VS Code extension** | Inline YAML validation · hover docs · one-click codegen · auto-run on save · status bar indicator |
 | **MCP server** | `tools/mcp_server.py` — exposes `generate_did_config`, `run_codegen`, `validate_asil_b`, `explain_uds_error` to Claude, Cursor, and any MCP host. Included with Developer and Professional licenses. |
-| **ECU examples** | basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · BMS · motor controller · ARDEP · sensor · safeboot · robot joint — 5–35 DIDs each, Zephyr and FreeRTOS |
+| **ECU examples** | 15 in `examples/`: basic · basic\_doip · basic\_freertos · basic\_doip\_freertos · basic\_cda\_demo · CAN FD · BMS · motor controller · ARDEP · sensor · sensor\_freertos · safeboot · safeboot\_freertos · robot joint · vehicle state — 5–35 DIDs each, Zephyr and FreeRTOS |
 | **Wireshark dissector** | `extras/wireshark/eds.lua` — UDS service names · NRC descriptions · ISO-TP frame types · DoIP payload decode · load in 3 steps |
 | **CI pipeline** | GitHub Actions — unit tests · integration tests · Zephyr builds (native_sim + STM32) · FreeRTOS ARM · MISRA analysis · DoIP integration · SOVD CDA · full robustness campaign |
 
@@ -226,9 +240,12 @@ The `ZEPHYR_EDS_MODULE_DIR` variable is set automatically by west when the modul
 ```bash
 pip install west
 west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 eds-workspace
-cd eds-workspace && west update
+cd eds-workspace && west update   # ~7 GB, about 5 minutes
+cd EDS                            # tools/ and examples/ live here, not in eds-workspace/
 pip install -r tools/requirements.txt
 ```
+
+Every later command in this README runs from `eds-workspace/EDS`.
 
 ### Run the basic ECU example
 
@@ -242,9 +259,9 @@ python3 tools/codegen.py \
   --safety-wrappers --asil-level B --test-gen
 
 # Build and run in simulator  (works without a license — generated/ is committed)
-west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
-     -DDIAG_SKIP_CODEGEN=ON
+west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON \
+  -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+  -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 west build -t run
 ```
 
@@ -374,12 +391,13 @@ bash build_tests.sh
 # 68 harness integration tests (Professional tier — requires harness/ sources)
 # bash build_harness.sh
 
-# Generated pytest suite (simulator mode) — requires the commercial xaloqi-tester
-# (TestLab) package for the simulator/live-transport tests below; see
+# Generated pytest suite (simulator mode) — needs the free xaloqi-tester package
+# (Apache-2.0, `pip install xaloqi-tester`). Live-transport runs (real CAN/DoIP,
+# SOVD) need the commercial xaloqi-tester-pro on top; see
 # docs/TESTING_STRATEGY.md for what pytest --collect-only's full count breaks down into
 # and which subset runs with only tools/requirements.txt installed.
 cd examples/basic_ecu/generated/tests
-pip install -r requirements_testgen.txt   # xaloqi-tester — separate from tools/requirements.txt
+pip install -r requirements_testgen.txt   # xaloqi-tester (free) — separate from tools/requirements.txt
 pytest test_services.py test_did_*.py -v --can-interface=simulator
 
 # Whole Python suite (repo tests/ + every example, each correctly scoped) —
@@ -394,7 +412,9 @@ bash run_python_tests.sh
 > self-contained pytest project and must be run scoped to its own
 > directory, exactly as shown above. `run_python_tests.sh` runs all of them
 > for you. It executes **2,087 of 3,198** collected cases in a Developer-tier
-> checkout (this repo, as cloned) and **3,143 of 3,198** with the
+> checkout (the Developer ZIP unpacked into this repo; a plain clone is the
+> Community tier, has no `tools/templates` or `testgen.py`, and executes fewer)
+> and **3,143 of 3,198** with the
 > Professional-tier `harness/` build present — the gap is cases gated on
 > commercial prerequisites (TestLab, the firmware harness, or the
 > `tools/templates` codegen ZIP), not failures. Not every executed case
@@ -450,15 +470,24 @@ diagnostics_config.yaml
 ```
 
 **No dynamic memory. No recursion. Static buffers only.**  
-Every DID access passes a 5-step ASIL-B-oriented chain generated from YAML:
+Every DID read or write passes the same ordered checks before its callback runs
+(`core/uds_safety.c`; the service handlers and the generated `did_safe_*()` wrappers both call them):
 
 ```
-Step 1  DID exists?              → NRC 0x31 requestOutOfRange
-Step 2  Session allows it?       → NRC 0x7F serviceNotSupportedInActiveSession
-Step 3  Security level met?      → NRC 0x33 securityAccessDenied
-Step 4  Access type permitted?   → NRC 0x6F conditionsNotCorrect
-Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFormat
+Step 1  Pointers valid?                                  → internal error, no DID access
+Step 2  DID exists and supports this access
+        (read / write) in the active session?            → NRC 0x31 requestOutOfRange
+Step 3  Security level unlocked?                         → NRC 0x33 securityAccessDenied
+Step 4  Length: write data equals the DID length,
+        read buffer holds the DID?                       → NRC 0x13 incorrectMessageLengthOrInvalidFormat
+Step 5  The DID callback runs
 ```
+
+For a write, the length check runs before the security check (ISO 14229-1:2026
+Figure 27). A service that the active session or security level does not allow
+at all is refused before this chain, by the service access table (NRC 0x7F or
+0x33). Details and the requirement behind each step:
+[`docs/Safety_Model.md`](docs/Safety_Model.md) §5.
 
 | Directory | Contents |
 |---|---|
@@ -468,7 +497,7 @@ Step 5  Data length correct?     → NRC 0x13 incorrectMessageLengthOrInvalidFor
 | `platform/` | Platform abstraction layer — `platform/zephyr/` (Zephyr HAL) · `platform/freertos/` (FreeRTOS HAL) · `platform_api.h` (shared interface) |
 | `tools/` | `codegen.py`, `testgen.py`, 18 Jinja2 templates |
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command *(Developer/Professional tier)* |
-| `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · safeboot\_freertos\_ecu · robot\_joint\_controller\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu · each with its own `generated/` subfolder |
+| `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · basic\_ecu\_cda\_demo · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · safeboot\_freertos\_ecu · robot\_joint\_controller\_ecu · canfd\_ecu · vehicle\_state\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu (15) · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard *(Developer/Professional tier)* |
 | `tests/` | 63 Unity unit tests, harness, Python integration tests |
 
@@ -500,6 +529,8 @@ inspect without a license.
 | `bms_ecu` | 24 | 10 | 5 | native\_sim | **compile-verified** (native\_sim) |
 | `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | **compile-verified** (native\_sim) |
 | `ardep_ecu` | 35 | 19 | 6 | ardep (custom board, ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim) |
+| `basic_ecu_cda_demo` | 6 | 2 | 4 | native\_sim (host SocketCAN) | **compile-verified** (native\_sim); the CDA interop script above drives it, run by hand, not in CI |
+| `vehicle_state_ecu` | 5 | 2 | 2 | native\_sim (loopback) | **compile-verified** (native\_sim) |
 
 **What the Evidence column means** (added for
 [#329](https://github.com/Xaloqi/EDS/issues/329) — before it, nothing in this
@@ -511,9 +542,10 @@ strongest label that is true of it:
 | **hardware-validated** | Flashed onto real silicon and exercised, with measurements recorded | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — DWT cycle-counter figures from a NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, `-Os`): `safeboot_ecu` over CAN/ISO-TP, `basic_ecu_doip` over the board's onboard MAC+PHY |
 | **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
 
-**All thirteen examples are now at least compile-verified, and two have been on a
-bench.** That became true on 2026-10-02 and was not true before, which is worth
-stating rather than quietly presenting as always-so:
+**All fifteen examples are now at least compile-verified, and two have been on a
+bench.** For the first thirteen that became true on 2026-10-02 and was not true
+before (`basic_ecu_cda_demo` and `vehicle_state_ecu` were added to the CI matrix
+later), which is worth stating rather than quietly presenting as always-so:
 
 - Until then, **six of the twelve had never been compiled for any target** and a
   seventh, `basic_ecu_doip_freertos`, had no CI coverage at all. Their
@@ -531,7 +563,7 @@ stating rather than quietly presenting as always-so:
 Read **compile-verified** literally: it means the committed generated code
 compiles and links against the stack on that target. It is not a claim that the
 example has run anywhere, and for the `native_sim` entries it is not a claim
-about the physical board named in the Boards column. All thirteen ship complete,
+about the physical board named in the Boards column. All fifteen ship complete,
 committed generated code and are architecturally identical in how they wire the
 stack — that is why they are useful as references — but only two have been on a
 bench.
@@ -544,7 +576,7 @@ Cross-transport behaviour against a real bus is proven separately, not here:
 runs the UDS matrix over a real host `vcan0` and a real DoIP/TCP bridge on
 Zephyr targets, and its `COVERAGE.md` states exactly what is and is not claimed.
 
-Each example ships with a complete generated test suite. Run `pytest` against the simulator in under 60 seconds, no CAN hardware needed.
+Thirteen of the fifteen examples ship a generated test suite (`generated/tests/`); `basic_ecu_cda_demo` and `vehicle_state_ecu` do not (the latter has a TestLab campaign in `campaigns/` instead). Run `pytest` against the simulator in under 60 seconds, no CAN hardware needed.
 
 **`TODO [APPLICATION]` convention:** every hardware/NVM-backed DID or routine accessor in these examples is tagged in-code, e.g. `/* TODO [APPLICATION]: Read VIN from NVM. */` in `examples/basic_ecu/src/main.c`. This marks exactly where a customer's application must supply real hardware I/O. The examples demonstrate integration architecture, not complete or certified ECU functionality — do not treat them as evidence that final vehicle behavior is correct.
 
@@ -615,7 +647,7 @@ The runtime stack (`core/`, `transport/`, `config/`, `platform/`) is GPL v2.
 ECU examples (`examples/`) are Apache 2.0.  
 Code generation tools and Safety Manual require a commercial license.
 
-Unlike alternatives that use PolyForm Noncommercial (which prohibits production use without a paid license), the EDS runtime is GPL v2 — you can ship it in a commercial product for free.
+The runtime is GPL v2, so you can use it in a product under GPL v2's terms, including its source-disclosure obligations. Shipping it inside closed-source firmware needs a commercial license (see the open-core table above and [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md)).
 
 → **[Commercial licenses](https://xaloqi.com)**  
 → **[License activation & tier details](docs/COMMERCIAL_ONBOARDING.md)**
@@ -653,10 +685,10 @@ Unlike alternatives that use PolyForm Noncommercial (which prohibits production 
 
 ```bash
 west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 eds-workspace
-cd eds-workspace && west update
-west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
-     -DDIAG_SKIP_CODEGEN=ON
+cd eds-workspace && west update && cd EDS
+west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON \
+  -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+  -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 west build -t run
 ```
 

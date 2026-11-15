@@ -152,56 +152,76 @@ Attempting a write to a read-only DID returns NRC 0x31 (requestOutOfRange).
 
 ## 5. ASIL-B 5-Step Validation Chain
 
-Every DID access — read or write — passes through exactly five ordered checks before the application callback is invoked:
+Every DID access, read or write, passes five ordered steps. The application
+callback is step 5 and runs only if steps 1 to 4 pass.
+
+The checks live in `core/uds_safety.c`. Two callers run them in the same order:
+
+- the service handlers (`s_did_safe_read()` in `core/uds_services/service_0x22.c`,
+  `s_did_safe_write()` in `service_0x2E.c`), which look the DID up in the DID
+  database, so they need no change when the YAML changes; and
+- the generated `did_safe_read_<name>()` / `did_safe_write_<name>()` wrappers in
+  `generated/did_safety_wrappers.c`, one per DID, for application code that
+  reads or writes a DID directly.
 
 ```
-  UDS Service Handler (0x22 / 0x2E)
+  ReadDataByIdentifier (0x22) / WriteDataByIdentifier (0x2E)
             │
-            ▼
-  did_safe_read_XXXX()   or   did_safe_write_XXXX()
-            │
-            ├─── Step 1: NULL pointer guard ─────────────── REQ-SAFE-004
-            │    uds_safety_check_null_ptr(buf, "handler")
+            ├─── Step 1: NULL pointer guards ────────────── REQ-SAFE-004
+            │    uds_safety_check_null_ptr()
             │    Failure → UDS_STATUS_ERR_NULL_PTR
             │
-            ├─── Step 2: DID existence check ────────────── REQ-SAFE-001
-            │    uds_safety_find_did(id, &entry)
-            │    Failure → UDS_STATUS_ERR_DID_NOT_FOUND
-            │
-            ├─── Step 3: Session permission check ───────── REQ-SAFE-002
+            ├─── Step 2: DID supported in the active session ── REQ-SAFE-001 / REQ-SAFE-002
+            │    uds_safety_find_did(); the DID's access flags (read / write);
             │    uds_safety_validate_session(session_ctx, entry->min_session)
-            │    Failure → UDS_STATUS_ERR_SESSION_CONTROL
+            │    Failure → NRC 0x31 (unknown DID, wrong access direction,
+            │              or min_session not met)
             │
-            ├─── Step 4: Security level check ───────────── REQ-SAFE-003
-            │    uds_safety_validate_did_access(entry, active_session, active_sec_level, dir)
-            │    Failure → UDS_STATUS_ERR_SECURITY_ACCESS_DENIED
+            ├─── Step 3: Security level ─────────────────── REQ-SAFE-003
+            │    uds_safety_validate_did_access()
+            │    Failure → UDS_STATUS_ERR_SEC_NOT_UNLOCKED → NRC 0x33
             │
-            └─── Step 5: Data length bounds check ───────── REQ-SAFE-006
-                 uds_safety_check_did_data_length(entry, resp_buf, buf_len)
-                 Failure → UDS_STATUS_ERR_INVALID_PARAM
-                 │
-                 ▼
-          Application callback invoked
+            ├─── Step 4: Length ─────────────────────────── REQ-SAFE-006
+            │    read:  uds_safety_check_did_data_length()   (buffer holds the DID)
+            │    write: uds_safety_check_write_data_length() (data equals the DID length)
+            │    Failure → NRC 0x13
+            │
+            └─── Step 5: Application callback invoked
 ```
 
-Failure at any step stops execution immediately. The wrapper generates a UDS-compliant negative response. The application callback is never called if any check fails.
+Two points of order, both from ISO 14229-1:2026:
+
+- **Write:** the length check (step 4) runs before the security check (step 3),
+  as Figure 27 orders them.
+- **Read of several DIDs in one request:** a DID that fails step 2 is skipped and
+  the others are answered; NRC 0x31 is sent only if none is supported (Figure 21).
+
+Before the chain, the service access table (`core/uds_access_table.c`) refuses a
+service that the active session or security level does not allow at all. That is
+where NRC 0x7F comes from, and where a write while locked is answered 0x33
+whatever the DID.
+
+Failure at any step stops execution immediately and the application callback is
+not called.
 
 ---
 
 ## 6. Negative Response Codes
 
-All safety validation failures produce ISO 14229-1 compliant negative responses in the format `7F <SID> <NRC>`:
+What a tester sees, in the format `7F <SID> <NRC>`. Measured on the compiled
+stack with the `bms_ecu` harness (2026-11-13):
 
-| Failure | NRC | ISO name |
+| Request | NRC | ISO name |
 |---|---|---|
-| DID does not exist | `0x31` | requestOutOfRange |
-| Wrong diagnostic session | `0x7F` | serviceNotSupportedInActiveSession |
-| Security access denied | `0x33` | securityAccessDenied |
-| Wrong access direction | `0x31` | requestOutOfRange |
-| Data length mismatch | `0x13` | incorrectMessageLengthOrInvalidFormat |
-| NULL pointer detected | `0x22` | conditionsNotCorrect |
+| Read a DID that does not exist | `0x31` | requestOutOfRange |
+| Read a DID whose `min_session` is not active | `0x31` | requestOutOfRange |
+| Write in the default session | `0x7F` | serviceNotSupportedInActiveSession (service access table) |
+| Write while the security level is locked | `0x33` | securityAccessDenied |
+| Write a read-only DID (session and security satisfied) | `0x31` | requestOutOfRange |
+| Write with the wrong data length | `0x13` | incorrectMessageLengthOrInvalidFormat |
+| A DID callback reports a failed condition | `0x22` | conditionsNotCorrect (from `service_0x22.c`; not exercised in that run) |
 
-Example: `7F 22 33` = ReadDataByIdentifier rejected, SecurityAccessDenied.
+Example: `7F 2E 33` = WriteDataByIdentifier rejected, securityAccessDenied.
 
 ---
 

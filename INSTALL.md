@@ -33,7 +33,7 @@ It installs by extracting into the public EDS repo you already cloned.
 **Professional tier adds:**
 - Integration test harness (`harness/`) — 68 C tests against the full UDS stack
 - Safety documentation package (`safety_docs/`):
-  - Safety Manual EDS-SM-001 Rev 1.3 (PDF)
+  - Safety Manual EDS-SM-001 Rev 1.5 (PDF)
   - Hazard Analysis and Risk Assessment (EDS-HARA-001)
   - Tool Qualification Argument (EDS-TQA-001)
   - Requirements Traceability Matrix — every requirement with its ASIL, implementation, tests and coverage status
@@ -256,8 +256,9 @@ than failures. That's expected, not broken. What Step 6 *does* verify
 standalone at the Developer tier: codegen completed, the generated C
 compiles, and the test suite itself is well-formed and collectible. To
 see the tests actually run and pass end-to-end, install TestLab
-(`pip install xaloqi-tester`) — Professional-tier customers already have
-this, and it's what "All tests should pass" below assumes.
+(`pip install xaloqi-tester`; it is free and Apache-2.0, and it is not part
+of any EDS ZIP — Professional-tier customers do not get it automatically
+either) — it's what "All tests should pass" below assumes.
 
 With `xaloqi-tester` installed: all tests should pass. This validates
 the generated code, the license key, and the testgen pipeline in one
@@ -387,12 +388,17 @@ env:
   XALOQI_LICENSE_KEY: ${{ secrets.XALOQI_LICENSE_KEY }}
 
 steps:
+- name: Build the harness binary
+  # build_harness.sh writes /tmp/harness_ecu_test_<example>
+  # (override the path with OUTPUT=/path/to/binary).
+  run: EXAMPLE=sensor_ecu bash build_harness.sh
+
 - name: Run diagnostic jobs
   run: |
     python3 tools/jobrunner.py \
       --config examples/sensor_ecu/diagnostics_config.yaml \
       --all --mode harness \
-      --binary ./build/uds_harness \
+      --binary /tmp/harness_ecu_test_sensor_ecu \
       --json results/sensor_ecu_$(date +%Y%m%d_%H%M%S).json
 
 - name: Generate TestLab AI report
@@ -516,7 +522,7 @@ python3 tools/eds_ai.py explain \
   --config examples/bms_ecu/diagnostics_config.yaml
 ```
 
-The NRC table (all standard ISO 14229 codes) is embedded in the tool and works offline. The AI explanation requires an API connection.
+The NRC table (all standard ISO 14229 codes) is embedded in the tool. The command prints the NRC text first, with no network call and no API key, and then asks for the AI explanation. Without an API key (or without a connection) you keep the NRC text and a one-line note says the AI part was skipped; the exit code stays 0. The licence check still runs first.
 
 ### validate — review of a config file against the EDS safety rules
 
@@ -555,8 +561,10 @@ codegen.
 python3 tools/arxml_parser.py --input ecu_extract.arxml --output diagnostics_config.yaml
 ```
 
-Warnings about skipped or defaulted elements are printed to stderr. The YAML is always valid —
-review it before running codegen, particularly:
+Every element the importer skips, clamps or defaults is named in a warning on stderr (a
+`DATA-LENGTH` outside 1–64 is clamped, a duplicate DID ID is dropped), and an invalid DID or DTC ID
+makes the import fail with exit code 1 instead of writing a YAML that codegen would reject. Read the
+warnings and review the YAML before running codegen, particularly:
 
 - `access` on DIDs defaults to `["read"]` — add `"write"` where needed
 - `algorithm` on security levels defaults to `aes128_cmac` — confirm this matches your ECU
@@ -572,7 +580,7 @@ The `safety_docs/` directory contains the complete ISO 26262-aligned documentati
 
 | Document | File | Purpose |
 |---|---|---|
-| Safety Manual Rev 1.3 | `EDS_Safety_Manual_EDS-SM-001_Rev1.3.pdf` | Component safety manual — integration responsibilities, safety boundaries |
+| Safety Manual Rev 1.5 | `safety_docs/EDS_Safety_Manual_EDS-SM-001_Rev1.5.pdf` | Component safety manual — integration responsibilities, safety boundaries |
 | HARA | `EDS-HARA-001.md` | 6 hazard events, ASIL decomposition argument |
 | TQA | `EDS-TQA-001.md` | Tool qualification argument (TCL1 per ISO 26262-8 §11) |
 | RTM | `EDS_Requirements_Traceability_Matrix.csv` | Every requirement with its ASIL, implementation files, tests and coverage status (COVERED / PARTIAL) — the CSV is the source of truth for its counts |

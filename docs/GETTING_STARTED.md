@@ -63,12 +63,12 @@ mkdir eds-workspace && cd eds-workspace
 # Initialise the workspace from the EDS repository
 west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 .
 
-# Pull Zephyr and all dependencies (this downloads ~500 MB, takes 2-4 min)
+# Pull Zephyr and all dependencies (this downloads about 7 GB on disk, takes about 5 min on a fast connection)
 west update
 ```
 
 > **Note:** On a slow connection the
-> `west update` step can take up to 10 minutes. It only runs once.
+> `west update` step can take much longer than 5 minutes. It only runs once.
 
 After `west update` your workspace looks like this:
 
@@ -173,7 +173,8 @@ python3 tools/codegen.py \
 ```bash
 # From the eds repo root
 west build -b native_sim examples/basic_ecu \
-    -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+    -- -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+       -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 
 # Expected output ends with:
 # [100%] Linking C executable zephyr/zephyr.elf
@@ -199,16 +200,22 @@ You should see the ECU boot log:
 
 ```
 *** Booting Zephyr OS build v3.7.0 ***
-[00:00:00.000] EDS v1.4.0 starting
-[00:00:00.001] UDS server initialised
-[00:00:00.001] DID database: 5 DIDs registered
-[00:00:00.001] DTC database: 3 DTCs registered
-[00:00:00.001] ISO-TP transport ready (CAN loopback)
-[00:00:00.002] Diagnostics task running
+<inf> basic_ecu: Xaloqi EDS BasicECU starting
+<wrn> zephyr_wdt: WDT: No watchdog device available — running without HW supervision.
+<inf> zephyr_can: CAN: functional filter installed (ID=0x7DF, slot 0).
+<inf> zephyr_can: CAN: physical filter installed (ID=0x7E0, slot 1).
+<inf> zephyr_can: CAN: Transport initialized (device: can_loopback0).
+<wrn> basic_ecu: [SEC] Using placeholder AES keys — inject OEM keys before production.
+<inf> basic_ecu: UDS stack ready: 5 DIDs  2 DTCs  RX=0x7DF TX=0x7E8
+<inf> basic_ecu: BasicECU diag task started
 ```
 
 The ECU is now running in Zephyr's `native_sim` — a Linux process that simulates the
 embedded environment including the CAN loopback driver.
+`can_loopback0` connects the ECU only to itself, so nothing outside the process can send
+it a request. Step 8 sends requests to the generated simulator instead; talking to this
+process over a real SocketCAN interface needs the `native_sim_realcan` configuration
+(`boards/native_sim/native_sim_realcan.conf` describes it).
 
 Press **Ctrl+C** to stop.
 
@@ -427,7 +434,7 @@ Open any `diagnostics_config.yaml` and:
 cp -r examples/basic_ecu examples/my_ecu
 # Edit examples/my_ecu/diagnostics_config.yaml
 # Edit examples/my_ecu/src/ for your application
-west build -b native_sim examples/my_ecu -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+west build -b native_sim examples/my_ecu -- -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 ```
 
 ### Flash real hardware (STM32 Nucleo-H743ZI2)
@@ -470,7 +477,8 @@ it resumes from where it stopped.
 You forgot the overlay argument. Always build native_sim with:
 ```bash
 west build -b native_sim examples/basic_ecu \
-    -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay
+    -- -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+       -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 ```
 
 ### Build error: `can_frame_flags_t undeclared`
@@ -528,7 +536,7 @@ Run the integration tests in a second terminal to send traffic while it's runnin
 | Command | What it does |
 |---|---|
 | `python3 tools/codegen.py --config CONFIG --out OUTPUT_DIR --safety-wrappers --asil-level B` | Generate C code from YAML |
-| `west build -b native_sim examples/basic_ecu -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay` | Build simulator firmware |
+| `west build -b native_sim examples/basic_ecu -- -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay` | Build simulator firmware |
 | `west build -t run` | Run simulator |
 | `west build -b nucleo_h743zi2 examples/basic_ecu` | Cross-compile for STM32 Nucleo-H743ZI2 |
 | `west build -b mr_canhubk3 examples/basic_ecu -- -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay` | Cross-compile for NXP MR-CANHUBK3 (S32K344) |
