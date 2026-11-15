@@ -24,12 +24,13 @@ Zephyr's `native_sim`. No CAN hardware, no commercial license:
 ```bash
 pip install west
 west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 eds-workspace
-cd eds-workspace && west update
+cd eds-workspace && west update   # ~7 GB, about 5 minutes
+cd EDS                            # tools/ and examples/ live here, not in eds-workspace/
 pip install -r tools/requirements.txt
 
-west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
-     -DDIAG_SKIP_CODEGEN=ON
+west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON \
+  -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+  -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 west build -t run
 ```
 
@@ -143,27 +144,27 @@ python3 tools/codegen.py \
 
 ```bash
 # Simulator (CI, no hardware)
-west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
-     -DDIAG_SKIP_CODEGEN=ON
+west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON \
+  -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+  -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 west build -t run
 
 # STM32 Nucleo-H743ZI2
 west build -b nucleo_h743zi examples/basic_ecu \
-  -- -DEXTRA_CONF_FILE=boards/nucleo_h743zi/nucleo_h743zi.conf \
-     -DDTC_OVERLAY_FILE=boards/nucleo_h743zi/nucleo_h743zi.overlay
+  -- -DEXTRA_CONF_FILE=$PWD/boards/nucleo_h743zi/nucleo_h743zi.conf \
+     -DDTC_OVERLAY_FILE=$PWD/boards/nucleo_h743zi/nucleo_h743zi.overlay
 west flash
 
 # NXP FRDM-MCXN947
 west build -b frdm_mcxn947/mcxn947/cpu0 examples/basic_ecu \
-  -- -DEXTRA_CONF_FILE=boards/frdm_mcxn947/frdm_mcxn947.conf \
-     -DDTC_OVERLAY_FILE=boards/frdm_mcxn947/frdm_mcxn947.overlay
+  -- -DEXTRA_CONF_FILE=$PWD/boards/frdm_mcxn947/frdm_mcxn947.conf \
+     -DDTC_OVERLAY_FILE=$PWD/boards/frdm_mcxn947/frdm_mcxn947.overlay
 west flash
 
 # NXP MR-CANHUBK3 (S32K344 — also covers S32K312, S32K396)
 west build -b mr_canhubk3 examples/basic_ecu \
-  -- -DEXTRA_CONF_FILE=boards/mr_canhubk3/mr_canhubk3.conf \
-     -DDTC_OVERLAY_FILE=boards/mr_canhubk3/mr_canhubk3.overlay
+  -- -DEXTRA_CONF_FILE=$PWD/boards/mr_canhubk3/mr_canhubk3.conf \
+     -DDTC_OVERLAY_FILE=$PWD/boards/mr_canhubk3/mr_canhubk3.overlay
 west flash
 ```
 
@@ -239,9 +240,12 @@ Start from [`examples/basic_ecu/CMakeLists.txt`](examples/basic_ecu/CMakeLists.t
 ```bash
 pip install west
 west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 eds-workspace
-cd eds-workspace && west update
+cd eds-workspace && west update   # ~7 GB, about 5 minutes
+cd EDS                            # tools/ and examples/ live here, not in eds-workspace/
 pip install -r tools/requirements.txt
 ```
+
+Every later command in this README runs from `eds-workspace/EDS`.
 
 ### Run the basic ECU example
 
@@ -255,9 +259,9 @@ python3 tools/codegen.py \
   --safety-wrappers --asil-level B --test-gen
 
 # Build and run in simulator  (works without a license — generated/ is committed)
-west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
-     -DDIAG_SKIP_CODEGEN=ON
+west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON \
+  -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+  -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 west build -t run
 ```
 
@@ -527,14 +531,14 @@ inspect without a license.
 | `ardep_ecu` | 35 | 19 | 6 | ardep (custom board, ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim) |
 | `basic_ecu_cda_demo` | 6 | 2 | 4 | native\_sim (host SocketCAN) | **compile-verified** (native\_sim); the CDA interop script above drives it, run by hand, not in CI |
 | `vehicle_state_ecu` | 5 | 2 | 2 | native\_sim (loopback) | **compile-verified** (native\_sim) |
+
+**What the Evidence column means** (added for
 [#329](https://github.com/Xaloqi/EDS/issues/329) — before it, nothing in this
 repo said which targets had ever been flashed). Each example carries the
 strongest label that is true of it:
 
 | Label | Means | Proof |
 |---|---|---|
-
-**What the Evidence column means** (added for
 | **hardware-validated** | Flashed onto real silicon and exercised, with measurements recorded | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — DWT cycle-counter figures from a NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, `-Os`): `safeboot_ecu` over CAN/ISO-TP, `basic_ecu_doip` over the board's onboard MAC+PHY |
 | **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
 
@@ -681,10 +685,10 @@ The runtime is GPL v2, so you can use it in a product under GPL v2's terms, incl
 
 ```bash
 west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 eds-workspace
-cd eds-workspace && west update
-west build -b native_sim examples/basic_ecu \
-  -- -DDTC_OVERLAY_FILE=boards/native_sim/native_sim.overlay \
-     -DDIAG_SKIP_CODEGEN=ON
+cd eds-workspace && west update && cd EDS
+west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON \
+  -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \
+  -DDTC_OVERLAY_FILE=$PWD/boards/native_sim/native_sim.overlay
 west build -t run
 ```
 
