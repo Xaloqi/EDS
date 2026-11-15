@@ -2,7 +2,7 @@
 # Xaloqi Embedded Diagnostics Suite
 
 [![CI](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml/badge.svg)](https://github.com/Xaloqi/EDS/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v1.29.0-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.29.0)
+[![Version](https://img.shields.io/badge/version-v1.29.1-blue)](https://github.com/Xaloqi/EDS/releases/tag/v1.29.1)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Zephyr](https://img.shields.io/badge/Zephyr-v3.7%2B-brightgreen)](https://zephyrproject.org)
 [![Zephyr main (weekly, report-only)](https://github.com/Xaloqi/EDS/actions/workflows/zephyr-main-weekly.yml/badge.svg)](https://github.com/Xaloqi/EDS/actions/workflows/zephyr-main-weekly.yml)
@@ -23,7 +23,7 @@ Zephyr's `native_sim`. No CAN hardware, no commercial license:
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.29.1 eds-workspace
 cd eds-workspace && west update   # ~7 GB, about 5 minutes
 cd EDS                            # tools/ and examples/ live here, not in eds-workspace/
 pip install -r tools/requirements.txt
@@ -185,7 +185,7 @@ manifest:
   projects:
     - name: EDS
       remote: xaloqi
-      revision: v1.29.0
+      revision: v1.29.1
       path: modules/eds
 ```
 
@@ -239,7 +239,7 @@ Start from [`examples/basic_ecu/CMakeLists.txt`](examples/basic_ecu/CMakeLists.t
 
 ```bash
 pip install west
-west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.29.1 eds-workspace
 cd eds-workspace && west update   # ~7 GB, about 5 minutes
 cd EDS                            # tools/ and examples/ live here, not in eds-workspace/
 pip install -r tools/requirements.txt
@@ -684,7 +684,7 @@ The runtime is GPL v2, so you can use it in a product under GPL v2's terms, incl
 **Just want to see an ECU run?**
 
 ```bash
-west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 eds-workspace
+west init -m https://github.com/Xaloqi/EDS --mr v1.29.1 eds-workspace
 cd eds-workspace && west update && cd EDS
 west build -b native_sim examples/basic_ecu -- -DDIAG_SKIP_CODEGEN=ON \
   -DEXTRA_CONF_FILE=$PWD/boards/native_sim/native_sim.conf \

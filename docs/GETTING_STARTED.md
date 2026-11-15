@@ -61,7 +61,7 @@ west --version   # must print 1.2 or newer
 mkdir eds-workspace && cd eds-workspace
 
 # Initialise the workspace from the EDS repository
-west init -m https://github.com/Xaloqi/EDS --mr v1.29.0 .
+west init -m https://github.com/Xaloqi/EDS --mr v1.29.1 .
 
 # Pull Zephyr and all dependencies (this downloads about 7 GB on disk, takes about 5 min on a fast connection)
 west update
