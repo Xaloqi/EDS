@@ -3,12 +3,12 @@
 # =============================================================================
 #
 # xaloqi-tester replaces the inline ISO-TP/AES-CMAC/simulator implementation
-# that was previously embedded in conftest.py.  Install it from your TestLab
-# ZIP or via pip if you have a TestLab license:
+# that was previously embedded in conftest.py.  It is free (Apache-2.0):
 #
 #   pip install xaloqi-tester
-#   OR
-#   pip install -e /path/to/TestLab
+#
+# Simulator runs need nothing else.  Real CAN or DoIP hardware transports come
+# from xaloqi-tester-pro, the wheel in your TestLab ZIP.
 #
 xaloqi-tester>=1.0.0
 pytest>=7.0
