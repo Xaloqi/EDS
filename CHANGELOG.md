@@ -16,6 +16,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The INTEGRATION_GUIDE source list links** (#617). Step 3 omitted `core/uds_periodic.c` and the 0x23, 0x2A, 0x2F and
+  0x3D service files, so following it ended in undefined references; it also named `platform/zephyr_flash_ops.c`
+  (the file is `platform/zephyr/zephyr_flash_ops.c`). It now lists them, `platform/uds_image_policy.c`, the optional
+  MCUboot image-verification sources and the STM32H7 NVM backend. `tests/test_integration_guide_sources.py` fails if
+  the guide names a file that does not exist or leaves out a `core/` or `core/uds_services/` source.
 - **Regenerating `sensor_ecu`, `sensor_ecu_freertos` or `vehicle_state_ecu` no longer deletes their behaviour**
   (#613). Their live DID and routine handlers were hand edits in `generated/`, marked `[APP HOOK]`, and one codegen
   run replaced them with TODO stubs. They now live in each example's `src/diag_app.c`, and the YAML marks those DIDs

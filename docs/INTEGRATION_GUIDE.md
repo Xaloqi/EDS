@@ -303,6 +303,7 @@ target_sources(app PRIVATE
     ${EDS_ROOT}/core/uds_comm_control.c
     ${EDS_ROOT}/core/uds_session_stats.c
     ${EDS_ROOT}/core/uds_security_nvm.c
+    ${EDS_ROOT}/core/uds_periodic.c                       # periodic scheduler (SID 0x2A)
 
     # UDS service handlers
     ${EDS_ROOT}/core/uds_services/service_registration.c
@@ -311,14 +312,18 @@ target_sources(app PRIVATE
     ${EDS_ROOT}/core/uds_services/service_0x14.c
     ${EDS_ROOT}/core/uds_services/service_0x19.c
     ${EDS_ROOT}/core/uds_services/service_0x22.c
+    ${EDS_ROOT}/core/uds_services/service_0x23.c
     ${EDS_ROOT}/core/uds_services/service_0x27.c
     ${EDS_ROOT}/core/uds_services/service_0x28.c
+    ${EDS_ROOT}/core/uds_services/service_0x2A.c
     ${EDS_ROOT}/core/uds_services/service_0x2E.c
+    ${EDS_ROOT}/core/uds_services/service_0x2F.c
     ${EDS_ROOT}/core/uds_services/service_0x31.c
     ${EDS_ROOT}/core/uds_services/service_0x34.c
     ${EDS_ROOT}/core/uds_services/service_0x35.c
     ${EDS_ROOT}/core/uds_services/service_0x36.c
     ${EDS_ROOT}/core/uds_services/service_0x37.c
+    ${EDS_ROOT}/core/uds_services/service_0x3D.c
     ${EDS_ROOT}/core/uds_services/service_0x3E.c
     ${EDS_ROOT}/core/uds_services/service_0x85.c
 
@@ -336,9 +341,14 @@ target_sources(app PRIVATE
     # DFU / firmware download support
     ${EDS_ROOT}/core/uds_transfer_ctx.c
     ${EDS_ROOT}/platform/uds_flash_ops.c
+    ${EDS_ROOT}/platform/uds_image_policy.c
     # Platform flash driver — choose ONE:
-    # ${EDS_ROOT}/platform/zephyr_flash_ops.c   # MCUboot secondary-slot (recommended)
+    # ${EDS_ROOT}/platform/zephyr/zephyr_flash_ops.c   # MCUboot secondary-slot (recommended)
     # Or implement your own flash_ops_t and call uds_flash_ops_register() in main.c.
+    # MCUboot image verification (optional; see examples/safeboot_ecu/CMakeLists.txt):
+    # ${EDS_ROOT}/platform/uds_sha256.c
+    # ${EDS_ROOT}/platform/uds_mcuboot_image.c
+    # ${EDS_ROOT}/platform/zephyr/zephyr_mcuboot_image_policy.c
 
     # Zephyr platform
     ${EDS_ROOT}/platform/zephyr/zephyr_port.c
@@ -354,7 +364,8 @@ target_sources(app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/generated/uds_init.c
 )
 
-# NVM store: real Zephyr NVS on hardware, RAM mock on native_sim
+# NVM store: real Zephyr NVS on hardware, RAM mock on native_sim.
+# STM32H7 boards (128 KB sectors) use platform/zephyr/nvm_store_append.c instead of nvm_store.c.
 if(CONFIG_BOARD_NATIVE_SIM)
     target_sources(app PRIVATE ${EDS_ROOT}/platform/zephyr/nvm_store_mock.c)
 else()
