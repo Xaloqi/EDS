@@ -21,6 +21,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   (the file is `platform/zephyr/zephyr_flash_ops.c`). It now lists them, `platform/uds_image_policy.c`, the optional
   MCUboot image-verification sources and the STM32H7 NVM backend. `tests/test_integration_guide_sources.py` fails if
   the guide names a file that does not exist or leaves out a `core/` or `core/uds_services/` source.
+- **The generated `requirements_testgen.txt` in every example no longer asks for a licence** (Xaloqi/EDS-toolchain#277).
+  It now says `xaloqi-tester` is free (`pip install xaloqi-tester`) and that real CAN and DoIP transports come from
+  `xaloqi-tester-pro` in the TestLab ZIP. Regenerated with the fixed template; no other file changes.
 - **Regenerating `sensor_ecu`, `sensor_ecu_freertos` or `vehicle_state_ecu` no longer deletes their behaviour**
   (#613). Their live DID and routine handlers were hand edits in `generated/`, marked `[APP HOOK]`, and one codegen
   run replaced them with TODO stubs. They now live in each example's `src/diag_app.c`, and the YAML marks those DIDs
