@@ -89,8 +89,19 @@ EDS is dual-licensed. The runtime stack is GPL v2 and the whole thing builds and
 
 ```yaml
 # diagnostics_config.yaml
-ecu:
-  name: "body_controller"
+schema_version: 1
+metadata:
+  ecu_name: "body_controller"
+  version: "1.0.0"
+
+can:
+  rx_can_id: "0x7E0"   # physical request to this ECU (ASIL-B builds must set both IDs)
+  tx_can_id: "0x7E8"
+
+timing:
+  p2_server_max_ms:       25
+  p2_star_server_max_ms:  5000
+  s3_server_timeout_ms:   5000
 
 dids:
   - id: "0xF190"
