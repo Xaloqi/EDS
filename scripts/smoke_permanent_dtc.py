@@ -28,7 +28,13 @@ Control run: with --control the ECU gets EDS_BENCH_NO_PERMANENT=1, the DTC is no
 permanent, and the script expects the opposite: 0x19 0x15 is empty and
 14 FF FF FF clears 0xA00101 (also after the reboot, where it was restored).
 
-Usage: smoke_permanent_dtc.py [--control] <path/to/zephyr.exe> [interface] [ramp_timeout_s]
+Power-loss run (EDS#632): with --kill the ECU is killed (SIGKILL, as a power
+cut or the reset pin would stop it) KILL_AFTER_S after the DTC is confirmed,
+instead of being reset with 11 01, so nothing runs a controlled flush. The DTC
+must still be confirmed after the restart. KILL_AFTER_S is above the mirror's
+bounded delay (DTC_MIRROR_FLUSH_INTERVAL_MS, config/dtc_mirror.h).
+
+Usage: smoke_permanent_dtc.py [--control | --kill] <path/to/zephyr.exe> [interface] [ramp_timeout_s]
 """
 
 import os
@@ -44,6 +50,7 @@ RSP_ID = 0x7E8
 CAN_FMT = "=IB3x8s"
 DTC = 0xA00101
 TEMP_FAULT_C = 85
+KILL_AFTER_S = 2.0   # > DTC_MIRROR_FLUSH_INTERVAL_MS (1000 ms) plus margin
 
 
 def uds(sock, req, timeout=2.0):
@@ -141,8 +148,39 @@ def main_control(sock, exe, work, ecu, ramp_timeout):
     return ecu
 
 
+def main_kill(sock, exe, work, ecu, ramp_timeout):
+    """[EDS#632] Kill instead of 11 01: the confirmed DTC must survive."""
+    wait_boot(sock)
+    t0 = time.monotonic()
+    while DTC not in confirmed(sock):
+        if time.monotonic() - t0 > ramp_timeout:
+            raise SystemExit("FAIL: 0x%06X not confirmed in %.0f s" % (DTC, ramp_timeout))
+        time.sleep(0.5)
+    st = confirmed(sock)[DTC]
+    print("KILL %.0f s: 0x%06X confirmed, status 0x%02X; SIGKILL in %.1f s"
+          % (time.monotonic() - t0, DTC, st, KILL_AFTER_S))
+    time.sleep(KILL_AFTER_S)
+    ecu.kill()                      # no 11 01, no flush: a power cut
+    ecu.wait()
+    time.sleep(0.5)
+    ecu = start(exe, work)
+    wait_boot(sock)
+    cold = temp_c(sock)
+    assert cold <= TEMP_FAULT_C, "not cold after restart: %d degC" % cold
+    after = confirmed(sock)
+    if DTC not in after:
+        raise SystemExit("FAIL: 0x%06X lost over the power cut (0x19 0x02 0x08 -> %r)"
+                         % (DTC, after))
+    print("PASS after the power cut: %d degC, 0x%06X restored from NVM, status 0x%02X"
+          % (cold, DTC, after[DTC]))
+    return ecu
+
+
 def main():
     global CONTROL
+    kill = "--kill" in sys.argv
+    if kill:
+        sys.argv.remove("--kill")
     if "--control" in sys.argv:
         CONTROL = True
         sys.argv.remove("--control")
@@ -157,6 +195,9 @@ def main():
     try:
         if CONTROL:
             ecu = main_control(sock, exe, work, ecu, ramp_timeout)
+            return
+        if kill:
+            ecu = main_kill(sock, exe, work, ecu, ramp_timeout)
             return
         wait_boot(sock)
         assert DTC not in confirmed(sock), "DTC set at boot"

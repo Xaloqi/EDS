@@ -66,6 +66,9 @@ _Static_assert(
 
 static bool s_initialized = false;
 
+/* [EDS#632] ms since the last mirror write (saturates at the interval). */
+static uint32_t s_since_write_ms = 0U;
+
 /* Serialization buffer — sized for max DTC mirror payload. */
 static uint8_t s_mirror_buf[DTC_MIRROR_MAX_BYTES];
 
@@ -396,16 +399,36 @@ uds_status_t dtc_mirror_flush_all(void)
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 
-    rc = mirror_serialize(&serial_len);
-    if (rc != UDS_STATUS_OK) {
-        return rc;
-    }
+    /* [EDS#632] Take the flag before serializing: a change made while this
+     * write runs sets it again and is written next time. */
+    (void)dtc_database_take_unsaved();
+    s_since_write_ms = 0U;
 
-    rc = nvm_store_write((uint16_t)NVM_KEY_DTC_MIRROR, s_mirror_buf, serial_len);
-    if (rc != UDS_STATUS_OK) {
-        return rc;
+    rc = mirror_serialize(&serial_len);
+    if (rc == UDS_STATUS_OK) {
+        rc = nvm_store_write((uint16_t)NVM_KEY_DTC_MIRROR, s_mirror_buf, serial_len);
     }
-    return records_write();   /* [EDS#145] */
+    if (rc == UDS_STATUS_OK) {
+        rc = records_write();   /* [EDS#145] */
+    }
+    if (rc != UDS_STATUS_OK) {
+        dtc_database_mark_unsaved();   /* retried by dtc_mirror_tick_1ms() */
+    }
+    return rc;
+}
+
+void dtc_mirror_tick_1ms(void)
+{
+    if (!s_initialized) {
+        return;
+    }
+    if (s_since_write_ms < (uint32_t)DTC_MIRROR_FLUSH_INTERVAL_MS) {
+        s_since_write_ms++;
+        return;
+    }
+    if (dtc_database_has_unsaved()) {
+        (void)dtc_mirror_flush_all();
+    }
 }
 
 uds_status_t dtc_mirror_save_one(uint32_t dtc_code, uint8_t status_byte)
@@ -415,11 +438,8 @@ uds_status_t dtc_mirror_save_one(uint32_t dtc_code, uint8_t status_byte)
 
     /*
      * NVS does not support partial record update — each write replaces
-     * the entire record. Perform a full flush on every change.
-     *
-     * For systems with high-frequency DTC events, a dirty-flag approach
-     * with periodic flush (e.g. every 10 ms tick) would be more efficient.
-     * For Phase 3, eager flush ensures maximum data integrity.
+     * the entire record. A 0x14 clear is written at once; monitor-path
+     * changes go through dtc_mirror_tick_1ms() instead [EDS#632].
      */
     return dtc_mirror_flush_all();
 }
@@ -448,7 +468,8 @@ bool dtc_mirror_is_ready(void)
 #ifdef UNIT_TEST
 void dtc_mirror_test_reset(void)
 {
-    s_initialized = false;
+    s_initialized    = false;
+    s_since_write_ms = 0U;
 }
 #endif /* UNIT_TEST */
 

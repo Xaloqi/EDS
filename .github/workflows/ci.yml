@@ -2349,6 +2349,15 @@ jobs:
           sudo ip link set up zcan0
           python3 EDS/scripts/smoke_permanent_dtc.py --control build/zephyr/zephyr.exe zcan0
 
+      # [EDS#632] Killed instead of reset (a power cut): no controlled flush
+      # runs, so the confirmed DTC must already be in NVM.
+      - name: Power cut — a confirmed DTC survives a kill without 11 01
+        run: |
+          sudo ip link del zcan0 || true
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set up zcan0
+          python3 EDS/scripts/smoke_permanent_dtc.py --kill build/zephyr/zephyr.exe zcan0
+
   # [EDS#557][EDS#546] CAN FD end to end: examples/canfd_ecu (can.fd: true) on
   # native_sim over an MTU-72 vcan, tested by the Linux kernel's own ISO-TP
   # stack (can-isotp, net/can/isotp.c) set to CAN FD, plus a raw FD socket on

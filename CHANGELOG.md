@@ -10,6 +10,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A confirmed DTC survives a power loss** (#632). A DTC confirmed through `dtc_database_set_status()` used to reach
+  NVM only at a controlled reset (0x11) or a 0x14, so a power cut, a watchdog reset or the reset pin lost it. A change
+  of ConfirmedDTC or TestFailedSinceLastClear now marks the DTC mirror dirty, and `uds_server_tick_1ms()` writes it
+  within `DTC_MIRROR_FLUSH_INTERVAL_MS` (default 1000 ms), at most once per interval. The write runs on the thread
+  that ticks the server, never in the caller. No integration change and no NVM format change. `config/dtc_mirror.h`
+  states what is guaranteed. `scripts/smoke_permanent_dtc.py --kill` kills the ECU instead of resetting it, and the
+  robot bench CI job runs it.
 - **MR-CANHUBK3 (S32K344) flash map follows Zephyr's MCUboot variant** (#627). `boards/mr_canhubk3/mr_canhubk3.overlay`
   now uses the offsets and node labels of Zephyr's `mr_canhubk3_s32k344_mcuboot.dts` (v4.4.0 and later): boot header,
   pad, MCUboot, two 1920 KiB slots, with `diag_nvs` (72 KiB) in the free tail. A plain build and an MCUboot build share

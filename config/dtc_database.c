@@ -64,6 +64,10 @@ static bool    s_functional_group_set = false;
 static uint32_t s_records[DTC_RECORD_COUNT];
 
 /* [EDS#354] Optional lock callbacks — see dtc_database_set_lock_callbacks(). */
+/* [EDS#632] A status change that dtc_mirror must write (DTC_PERSIST_TRIGGER_MASK
+ * changed on the monitor path) and has not written yet. Under the lock. */
+static bool s_unsaved = false;
+
 static dtc_database_lock_cb_t   s_dtc_lock_cb   = NULL;
 static dtc_database_unlock_cb_t s_dtc_unlock_cb = NULL;
 
@@ -125,6 +129,7 @@ uds_status_t dtc_database_init(void)
     s_dtc_count   = (uint16_t)0U;
     s_functional_group     = 0U;
     s_functional_group_set = false;
+    s_unsaved     = false;
     s_initialized = true;
 
     return UDS_STATUS_OK;
@@ -236,6 +241,12 @@ static uds_status_t dtc_set_status_internal(uint32_t dtc_code, uint8_t status_by
     if (entry != NULL) {
         if (note_transition) {
             records_note_transition(dtc_code, entry->status_byte, status_byte);
+            /* [EDS#632] Only the monitor path: restore is NVM itself, and a
+             * clear (0x14) writes the mirror at once. */
+            if (((uint8_t)(entry->status_byte ^ status_byte) &
+                 (uint8_t)DTC_PERSIST_TRIGGER_MASK) != (uint8_t)0U) {
+                s_unsaved = true;
+            }
         }
         entry->status_byte = status_byte;
         if (clear_fdc) {
@@ -485,6 +496,35 @@ uds_status_t dtc_database_get_functional_group(uint8_t *out_group)
     return UDS_STATUS_OK;
 }
 
+/* [EDS#632] dtc_mirror's dirty flag: peek, take (read and clear), mark. */
+bool dtc_database_has_unsaved(void)
+{
+    bool unsaved;
+
+    dtc_db_lock();
+    unsaved = s_unsaved;
+    dtc_db_unlock();
+    return unsaved;
+}
+
+bool dtc_database_take_unsaved(void)
+{
+    bool unsaved;
+
+    dtc_db_lock();
+    unsaved   = s_unsaved;
+    s_unsaved = false;
+    dtc_db_unlock();
+    return unsaved;
+}
+
+void dtc_database_mark_unsaved(void)
+{
+    dtc_db_lock();
+    s_unsaved = true;
+    dtc_db_unlock();
+}
+
 // ✅ End of dtc_database.c
 
 /* --------------------------------------------------------------------------
@@ -509,6 +549,7 @@ void dtc_database_test_reset(void)
     s_dtc_count   = (uint16_t)0U;
     s_functional_group     = 0U;
     s_functional_group_set = false;
+    s_unsaved     = false;
     s_initialized = false;
 }
 #endif /* UNIT_TEST */

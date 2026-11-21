@@ -26,6 +26,7 @@
 #include "uds_session.h"
 #include "uds_security.h"
 #include "uds_access_table.h"
+#include "dtc_mirror.h"   /* dtc_mirror_tick_1ms() [EDS#632] */
 
 #include <stddef.h>
 #include <string.h>
@@ -267,6 +268,9 @@ uds_status_t uds_server_tick_1ms(uds_server_ctx_t *ctx)
     if (!ctx->initialized) {
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
+
+    /* [EDS#632] Monitor-path DTC changes reach NVM within a bounded delay. */
+    dtc_mirror_tick_1ms();
 
     /* [EDS#282] Keepalive and cap clocks of a pending job. */
     if (ctx->pending.active) {
