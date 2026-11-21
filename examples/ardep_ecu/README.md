@@ -8,8 +8,24 @@ board `boards/mercedes/ardep`, STM32G474). This example shows Xaloqi EDS configu
 an I/O-controller application on that board and its PowerIO Shield: discrete inputs,
 analogue sensors, high-side outputs, CAN/LIN status and firmware-update metadata.
 
-Evidence: compile-verified on `native_sim` only. It has not been built for or run on the
-`ardep` board.
+Evidence: compile-verified on `native_sim`, and for the `ardep` board in ARDEP's own west
+workspace (CI job `zephyr-ardep`: ARDEP pinned to a commit, its Zephyr v4.4.0). It has not
+been run on an ARDEP board.
+
+Building for the board, from an ARDEP workspace (`west init -m https://github.com/mercedes-benz/ardep`,
+`west update`) with Zephyr SDK 1.x:
+
+```bash
+west build -b ardep <path-to-eds>/examples/ardep_ecu -- \
+  -DDIAG_SKIP_CODEGEN=ON \
+  -DCONFIG_NEWLIB_LIBC=n -DCONFIG_EDS_REQUIRE_NEWLIB=n \
+  -DEXTRA_CONF_FILE=<path-to-eds>/examples/ardep_ecu/boards/ardep/ardep.conf \
+  -DDTC_OVERLAY_FILE=<path-to-eds>/examples/ardep_ecu/boards/ardep/ardep.overlay
+```
+
+The two `NEWLIB` settings accept picolibc: Zephyr SDK 1.x ships no newlib (EDS#498). This
+builds the application image only. Flashing it on the board goes through ARDEP's MCUboot,
+which this example does not build yet.
 
 ---
 

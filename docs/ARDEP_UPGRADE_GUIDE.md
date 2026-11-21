@@ -318,9 +318,10 @@ running the generated pytest suite, `derive_firmware_key()` uses the same
 placeholder keys as `uds_security_algo.c`. After injecting OEM keys, update
 `--sec-key-l1` / `--sec-key-l2` pytest options accordingly.
 
-**Build fails on `CONFIG_CAN_STM32FD`:**
-Ensure `CONFIG_CAN=y` is set in `prj.conf` and `CONFIG_CAN_STM32FD=y` is
-set in `boards/ardep/ardep.conf`. The STM32G4 uses FDCAN (not legacy bxCAN).
+**Build fails with "attempt to assign the value 'y' to the undefined symbol CAN_STM32FD":**
+Remove that line. No current Zephyr defines `CAN_STM32FD`; the STM32G4's FDCAN
+driver (`CAN_STM32_FDCAN`) is selected from devicetree once `CONFIG_CAN=y` is
+set. `boards/ardep/ardep.conf` sets only `CONFIG_CAN=y`.
 
 ---
 

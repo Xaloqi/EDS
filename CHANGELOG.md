@@ -8,6 +8,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **MR-CANHUBK3 (S32K344) flash map follows Zephyr's MCUboot variant** (#627). `boards/mr_canhubk3/mr_canhubk3.overlay`
+  now uses the offsets and node labels of Zephyr's `mr_canhubk3_s32k344_mcuboot.dts` (v4.4.0 and later): boot header,
+  pad, MCUboot, two 1920 KiB slots, with `diag_nvs` (72 KiB) in the free tail. A plain build and an MCUboot build share
+  one map. The overlay's note that the S32K3 boot header has to be prepended by hand is removed: Zephyr's
+  `soc/nxp/s32/s32k3/soc.c` emits it, and CI now checks it in the image. On Zephyr 4.4 and later, `basic_ecu` uses the
+  real NVS backend on this board (the internal-flash driver exists there; v3.7.0 has none). `safeboot_ecu` builds with
+  sysbuild and MCUboot (swap-using-move) on `mr_canhubk3/s32k344/mcuboot`, and `basic_ecu_doip` builds for the board.
+  New CI job `zephyr-nxp-s32k-mcuboot` (Zephyr v4.4.1). The DoIP build uses Zephyr's test random generator for TCP,
+  because the S32K344 has no Zephyr entropy driver; its board conf says not for production. All compile-verified only;
+  nothing has run on the board.
+- **FRDM-MCXN947 overlay builds on Zephyr 4.4 and later** (#628): it keeps the `slot1_partition` label that the board's
+  chosen node now references. The weekly Zephyr-main job gains rows for `frdm_mcxn947` and `mr_canhubk3` (including a
+  sysbuild row), and fetches `hal_nxp`.
+- **FRDM-MCXN947 and MR-CANHUBK3 run CAN at the documented 500 kbit/s** (#631). Their overlays set no `bitrate`, so
+  the controller fell back to Zephyr's `CONFIG_CAN_DEFAULT_BITRATE` (125 kbit/s), the defect #309 fixed on the NUCLEO.
+- **`ardep_ecu` builds for the `ardep` board** (#629). `boards/ardep/ardep.conf` no longer sets `CAN_STM32FD`, a symbol
+  no Zephyr since v3.7.0 defines; the two guides that recommended it are corrected. New CI job `zephyr-ardep` builds the
+  example in ARDEP's own workspace (pinned commit, Zephyr v4.4.0). Compile-verified only.
+
 ## [1.30.0] — 2026-11-21
 
 ### Changed

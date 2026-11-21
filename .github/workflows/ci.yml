@@ -1426,10 +1426,50 @@ jobs:
             "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/mr_canhubk3/mr_canhubk3.conf" \
             "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/mr_canhubk3/mr_canhubk3.overlay"
 
+      # [EDS#627] The S32K3 boot header: Zephyr's soc.c puts the IVT in the
+      # ivt_header partition at the start of flash, and its Cortex-M7_0 start
+      # address must be this image's vector table (the code partition plus the
+      # ROM start offset, from .config). Checked in the HEX, not assumed.
+      - name: Verify the S32K3 boot header (IVT) in the image
+        run: |
+          python3 - build/zephyr/zephyr.hex build/zephyr/.config <<'EOF'
+          import re, struct, sys
+          cfg = dict(re.findall(r"^CONFIG_(\w+)=(\S+)$", open(sys.argv[2]).read(), re.M))
+          flash = int(cfg["FLASH_BASE_ADDRESS"], 16)
+          start = flash + int(cfg["FLASH_LOAD_OFFSET"], 16) + int(cfg.get("ROM_START_OFFSET", "0"), 16)
+          mem, base = {}, 0
+          for line in open(sys.argv[1]):
+              n, addr, typ = int(line[1:3], 16), int(line[3:7], 16), int(line[7:9], 16)
+              data = bytes.fromhex(line[9:9 + 2 * n])
+              if typ == 4:
+                  base = int.from_bytes(data, "big") << 16
+              elif typ == 0:
+                  for i, b in enumerate(data):
+                      mem[base + addr + i] = b
+          w = struct.unpack("<4I", bytes(mem.get(flash + i, 0xFF) for i in range(16)))
+          print(f"IVT at {flash:#010x}: marker {w[0]:#010x}, boot_configure {w[1]:#x}, "
+                f"CM7_0 start {w[3]:#010x} (vector table expected at {start:#010x})")
+          sys.exit(0 if (w[0], w[3]) == (0x5AA55AA5, start) else 1)
+          EOF
+
+      - name: West build — basic_ecu_doip / mr_canhubk3 (S32K344, Ethernet)
+        run: |
+          west build \
+            --pristine \
+            -b mr_canhubk3 \
+            -d build-doip \
+            EDS/examples/basic_ecu_doip \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DDIAG_USE_MOCK_NVM=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/mr_canhubk3/mr_canhubk3.conf;${GITHUB_WORKSPACE}/EDS/examples/basic_ecu_doip/boards/mr_canhubk3/mr_canhubk3_doip.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/mr_canhubk3/mr_canhubk3.overlay"
+
       - name: Verify ELF + HEX output
         run: |
           test -f build/zephyr/zephyr.elf && echo "PASS: .elf" || exit 1
           test -f build/zephyr/zephyr.hex && echo "PASS: .hex" || exit 1
+          test -f build-doip/zephyr/zephyr.elf && echo "PASS: basic_ecu_doip .elf" || exit 1
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
@@ -1439,6 +1479,166 @@ jobs:
             build/zephyr/zephyr.elf
             build/zephyr/zephyr.hex
             build/zephyr/zephyr.bin
+
+  # ── Job 5d: Zephyr build — safeboot_ecu / mr_canhubk3 MCUboot (Zephyr 4.4) ──
+  #
+  # [EDS#627] SafeBootECU with MCUboot on the NXP MR-CANHUBK3, built with
+  # sysbuild on Zephyr's mr_canhubk3/s32k344/mcuboot board variant. That variant
+  # and the S32K3 internal-flash driver (flash_mcux_c40.c) exist from Zephyr
+  # v4.4.0, so this job pins Zephyr v4.4.1 rather than west.yml's v3.7.0. The
+  # workspace and SDK come from the weekly job's own scripts
+  # (.github/zephyr-main/west-manifest.py, install-sdk.sh): EDS's west.yml with
+  # only Zephyr's revision replaced, and the SDK that Zephyr tree names,
+  # checksum-verified. MCUboot runs swap-using-move (the example's sysbuild.conf),
+  # as on the NUCLEO. Build-only: nothing here has run on the board.
+  # ──────────────────────────────────────────────────────────────────────────
+  zephyr-nxp-s32k-mcuboot:
+
+    name: "Zephyr Build — safeboot_ecu / mr_canhubk3 MCUboot (Zephyr 4.4.1, sysbuild)"
+    # 24.04: Zephyr 4.4 needs Python 3.12.
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    env:
+      ZREV: v4.4.1
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends cmake ninja-build gperf \
+            device-tree-compiler python3-venv xz-utils wget git
+
+      - name: West workspace (Zephyr ${{ env.ZREV }})
+        run: |
+          python3 -m venv .venv && . .venv/bin/activate
+          pip install -q west pyyaml
+          python3 EDS/.github/zephyr-main/west-manifest.py EDS/west.yml "$ZREV" EDS/west-s32k.yml \
+            hal_nxp cmsis_6 mcuboot mbedtls tf-psa-crypto zcbor
+          west init -l --mf west-s32k.yml EDS
+          west update --narrow -o=--depth=1
+          pip install -q -r zephyr/scripts/requirements-base.txt
+          pip install -q -r bootloader/mcuboot/scripts/requirements.txt
+          west zephyr-export
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Zephyr SDK (version from the tree, checksums from the release)
+        run: |
+          mkdir -p ci-out
+          D=$(EDS/.github/zephyr-main/install-sdk.sh "$PWD/zephyr" /opt "$PWD/ci-out" | tail -n 1)
+          echo "ZEPHYR_SDK_INSTALL_DIR=$D" >> "$GITHUB_ENV"
+
+      - name: West build — safeboot_ecu / mr_canhubk3/s32k344/mcuboot (sysbuild)
+        run: |
+          B=${GITHUB_WORKSPACE}/EDS/examples/safeboot_ecu/boards/mr_canhubk3_s32k344_mcuboot
+          west build \
+            --pristine \
+            --sysbuild \
+            -b mr_canhubk3/s32k344/mcuboot \
+            EDS/examples/safeboot_ecu \
+            -- \
+            "-DSB_CONF_FILE=${B}/sysbuild.conf" \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y \
+            -DCONFIG_NEWLIB_LIBC=n -DCONFIG_EDS_REQUIRE_NEWLIB=n \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/mr_canhubk3/mr_canhubk3.conf;${B}/mr_canhubk3_s32k344_mcuboot.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/mr_canhubk3/mr_canhubk3.overlay"
+
+      - name: Verify MCUboot, the signed app and the swap mode
+        run: |
+          test -f build/mcuboot/zephyr/zephyr.hex && echo "PASS: MCUboot .hex" || exit 1
+          test -f build/safeboot_ecu/zephyr/zephyr.signed.hex && echo "PASS: signed app .hex" || exit 1
+          grep -qx 'CONFIG_BOOT_SWAP_USING_MOVE=y' build/mcuboot/zephyr/.config \
+            && echo "PASS: MCUboot swap-using-move" || exit 1
+          grep -qx 'CONFIG_SOC_FLASH_MCUX_C40=y' build/safeboot_ecu/zephyr/.config \
+            && echo "PASS: S32K3 internal-flash driver in the app (NVS, image-1)" || exit 1
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mr_canhubk3-mcuboot-safeboot-firmware
+          path: |
+            build/mcuboot/zephyr/zephyr.hex
+            build/safeboot_ecu/zephyr/zephyr.elf
+            build/safeboot_ecu/zephyr/zephyr.signed.hex
+
+  # ── Job 5e: Zephyr build — ardep_ecu / ardep (ARDEP's own workspace) ─────
+  #
+  # [EDS#629] examples/ardep_ecu for the real Mercedes-Benz ARDEP board
+  # (boards/mercedes/ardep, STM32G474). The board lives in ARDEP's west
+  # workspace, at ARDEP's own Zephyr pin (v4.4.0), so this job builds there
+  # instead of in EDS's workspace, and it is not a row of the weekly
+  # Zephyr-main list. ARDEP is pinned to a commit; its iso14229 project
+  # follows a branch in ARDEP's manifest, so that is pinned here too.
+  # The workspace is about 1.5 GB with --depth=1 (hal_stm32 is 1.1 GB of it),
+  # the same order as the STM32 jobs above, so this is a CI job and not a
+  # manual step. Build-only: nothing here has run on an ARDEP board.
+  # ──────────────────────────────────────────────────────────────────────────
+  zephyr-ardep:
+
+    name: "Zephyr Build — ardep_ecu / ardep (ARDEP workspace, Zephyr 4.4.0)"
+    # 24.04: Zephyr 4.4 needs Python 3.12.
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    env:
+      ARDEP_REV: 7306360cd6b8270dd11e1ca9e38d9e3d5c18858c      # mercedes-benz/ardep, 2026-11-16
+      ISO14229_REV: 50bea701694543c77099ebb82bd76b4919c9b010   # its "zephyr" branch on that date
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends cmake ninja-build gperf \
+            device-tree-compiler python3-venv xz-utils wget git
+
+      - name: ARDEP west workspace (pinned)
+        run: |
+          python3 -m venv .venv && . .venv/bin/activate
+          pip install -q west
+          git clone -q https://github.com/mercedes-benz/ardep.git ardep-ws/ardep
+          git -C ardep-ws/ardep checkout -q "$ARDEP_REV"
+          cd ardep-ws
+          west init -l ardep
+          west update --narrow -o=--depth=1
+          # west-cloned projects have no "origin" remote: fetch by the manifest's URL.
+          git -C iso14229 fetch -q --depth=1 "$(west list -f '{url}' iso14229)" "$ISO14229_REV"
+          git -C iso14229 checkout -q "$ISO14229_REV"
+          west list -f "{name:14} {sha}"
+          pip install -q -r zephyr/scripts/requirements-base.txt
+          # The ardep board builds an MCUboot image (imgtool needs cryptography).
+          pip install -q -r bootloader/mcuboot/scripts/requirements.txt
+          west zephyr-export
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Zephyr SDK (version from ARDEP's Zephyr, checksums from the release)
+        run: |
+          mkdir -p ci-out
+          D=$(EDS/.github/zephyr-main/install-sdk.sh "$PWD/ardep-ws/zephyr" /opt "$PWD/ci-out" | tail -n 1)
+          echo "ZEPHYR_SDK_INSTALL_DIR=$D" >> "$GITHUB_ENV"
+
+      - name: West build — ardep_ecu / ardep
+        working-directory: ardep-ws
+        run: |
+          A=${GITHUB_WORKSPACE}/EDS/examples/ardep_ecu
+          west build \
+            --pristine \
+            -b ardep \
+            -d build \
+            "$A" \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y \
+            -DCONFIG_NEWLIB_LIBC=n -DCONFIG_EDS_REQUIRE_NEWLIB=n \
+            "-DEXTRA_CONF_FILE=${A}/boards/ardep/ardep.conf" \
+            "-DDTC_OVERLAY_FILE=${A}/boards/ardep/ardep.overlay"
+          test -f build/zephyr/zephyr.elf && echo "PASS: ardep_ecu .elf for the ardep board" || exit 1
 
   # ── Jobs: example ECU generated-file validation (issue #98) ────────────────
   #
