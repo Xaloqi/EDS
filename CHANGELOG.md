@@ -10,6 +10,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DoIP disconnect resets the UDS state under the lock** (#635). On a dropped connection, `doip_server.c` returned the
+  session to DEFAULT, reset SecurityAccess and comm control, and aborted a pending job and a transfer without the
+  EDS#353 lock callbacks, while the UDS tick task changes the same state under them. It now takes the lock like every
+  other UDS call in the file. New host ThreadSanitizer test `tests/concurrency/` (`run_tsan.sh`, not in CI yet) drives
+  the real server loop against the tick thread: 7–8 races per run before, none after.
 - **MR-CANHUBK3 (S32K344) flash map follows Zephyr's MCUboot variant** (#627). `boards/mr_canhubk3/mr_canhubk3.overlay`
   now uses the offsets and node labels of Zephyr's `mr_canhubk3_s32k344_mcuboot.dts` (v4.4.0 and later): boot header,
   pad, MCUboot, two 1920 KiB slots, with `diag_nvs` (72 KiB) in the free tail. A plain build and an MCUboot build share

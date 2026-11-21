@@ -43,6 +43,7 @@
  *     - test_doip_no_reset_without_ecu_reset_request
  *   Return to DEFAULT on disconnect (SEC-SESS-COMMRESTORE-01):
  *     - test_doip_disconnect_restores_comm_and_dtc_setting
+ *     - test_doip_disconnect_reset_runs_under_lock (EDS#635)
  *   Supervision check-in (EDS#399):
  *     - test_doip_checkin_while_idle_without_client
  *     - test_doip_checkin_while_connected_idle
@@ -1088,6 +1089,41 @@ ZTEST(doip_lifecycle_suite, test_doip_disconnect_restores_comm_and_dtc_setting)
         "a DoIP disconnect must abort the active transfer (EDS#442)");
 }
 
+/* [EDS#635] The disconnect's return to DEFAULT must run under the lock pair:
+ * the UDS tick task holds that lock while uds_server_tick_1ms() changes the
+ * same session, security and comm-control state. on_session_change fires
+ * inside uds_session_transition(), so it sees whether the lock is held. */
+static uint32_t g_sess_changes;
+static uint32_t g_sess_changes_unlocked;
+
+static void sess_change_cb(uds_session_type_t old_sess, uds_session_type_t new_sess)
+{
+    (void)old_sess; (void)new_sess;
+    g_sess_changes++;
+    if (!g_locked) {
+        g_sess_changes_unlocked++;
+    }
+}
+
+ZTEST(doip_lifecycle_suite, test_doip_disconnect_reset_runs_under_lock)
+{
+    reset_observations();                 /* session is EXTENDED */
+    eds_doip_set_lock_callbacks(lock_cb, unlock_cb);
+    g_sess_changes          = 0U;
+    g_sess_changes_unlocked = 0U;
+    g_session_ctx.on_session_change = sess_change_cb;
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_tester_present, sizeof(k_tester_present));
+    add_error();
+    run_server();
+    g_session_ctx.on_session_change = NULL;
+
+    EXPECT_EQ_MSG(1U, g_sess_changes, "disconnect did not return the session to DEFAULT");
+    EXPECT_EQ_MSG(0U, g_sess_changes_unlocked,
+        "disconnect reset the session outside the lock callbacks (EDS#635)");
+    EXPECT_TRUE_MSG(!g_locked, "lock left held after the disconnect");
+}
+
 /* =========================================================================
  * Generic header NACK on TCP (EDS#571, ISO 13400-2)
  * ========================================================================= */
@@ -1229,6 +1265,7 @@ void run_all_tests(void)
     RUN_TEST(doip_lifecycle_suite__test_doip_ecu_reset_suppressed_response_still_resets);
     RUN_TEST(doip_lifecycle_suite__test_doip_no_reset_without_ecu_reset_request);
     RUN_TEST(doip_lifecycle_suite__test_doip_disconnect_restores_comm_and_dtc_setting);
+    RUN_TEST(doip_lifecycle_suite__test_doip_disconnect_reset_runs_under_lock);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_idle_without_client);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_connected_idle);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_cleared_is_never_called);
