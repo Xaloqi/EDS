@@ -8,6 +8,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+## [1.30.0] — 2026-11-21
+
+### Changed
+
+- **`write_range` is enforced by the stack** (Xaloqi/EDS-toolchain#257). A write whose value lies outside a DID's
+  `write_range` is answered `7F 2E 31` before the write handler runs, for `source: stub` and `source: app` DIDs alike.
+  The check is `uds_safety_check_write_range()` (REQ-SAFE-008), the last part of step 4 of the safety chain: it runs
+  after the length and security checks, in `s_did_safe_write()` (the 0x2E path) and in every generated
+  `did_safe_write_<name>()`. `did_entry_t` gains `write_range_set`, `write_min` and `write_max` (zero means no range;
+  hand-built entries need no change), `did_database_register()` refuses a range on a DID longer than 4 bytes or with
+  min above max, and codegen now validates `write_range` itself (`data_length` 1 to 4, min <= max, max fits) and
+  accepts it on `source: stub` DIDs. Examples regenerated: every write wrapper gains the call, and `bms_ecu`'s
+  0xD910/0xD911 carry their ranges in the DID table. `docs/Safety_Model.md` describes the step.
+
+  **Migration:** if you declared `write_range` as metadata only, out-of-range writes your handler accepted are now
+  refused with NRC 0x31 before it runs. Widen or remove the range if your handler meant to accept them.
+
+- **One DTCFormatIdentifier per ECU** (#602). An ECU that declares `wwh_obd.functional_group` reports
+  DTCFormatIdentifier 0x04 (SAE J2012-DA format 04) in 0x01 and 0x07 as well as 0x55, because 0x55 allows no other
+  3-byte format and a server reports one format (ISO 14229-1:2026 Table 335). ECUs without the key still report 0x01.
+
 ### Added
 
 - **ReadDTCInformation sub-function 0x55, reportWWHOBDDTCWithPermanentStatus** (#602). ISO 14229-1:2026 §11.3.1.15
@@ -18,7 +39,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   as before. 0x15 is unchanged. One group per ECU; per-DTC groups, 0x42 and 0x56 are not in scope (#145). The
   Wireshark dissector names the 0x19 sub-functions, 0x55 included.
 
-### Changed
+### Fixed
 
 - **The ARDEP guide describes ARDEP's UDS stack correctly** (#624). `docs/ARDEP_UPGRADE_GUIDE.md` compared EDS with
   "two MIT libraries"; ARDEP ships its own Apache-2.0 `lib/uds` (event-driven handlers, ztest per service) on a Zephyr
@@ -38,23 +59,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   board.
 - **Examples regenerated for the clearer no-harness skip** (Xaloqi/EDS-toolchain#260). Each example's
   `conftest_firmware.py` skips with "the firmware tests need the Professional harness, not in the public repository"
-  instead of "Harness build failed". Output of Xaloqi/EDS-toolchain's template; merge this before that PR so its
-  freshness check against EDS main stays green.
-- **One DTCFormatIdentifier per ECU** (#602). An ECU that declares `wwh_obd.functional_group` reports
-  DTCFormatIdentifier 0x04 (SAE J2012-DA format 04) in 0x01 and 0x07 as well as 0x55, because 0x55 allows no other
-  3-byte format and a server reports one format (ISO 14229-1:2026 Table 335). ECUs without the key still report 0x01.
-- **`write_range` is enforced by the stack** (Xaloqi/EDS-toolchain#257). A write whose value lies outside a DID's
-  `write_range` is answered `7F 2E 31` before the write handler runs, for `source: stub` and `source: app` DIDs alike.
-  The check is `uds_safety_check_write_range()` (REQ-SAFE-008), the last part of step 4 of the safety chain: it runs
-  after the length and security checks, in `s_did_safe_write()` (the 0x2E path) and in every generated
-  `did_safe_write_<name>()`. `did_entry_t` gains `write_range_set`, `write_min` and `write_max` (zero means no range;
-  hand-built entries need no change), `did_database_register()` refuses a range on a DID longer than 4 bytes or with
-  min above max, and codegen now validates `write_range` itself (`data_length` 1 to 4, min <= max, max fits) and
-  accepts it on `source: stub` DIDs. Examples regenerated: every write wrapper gains the call, and `bms_ecu`'s
-  0xD910/0xD911 carry their ranges in the DID table. `docs/Safety_Model.md` describes the step.
+  instead of "Harness build failed". Output of Xaloqi/EDS-toolchain's template.
 
-  **Migration:** if you declared `write_range` as metadata only, out-of-range writes your handler accepted are now
-  refused with NRC 0x31 before it runs. Widen or remove the range if your handler meant to accept them.
+### EDS-toolchain (Developer and Professional ZIPs)
+
+- **`write_range` is enforced in the generated tests too** (EDS-toolchain#257, #280). testgen adds a write one below
+  the minimum and one above the maximum (where they fit `data_length`) expecting `7F 2E 31` to the pytest, firmware and
+  CAPL suites; the simulator models the range, so release gate 6d has no known difference left. The VS Code schema,
+  hover and validator accept `write_range` on any writable DID with `data_length` 1 to 4.
+- **ReadDTCInformation 0x55 in the generated tests and the simulator** (EDS-toolchain#280, Xaloqi/EDS#602): `19 55`
+  tests in every DTC suite, the ECU-wide DTCFormatIdentifier in the simulator, and `wwh_obd` in the VS Code schema,
+  hover and validator.
+- **The configurator keeps what it does not edit** (EDS-toolchain#258, #282, #283, #284). Loading a shipped example
+  and exporting dropped DID keys (`source`, `default_value`, `write_range`: 20 `source: app` DIDs of `bms_ecu` became
+  stubs), then `routines`, `can` (with `fd`), `ecu`, `safeboot`, `jobs`, imported timing, DTC names and every section it
+  has no field for. Unknown keys and sections are now written back unchanged, a panel edit changes only what it edits,
+  and `gui/tests/` round-trips all 15 shipped examples. Comments outside the unknown sections are not kept.
+- **Templates read `write_range` defensively** (EDS-toolchain#281, #282): a codegen that does not pass the key no
+  longer fails under StrictUndefined.
+- **Generated firmware tests say why they skip without the Professional harness** (EDS-toolchain#260, #282).
+- **CI checks the simulator against the stack on every template or harness change** (EDS-toolchain#263, #282); until
+  now only the release gate did, after the tag.
+- **Professional ZIP: RTM row REQ-SAFE-008** (EDS-Safety#63). A value outside a DID's `write_range` is refused with
+  NRC 0x31 before the write callback runs; EDS-TQA-001 §3.3 and §3.4 describe the codegen rule.
+
+### Not covered
+
+- ReadDTCInformation sub-functions 0x42 and 0x56 (#145), and per-DTC functional groups: one group per ECU.
 
 ## [1.29.1] — 2026-11-15
 

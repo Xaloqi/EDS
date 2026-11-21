@@ -4,7 +4,7 @@
 
 | Version | Security fixes |
 |---|---|
-| 1.29.x (current) | ✅ Yes |
+| 1.30.x (current) | ✅ Yes |
 | 1.11.x | ✅ Yes (critical only) |
 | < 1.29 | ❌ No — please upgrade |
 
