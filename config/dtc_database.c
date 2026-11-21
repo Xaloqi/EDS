@@ -56,6 +56,10 @@ static uint16_t s_dtc_count = (uint16_t)0U;
 /** Initialization guard. */
 static bool s_initialized = false;
 
+/** [EDS#602] ECU-wide FunctionalGroupIdentifier; valid only if s_functional_group_set. */
+static uint8_t s_functional_group = 0U;
+static bool    s_functional_group_set = false;
+
 /** [EDS#145] First / most recent records, indexed by dtc_record_t; 0 = empty. */
 static uint32_t s_records[DTC_RECORD_COUNT];
 
@@ -119,6 +123,8 @@ uds_status_t dtc_database_init(void)
     (void)memset(s_dtc_table, 0, sizeof(s_dtc_table));
     (void)memset(s_records, 0, sizeof(s_records));
     s_dtc_count   = (uint16_t)0U;
+    s_functional_group     = 0U;
+    s_functional_group_set = false;
     s_initialized = true;
 
     return UDS_STATUS_OK;
@@ -454,6 +460,31 @@ uds_status_t dtc_database_get_count(uint16_t *out_count)
     return UDS_STATUS_OK;
 }
 
+uds_status_t dtc_database_set_functional_group(uint8_t group)
+{
+    if (!s_initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+    if (group == 0xFFU) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
+    s_functional_group     = group;
+    s_functional_group_set = true;
+    return UDS_STATUS_OK;
+}
+
+uds_status_t dtc_database_get_functional_group(uint8_t *out_group)
+{
+    if (out_group == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    if (!s_initialized || !s_functional_group_set) {
+        return UDS_STATUS_ERR_NOT_FOUND;
+    }
+    *out_group = s_functional_group;
+    return UDS_STATUS_OK;
+}
+
 // ✅ End of dtc_database.c
 
 /* --------------------------------------------------------------------------
@@ -476,6 +507,8 @@ void dtc_database_test_reset(void)
     }
     (void)memset(s_records, 0, sizeof(s_records));
     s_dtc_count   = (uint16_t)0U;
+    s_functional_group     = 0U;
+    s_functional_group_set = false;
     s_initialized = false;
 }
 #endif /* UNIT_TEST */

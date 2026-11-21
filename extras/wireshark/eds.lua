@@ -1,5 +1,5 @@
 -- eds.lua — Xaloqi EDS Wireshark dissector
--- Version: 1.8.4
+-- Version: 1.8.5
 -- Protocols: UDS (ISO 14229-1), ISO-TP (ISO 15765-2), DoIP (ISO 13400-2)
 --
 -- Usage:
@@ -24,6 +24,26 @@ local UDS_SERVICES = {
     [0x37] = "RequestTransferExit",
     [0x3E] = "TesterPresent",
     [0x85] = "ControlDTCSetting",
+}
+
+-- ReadDTCInformation (0x19) sub-functions EDS answers (ISO 14229-1:2026 Table 317).
+local UDS_RDTCI_SUBFN = {
+    [0x01] = "reportNumberOfDTCByStatusMask",
+    [0x02] = "reportDTCByStatusMask",
+    [0x03] = "reportDTCSnapshotIdentification",
+    [0x04] = "reportDTCSnapshotRecordByDTCNumber",
+    [0x06] = "reportDTCExtDataRecordByDTCNumber",
+    [0x07] = "reportNumberOfDTCBySeverityMaskRecord",
+    [0x08] = "reportDTCBySeverityMaskRecord",
+    [0x09] = "reportSeverityInformationOfDTC",
+    [0x0A] = "reportSupportedDTC",
+    [0x0B] = "reportFirstTestFailedDTC",
+    [0x0C] = "reportFirstConfirmedDTC",
+    [0x0D] = "reportMostRecentTestFailedDTC",
+    [0x0E] = "reportMostRecentConfirmedDTC",
+    [0x14] = "reportDTCFaultDetectionCounter",
+    [0x15] = "reportDTCWithPermanentStatus",
+    [0x55] = "reportWWHOBDDTCWithPermanentStatus",   -- EDS#602
 }
 
 local UDS_NRC = {
@@ -82,7 +102,10 @@ local f_uds_rsid = ProtoField.uint8 ("eds_uds.rsid",    "Request SID (echoed)", 
 local f_uds_nrc  = ProtoField.uint8 ("eds_uds.nrc",     "NRC",                  base.HEX)
 local f_uds_nrcn = ProtoField.string("eds_uds.nrc_name","NRC Name")
 local f_uds_data = ProtoField.bytes ("eds_uds.data",    "Payload")
-uds_proto.fields = { f_uds_sid, f_uds_name, f_uds_rsid, f_uds_nrc, f_uds_nrcn, f_uds_data }
+local f_uds_sfn  = ProtoField.uint8 ("eds_uds.rdtci_subfn", "ReadDTCInformation sub-function", base.HEX)
+local f_uds_fgid = ProtoField.uint8 ("eds_uds.fgid",    "FunctionalGroupIdentifier", base.HEX)
+uds_proto.fields = { f_uds_sid, f_uds_name, f_uds_rsid, f_uds_nrc, f_uds_nrcn, f_uds_data,
+                     f_uds_sfn, f_uds_fgid }
 
 local function dissect_uds(tvb, pinfo, tree)
     if tvb:len() < 1 then return end
@@ -116,6 +139,18 @@ local function dissect_uds(tvb, pinfo, tree)
         subtree:add(f_uds_name, tvb:range(0, 1), sname)
         pinfo.cols.protocol:set("EDS-UDS")
         pinfo.cols.info:set(string.format("0x%02X %s %s", sid, sname, direction))
+
+        -- 0x19 / 0x59: name the sub-function (bit 7 = suppressPosRspMsgIndicationBit);
+        -- 0x55 carries the FunctionalGroupIdentifier next (EDS#602).
+        if base_sid == 0x19 and tvb:len() > 1 then
+            local sfn   = tvb:range(1, 1):uint() % 0x80
+            local sfnam = UDS_RDTCI_SUBFN[sfn] or "unknown sub-function"
+            subtree:add(f_uds_sfn, tvb:range(1, 1)):append_text(" [" .. sfnam .. "]")
+            pinfo.cols.info:append(" " .. sfnam)
+            if sfn == 0x55 and tvb:len() > 2 then
+                subtree:add(f_uds_fgid, tvb:range(2, 1))
+            end
+        end
 
         if tvb:len() > 1 then
             subtree:add(f_uds_data, tvb:range(1))

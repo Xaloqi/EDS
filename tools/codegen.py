@@ -1050,6 +1050,9 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     # ── ecu.doip.discovery (optional) — vehicle discovery over UDP [EDS#392] ──
     _doip_discovery(cfg)
 
+    # ── wwh_obd.functional_group (optional) — 0x19 sub-function 0x55 [EDS#602] ──
+    _wwh_obd_functional_group(cfg)
+
     # ── service_ids (optional override list) ─────────────────────────────────
     service_ids: List[Any] = cfg.get("service_ids", [])
     for idx, sid in enumerate(service_ids):
@@ -1485,6 +1488,8 @@ def build_dtc_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "version":   _c_safe_text(meta["version"]),
         "generated": _now_utc(),
         "dtcs":      _build_dtc_list(cfg),
+        # [EDS#602] the harness sets it as uds_init.c does (Step 5).
+        "wwh_obd_functional_group": _wwh_obd_functional_group(cfg),
     }
 
 
@@ -1500,6 +1505,26 @@ def _discovery_id6(value: Any, key: str) -> Optional[List[int]]:
         _fatal(f"VALIDATION: 'ecu.doip.discovery.{key}' must be 6 bytes of hex, "
                f"e.g. \"02:00:5e:00:53:31\", or null; got: {value!r}")
     return [int(text[i:i + 2], 16) for i in range(0, 12, 2)]
+
+
+def _wwh_obd_functional_group(cfg: Dict[str, Any]) -> Optional[int]:
+    """wwh_obd.functional_group as an int, or None when not declared [EDS#602].
+
+    The ECU's one FunctionalGroupIdentifier, 0x00..0xFE (ISO 14229-1:2026
+    Table 315). uds_init.c passes it to dtc_database_set_functional_group();
+    0x19 sub-function 0x55 answers for it and refuses any other group.
+    """
+    block = cfg.get("wwh_obd")
+    if block is None:
+        return None
+    if not isinstance(block, dict) or set(block) != {"functional_group"}:
+        _fatal("VALIDATION: 'wwh_obd' must be {functional_group: \"0x00\".. \"0xFE\"}.")
+    raw = block["functional_group"]
+    if not isinstance(raw, str) or not re.fullmatch(r"0x[0-9A-Fa-f]{2}", raw) \
+            or int(raw, 16) == 0xFF:
+        _fatal(f"VALIDATION: wwh_obd.functional_group must be a hex byte "
+               f"\"0x00\" to \"0xFE\" (0xFF is outside ISO 14229-1 Table 315), got {raw!r}.")
+    return int(raw, 16)
 
 
 def _doip_discovery(cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1600,6 +1625,8 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "safety_system_session": _safety_session_enabled(cfg),
         # [EDS#392] None for CAN-only; otherwise the vehicle discovery config.
         "doip_discovery":        _doip_discovery(cfg),
+        # [EDS#602] None unless the YAML declares wwh_obd.functional_group.
+        "wwh_obd_functional_group": _wwh_obd_functional_group(cfg),
     }
 
 

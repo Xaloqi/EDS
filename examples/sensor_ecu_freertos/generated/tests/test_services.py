@@ -4,7 +4,7 @@
 #
 # ECU       : SensorECU
 # Version   : 1.0.0
-# Generated : 2026-10-19T10:24:31Z
+# Generated : 2026-11-21T08:03:46Z
 #
 # PURPOSE: UDS service-level and ISO-TP transport tests derived from
 #          diagnostics_config.yaml.
@@ -440,6 +440,12 @@ class TestReadDTCInformation:
         assert dtc_section_len % 4 == 0, (
             f"DTC section length {dtc_section_len} must be a multiple of 4"
         )
+
+    def test_report_wwhobd_permanent_sub55_without_group_nrc_12(self, uds_bus: IsoTpTransport) -> None:
+        """No wwh_obd.functional_group in the YAML → sub 0x55 is not supported, NRC 0x12 (Xaloqi/EDS#602)."""
+        pdu = uds_bus.request(bytes([SID_READ_DTC_INFO, 0x55, 0x33]))
+        assert pdu is not None
+        assert pdu == bytes([SID_NEGATIVE_RESPONSE, SID_READ_DTC_INFO, NRC_SUB_FUNCTION_NOT_SUPPORTED]), pdu.hex(" ")
 
     def test_invalid_subfunction_rejected(self, uds_bus: IsoTpTransport) -> None:
         """Sub-function 0x00 is not defined — must return NRC 0x12."""

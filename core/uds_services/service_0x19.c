@@ -76,6 +76,15 @@
  *     Request : [0x19, 0x15]
  *     Response: [0x59, 0x15, availabilityMask, {dtc3B, statusByte}...]
  *     Returns DTCs marked permanent (is_permanent == true).
+ *   0x55 — reportWWHOBDDTCWithPermanentStatus (ISO 14229-1:2026 §11.3.1.22,
+ *          request Table 315, response Table 333, NRC Table 336) [EDS#602]
+ *     Request : [0x19, 0x55, FunctionalGroupIdentifier]
+ *     Response: [0x59, 0x55, FunctionalGroupIdentifier, availabilityMask,
+ *                DTCFormatIdentifier, {dtc3B, statusByte}...]
+ *     Same selection as 0x15 (is_permanent), for the one ECU-wide group set by
+ *     dtc_database_set_functional_group(); any other group is NRC 0x31. With no
+ *     group set the sub-function is not supported (NRC 0x12). §11.3.1.15 says
+ *     0x55 replaces 0x15 in the future; 0x15 stays for existing testers.
  *
  * DTC FORMAT IN RESPONSES (ISO 14229-1 §D.2):
  *   [DTC_HB, DTC_MB, DTC_LB, statusByte] — 4 bytes per DTC
@@ -125,6 +134,7 @@
 #define SVC_0x19_SUBFN_REPORT_MOST_RECENT_CONFIRMED  (0x0EU)
 #define SVC_0x19_SUBFN_REPORT_FAULT_DETECTION_CTR    (0x14U)
 #define SVC_0x19_SUBFN_REPORT_DTC_PERMANENT_STATUS   (0x15U)
+#define SVC_0x19_SUBFN_REPORT_WWHOBD_DTC_PERMANENT    (0x55U)
 
 /** suppressPosRspMsgIndicationBit mask for sub-function byte. */
 #define SVC_0x19_SUPPRESS_BIT                         (0x80U)
@@ -154,6 +164,14 @@
  */
 #define SVC_0x19_DTC_FORMAT_ISO14229                  (0x01U)
 
+/**
+ * @brief [EDS#602] SAE_J2012-DA_DTCFormat_04 (ISO 14229-1:2026 Tables 333, 335):
+ * the 3-byte format for WWH-OBD. 0x55's response allows only this or the
+ * J1939-73 format, and a server supports only one DTCFormatIdentifier, so an
+ * ECU that declares a functional group reports this one everywhere.
+ */
+#define SVC_0x19_DTC_FORMAT_J2012_DA_04               (0x04U)
+
 /** Bytes per DTC record in response: [dtcHB, dtcMB, dtcLB, statusByte]. */
 #define SVC_0x19_BYTES_PER_DTC                        (4U)
 
@@ -182,6 +200,17 @@ static uds_status_t s_exact_len(const uds_msg_buf_t *req, uint16_t len)
         return UDS_STATUS_ERR_NULL_PTR;
     }
     return (req->length == len) ? UDS_STATUS_OK : UDS_STATUS_ERR_INVALID_PARAM;
+}
+
+/* [EDS#602] The ECU's one DTCFormatIdentifier (Table 335): J2012-DA format 04
+ * once a WWH-OBD functional group is declared, ISO 14229-1 format otherwise. */
+static uint8_t s_dtc_format_id(void)
+{
+    uint8_t group;
+
+    return (dtc_database_get_functional_group(&group) == UDS_STATUS_OK)
+        ? (uint8_t)SVC_0x19_DTC_FORMAT_J2012_DA_04
+        : (uint8_t)SVC_0x19_DTC_FORMAT_ISO14229;
 }
 
 /* --------------------------------------------------------------------------
@@ -255,7 +284,7 @@ static uds_status_t handle_report_num_by_status_mask(
 
     resp->data[1] = (uint8_t)SVC_0x19_SUBFN_REPORT_NUM_BY_STATUS_MASK;
     resp->data[2] = (uint8_t)SVC_0x19_STATUS_AVAILABILITY_MASK;
-    resp->data[3] = (uint8_t)SVC_0x19_DTC_FORMAT_ISO14229;
+    resp->data[3] = s_dtc_format_id();
     resp->data[4] = (uint8_t)((count >> 8U) & 0xFFU);
     resp->data[5] = (uint8_t)( count        & 0xFFU);
     resp->length  = (uint16_t)6U;
@@ -534,7 +563,7 @@ static uds_status_t handle_report_by_severity_mask(
     }
 
     if (sub_function == (uint8_t)SVC_0x19_SUBFN_REPORT_NUM_BY_SEVERITY_MASK) {
-        resp->data[3] = (uint8_t)SVC_0x19_DTC_FORMAT_ISO14229;
+        resp->data[3] = s_dtc_format_id();
         resp->data[4] = (uint8_t)((count >> 8U) & 0xFFU);
         resp->data[5] = (uint8_t)( count        & 0xFFU);
         resp->length  = (uint16_t)6U;
@@ -808,6 +837,73 @@ static uds_status_t handle_report_dtc_permanent_status(
     return UDS_STATUS_OK;
 }
 
+/**
+ * 0x55 — reportWWHOBDDTCWithPermanentStatus [EDS#602]
+ *
+ * Request : [0x19, 0x55, FunctionalGroupIdentifier]                 (Table 315)
+ * Response: [0x59, 0x55, FunctionalGroupIdentifier, availabilityMask,
+ *            DTCFormatIdentifier, {dtcHB, dtcMB, dtcLB, statusByte}...] (Table 333)
+ *
+ * ISO 14229-1:2026 §11.3.1.22. The DTCs are the ones 0x15 reports
+ * (is_permanent == true); the group is ECU-wide, so the request's group either
+ * is the ECU's (all its permanent DTCs) or is not recognised (NRC 0x31,
+ * Table 336). No group declared: the ECU does no WWH-OBD and the
+ * sub-function is not supported (NRC 0x12).
+ */
+static uds_status_t handle_report_wwhobd_dtc_permanent_status(
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp)
+{
+    uds_status_t  status;
+    uint16_t      total;
+    uint16_t      i;
+    uint32_t      dtc_code;
+    uint8_t       dtc_status;
+    uint8_t       group;
+    dtc_entry_t  *entry;
+
+    if (dtc_database_get_functional_group(&group) != UDS_STATUS_OK) {
+        return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;
+    }
+
+    status = s_exact_len(req, (uint16_t)3U);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    if (req->data[2] != group) {
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
+    }
+
+    status = uds_service_write_pos_sid((uint8_t)UDS_SID_READ_DTC_INFO, resp);
+    if (status != UDS_STATUS_OK) { return status; }
+
+    resp->data[1] = (uint8_t)SVC_0x19_SUBFN_REPORT_WWHOBD_DTC_PERMANENT;
+    resp->data[2] = group;
+    resp->data[3] = (uint8_t)SVC_0x19_STATUS_AVAILABILITY_MASK;
+    resp->data[4] = (uint8_t)SVC_0x19_DTC_FORMAT_J2012_DA_04;
+    resp->length  = (uint16_t)5U;
+
+    (void)dtc_database_get_count(&total);
+
+    for (i = (uint16_t)0U; i < total; i++) {
+        status = dtc_database_get_by_index(i, &dtc_code, &dtc_status);
+        if (status != UDS_STATUS_OK) {
+            break;
+        }
+
+        entry = dtc_database_find(dtc_code);
+        if ((entry == NULL) || !entry->is_permanent) {
+            continue;
+        }
+
+        status = append_dtc_record(resp, dtc_code, dtc_status);
+        if (status != UDS_STATUS_OK) {
+            return status;
+        }
+    }
+
+    return UDS_STATUS_OK;
+}
+
 /* --------------------------------------------------------------------------
  * SID 0x19 dispatcher
  * -------------------------------------------------------------------------- */
@@ -889,6 +985,9 @@ uds_status_t uds_service_0x19_handler(
 
         case SVC_0x19_SUBFN_REPORT_DTC_PERMANENT_STATUS:
             return handle_report_dtc_permanent_status(req, resp);
+
+        case SVC_0x19_SUBFN_REPORT_WWHOBD_DTC_PERMANENT:
+            return handle_report_wwhobd_dtc_permanent_status(req, resp);
 
         default:
             return UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP;

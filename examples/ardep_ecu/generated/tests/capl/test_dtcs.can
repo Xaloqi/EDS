@@ -6,7 +6,7 @@
  *
  * ECU       : ARDEP_IOController
  * Version   : 1.0.0
- * Generated : 2026-09-01T20:37:16Z
+ * Generated : 2026-11-21T08:05:01Z
  *
  * FILE: test_dtcs.can
  *
@@ -34,7 +34,7 @@
  *   0xC0FE10  Firmware download incomplete — transfer interrupted
  *
  * Services under test:
- *   0x19  ReadDTCInformation (sub-fn 0x01, 0x02, 0x06, 0x0A, 0x14, 0x15)
+ *   0x19  ReadDTCInformation (sub-fn 0x01, 0x02, 0x06, 0x0A, 0x14, 0x15, 0x55)
  *   0x14  ClearDiagnosticInformation
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -819,6 +819,26 @@ testcase TC_DTC_RDTCI_PermanentStatus()
 }
 
 /*
+ * TC_DTC_RDTCI_WWHOBDPermanentStatus
+ * Verify ReadDTCInformation sub-fn 0x55 (reportWWHOBDDTCWithPermanentStatus),
+ * ISO 14229-1:2026 §11.3.1.22 (Xaloqi/EDS#602).
+ * No wwh_obd.functional_group declared: NRC 0x12.
+ */
+testcase TC_DTC_RDTCI_WWHOBDPermanentStatus()
+{
+  byte pdu[3];
+  int  rc;
+  TestCaseDescription("0x19 0x55 — reportWWHOBDDTCWithPermanentStatus");
+
+  pdu[0] = kSidRDTCI;
+  pdu[1] = 0x55;
+  Uds_EnterSession(kSessDefault);
+  pdu[2] = 0x33;
+  rc = UdsRequest(pdu, 3);
+  AssertNegativeResponse(rc, 0x12, "RDTCI_0x55_NoGroup_NRC0x12");
+}
+
+/*
  * TC_DTC_RDTCI_InvalidSubFunction
  * Verify NRC 0x12 (subFunctionNotSupported) for an invalid sub-function.
  */
@@ -881,5 +901,6 @@ testgroup TG_DTCTests()
   TC_DTC_RDTCI_ExtendedData_AllDTCs();
   TC_DTC_RDTCI_FaultDetectionCounter();
   TC_DTC_RDTCI_PermanentStatus();
+  TC_DTC_RDTCI_WWHOBDPermanentStatus();
   TC_DTC_RDTCI_InvalidSubFunction();
 }

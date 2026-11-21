@@ -270,6 +270,37 @@ uds_status_t dtc_database_set_permanent(uint32_t dtc_code, bool permanent);
 uds_status_t dtc_database_clear_non_permanent(void);
 
 /* --------------------------------------------------------------------------
+ * [EDS#602] WWH-OBD functional group (SID 0x19 sub-function 0x55)
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Declare the ECU's FunctionalGroupIdentifier.
+ *
+ * One ECU-wide group (EDS has no per-DTC group). reportWWHOBDDTCWithPermanentStatus
+ * answers for this group and refuses any other with NRC 0x31 (ISO 14229-1:2026
+ * Table 336). Called by the generated uds_init.c when the YAML declares
+ * wwh_obd.functional_group; without it, sub-function 0x55 is not supported.
+ *
+ * @param[in] group  0x00..0xFE (Table 315; 0xFF is outside the range).
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NOT_INITIALIZED if database not initialized.
+ * @return UDS_STATUS_ERR_INVALID_PARAM if group is 0xFF.
+ */
+uds_status_t dtc_database_set_functional_group(uint8_t group);
+
+/**
+ * @brief Read the ECU's FunctionalGroupIdentifier.
+ *
+ * @param[out] out_group  The group set by dtc_database_set_functional_group().
+ *
+ * @return UDS_STATUS_OK if a group is set.
+ * @return UDS_STATUS_ERR_NULL_PTR if out_group is NULL.
+ * @return UDS_STATUS_ERR_NOT_FOUND if no group is set (or not initialized).
+ */
+uds_status_t dtc_database_get_functional_group(uint8_t *out_group);
+
+/* --------------------------------------------------------------------------
  * [EDS#145] First / most recent failed and confirmed DTC records
  * -------------------------------------------------------------------------- */
 

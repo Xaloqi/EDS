@@ -291,10 +291,11 @@ exact request length (NRC 0x13); anything else is NRC 0x12.
 | 0x0E | reportMostRecentConfirmedDTC | EDS#145, see below |
 | 0x14 | reportDTCFaultDetectionCounter | |
 | 0x15 | reportDTCWithPermanentStatus | |
+| 0x55 | reportWWHOBDDTCWithPermanentStatus | EDS#602. The 0x15 DTCs for the ECU's one functional group (`wwh_obd.functional_group`); another group: NRC 0x31; none declared: NRC 0x12. A declared group makes every DTCFormatIdentifier 0x04 |
 
 Not supported (NRC 0x12): 0x05, 0x18, 0x19 (need a snapshot/stored-data
 store, EDS#388); 0x10, 0x16 (need extended data records); 0x0F, 0x11 (mirror
-memory); 0x12, 0x13, 0x42, 0x55, 0x56 (emissions OBD / WWH-OBD); 0x17, 0x1A
+memory); 0x12, 0x13, 0x42, 0x56 (emissions OBD / WWH-OBD; umbrella #145); 0x17, 0x1A
 (user-defined memory, DTC extended data record by record number).
 
 **Severity.** `severity` in `diagnostics_config.yaml` becomes the DTCSeverity

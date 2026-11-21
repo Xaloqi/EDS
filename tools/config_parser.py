@@ -22,6 +22,7 @@ DEPENDENCIES:
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -220,6 +221,20 @@ CONFIG_SCHEMA = {
                     "default": 256,
                     "description": "Max bytes per TransferData block (returned in 0x34 response)"
                 }
+            },
+            "additionalProperties": False
+        },
+        "wwh_obd": {
+            "type": "object",
+            "description": (
+                "WWH-OBD settings [EDS#602]. functional_group: the ECU's one "
+                "FunctionalGroupIdentifier, \"0x00\" to \"0xFE\". 0x19 "
+                "sub-function 0x55 answers for it and refuses any other group "
+                "with NRC 0x31; without this block 0x55 is NRC 0x12."
+            ),
+            "required": ["functional_group"],
+            "properties": {
+                "functional_group": {"type": "string", "pattern": "^0x[0-9A-Fa-f]{2}$"}
             },
             "additionalProperties": False
         },
@@ -461,6 +476,18 @@ def validate_config(config: dict) -> list:
             errors.append(f"dtcs[{idx}]: missing 'code' field")
         if "description" not in dtc:
             errors.append(f"dtcs[{idx}] ({dtc_code}): missing 'description' field")
+
+    # [EDS#602] wwh_obd: one ECU-wide FunctionalGroupIdentifier, 0x00..0xFE.
+    if "wwh_obd" in config:
+        wwh = config["wwh_obd"]
+        fg = wwh.get("functional_group") if isinstance(wwh, dict) else None
+        if (not isinstance(wwh, dict) or set(wwh) != {"functional_group"}
+                or not isinstance(fg, str) or not re.fullmatch(r"0x[0-9A-Fa-f]{2}", fg)
+                or int(fg, 16) == 0xFF):
+            errors.append(
+                "wwh_obd: must be {functional_group: \"0x00\" to \"0xFE\"} "
+                "(0xFF is outside ISO 14229-1:2026 Table 315)."
+            )
 
     # jobs: block is optional — validate structure if present
     if "jobs" in config:

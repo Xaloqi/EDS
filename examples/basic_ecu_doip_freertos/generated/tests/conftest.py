@@ -4,7 +4,7 @@
 #
 # ECU       : BasicECU_DoIP_FreeRTOS
 # Version   : 1.6.0
-# Generated : 2026-11-21T07:44:35Z
+# Generated : 2026-11-21T08:03:44Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -92,6 +92,12 @@ NRC_REQUEST_OUT_OF_RANGE:             int = 0x31
 #: DTCStatusAvailabilityMask the simulator reports in 0x19 responses (EDS default,
 #: core/uds_services/service_0x19.c, EDS#451).
 _DTC_AVAILABILITY_MASK:               int = 0xFF
+#: [Xaloqi/EDS#602] The ECU's WWH-OBD FunctionalGroupIdentifier (wwh_obd in
+#: the YAML), or None: then 0x19 0x55 is NRC 0x12. A server reports one
+#: DTCFormatIdentifier (ISO 14229-1:2026 Table 335): SAE J2012-DA format 04
+#: once a group is declared (0x55 allows no other 3-byte format), else 0x01.
+_WWH_OBD_FUNCTIONAL_GROUP = None
+_DTC_FORMAT_ID: int = 0x01
 NRC_SECURITY_ACCESS_DENIED:           int = 0x33
 NRC_INVALID_KEY:                      int = 0x35
 NRC_SUB_FUNCTION_NOT_SUPPORTED:       int = 0x12
@@ -417,7 +423,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
             # unnoticed while every test used mask 0xFF (2026-10-16, F15).
             n = sum(1 for d in state.dtcs if d['status'] & mask & _DTC_AVAILABILITY_MASK)
             if suppress: return None
-            return bytes([0x59, 0x01, _DTC_AVAILABILITY_MASK, 0x01, (n >> 8) & 0xFF, n & 0xFF])
+            return bytes([0x59, 0x01, _DTC_AVAILABILITY_MASK, _DTC_FORMAT_ID, (n >> 8) & 0xFF, n & 0xFF])
         if sub == 0x02:
             if len(pdu) < 3: return nrc(0x19, 0x13)
             mask = pdu[2]
@@ -436,7 +442,7 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
             hits = [d for d in state.dtcs if (d['status'] & st_mask) and (d['severity'] & sev_mask)]
             if suppress: return None
             if sub == 0x07:
-                return bytes([0x59, 0x07, _DTC_AVAILABILITY_MASK, 0x01, (len(hits) >> 8) & 0xFF, len(hits) & 0xFF])
+                return bytes([0x59, 0x07, _DTC_AVAILABILITY_MASK, _DTC_FORMAT_ID, (len(hits) >> 8) & 0xFF, len(hits) & 0xFF])
             resp = bytearray([0x59, 0x08, _DTC_AVAILABILITY_MASK])
             for d in hits:
                 c = d['code']
@@ -479,6 +485,12 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
             if len(pdu) != 2: return nrc(0x19, 0x13)
             if suppress: return None
             return bytes([0x59, 0x15, _DTC_AVAILABILITY_MASK])
+        if sub == 0x55:   # [Xaloqi/EDS#602] reportWWHOBDDTCWithPermanentStatus: as 0x15, for one group
+            if _WWH_OBD_FUNCTIONAL_GROUP is None: return nrc(0x19, 0x12)
+            if len(pdu) != 3: return nrc(0x19, 0x13)
+            if pdu[2] != _WWH_OBD_FUNCTIONAL_GROUP: return nrc(0x19, 0x31)
+            if suppress: return None
+            return bytes([0x59, 0x55, pdu[2], _DTC_AVAILABILITY_MASK, 0x04])
         if sub == 0x0A:   # reportSupportedDTC: every DTC, whatever its status
             resp = bytearray([0x59, 0x0A, _DTC_AVAILABILITY_MASK])
             for d in state.dtcs:

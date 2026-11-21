@@ -853,7 +853,7 @@ active level, so codegen rejects `write_security_level` above 1.
 | DiagnosticSessionControl | 0x10 | ✅ | 0x01 default, 0x02 programming, 0x03 extended |
 | ECUReset | 0x11 | ✅ | Hard (0x01), soft (0x03) |
 | ClearDiagnosticInformation | 0x14 | ✅ | Clears DTC mirror + RAM |
-| ReadDTCInformation | 0x19 | ✅ | Sub-functions 0x01-0x04, 0x06-0x0E, 0x14, 0x15 (EDS#145) |
+| ReadDTCInformation | 0x19 | ✅ | Sub-functions 0x01-0x04, 0x06-0x0E, 0x14, 0x15 (EDS#145); 0x55 with `wwh_obd.functional_group` (EDS#602) |
 | ReadDataByIdentifier | 0x22 | ✅ | Multi-DID read supported |
 | SecurityAccess | 0x27 | ✅ | AES-128-CMAC; odd=seed byte, even=key byte |
 | CommunicationControl | 0x28 | ✅ | Enable/disable Rx/Tx |
