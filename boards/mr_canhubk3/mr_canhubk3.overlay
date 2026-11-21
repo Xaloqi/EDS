@@ -114,12 +114,15 @@
 /* ── FlexCAN0 timing ──────────────────────────────────────────────────────────
  *
  * mr_canhubk3_common.dtsi enables flexcan0 with PTA6/PTA7 pinctrl and the
- * on-board TJA1443 transceiver. We only add the sample-point property.
+ * on-board TJA1443 transceiver. We add the bitrate and the sample point.
  *
  * Sample point = 87.5% — standard automotive ECU configuration (CiA 601).
  * The FlexCAN driver computes bit-timing registers from sample-point at init.
  * ─────────────────────────────────────────────────────────────────────────── */
 &flexcan0 {
+	/* [EDS#631] Without bitrate the controller runs at CONFIG_CAN_DEFAULT_BITRATE
+	 * (Zephyr default 125000), not the documented 500 kbit/s (as #309 on the NUCLEO). */
+	bitrate      = <500000>;
 	sample-point = <875>;
 };
 

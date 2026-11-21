@@ -73,6 +73,9 @@
  *   frdm_mcxn947_mcxn947_cpu0.dts → &flexcan0 { status = "okay"; }
  * ─────────────────────────────────────────────────────────────────────────── */
 &flexcan0 {
+	/* [EDS#631] Without bitrate the controller runs at CONFIG_CAN_DEFAULT_BITRATE
+	 * (Zephyr default 125000), not the documented 500 kbit/s (as #309 on the NUCLEO). */
+	bitrate      = <500000>;
 	sample-point = <875>;
 };
 
