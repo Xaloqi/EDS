@@ -528,7 +528,7 @@ inspect without a license.
 | `canfd_ecu` | 5 | 0 | 0 | native\_sim (loopback and SocketCAN on an MTU-72 vcan) | **compile-verified** (native\_sim); CAN FD runtime smoke against Linux can-isotp in CI; no hardware |
 | `bms_ecu` | 24 | 10 | 5 | native\_sim | **compile-verified** (native\_sim) |
 | `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | **compile-verified** (native\_sim) |
-| `ardep_ecu` | 35 | 19 | 6 | ardep (Mercedes-Benz ARDEP board, in the ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim only; not built for or run on the `ardep` board) |
+| `ardep_ecu` | 35 | 19 | 6 | ardep (Mercedes-Benz ARDEP board, in the ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim, and the `ardep` board in ARDEP's own workspace); not run on an ARDEP board |
 | `basic_ecu_cda_demo` | 6 | 2 | 4 | native\_sim (host SocketCAN) | **compile-verified** (native\_sim); the CDA interop script above drives it, run by hand, not in CI |
 | `vehicle_state_ecu` | 5 | 2 | 2 | native\_sim (loopback) | **compile-verified** (native\_sim) |
 
@@ -540,7 +540,7 @@ strongest label that is true of it:
 | Label | Means | Proof |
 |---|---|---|
 | **hardware-validated** | Flashed onto real silicon and exercised, with measurements recorded | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — DWT cycle-counter figures from a NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, `-Os`): `safeboot_ecu` over CAN/ISO-TP, `basic_ecu_doip` over the board's onboard MAC+PHY |
-| **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-nxp-s32k-mcuboot`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
+| **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-nxp-s32k-mcuboot`, `zephyr-ardep`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
 
 **All fifteen examples are now at least compile-verified, and two have been on a
 bench.** For the first thirteen that became true on 2026-10-02 and was not true

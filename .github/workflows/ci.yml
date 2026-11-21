@@ -1565,6 +1565,78 @@ jobs:
             build/safeboot_ecu/zephyr/zephyr.elf
             build/safeboot_ecu/zephyr/zephyr.signed.hex
 
+  # ── Job 5e: Zephyr build — ardep_ecu / ardep (ARDEP's own workspace) ─────
+  #
+  # [EDS#629] examples/ardep_ecu for the real Mercedes-Benz ARDEP board
+  # (boards/mercedes/ardep, STM32G474). The board lives in ARDEP's west
+  # workspace, at ARDEP's own Zephyr pin (v4.4.0), so this job builds there
+  # instead of in EDS's workspace, and it is not a row of the weekly
+  # Zephyr-main list. ARDEP is pinned to a commit; its iso14229 project
+  # follows a branch in ARDEP's manifest, so that is pinned here too.
+  # The workspace is about 1.5 GB with --depth=1 (hal_stm32 is 1.1 GB of it),
+  # the same order as the STM32 jobs above, so this is a CI job and not a
+  # manual step. Build-only: nothing here has run on an ARDEP board.
+  # ──────────────────────────────────────────────────────────────────────────
+  zephyr-ardep:
+
+    name: "Zephyr Build — ardep_ecu / ardep (ARDEP workspace, Zephyr 4.4.0)"
+    # 24.04: Zephyr 4.4 needs Python 3.12.
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    env:
+      ARDEP_REV: 7306360cd6b8270dd11e1ca9e38d9e3d5c18858c      # mercedes-benz/ardep, 2026-11-16
+      ISO14229_REV: 50bea701694543c77099ebb82bd76b4919c9b010   # its "zephyr" branch on that date
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends cmake ninja-build gperf \
+            device-tree-compiler python3-venv xz-utils wget git
+
+      - name: ARDEP west workspace (pinned)
+        run: |
+          python3 -m venv .venv && . .venv/bin/activate
+          pip install -q west
+          git clone -q https://github.com/mercedes-benz/ardep.git ardep-ws/ardep
+          git -C ardep-ws/ardep checkout -q "$ARDEP_REV"
+          cd ardep-ws
+          west init -l ardep
+          west update --narrow -o=--depth=1
+          git -C iso14229 fetch -q --depth=1 origin "$ISO14229_REV"
+          git -C iso14229 checkout -q "$ISO14229_REV"
+          west list -f "{name:14} {sha}"
+          pip install -q -r zephyr/scripts/requirements-base.txt
+          west zephyr-export
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Zephyr SDK (version from ARDEP's Zephyr, checksums from the release)
+        run: |
+          mkdir -p ci-out
+          D=$(EDS/.github/zephyr-main/install-sdk.sh "$PWD/ardep-ws/zephyr" /opt "$PWD/ci-out" | tail -n 1)
+          echo "ZEPHYR_SDK_INSTALL_DIR=$D" >> "$GITHUB_ENV"
+
+      - name: West build — ardep_ecu / ardep
+        working-directory: ardep-ws
+        run: |
+          A=${GITHUB_WORKSPACE}/EDS/examples/ardep_ecu
+          west build \
+            --pristine \
+            -b ardep \
+            -d build \
+            "$A" \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y \
+            -DCONFIG_NEWLIB_LIBC=n -DCONFIG_EDS_REQUIRE_NEWLIB=n \
+            "-DEXTRA_CONF_FILE=${A}/boards/ardep/ardep.conf" \
+            "-DDTC_OVERLAY_FILE=${A}/boards/ardep/ardep.overlay"
+          test -f build/zephyr/zephyr.elf && echo "PASS: ardep_ecu .elf for the ardep board" || exit 1
+
   # ── Jobs: example ECU generated-file validation (issue #98) ────────────────
   #
   # 7 of the 12 example ECUs under examples/ were never touched by any CI job

@@ -23,6 +23,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **FRDM-MCXN947 overlay builds on Zephyr 4.4 and later** (#628): it keeps the `slot1_partition` label that the board's
   chosen node now references. The weekly Zephyr-main job gains rows for `frdm_mcxn947` and `mr_canhubk3` (including a
   sysbuild row), and fetches `hal_nxp`.
+- **`ardep_ecu` builds for the `ardep` board** (#629). `boards/ardep/ardep.conf` no longer sets `CAN_STM32FD`, a symbol
+  no Zephyr since v3.7.0 defines; the two guides that recommended it are corrected. New CI job `zephyr-ardep` builds the
+  example in ARDEP's own workspace (pinned commit, Zephyr v4.4.0). Compile-verified only.
 
 ## [1.30.0] — 2026-11-21
 
