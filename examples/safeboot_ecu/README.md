@@ -466,7 +466,7 @@ before signing each new image so the version reflects the build.
 | 0xF190 | VehicleIdentificationNumber | 17 B | `XALQ1EDS00SFBT001` |
 | 0xF18C | ECUSerialNumber | 8 B | `SFB00001` |
 | 0xF181 | ApplicationSoftwareIdentification | 8 B | `v1.0.0\0\0` |
-| 0xF186 | ActiveDiagnosticSession | 1 B | `0x01` (default) |
+| 0xF186 | ActiveDiagnosticSession | 1 B | the active session: `0x01` default, `0x02` programming, `0x03` extended |
 | 0xF18A | SystemSupplierIdentifier | 10 B | `XALOQI    ` |
 
 All DIDs readable in default session at security level 0.

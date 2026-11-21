@@ -83,6 +83,7 @@
  * Generated headers
  * -------------------------------------------------------------------------- */
 #include "uds_init.h"
+#include "did_handlers.h"   /* did_read_activediagnosticsession() [EDS#636] */
 #include "generated_config.h"
 
 /* --------------------------------------------------------------------------
@@ -638,6 +639,30 @@ static void s_on_session_change(uds_session_type_t old_sess,
     if (new_sess == UDS_SESSION_DEFAULT) {
         (void)uds_periodic_cancel_all();
     }
+}
+
+/* [EDS#636] DID 0xF186 ActiveDiagnosticSession (source: app in the YAML):
+ * the session the server is in now. The generated stub always read 0x00. */
+uds_status_t did_read_activediagnosticsession(uint8_t  *buf,
+                                              uint16_t  buf_len,
+                                              uint16_t *out_len)
+{
+    uds_server_ctx_t   *srv = uds_generated_get_server();
+    uds_session_type_t  session;
+
+    if ((buf == NULL) || (out_len == NULL)) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    if (buf_len < (uint16_t)1U) {
+        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
+    }
+    if ((srv == NULL) ||
+        (uds_session_get_active(srv->cfg.session_ctx, &session) != UDS_STATUS_OK)) {
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+    }
+    buf[0]   = (uint8_t)session;
+    *out_len = (uint16_t)1U;
+    return UDS_STATUS_OK;
 }
 
 /* =============================================================================

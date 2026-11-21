@@ -15,6 +15,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   EDS#353 lock callbacks, while the UDS tick task changes the same state under them. It now takes the lock like every
   other UDS call in the file. New host ThreadSanitizer test `tests/concurrency/` (`run_tsan.sh`, not in CI yet) drives
   the real server loop against the tick thread: 7–8 races per run before, none after.
+- **`safeboot_ecu` and `safeboot_freertos_ecu` report the active session in DID 0xF186** (#636). F186 was a
+  generated stub that always read `0x00`, while the READMEs said `0x01`. The YAML now declares it `source: app`, and
+  each example's `main.c` reads `uds_session_get_active()`. `tests/test_f186_reports_session.py` fails if any example
+  declares F186 as a stub again. The stack does not serve F186 itself yet.
 - **MR-CANHUBK3 (S32K344) flash map follows Zephyr's MCUboot variant** (#627). `boards/mr_canhubk3/mr_canhubk3.overlay`
   now uses the offsets and node labels of Zephyr's `mr_canhubk3_s32k344_mcuboot.dts` (v4.4.0 and later): boot header,
   pad, MCUboot, two 1920 KiB slots, with `diag_nvs` (72 KiB) in the free tail. A plain build and an MCUboot build share
