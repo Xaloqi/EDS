@@ -107,7 +107,10 @@
  * slot0_partition label is preserved (dual-labelled with eds_app_slot) so
  * that the chosen node "zephyr,code-partition = &slot0_partition" in
  * frdm_mcxn947_mcxn947_cpu0.dts continues to resolve correctly after the
- * /delete-node/ removes the base definition.
+ * /delete-node/ removes the base definition. slot1_partition is preserved on
+ * eds_ota_slot for the same reason: from Zephyr v4.4.0 the board's chosen
+ * node also has "zephyr,code-cpu1-partition = &slot1_partition", and without
+ * the label the devicetree does not compile (EDS#628).
  * ─────────────────────────────────────────────────────────────────────────── */
 &flash {
 	/delete-node/ partitions;
@@ -122,7 +125,7 @@
 			reg = <0x00000000 0x000E0000>;
 		};
 
-		eds_ota_slot: partition@e0000 {
+		slot1_partition: eds_ota_slot: partition@e0000 {
 			label = "image-1";
 			reg = <0x000E0000 0x000E0000>;
 		};

@@ -39,12 +39,12 @@ defaults:
 env:
   ZREV: ${{ inputs.zephyr_rev || 'main' }}
   OUT: ${{ github.workspace }}/ci-out
-  # 14 builds/tests in builds.tsv + the deprecation sweep. Update together with builds.tsv.
-  EXPECT_ROWS: "15"
+  # 15 builds/tests in builds.tsv + the deprecation sweep. Update together with builds.tsv.
+  EXPECT_ROWS: "16"
   # Zephyr modules the builds need (NOT named ZEPHYR_MODULES: Zephyr's CMake reads that variable
   # and a non-path value there silently disables module discovery): STM32 HAL + CMSIS (nucleo_h753zi), MCUboot (safeboot_ecu), the
-  # Xen public headers (xenvm).
-  EDS_WEEKLY_MODULES: "hal_stm32 cmsis cmsis_6 mcuboot zephyr-xenlib"
+  # Xen public headers (xenvm), the NXP HAL (frdm_mcxn947).
+  EDS_WEEKLY_MODULES: "hal_stm32 cmsis cmsis_6 mcuboot zephyr-xenlib hal_nxp"
 jobs:
   main:
     # 26.04 for its host GCC 15: ardep_ecu's -Wunterminated-string-initialization (EDS#519)
