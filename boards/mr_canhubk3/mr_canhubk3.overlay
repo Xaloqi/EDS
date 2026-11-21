@@ -35,46 +35,53 @@
  *   (upstream Zephyr). The board DTSI references these pinctrl groups on
  *   &flexcan0. No additional pinctrl definitions are needed in this overlay.
  *
- * FLASH LAYOUT:
- *   S32K344 program flash: 4048 KiB available to the application core.
- *   (4096 KiB total minus 48 KiB reserved by Secure Boot Assist Firmware.)
- *   Erase-block-size = 8 KiB. The C40FC controller maps flash to 0x00400000.
- *   Partition offsets below are relative to the C40FC ranges base (0x0).
+ * FLASH LAYOUT (EDS#627):
+ *   This follows Zephyr's own MCUboot variant of this board,
+ *   boards/nxp/mr_canhubk3/mr_canhubk3_s32k344_mcuboot.dts (Zephyr v4.4.0 and
+ *   later), offset for offset and with the same node labels. EDS adds one
+ *   partition, diag_nvs, in the flash that layout leaves free after image-1.
+ *   The same map serves a plain build (this board, no bootloader) and an
+ *   MCUboot build (mr_canhubk3/s32k344/mcuboot), so DTC storage never moves
+ *   when a bench switches between the two.
  *
- *   Offset      Size     Label        Purpose
- *   ──────────  ───────  ───────────  ──────────────────────────────────────
- *   0x000000      0.25   ivt-header   S32K3 IVT / ABCB boot header (256 B).
- *                  KiB               soc/nxp/s32/s32k3/Kconfig derives
- *                                    CONFIG_IVT_HEADER_OFFSET/_SIZE from
- *                                    this node's label. Must be preserved.
- *                                    Remaining bytes of the first 8 KiB
- *                                    sector (0x100–0x1FFF) are unused flash.
- *   0x002000    1792 KiB image-0      Primary firmware slot — app flashed here.
- *                                    zephyr,code-partition → application
- *                                    code (rom_start) placed at 0x402000,
- *                                    after the IVT region at 0x400000.
- *   0x1C2000    1792 KiB image-1      Secondary / OTA staging slot.
- *                                    platform/zephyr_flash_ops.c writes DFU
- *                                    payloads here via FLASH_AREA_ID(image_1).
- *   0x382000     472 KiB diag_nvs     Zephyr NVS (security counters, DTC mirror,
- *                                    session stats). 59 × 8 KiB sectors.
- *   ─────────────────────────────────────────────────────────────────────────
- *   Totals: 0x2000 + 0x1C0000 + 0x1C0000 + 0x76000 = 0x3F8000 = 4048 KiB ✓
- *   All EDS partition offsets: 8 KiB aligned (0x2000, 0x1C2000, 0x382000) ✓
- *   NVS sectors: 0x76000 / 0x2000 = 59 × 8 KiB ✓
+ *   S32K344 program flash: 4048 KiB (the board's flash0 size), 8 KiB
+ *   sectors, mapped at 0x00400000. Offsets are relative to that base.
  *
- *   NOTE: S32K3 hardware boot requires an Application Boot Configuration Block
- *   (ABCB) at the start of flash (physical 0x00400000). For direct hardware
- *   flashing, prepend the ABCB binary to the EDS firmware image. Contact NXP
- *   AN13033 for ABCB generation details. CI builds are compile-only and do not
- *   require the ABCB.
+ *   Offset     Size       Node label           Purpose
+ *   ---------  ---------  -------------------  ----------------------------------
+ *   0x000000   256 B      ivt_header           S32K3 boot header (IVT). The boot
+ *                                              ROM looks for it at 0x00400000.
+ *   0x000100   7936 B     ivt_pad              Rest of the first sector.
+ *   0x002000   128 KiB    boot_partition       MCUboot. Unused (left erased) in
+ *                                              a plain build.
+ *   0x022000   1920 KiB   slot0_partition      image-0, zephyr,code-partition.
+ *   0x202000   1920 KiB   slot1_partition      image-1, the OTA / MCUboot
+ *                                              secondary slot
+ *                                              (platform/zephyr/zephyr_flash_ops.c).
+ *   0x3E2000   72 KiB     eds_nvs_slot         diag_nvs: Zephyr NVS, 9 x 8 KiB.
+ *   ---------------------------------------------------------------------------
+ *   0x2000 + 0x20000 + 0x1E0000 + 0x1E0000 + 0x12000 = 0x3F4000 = 4048 KiB
+ *
+ *   The boot header needs no external tool. Zephyr's
+ *   soc/nxp/s32/s32k3/soc.c emits the IVT into the ivt_header partition
+ *   (section .ivt_header) with the Cortex-M7_0 start address set to the
+ *   image's own vector table. A plain build therefore starts at 0x00422000;
+ *   in an MCUboot build, MCUboot's image carries the IVT and starts at
+ *   0x00402000. soc/nxp/s32/s32k3/Kconfig derives IVT_HEADER_OFFSET/SIZE
+ *   from the ivt_header label, so that label must stay.
+ *
+ *   Zephyr v4.4.0 and later: the internal-flash driver (flash_mcux_c40.c,
+ *   on by default) write-protects the ivt_header, ivt_pad and boot_partition
+ *   windows by these labels and runs erase/program from SRAM. Zephyr
+ *   v3.7.0 (EDS's west.yml pin) has no driver for this flash: the image
+ *   builds and carries its boot header, but NVS and OTA writes have no
+ *   device there (see examples/basic_ecu/src/main.c).
  *
  * SAFETY: This overlay is a starting point. OEM integration must:
  *   [ ] Verify PTA6/PTA7 pinout against actual S32K344 schematic variant
  *   [ ] Validate 500 kbit/s sample point against network analyser
  *   [ ] Enable CAN termination resistor (120 Ω) on bus endpoints
  *   [ ] Qualify FlexCAN0 against ISO 11898-1 electrical requirements
- *   [ ] Provision Application Boot Configuration Block for hardware deployment
  *
  * NOTES:
  *   CAN FD: Set CONFIG_CAN_FD_MODE=y and update sample-point + data-sample-point
@@ -89,10 +96,10 @@
  * main.c uses DEVICE_DT_GET(DT_ALIAS(can0)) — this alias maps that to FlexCAN0.
  * mr_canhubk3_common.dtsi sets zephyr,canbus = &flexcan0 in the chosen node.
  *
- * WATCHDOG: Zephyr 3.7 mr_canhubk3 board DTS already defines
- *   watchdog0 = &fs26_wdt (NXP FS26 SBC, SPI-connected external watchdog).
- * Zephyr ≥ 4.x also exposes the internal swt0 (NXP S32 SWT).
- * We do not override watchdog0 here — the base board alias is sufficient.
+ * WATCHDOG: the board DTS sets watchdog0, and it differs by Zephyr version:
+ *   v3.7.0 points it at &fs26_wdt (the FS26 safety SBC's watchdog, over SPI);
+ *   v4.4.0 and later point it at &swt0 (the S32K344's internal SWT).
+ * We do not override watchdog0 here; the board's alias is used as it is.
  * ─────────────────────────────────────────────────────────────────────────── */
 / {
 	aliases {
@@ -118,25 +125,11 @@
 
 /* ── Flash partition table ────────────────────────────────────────────────────
  *
- * Delete the existing partitions node from mr_canhubk3.dts (ivt-header +
- * code-partition) and replace with the EDS four-partition layout.
- *
- * CRITICAL: ivt_header must be re-declared here.
- *   soc/nxp/s32/s32k3/Kconfig derives CONFIG_IVT_HEADER_OFFSET and
- *   CONFIG_IVT_HEADER_SIZE from the DTS node with label 'ivt_header' via
- *   dt_node_reg_addr_hex / dt_node_reg_size_hex. If the label is absent,
- *   both values default to 0, making the IVT_HEADER linker region LENGTH=0.
- *   The 256-byte .ivt_header section then overflows that zero-length region
- *   and collides with rom_start at the same address — linker error:
- *     "region IVT_HEADER overflowed by 256 bytes"
- *
- * slot0_partition starts at 0x2000 (the second 8 KiB sector) so that
- * rom_start is placed at physical 0x402000, safely after the IVT_HEADER
- * region at 0x400000 (size 0x100). The gap 0x100–0x1FFF within the first
- * sector is unused flash (reads 0xFF) and does not affect the linker.
- *
- * slot0_partition is dual-labelled as eds_app_slot for flash-tool clarity.
- * All EDS partition starts are 8 KiB aligned for safe NVS sector erasure.
+ * The layout in the header above. The board's own partitions node (ivt-header
+ * plus one code-partition) is replaced, because EDS needs image-1 and
+ * diag_nvs. The nodes and labels up to slot1_partition are those of Zephyr's
+ * mr_canhubk3_s32k344_mcuboot.dts; the eds_* labels are the names EDS code
+ * and the other EDS board overlays use.
  * ─────────────────────────────────────────────────────────────────────────── */
 &flash0 {
 	/delete-node/ partitions;
@@ -146,27 +139,36 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		/* S32K3 IVT / ABCB boot header — 256 bytes at flash base.
-		 * read-only: never erased by flash tools targeting EDS slots. */
 		ivt_header: partition@0 {
 			label = "ivt-header";
 			reg = <0x00000000 0x00000100>;
 			read-only;
 		};
 
-		slot0_partition: eds_app_slot: partition@2000 {
+		ivt_pad: partition@100 {
+			label = "ivt_pad";
+			reg = <0x00000100 0x00001F00>;
+			read-only;
+		};
+
+		boot_partition: partition@2000 {
+			label = "mcuboot";
+			reg = <0x00002000 0x00020000>; /* 128 KiB */
+		};
+
+		slot0_partition: eds_app_slot: partition@22000 {
 			label = "image-0";
-			reg = <0x00002000 0x001C0000>; /* 1792 KiB */
+			reg = <0x00022000 0x001E0000>; /* 1920 KiB */
 		};
 
-		eds_ota_slot: partition@1c2000 {
+		slot1_partition: eds_ota_slot: image_1: partition@202000 {
 			label = "image-1";
-			reg = <0x001C2000 0x001C0000>; /* 1792 KiB */
+			reg = <0x00202000 0x001E0000>; /* 1920 KiB */
 		};
 
-		eds_nvs_slot: partition@382000 {
+		eds_nvs_slot: partition@3e2000 {
 			label = "diag_nvs";
-			reg = <0x00382000 0x00076000>; /* 472 KiB = 59 × 8 KiB sectors */
+			reg = <0x003E2000 0x00012000>; /* 72 KiB = 9 x 8 KiB sectors */
 		};
 	};
 };

@@ -48,6 +48,10 @@ set(DIAG_CODEGEN_SCRIPT "${DIAG_ROOT}/tools/codegen.py")
 set(DIAG_GENERATED_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/generated")
 set(CODEGEN_SENTINEL    "${DIAG_GENERATED_DIR}/generated_config.h")
 
+# Under sysbuild (MCUboot + this app in one build), a -D setting reaches this
+# image only through zephyr_get(): -DDIAG_SKIP_CODEGEN=ON or
+# -Dsafeboot_ecu_DIAG_SKIP_CODEGEN=ON. A plain build reads the cache as before.
+zephyr_get(DIAG_SKIP_CODEGEN SYSBUILD GLOBAL)
 option(DIAG_SKIP_CODEGEN "Skip codegen (use existing generated/ files)" OFF)
 
 # ---------------------------------------------------------------------------

@@ -42,17 +42,20 @@ while IFS=$'\t' read -r name kind app board sweep extra; do
   extra_kc=""
   [ "$board" != native_sim ] && extra_kc="-DCONFIG_NEWLIB_LIBC=n -DCONFIG_EDS_REQUIRE_NEWLIB=n"
   if [ "$board" = native_sim ]; then export ZEPHYR_TOOLCHAIN_VARIANT=host; else export ZEPHYR_TOOLCHAIN_VARIANT=zephyr; fi
+  # sysbuild: MCUboot + the app in one build; the app's own build is $bdir/<app dir name>.
+  sb=""; abdir=$bdir
+  if [ "$kind" = sysbuild ]; then sb=--sysbuild; abdir=$bdir/${app##*/}; fi
   echo "::group::$name ($app on $board)"
   # shellcheck disable=SC2086
-  west build -p always -d "$bdir" -b "$board" "$EDS/$app" -- \
+  west build -p always $sb -d "$bdir" -b "$board" "$EDS/$app" -- \
     -DDIAG_SKIP_CODEGEN=ON -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y $extra_kc $args > "$log" 2>&1
   rc=$?
   tail -n 5 "$log"; echo "::endgroup::"
   if [ $rc -ne 0 ]; then fail "$name" "west build exited $rc" "$log"; continue; fi
-  cp "$bdir/zephyr/.config" "$OUT/config-$name" 2>/dev/null || true
-  if [ "$board" = native_sim ]; then img=$bdir/zephyr/zephyr.exe; else img=$bdir/zephyr/zephyr.elf; fi
+  cp "$abdir/zephyr/.config" "$OUT/config-$name" 2>/dev/null || true
+  if [ "$board" = native_sim ]; then img=$abdir/zephyr/zephyr.exe; else img=$abdir/zephyr/zephyr.elf; fi
   [ -f "$img" ] || { fail "$name" "build exited 0 but ${img##*/} does not exist" "$log"; continue; }
-  grep -qx 'CONFIG_COMPILER_WARNINGS_AS_ERRORS=y' "$bdir/zephyr/.config" \
+  grep -qx 'CONFIG_COMPILER_WARNINGS_AS_ERRORS=y' "$abdir/zephyr/.config" \
     || { fail "$name" "CONFIG_COMPILER_WARNINGS_AS_ERRORS=y is not in the final .config" "$log"; continue; }
   if [ "$kind" = test ]; then
     timeout 120 "$img" > "$OUT/$name.run.log" 2>&1 || true
@@ -60,7 +63,7 @@ while IFS=$'\t' read -r name kind app board sweep extra; do
        && grep -q 'PROJECT EXECUTION SUCCESSFUL' "$OUT/$name.run.log"; then :
     else fail "$name" "built, but the test did not print its PASS line and the ztest success banner" "$OUT/$name.run.log"; continue; fi
   fi
-  [ "$sweep" = y ] && echo "$name" >> "$OUT/sweep-dirs.txt"
+  [ "$sweep" = y ] && echo "${abdir#"$WS/build/"}" >> "$OUT/sweep-dirs.txt"
   echo -e "$name\tPASS\t$kind" >> "$OUT/results.tsv"
 done < "$HERE/builds.tsv"
 exit 0

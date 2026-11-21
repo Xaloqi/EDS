@@ -518,11 +518,11 @@ inspect without a license.
 |---|---|---|---|---|---|
 | `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947, MR-CANHUBK3 | **compile-verified** (3 board targets + native\_sim) |
 | `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU | **compile-verified** (QEMU Cortex-M4) |
-| `basic_ecu_doip` | 5 | 2 | 3 | NUCLEO-H753ZI, native\_sim (loopback), any Zephyr Ethernet board | **hardware-validated** (NUCLEO-H753ZI, real Ethernet) |
+| `basic_ecu_doip` | 5 | 2 | 3 | NUCLEO-H753ZI, MR-CANHUBK3, native\_sim (loopback), any Zephyr Ethernet board | **hardware-validated** (NUCLEO-H753ZI, real Ethernet); **compile-verified** (MR-CANHUBK3) |
 | `basic_ecu_doip_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) | **compile-verified** (QEMU Cortex-M4) |
 | `sensor_ecu` | 7 | 4 | 2 | native\_sim, any Zephyr sensor board | **compile-verified** (native\_sim) |
 | `sensor_ecu_freertos` | 7 | 4 | 2 | QEMU Cortex-M4, STM32F4, Nucleo-H743ZI2 | **compile-verified** (QEMU Cortex-M4) |
-| `safeboot_ecu` | 5 | 3 | 2 | NUCLEO-H753ZI, Nucleo-H743ZI2 (MCUboot required) | **hardware-validated** (NUCLEO-H753ZI, CAN) |
+| `safeboot_ecu` | 5 | 3 | 2 | NUCLEO-H753ZI, Nucleo-H743ZI2, MR-CANHUBK3 (Zephyr 4.4 or later, sysbuild); MCUboot required | **hardware-validated** (NUCLEO-H753ZI, CAN); **compile-verified** (MR-CANHUBK3, with MCUboot) |
 | `safeboot_freertos_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (FreeRTOS, no MCUboot) | **compile-verified** (QEMU Cortex-M4) |
 | `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim (simulated joint; loopback and SocketCAN variants) | **compile-verified** (native\_sim); runtime smoke over vcan in CI; no hardware |
 | `canfd_ecu` | 5 | 0 | 0 | native\_sim (loopback and SocketCAN on an MTU-72 vcan) | **compile-verified** (native\_sim); CAN FD runtime smoke against Linux can-isotp in CI; no hardware |
@@ -540,7 +540,7 @@ strongest label that is true of it:
 | Label | Means | Proof |
 |---|---|---|
 | **hardware-validated** | Flashed onto real silicon and exercised, with measurements recorded | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — DWT cycle-counter figures from a NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, `-Os`): `safeboot_ecu` over CAN/ISO-TP, `basic_ecu_doip` over the board's onboard MAC+PHY |
-| **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
+| **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-nxp-s32k-mcuboot`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
 
 **All fifteen examples are now at least compile-verified, and two have been on a
 bench.** For the first thirteen that became true on 2026-10-02 and was not true

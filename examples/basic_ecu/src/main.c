@@ -351,8 +351,12 @@ int main(void)
      * flash driver gap needs real hardware or S32K3 HAL knowledge this
      * repo doesn't have -- same category of risk as ardep_ecu below, so
      * left as a documented gap here rather than guessed at a third time.
+     * Root cause: Zephyr v3.7.0 has no driver for the S32K3 internal flash.
+     * Zephyr v4.4.0 adds one (CONFIG_SOC_FLASH_MCUX_C40), and with it the
+     * real NVS backend below links on this board too.
      */
-#if defined(CONFIG_BOARD_NATIVE_SIM) || defined(CONFIG_BOARD_MR_CANHUBK3)
+#if defined(CONFIG_BOARD_NATIVE_SIM) || \
+    (defined(CONFIG_BOARD_MR_CANHUBK3) && !defined(CONFIG_SOC_FLASH_MCUX_C40))
     status = nvm_store_init(NULL);
 #else
     {
