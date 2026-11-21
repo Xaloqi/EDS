@@ -20,6 +20,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The ARDEP guide describes ARDEP's UDS stack correctly** (#624). `docs/ARDEP_UPGRADE_GUIDE.md` compared EDS with
+  "two MIT libraries"; ARDEP ships its own Apache-2.0 `lib/uds` (event-driven handlers, ztest per service) on a Zephyr
+  wrapper of driftregion/iso14229. The guide is retitled "Xaloqi EDS on ARDEP" and now lists ARDEP's stack and only the
+  differences that hold (YAML codegen, generated tests, built-in AES-CMAC, safety documentation, DoIP/CAN FD, FreeRTOS),
+  plus services ARDEP has and EDS lacks. Dropped: the MISRA, CI, "None"/"Not stated" and time-estimate claims, the
+  `driftregion/iso14229` comparison table, "same security access"/"drop-in" DFU claims (ARDEP's flash tool erases with
+  routine 0xFF00 and sends no SecurityAccess; the example uses 0xFF10 and Level 1), and the wrong "ARDEP pins Zephyr
+  v3.7.0" (it pins v4.4.0). The same "upgrade from" wording is gone from the example's config and `main.c` comments.
+  Evidence unchanged: compile-verified on `native_sim` only, not built for or run on the `ardep` board.
 - **ARDEP is described correctly** (#621). `examples/ardep_ecu/README.md` expanded ARDEP as "Automotive Remote
   Digital/Analogue Processing" and called it a zone controller; ARDEP is the Automotive Rapid Development Platform,
   Mercedes-Benz's open-source (Apache-2.0) Zephyr hardware and software platform. The README, `docs/ARDEP_UPGRADE_GUIDE.md`,

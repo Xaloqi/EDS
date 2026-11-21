@@ -12,15 +12,11 @@
 #   LIN   : LIN transceiver, onboard
 #   I/O   : Arduino headers + PowerIO Shield (6× high-side switch, 48V/3A)
 #
-# CONTEXT: ARDEP UPGRADE PATH
-#   ARDEP ships with UDS support via the driftregion/iso14229 library —
-#   a minimal, MIT-licensed C implementation with no ASIL documentation,
-#   no test generation, and no MISRA compliance record.
-#
-#   This configuration demonstrates replacing that integration with the
-#   Xaloqi EDS: ASIL-B-oriented safety wrappers, AES-CMAC security,
-#   MISRA deviation log, and auto-generated test suites — with identical
-#   Zephyr CAN driver integration.
+# CONTEXT: XALOQI EDS ON ARDEP
+#   ARDEP ships its own UDS stack (lib/uds, on lib/iso14229). The Xaloqi EDS
+#   is a separate UDS stack for an ARDEP-based ECU, with YAML-driven code
+#   generation, ASIL-B-oriented safety wrappers, AES-CMAC security and a
+#   generated test suite. Where the two differ: docs/ARDEP_UPGRADE_GUIDE.md.
 #
 # ECU ROLE: Automotive I/O Controller application on ARDEP
 #   The ARDEP PowerIO Shield provides:
@@ -44,8 +40,8 @@ metadata:
   version:     "1.0.0"
   description: >
     ARDEP Automotive I/O Controller — diagnostics configuration.
-    Demonstrates EDS stack on the Mercedes-Benz ARDEP hardware platform
-    as a drop-in upgrade from the driftregion/iso14229 library.
+    Demonstrates the EDS stack on the Mercedes-Benz ARDEP hardware platform
+    as an alternative to ARDEP's own UDS stack.
 
 # -----------------------------------------------------------------------------
 # Timing parameters
