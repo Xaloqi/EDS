@@ -19,6 +19,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   generated stub that always read `0x00`, while the READMEs said `0x01`. The YAML now declares it `source: app`, and
   each example's `main.c` reads `uds_session_get_active()`. `tests/test_f186_reports_session.py` fails if any example
   declares F186 as a stub again. The stack does not serve F186 itself yet.
+- **0x19 0x14 reports the fault detection counter it filtered on** (#637). The handler read the counter twice through
+  the pointer `dtc_database_find()` returns, after the DTC lock was released, so a monitor thread changing it in
+  between could put a counter outside 1..126 in the response. It now takes one copy under the lock with the new
+  `dtc_database_get_entry()`. Host ThreadSanitizer test `tests/concurrency/tsan_dtc_fdc_snapshot.c`: a race on every
+  run before, none after.
 - **MR-CANHUBK3 (S32K344) flash map follows Zephyr's MCUboot variant** (#627). `boards/mr_canhubk3/mr_canhubk3.overlay`
   now uses the offsets and node labels of Zephyr's `mr_canhubk3_s32k344_mcuboot.dts` (v4.4.0 and later): boot header,
   pad, MCUboot, two 1920 KiB slots, with `diag_nvs` (72 KiB) in the free tail. A plain build and an MCUboot build share
