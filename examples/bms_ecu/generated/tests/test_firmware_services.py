@@ -4,7 +4,7 @@
 #
 # ECU       : BMS_MainController
 # Version   : 1.0.0
-# Generated : 2026-11-11T13:19:08Z
+# Generated : 2026-11-21T07:44:35Z
 #
 # PURPOSE: Integration tests running against REAL COMPILED FIRMWARE.
 #
@@ -1543,6 +1543,30 @@ class TestFirmwareWriteDID:
             f"Expected NRC 0x33 for write without unlock, got 0x{pdu[2]:02X}"
         )
 
+    def test_write_bms_ovthreshold_mv_below_min_nrc_31(
+        self, firmware_bus: FirmwareIsoTpTransport
+    ) -> None:
+        """3799 is outside write_range → NRC 0x31 from the firmware safety chain (EDS-toolchain#257)."""
+        _setup_for_did(firmware_bus, DID_CATALOGUE[22], for_write=True)
+        pdu = firmware_bus.request(
+            bytes([SID_WRITE_DATA_BY_ID, 217, 16, 0x0E, 0xD7])
+        )
+        assert pdu is not None
+        assert pdu[0] == SID_NEGATIVE_RESPONSE, f"Out-of-range write accepted: {pdu.hex(' ')}"
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE
+
+    def test_write_bms_ovthreshold_mv_above_max_nrc_31(
+        self, firmware_bus: FirmwareIsoTpTransport
+    ) -> None:
+        """4351 is outside write_range → NRC 0x31 from the firmware safety chain (EDS-toolchain#257)."""
+        _setup_for_did(firmware_bus, DID_CATALOGUE[22], for_write=True)
+        pdu = firmware_bus.request(
+            bytes([SID_WRITE_DATA_BY_ID, 217, 16, 0x10, 0xFF])
+        )
+        assert pdu is not None
+        assert pdu[0] == SID_NEGATIVE_RESPONSE, f"Out-of-range write accepted: {pdu.hex(' ')}"
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE
+
     def test_write_bms_ovthreshold_mv_wrong_length(
         self, firmware_bus: FirmwareIsoTpTransport
     ) -> None:
@@ -1597,6 +1621,30 @@ class TestFirmwareWriteDID:
         assert pdu[2] == NRC_SECURITY_ACCESS_DENIED, (
             f"Expected NRC 0x33 for write without unlock, got 0x{pdu[2]:02X}"
         )
+
+    def test_write_bms_uvthreshold_mv_below_min_nrc_31(
+        self, firmware_bus: FirmwareIsoTpTransport
+    ) -> None:
+        """2499 is outside write_range → NRC 0x31 from the firmware safety chain (EDS-toolchain#257)."""
+        _setup_for_did(firmware_bus, DID_CATALOGUE[23], for_write=True)
+        pdu = firmware_bus.request(
+            bytes([SID_WRITE_DATA_BY_ID, 217, 17, 0x09, 0xC3])
+        )
+        assert pdu is not None
+        assert pdu[0] == SID_NEGATIVE_RESPONSE, f"Out-of-range write accepted: {pdu.hex(' ')}"
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE
+
+    def test_write_bms_uvthreshold_mv_above_max_nrc_31(
+        self, firmware_bus: FirmwareIsoTpTransport
+    ) -> None:
+        """3201 is outside write_range → NRC 0x31 from the firmware safety chain (EDS-toolchain#257)."""
+        _setup_for_did(firmware_bus, DID_CATALOGUE[23], for_write=True)
+        pdu = firmware_bus.request(
+            bytes([SID_WRITE_DATA_BY_ID, 217, 17, 0x0C, 0x81])
+        )
+        assert pdu is not None
+        assert pdu[0] == SID_NEGATIVE_RESPONSE, f"Out-of-range write accepted: {pdu.hex(' ')}"
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE
 
     def test_write_bms_uvthreshold_mv_wrong_length(
         self, firmware_bus: FirmwareIsoTpTransport

@@ -4,7 +4,7 @@
 #
 # ECU       : BMS_MainController
 # Version   : 1.0.0
-# Generated : 2026-11-11T13:19:08Z
+# Generated : 2026-11-21T07:44:35Z
 #
 # DID       : 0xD910  (BMS_OVThreshold_mV)
 # Access    : read + write
@@ -303,6 +303,36 @@ class TestWriteBmsovthresholdmv:
         assert pdu[0] == SID_NEGATIVE_RESPONSE
         assert pdu[2] == NRC_INCORRECT_MSG_LEN, (
             f"Expected NRC 0x13 for long write ({DATA_LENGTH+1} bytes), got 0x{pdu[2]:02X}"
+        )
+
+    def test_write_below_min_rejected(
+        self, uds_bus: IsoTpTransport, aes_keys: dict
+    ) -> None:
+        """
+        Write 3799 (below min of write_range) must return NRC 0x31
+        before the handler runs (EDS-toolchain#257).
+        """
+        _setup_preconditions(uds_bus, aes_keys, for_write=True)
+        pdu = _write_did(uds_bus, bytes([0x0E, 0xD7]))
+        assert pdu is not None
+        assert pdu[0] == SID_NEGATIVE_RESPONSE, f"Out-of-range write accepted: {pdu.hex(' ')}"
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE, (
+            f"Expected NRC 0x31 for 3799, got 0x{pdu[2]:02X}"
+        )
+
+    def test_write_above_max_rejected(
+        self, uds_bus: IsoTpTransport, aes_keys: dict
+    ) -> None:
+        """
+        Write 4351 (above max of write_range) must return NRC 0x31
+        before the handler runs (EDS-toolchain#257).
+        """
+        _setup_preconditions(uds_bus, aes_keys, for_write=True)
+        pdu = _write_did(uds_bus, bytes([0x10, 0xFF]))
+        assert pdu is not None
+        assert pdu[0] == SID_NEGATIVE_RESPONSE, f"Out-of-range write accepted: {pdu.hex(' ')}"
+        assert pdu[2] == NRC_REQUEST_OUT_OF_RANGE, (
+            f"Expected NRC 0x31 for 4351, got 0x{pdu[2]:02X}"
         )
 
     def test_write_without_security_unlock_rejected(

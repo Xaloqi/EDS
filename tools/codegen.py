@@ -812,6 +812,28 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                     f"but data_length is {data_len}."
                 )
 
+        # write_range (optional) — [EDS-toolchain#257] emitted into the DID
+        # table and enforced by uds_safety_check_write_range(), which reads the
+        # value as a uint32_t; did_database_register() refuses a bad range at
+        # boot, so catch it here instead.
+        if "write_range" in did:
+            wr = did["write_range"]
+            ok = (isinstance(wr, dict) and set(wr) == {"min", "max"}
+                  and all(isinstance(wr[k], int) and not isinstance(wr[k], bool)
+                          and wr[k] >= 0 for k in wr))
+            if not ok:
+                _fatal(f"{pfx}: 'write_range' must be {{min: <int >= 0>, max: <int >= 0>}}.")
+            if "write" not in access:
+                _fatal(f"{pfx}: 'write_range' needs 'write' in 'access'.")
+            if data_len > 4:
+                _fatal(f"{pfx}: 'write_range' needs data_length 1 to 4 (the value "
+                       f"is checked as a 32-bit integer); it is {data_len}.")
+            if wr["min"] > wr["max"]:
+                _fatal(f"{pfx}: 'write_range' min {wr['min']} is above max {wr['max']}.")
+            if wr["max"] >= 256 ** data_len:
+                _fatal(f"{pfx}: 'write_range' max {wr['max']} does not fit in "
+                       f"data_length {data_len} byte(s).")
+
         # source (optional) — who owns the DID's value (EDS-toolchain#201).
         # 'stub' (default): codegen emits a backing store and handler bodies.
         # 'app': the application implements did_read_<name>() (and
@@ -1028,6 +1050,9 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     # ── ecu.doip.discovery (optional) — vehicle discovery over UDP [EDS#392] ──
     _doip_discovery(cfg)
 
+    # ── wwh_obd.functional_group (optional) — 0x19 sub-function 0x55 [EDS#602] ──
+    _wwh_obd_functional_group(cfg)
+
     # ── service_ids (optional override list) ─────────────────────────────────
     service_ids: List[Any] = cfg.get("service_ids", [])
     for idx, sid in enumerate(service_ids):
@@ -1102,7 +1127,8 @@ def _build_did_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
       read_security_level,  read_security_level_label,
       write_security_level, write_security_level_label,
       data_length, default_value_c_init,
-      app_owned (source: app — the application implements the handlers).
+      app_owned (source: app — the application implements the handlers),
+      write_range ({min, max} or None; EDS-toolchain#257).
 
     The *_label fields are pre-computed human-readable strings used by
     did_safety_wrappers.h.j2 to emit unambiguous security level annotations
@@ -1143,6 +1169,8 @@ def _build_did_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
                 if "default_value" in did else "0U"
             ),
             "app_owned":                  did.get("source", "stub") == "app",
+            # [EDS-toolchain#257] enforced by uds_safety_check_write_range().
+            "write_range":                did.get("write_range"),
         })
     return result
 
@@ -1460,6 +1488,8 @@ def build_dtc_config_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "version":   _c_safe_text(meta["version"]),
         "generated": _now_utc(),
         "dtcs":      _build_dtc_list(cfg),
+        # [EDS#602] the harness sets it as uds_init.c does (Step 5).
+        "wwh_obd_functional_group": _wwh_obd_functional_group(cfg),
     }
 
 
@@ -1475,6 +1505,26 @@ def _discovery_id6(value: Any, key: str) -> Optional[List[int]]:
         _fatal(f"VALIDATION: 'ecu.doip.discovery.{key}' must be 6 bytes of hex, "
                f"e.g. \"02:00:5e:00:53:31\", or null; got: {value!r}")
     return [int(text[i:i + 2], 16) for i in range(0, 12, 2)]
+
+
+def _wwh_obd_functional_group(cfg: Dict[str, Any]) -> Optional[int]:
+    """wwh_obd.functional_group as an int, or None when not declared [EDS#602].
+
+    The ECU's one FunctionalGroupIdentifier, 0x00..0xFE (ISO 14229-1:2026
+    Table 315). uds_init.c passes it to dtc_database_set_functional_group();
+    0x19 sub-function 0x55 answers for it and refuses any other group.
+    """
+    block = cfg.get("wwh_obd")
+    if block is None:
+        return None
+    if not isinstance(block, dict) or set(block) != {"functional_group"}:
+        _fatal("VALIDATION: 'wwh_obd' must be {functional_group: \"0x00\".. \"0xFE\"}.")
+    raw = block["functional_group"]
+    if not isinstance(raw, str) or not re.fullmatch(r"0x[0-9A-Fa-f]{2}", raw) \
+            or int(raw, 16) == 0xFF:
+        _fatal(f"VALIDATION: wwh_obd.functional_group must be a hex byte "
+               f"\"0x00\" to \"0xFE\" (0xFF is outside ISO 14229-1 Table 315), got {raw!r}.")
+    return int(raw, 16)
 
 
 def _doip_discovery(cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1575,6 +1625,8 @@ def build_uds_init_context(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "safety_system_session": _safety_session_enabled(cfg),
         # [EDS#392] None for CAN-only; otherwise the vehicle discovery config.
         "doip_discovery":        _doip_discovery(cfg),
+        # [EDS#602] None unless the YAML declares wwh_obd.functional_group.
+        "wwh_obd_functional_group": _wwh_obd_functional_group(cfg),
     }
 
 
@@ -1783,7 +1835,9 @@ def build_did_safety_wrappers_context(
       1. Calls uds_safety_check_null_ptr() on all pointer arguments.
       2. Calls uds_safety_find_did() to verify the DID is registered.
       3. Calls uds_safety_validate_did_access() with session + security contexts.
-      4. Calls uds_safety_check_did_data_length() against buf_len.
+      4. Calls uds_safety_check_did_data_length() against buf_len (read), or
+         uds_safety_check_write_data_length() and
+         uds_safety_check_write_range() (write; EDS-toolchain#257).
       5. Invokes the underlying DID read/write callback.
 
     This allows service handlers (service_0x22.c, service_0x2E.c) to call a
@@ -2158,7 +2212,8 @@ def _write_safety_fallback(
             " *   1. NULL-checks all pointer arguments (REQ-SAFE-004).",
             " *   2. Resolves the DID in the database (REQ-SAFE-001).",
             " *   3. Validates session + security access (REQ-SAFE-002/003).",
-            " *   4. Checks buffer length against DID data_length (REQ-SAFE-006).",
+            " *   4. Checks buffer length against DID data_length (REQ-SAFE-006)",
+            " *      and, on write, the value against write_range (REQ-SAFE-008).",
             " *   5. Invokes the DID read/write callback.",
             " * ================================================================ */",
             "",
@@ -2212,6 +2267,7 @@ def _write_safety_fallback(
                     "    UDS_SAFETY_RETURN_IF_ERR(uds_safety_validate_did_access(",
                     "        entry, session_ctx, security_ctx, UDS_SAFETY_ACCESS_WRITE));",
                     "    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_data_length(entry, len));",
+                    "    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_range(entry, buf, len));",
                     "",
                     f"    return did_write_{c_name}(buf, len);",
                     "}",

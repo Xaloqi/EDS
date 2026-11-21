@@ -84,7 +84,7 @@ Safety validation executes in bounded, deterministic time. No dynamic allocation
 
 ## 3. Safety Requirements
 
-Seven ASIL-B requirements govern the diagnostics safety architecture, plus one ASIL-B DTC persistence requirement:
+Eight ASIL-B requirements govern the diagnostics safety architecture, plus one ASIL-B DTC persistence requirement:
 
 | ID | ASIL | Statement | Implementation |
 |---|---|---|---|
@@ -95,6 +95,7 @@ Seven ASIL-B requirements govern the diagnostics safety architecture, plus one A
 | REQ-SAFE-005 | ASIL-B | All initialisation shall be deterministic and sequenced | `uds_generated_init()` Steps 1–7 in fixed order |
 | REQ-SAFE-006 | ASIL-B | Diagnostic data_length fields shall match DID database records | Length comparison in every read/write wrapper |
 | REQ-SAFE-007 | ASIL-B | Stack-local buffers shall never exceed compile-time bounds | `UDS_MAX_PAYLOAD_LEN` enforced in ISO-TP and server layers |
+| REQ-SAFE-008 | ASIL-B | A written value outside a DID's declared `write_range` shall be refused (NRC 0x31) before the write callback runs | `uds_safety_check_write_range()` in step 4 of `s_did_safe_write()` and every write wrapper (EDS-toolchain#257) |
 | REQ-DTC-NVM-01 | ASIL-B | DTC NVM mirror shall be initialised and loaded at every ECU boot | `dtc_mirror_init()` at Step 3.5, `dtc_mirror_load()` at Step 5.5 |
 
 These requirements are traceable to test cases in the Requirements Traceability Matrix (`docs/EDS_Requirements_Traceability_Matrix.csv`).
@@ -181,10 +182,13 @@ The checks live in `core/uds_safety.c`. Two callers run them in the same order:
             │    uds_safety_validate_did_access()
             │    Failure → UDS_STATUS_ERR_SEC_NOT_UNLOCKED → NRC 0x33
             │
-            ├─── Step 4: Length ─────────────────────────── REQ-SAFE-006
+            ├─── Step 4: Length, and on write the value ─── REQ-SAFE-006 / REQ-SAFE-008
             │    read:  uds_safety_check_did_data_length()   (buffer holds the DID)
             │    write: uds_safety_check_write_data_length() (data equals the DID length)
-            │    Failure → NRC 0x13
+            │           Failure → NRC 0x13
+            │    write: uds_safety_check_write_range()       (value inside write_range,
+            │           if the DID declares one)
+            │           Failure → NRC 0x31
             │
             └─── Step 5: Application callback invoked
 ```
@@ -195,6 +199,16 @@ Two points of order, both from ISO 14229-1:2026:
   as Figure 27 orders them.
 - **Read of several DIDs in one request:** a DID that fails step 2 is skipped and
   the others are answered; NRC 0x31 is sent only if none is supported (Figure 21).
+
+The value check (EDS-toolchain#257) is part of step 4 rather than a sixth step:
+like the length check it compares the write's dataRecord with the DID's record in
+the database, and it keeps step 5 as the only place the callback runs. It is the
+last check before the callback on both paths, so a locked tester gets 0x33 for an
+out-of-range value, and neither a generated handler nor a `source: app` handler
+is reached with a value outside `write_range`. A DID without `write_range` passes
+it unchanged. The range is read as an unsigned big-endian integer over
+`data_length` bytes, so `write_range` needs `data_length` 1 to 4; codegen refuses
+anything else, and `did_database_register()` refuses such an entry at boot.
 
 Before the chain, the service access table (`core/uds_access_table.c`) refuses a
 service that the active session or security level does not allow at all. That is
@@ -219,6 +233,7 @@ stack with the `bms_ecu` harness (2026-11-13):
 | Write while the security level is locked | `0x33` | securityAccessDenied |
 | Write a read-only DID (session and security satisfied) | `0x31` | requestOutOfRange |
 | Write with the wrong data length | `0x13` | incorrectMessageLengthOrInvalidFormat |
+| Write a value outside the DID's `write_range` (session and security satisfied) | `0x31` | requestOutOfRange |
 | A DID callback reports a failed condition | `0x22` | conditionsNotCorrect (from `service_0x22.c`; not exercised in that run) |
 
 Example: `7F 2E 33` = WriteDataByIdentifier rejected, securityAccessDenied.

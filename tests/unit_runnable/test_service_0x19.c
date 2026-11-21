@@ -1293,6 +1293,128 @@ ZTEST(test_service_0x19, tc049_suppress_bit_new_subfns)
  * run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
 
+/* ---- [EDS#602] 0x55 reportWWHOBDDTCWithPermanentStatus (ISO 14229-1:2026
+ * §11.3.1.22, Tables 315/333/336) ---------------------------------------- */
+
+#define FGID       (0x33U)   /* the ECU's functional group in these tests */
+
+/**
+ * TC-0x19-050: No functional group declared → 19 55 <group> is NRC 0x12.
+ */
+ZTEST(test_service_0x19, tc050_wwhobd_no_group_unsupported)
+{
+    setup();
+    uds_msg_buf_t req  = make_req_2(0x55U, FGID);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+        UDS_STATUS_ERR_SUBFUNCTION_NOT_SUP, "no group declared: 0x55 is NRC 0x12");
+}
+
+/**
+ * TC-0x19-051: The ECU's group → [59 55 group mask 04] + permanent DTCs only.
+ */
+ZTEST(test_service_0x19, tc051_wwhobd_right_group_reports_permanent)
+{
+    setup();
+    zassert_equal(dtc_database_set_functional_group(FGID), UDS_STATUS_OK, "set group");
+    dtc_database_set_permanent(DTC_A, true);
+
+    uds_msg_buf_t req  = make_req_2(0x55U, FGID);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "0x55 OK");
+
+    static const uint8_t expect[] = { 0x59U, 0x55U, FGID, 0xFFU, 0x04U,
+                                      0xC0U, 0x01U, 0x00U, 0x09U };
+    zassert_equal(resp.length, (uint16_t)sizeof(expect), "header + one record");
+    zassert_mem_equal(resp.data, expect, sizeof(expect), "Table 333 layout");
+}
+
+/**
+ * TC-0x19-052: Any other group (0x00..0xFE, and 0xFF outside Table 315's
+ * range) → NRC 0x31 (Table 336).
+ */
+ZTEST(test_service_0x19, tc052_wwhobd_other_group_out_of_range)
+{
+    static const uint8_t other[] = { 0x00U, 0x32U, 0x34U, 0xFEU, 0xFFU };
+    uint32_t i;
+
+    setup();
+    (void)dtc_database_set_functional_group(FGID);
+    for (i = 0U; i < (uint32_t)sizeof(other); i++) {
+        uds_msg_buf_t req  = make_req_2(0x55U, other[i]);
+        uds_msg_buf_t resp = {0};
+        zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp),
+            UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "unrecognised group must be NRC 0x31");
+    }
+}
+
+/**
+ * TC-0x19-053: Request length is exactly 3 (Table 315) → otherwise NRC 0x13,
+ * checked before the group.
+ */
+ZTEST(test_service_0x19, tc053_wwhobd_exact_length)
+{
+    setup();
+    (void)dtc_database_set_functional_group(FGID);
+    uds_msg_buf_t short_req = make_req_1(0x55U);
+    uds_msg_buf_t long_req  = make_req_3(0x55U, 0x34U, 0x00U);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x19_handler(&g_srv, &short_req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "2-byte request must be NRC 0x13");
+    zassert_equal(uds_service_0x19_handler(&g_srv, &long_req, &resp),
+        UDS_STATUS_ERR_INVALID_PARAM, "4-byte request must be NRC 0x13, before the group");
+}
+
+/**
+ * TC-0x19-054: No permanent DTC → 5-byte header only.
+ */
+ZTEST(test_service_0x19, tc054_wwhobd_no_permanent_header_only)
+{
+    setup();
+    (void)dtc_database_set_functional_group(FGID);
+    uds_msg_buf_t req  = make_req_2(0x55U, FGID);
+    uds_msg_buf_t resp = {0};
+    zassert_equal(uds_service_0x19_handler(&g_srv, &req, &resp), UDS_STATUS_OK, "0x55 OK");
+    zassert_equal(resp.length, 5U, "no permanent DTC → header only");
+}
+
+/**
+ * TC-0x19-055: One DTCFormatIdentifier per server (Table 335): with a group
+ * declared, 0x01 reports format 0x04 too; without, 0x01 as before.
+ */
+ZTEST(test_service_0x19, tc055_one_format_identifier_per_ecu)
+{
+    uds_msg_buf_t resp = {0};
+    uds_msg_buf_t req;
+
+    setup();
+    req = make_req_2(0x01U, 0xFFU);
+    (void)uds_service_0x19_handler(&g_srv, &req, &resp);
+    zassert_equal(resp.data[3], 0x01U, "no group: ISO 14229-1 format");
+
+    (void)dtc_database_set_functional_group(FGID);
+    req = make_req_2(0x01U, 0xFFU);
+    (void)uds_service_0x19_handler(&g_srv, &req, &resp);
+    zassert_equal(resp.data[3], 0x04U, "group declared: J2012-DA format 04");
+}
+
+/**
+ * TC-0x19-056: dtc_database functional-group API: 0xFF refused, unset is
+ * NOT_FOUND, NULL guarded.
+ */
+ZTEST(test_service_0x19, tc056_functional_group_api)
+{
+    uint8_t g = 0U;
+
+    setup();
+    zassert_equal(dtc_database_get_functional_group(&g), UDS_STATUS_ERR_NOT_FOUND, "unset");
+    zassert_equal(dtc_database_get_functional_group(NULL), UDS_STATUS_ERR_NULL_PTR, "NULL");
+    zassert_equal(dtc_database_set_functional_group(0xFFU), UDS_STATUS_ERR_INVALID_PARAM, "0xFF");
+    zassert_equal(dtc_database_set_functional_group(0xFEU), UDS_STATUS_OK, "0xFE");
+    zassert_equal(dtc_database_get_functional_group(&g), UDS_STATUS_OK, "set");
+    zassert_equal(g, 0xFEU, "value kept");
+}
+
 extern void test_service_0x19__tc001_count_by_mask_09(void);
 extern void test_service_0x19__tc002_count_by_mask_ff_all_match(void);
 extern void test_service_0x19__tc003_count_by_mask_01_one_match(void);
@@ -1342,6 +1464,13 @@ extern void test_service_0x19__tc046_clear_all_empties_records(void);
 extern void test_service_0x19__tc047_clear_one_forgets_that_dtc(void);
 extern void test_service_0x19__tc048_restore_does_not_record(void);
 extern void test_service_0x19__tc049_suppress_bit_new_subfns(void);
+extern void test_service_0x19__tc050_wwhobd_no_group_unsupported(void);
+extern void test_service_0x19__tc051_wwhobd_right_group_reports_permanent(void);
+extern void test_service_0x19__tc052_wwhobd_other_group_out_of_range(void);
+extern void test_service_0x19__tc053_wwhobd_exact_length(void);
+extern void test_service_0x19__tc054_wwhobd_no_permanent_header_only(void);
+extern void test_service_0x19__tc055_one_format_identifier_per_ecu(void);
+extern void test_service_0x19__tc056_functional_group_api(void);
 
 void run_all_tests(void)
 {
@@ -1394,4 +1523,11 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x19__tc047_clear_one_forgets_that_dtc);
     RUN_TEST(test_service_0x19__tc048_restore_does_not_record);
     RUN_TEST(test_service_0x19__tc049_suppress_bit_new_subfns);
+    RUN_TEST(test_service_0x19__tc050_wwhobd_no_group_unsupported);
+    RUN_TEST(test_service_0x19__tc051_wwhobd_right_group_reports_permanent);
+    RUN_TEST(test_service_0x19__tc052_wwhobd_other_group_out_of_range);
+    RUN_TEST(test_service_0x19__tc053_wwhobd_exact_length);
+    RUN_TEST(test_service_0x19__tc054_wwhobd_no_permanent_header_only);
+    RUN_TEST(test_service_0x19__tc055_one_format_identifier_per_ecu);
+    RUN_TEST(test_service_0x19__tc056_functional_group_api);
 }

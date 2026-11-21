@@ -5,7 +5,7 @@
  *
  * ECU       : RobotJointController
  * Version   : 1.0.0
- * Generated : 2026-10-30T09:54:23Z
+ * Generated : 2026-11-21T07:44:36Z
  * ASIL Level: B
  *
  * PURPOSE: Per-DID safe accessor implementations (ASIL-B).
@@ -25,7 +25,8 @@
  *   1. NULL-checks all pointer arguments (REQ-SAFE-004).
  *   2. Resolves the DID in the database (REQ-SAFE-001).
  *   3. Validates session + security access (REQ-SAFE-002/003).
- *   4. Checks buffer length against DID data_length (REQ-SAFE-006).
+ *   4. Checks buffer length against DID data_length (REQ-SAFE-006) and,
+ *      on write, the value against the DID's write_range (REQ-SAFE-008).
  *   5. Invokes the DID read/write callback.
  * STANDARD: MISRA C:2012 alignment intended.
  * =============================================================================
@@ -415,8 +416,10 @@ uds_status_t did_safe_write_axis0positionoffset(
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_validate_did_access(
         entry, session_ctx, security_ctx, UDS_SAFETY_ACCESS_WRITE));
 
-    /* Step 4 — Write length check (REQ-SAFE-006) */
+    /* Step 4 — Write length check (REQ-SAFE-006), then the value against
+     * write_range, NRC 0x31 outside it (REQ-SAFE-008, EDS-toolchain#257) */
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_data_length(entry, len));
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_range(entry, buf, len));
 
     /* Step 5 — Invoke DID write callback */
     return did_write_axis0positionoffset(buf, len);
@@ -445,8 +448,10 @@ uds_status_t did_safe_write_axis0softlimitpositive(
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_validate_did_access(
         entry, session_ctx, security_ctx, UDS_SAFETY_ACCESS_WRITE));
 
-    /* Step 4 — Write length check (REQ-SAFE-006) */
+    /* Step 4 — Write length check (REQ-SAFE-006), then the value against
+     * write_range, NRC 0x31 outside it (REQ-SAFE-008, EDS-toolchain#257) */
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_data_length(entry, len));
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_range(entry, buf, len));
 
     /* Step 5 — Invoke DID write callback */
     return did_write_axis0softlimitpositive(buf, len);
@@ -475,8 +480,10 @@ uds_status_t did_safe_write_axis0softlimitnegative(
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_validate_did_access(
         entry, session_ctx, security_ctx, UDS_SAFETY_ACCESS_WRITE));
 
-    /* Step 4 — Write length check (REQ-SAFE-006) */
+    /* Step 4 — Write length check (REQ-SAFE-006), then the value against
+     * write_range, NRC 0x31 outside it (REQ-SAFE-008, EDS-toolchain#257) */
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_data_length(entry, len));
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_range(entry, buf, len));
 
     /* Step 5 — Invoke DID write callback */
     return did_write_axis0softlimitnegative(buf, len);

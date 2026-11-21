@@ -68,6 +68,10 @@
 #define TEST_DID_ONEBYTE  (0xA012U)  /**< data_length == 1 (boundary). */
 #define TEST_DID_NO_CB    (0xA013U)  /**< write_cb == NULL. */
 #define TEST_DID_RDONLY   (0xA014U)  /**< Read-only (no DID_ACCESS_WRITE). */
+#define TEST_DID_RANGED   (0xA015U)  /**< write_range 3800..4350 (EDS-toolchain#257). */
+#define TEST_DID_RANGED_G (0xA016U)  /**< write_range + EXTENDED + level 1. */
+#define TEST_RANGE_MIN    (3800U)
+#define TEST_RANGE_MAX    (4350U)
 #define TEST_DATA_LEN     (2U)
 
 /* =========================================================================
@@ -202,6 +206,27 @@ static void register_test_dids(void)
     entry.read_cb            = stub_read_cb;
     entry.write_cb           = mock_write_cb;
     entry.description        = "Test read-only DID";
+    (void)did_database_register(&entry);
+
+    /* DID 0xA015: writable, no security, write_range 3800..4350. */
+    memset(&entry, 0, sizeof(entry));
+    entry.did_id             = TEST_DID_RANGED;
+    entry.access_flags       = (uint8_t)(DID_ACCESS_READ | DID_ACCESS_WRITE);
+    entry.min_session        = (uint8_t)UDS_SESSION_DEFAULT;
+    entry.data_length        = (uint16_t)TEST_DATA_LEN;
+    entry.read_cb            = stub_read_cb;
+    entry.write_cb           = mock_write_cb;
+    entry.description        = "Test ranged DID";
+    entry.write_range_set    = true;
+    entry.write_min          = TEST_RANGE_MIN;
+    entry.write_max          = TEST_RANGE_MAX;
+    (void)did_database_register(&entry);
+
+    /* DID 0xA016: as 0xA015, but EXTENDED session + security level 1. */
+    entry.did_id             = TEST_DID_RANGED_G;
+    entry.min_session        = (uint8_t)UDS_SESSION_EXTENDED;
+    entry.write_access_level = (uint8_t)1U;
+    entry.description        = "Test gated ranged DID";
     (void)did_database_register(&entry);
 }
 
@@ -591,6 +616,70 @@ ZTEST(test_service_0x2E, tc016_length_checked_before_security)
 }
 
 /* =========================================================================
+ * [EDS-toolchain#257] write_range enforced in step 4 (REQ-SAFE-008)
+ * ========================================================================= */
+
+static uds_status_t write_ranged(uint16_t did, uint16_t value)
+{
+    uint8_t       data[TEST_DATA_LEN] = { (uint8_t)(value >> 8U), (uint8_t)(value & 0xFFU) };
+    uds_msg_buf_t req  = make_req(did, data, (uint16_t)TEST_DATA_LEN);
+    uds_msg_buf_t resp = {0};
+
+    return uds_service_0x2E_handler(&g_srv, &req, &resp);
+}
+
+/**
+ * TC-0x2E-017: Value below write_range min → NRC 0x31, callback not run.
+ */
+ZTEST(test_service_0x2E, tc017_write_range_below_min)
+{
+    setup();
+    zassert_equal(write_ranged(TEST_DID_RANGED, (uint16_t)(TEST_RANGE_MIN - 1U)),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "min-1 must return NRC 0x31");
+    zassert_equal(s_write_call_count, (uint16_t)0U,
+                  "write_cb must not see an out-of-range value");
+}
+
+/**
+ * TC-0x2E-018: Value above write_range max → NRC 0x31, callback not run.
+ */
+ZTEST(test_service_0x2E, tc018_write_range_above_max)
+{
+    setup();
+    zassert_equal(write_ranged(TEST_DID_RANGED, (uint16_t)(TEST_RANGE_MAX + 1U)),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "max+1 must return NRC 0x31");
+    zassert_equal(s_write_call_count, (uint16_t)0U,
+                  "write_cb must not see an out-of-range value");
+}
+
+/**
+ * TC-0x2E-019: min and max themselves are accepted (inclusive range).
+ */
+ZTEST(test_service_0x2E, tc019_write_range_edges_accepted)
+{
+    setup();
+    zassert_equal(write_ranged(TEST_DID_RANGED, (uint16_t)TEST_RANGE_MIN),
+                  UDS_STATUS_OK, "min must be accepted");
+    zassert_equal(write_ranged(TEST_DID_RANGED, (uint16_t)TEST_RANGE_MAX),
+                  UDS_STATUS_OK, "max must be accepted");
+    zassert_equal(s_write_call_count, (uint16_t)2U, "write_cb runs for both");
+}
+
+/**
+ * TC-0x2E-020: Out-of-range value while locked → security wins (NRC 0x33),
+ *              so a locked tester learns nothing about the range.
+ */
+ZTEST(test_service_0x2E, tc020_security_checked_before_write_range)
+{
+    setup();
+    uds_session_transition(&g_sess, UDS_SESSION_EXTENDED);
+    /* security stays locked; TEST_DID_RANGED_G needs level 1 */
+
+    zassert_equal(write_ranged(TEST_DID_RANGED_G, (uint16_t)(TEST_RANGE_MAX + 1U)),
+                  UDS_STATUS_ERR_SEC_NOT_UNLOCKED, "security (0x33) before range (0x31)");
+}
+
+/* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
 
@@ -610,6 +699,10 @@ extern void test_service_0x2E__tc013_response_format(void);
 extern void test_service_0x2E__tc014_sequential_writes_no_cross_contamination(void);
 extern void test_service_0x2E__tc015_read_only_did(void);
 extern void test_service_0x2E__tc016_length_checked_before_security(void);
+extern void test_service_0x2E__tc017_write_range_below_min(void);
+extern void test_service_0x2E__tc018_write_range_above_max(void);
+extern void test_service_0x2E__tc019_write_range_edges_accepted(void);
+extern void test_service_0x2E__tc020_security_checked_before_write_range(void);
 
 void run_all_tests(void)
 {
@@ -629,4 +722,8 @@ void run_all_tests(void)
     RUN_TEST(test_service_0x2E__tc014_sequential_writes_no_cross_contamination);
     RUN_TEST(test_service_0x2E__tc015_read_only_did);
     RUN_TEST(test_service_0x2E__tc016_length_checked_before_security);
+    RUN_TEST(test_service_0x2E__tc017_write_range_below_min);
+    RUN_TEST(test_service_0x2E__tc018_write_range_above_max);
+    RUN_TEST(test_service_0x2E__tc019_write_range_edges_accepted);
+    RUN_TEST(test_service_0x2E__tc020_security_checked_before_write_range);
 }

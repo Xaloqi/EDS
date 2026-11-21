@@ -8,6 +8,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **ReadDTCInformation sub-function 0x55, reportWWHOBDDTCWithPermanentStatus** (#602). ISO 14229-1:2026 §11.3.1.15
+  recommends 0x55 over 0x15 for new permanent-DTC implementations. Declare the ECU's FunctionalGroupIdentifier with
+  `wwh_obd: { functional_group: "0x33" }` (`"0x00"` to `"0xFE"`); `uds_generated_init()` passes it to the new
+  `dtc_database_set_functional_group()`. `19 55 <group>` then answers `59 55 <group> <availability mask> 04` followed
+  by the DTCs 0x15 reports; any other group is NRC 0x31, a wrong length NRC 0x13. Without the key, 0x55 stays NRC 0x12
+  as before. 0x15 is unchanged. One group per ECU; per-DTC groups, 0x42 and 0x56 are not in scope (#145). The
+  Wireshark dissector names the 0x19 sub-functions, 0x55 included.
+
+### Changed
+
+- **One DTCFormatIdentifier per ECU** (#602). An ECU that declares `wwh_obd.functional_group` reports
+  DTCFormatIdentifier 0x04 (SAE J2012-DA format 04) in 0x01 and 0x07 as well as 0x55, because 0x55 allows no other
+  3-byte format and a server reports one format (ISO 14229-1:2026 Table 335). ECUs without the key still report 0x01.
+- **`write_range` is enforced by the stack** (Xaloqi/EDS-toolchain#257). A write whose value lies outside a DID's
+  `write_range` is answered `7F 2E 31` before the write handler runs, for `source: stub` and `source: app` DIDs alike.
+  The check is `uds_safety_check_write_range()` (REQ-SAFE-008), the last part of step 4 of the safety chain: it runs
+  after the length and security checks, in `s_did_safe_write()` (the 0x2E path) and in every generated
+  `did_safe_write_<name>()`. `did_entry_t` gains `write_range_set`, `write_min` and `write_max` (zero means no range;
+  hand-built entries need no change), `did_database_register()` refuses a range on a DID longer than 4 bytes or with
+  min above max, and codegen now validates `write_range` itself (`data_length` 1 to 4, min <= max, max fits) and
+  accepts it on `source: stub` DIDs. Examples regenerated: every write wrapper gains the call, and `bms_ecu`'s
+  0xD910/0xD911 carry their ranges in the DID table. `docs/Safety_Model.md` describes the step.
+
+  **Migration:** if you declared `write_range` as metadata only, out-of-range writes your handler accepted are now
+  refused with NRC 0x31 before it runs. Widen or remove the range if your handler meant to accept them.
+
 ## [1.29.1] — 2026-11-15
 
 ### Added

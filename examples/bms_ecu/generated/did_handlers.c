@@ -5,7 +5,7 @@
  *
  * ECU       : BMS_MainController
  * Version   : 1.0.0
- * Generated : 2026-11-09T12:29:04Z
+ * Generated : 2026-11-21T07:44:35Z
  *
  * PURPOSE: DID read/write handler stubs and static DID registration table.
  *          Each handler returns deterministic stub data (zeros) until the
@@ -654,6 +654,10 @@ static const did_entry_t s_generated_did_table[GEN_DID_HANDLER_COUNT] = {
         .data_length        = (uint16_t)2U,
         .read_cb            = did_read_bms_ovthreshold_mv,
         .write_cb           = did_write_bms_ovthreshold_mv,
+        /* [EDS-toolchain#257] enforced by uds_safety_check_write_range() (NRC 0x31) */
+        .write_range_set    = true,
+        .write_min          = (uint32_t)3800U,
+        .write_max          = (uint32_t)4350U,
         .description        = "BMS_OVThreshold_mV"
     },
     /* ── DID 0xD911 — BMS_UVThreshold_mV ─────────────────────────────────────────── */
@@ -668,6 +672,10 @@ static const did_entry_t s_generated_did_table[GEN_DID_HANDLER_COUNT] = {
         .data_length        = (uint16_t)2U,
         .read_cb            = did_read_bms_uvthreshold_mv,
         .write_cb           = did_write_bms_uvthreshold_mv,
+        /* [EDS-toolchain#257] enforced by uds_safety_check_write_range() (NRC 0x31) */
+        .write_range_set    = true,
+        .write_min          = (uint32_t)2500U,
+        .write_max          = (uint32_t)3200U,
         .description        = "BMS_UVThreshold_mV"
     }
 };

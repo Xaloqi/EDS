@@ -43,6 +43,9 @@ extern "C" {
 #define DID_MAX_DATA_LEN (64U)
 #endif
 
+/** [EDS-toolchain#257] Longest DID that can carry a write range (uint32_t). */
+#define DID_WRITE_RANGE_MAX_LEN (4U)
+
 /* --------------------------------------------------------------------------
  * DID access control flags
  * -------------------------------------------------------------------------- */
@@ -144,6 +147,13 @@ typedef struct did_entry {
     did_write_cb_fn      write_cb;        /**< Write callback; NULL if DID is read-only. */
     did_io_control_cb_fn io_control_cb;   /**< I/O control callback — NULL if DID not IO-controllable. */
     const char          *description;     /**< Human-readable label (tooling/logging only). */
+    /* [EDS-toolchain#257] Inclusive range of a written value, read as an
+     * unsigned big-endian integer over data_length bytes (data_length <= 4).
+     * Checked by uds_safety_check_write_range() before write_cb runs.
+     * write_range_set == false (zero-initialised) means no range. */
+    bool                 write_range_set; /**< true: write_min/write_max apply. */
+    uint32_t             write_min;       /**< Lowest value a write may carry. */
+    uint32_t             write_max;       /**< Highest value a write may carry. */
 } did_entry_t;
 
 /* --------------------------------------------------------------------------
