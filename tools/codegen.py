@@ -812,6 +812,28 @@ def validate_config(cfg: Dict[str, Any]) -> None:
                     f"but data_length is {data_len}."
                 )
 
+        # write_range (optional) — [EDS-toolchain#257] emitted into the DID
+        # table and enforced by uds_safety_check_write_range(), which reads the
+        # value as a uint32_t; did_database_register() refuses a bad range at
+        # boot, so catch it here instead.
+        if "write_range" in did:
+            wr = did["write_range"]
+            ok = (isinstance(wr, dict) and set(wr) == {"min", "max"}
+                  and all(isinstance(wr[k], int) and not isinstance(wr[k], bool)
+                          and wr[k] >= 0 for k in wr))
+            if not ok:
+                _fatal(f"{pfx}: 'write_range' must be {{min: <int >= 0>, max: <int >= 0>}}.")
+            if "write" not in access:
+                _fatal(f"{pfx}: 'write_range' needs 'write' in 'access'.")
+            if data_len > 4:
+                _fatal(f"{pfx}: 'write_range' needs data_length 1 to 4 (the value "
+                       f"is checked as a 32-bit integer); it is {data_len}.")
+            if wr["min"] > wr["max"]:
+                _fatal(f"{pfx}: 'write_range' min {wr['min']} is above max {wr['max']}.")
+            if wr["max"] >= 256 ** data_len:
+                _fatal(f"{pfx}: 'write_range' max {wr['max']} does not fit in "
+                       f"data_length {data_len} byte(s).")
+
         # source (optional) — who owns the DID's value (EDS-toolchain#201).
         # 'stub' (default): codegen emits a backing store and handler bodies.
         # 'app': the application implements did_read_<name>() (and
@@ -1102,7 +1124,8 @@ def _build_did_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
       read_security_level,  read_security_level_label,
       write_security_level, write_security_level_label,
       data_length, default_value_c_init,
-      app_owned (source: app — the application implements the handlers).
+      app_owned (source: app — the application implements the handlers),
+      write_range ({min, max} or None; EDS-toolchain#257).
 
     The *_label fields are pre-computed human-readable strings used by
     did_safety_wrappers.h.j2 to emit unambiguous security level annotations
@@ -1143,6 +1166,8 @@ def _build_did_list(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
                 if "default_value" in did else "0U"
             ),
             "app_owned":                  did.get("source", "stub") == "app",
+            # [EDS-toolchain#257] enforced by uds_safety_check_write_range().
+            "write_range":                did.get("write_range"),
         })
     return result
 
@@ -1783,7 +1808,9 @@ def build_did_safety_wrappers_context(
       1. Calls uds_safety_check_null_ptr() on all pointer arguments.
       2. Calls uds_safety_find_did() to verify the DID is registered.
       3. Calls uds_safety_validate_did_access() with session + security contexts.
-      4. Calls uds_safety_check_did_data_length() against buf_len.
+      4. Calls uds_safety_check_did_data_length() against buf_len (read), or
+         uds_safety_check_write_data_length() and
+         uds_safety_check_write_range() (write; EDS-toolchain#257).
       5. Invokes the underlying DID read/write callback.
 
     This allows service handlers (service_0x22.c, service_0x2E.c) to call a
@@ -2158,7 +2185,8 @@ def _write_safety_fallback(
             " *   1. NULL-checks all pointer arguments (REQ-SAFE-004).",
             " *   2. Resolves the DID in the database (REQ-SAFE-001).",
             " *   3. Validates session + security access (REQ-SAFE-002/003).",
-            " *   4. Checks buffer length against DID data_length (REQ-SAFE-006).",
+            " *   4. Checks buffer length against DID data_length (REQ-SAFE-006)",
+            " *      and, on write, the value against write_range (REQ-SAFE-008).",
             " *   5. Invokes the DID read/write callback.",
             " * ================================================================ */",
             "",
@@ -2212,6 +2240,7 @@ def _write_safety_fallback(
                     "    UDS_SAFETY_RETURN_IF_ERR(uds_safety_validate_did_access(",
                     "        entry, session_ctx, security_ctx, UDS_SAFETY_ACCESS_WRITE));",
                     "    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_data_length(entry, len));",
+                    "    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_range(entry, buf, len));",
                     "",
                     f"    return did_write_{c_name}(buf, len);",
                     "}",

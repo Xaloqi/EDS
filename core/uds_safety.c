@@ -29,6 +29,7 @@
  *   REQ-SAFE-005 : uds_safety_init() + s_initialized guard
  *   REQ-SAFE-006 : uds_safety_check_did_data_length(), uds_safety_check_write_data_length()
  *   REQ-SAFE-007 : uds_safety_check_request_length()
+ *   REQ-SAFE-008 : uds_safety_check_write_range()
  *
  * CODING STANDARD: MISRA C:2012 alignment intended.
  * VERSION        : 1.7.0
@@ -606,6 +607,46 @@ uds_safety_result_t uds_safety_check_write_data_length(
     if (write_len != (uint16_t)entry->data_length) {
         record_violation(VIOLATION_BOUNDS, UDS_STATUS_ERR_INVALID_PARAM);
         return UDS_STATUS_ERR_INVALID_PARAM;
+    }
+
+    return UDS_STATUS_OK;
+}
+
+uds_safety_result_t uds_safety_check_write_range(
+    const did_entry_t *entry,
+    const uint8_t     *buf,
+    uint16_t           write_len)
+{
+    uint32_t value = 0U;
+    uint16_t i;
+
+    count_check();
+
+    if ((entry == NULL) || (buf == NULL)) {
+        record_violation(VIOLATION_NULL_PTR, UDS_STATUS_ERR_NULL_PTR);
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+
+    if (!entry->write_range_set) {
+        return UDS_STATUS_OK;
+    }
+
+    /* did_database_register() refuses a range on a DID longer than
+     * DID_WRITE_RANGE_MAX_LEN, so this only fires on a corrupted entry or a
+     * caller that skipped the length check. */
+    if ((write_len != entry->data_length) ||
+        (write_len > (uint16_t)DID_WRITE_RANGE_MAX_LEN)) {
+        record_violation(VIOLATION_BOUNDS, UDS_STATUS_ERR_INVALID_PARAM);
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
+
+    for (i = 0U; i < write_len; i++) {
+        value = (value << 8U) | (uint32_t)buf[i];
+    }
+
+    if ((value < entry->write_min) || (value > entry->write_max)) {
+        record_violation(VIOLATION_BOUNDS, UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE);
+        return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE;
     }
 
     return UDS_STATUS_OK;

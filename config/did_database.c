@@ -102,6 +102,14 @@ uds_status_t did_database_register(const did_entry_t *entry)
         return UDS_STATUS_ERR_INVALID_PARAM;
     }
 
+    /* [EDS-toolchain#257] A write range is an unsigned integer over at most
+     * DID_WRITE_RANGE_MAX_LEN bytes, with min <= max. */
+    if (entry->write_range_set &&
+        ((entry->data_length > (uint16_t)DID_WRITE_RANGE_MAX_LEN) ||
+         (entry->write_min > entry->write_max))) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
+
     /* Reject duplicate DID IDs */
     for (i = (uint16_t)0U; i < s_did_count; i++) {
         if (s_did_table[i].did_id == entry->did_id) {

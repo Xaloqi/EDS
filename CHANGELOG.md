@@ -8,6 +8,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Changed
+
+- **`write_range` is enforced by the stack** (Xaloqi/EDS-toolchain#257). A write whose value lies outside a DID's
+  `write_range` is answered `7F 2E 31` before the write handler runs, for `source: stub` and `source: app` DIDs alike.
+  The check is `uds_safety_check_write_range()` (REQ-SAFE-008), the last part of step 4 of the safety chain: it runs
+  after the length and security checks, in `s_did_safe_write()` (the 0x2E path) and in every generated
+  `did_safe_write_<name>()`. `did_entry_t` gains `write_range_set`, `write_min` and `write_max` (zero means no range;
+  hand-built entries need no change), `did_database_register()` refuses a range on a DID longer than 4 bytes or with
+  min above max, and codegen now validates `write_range` itself (`data_length` 1 to 4, min <= max, max fits) and
+  accepts it on `source: stub` DIDs. Examples regenerated: every write wrapper gains the call, and `bms_ecu`'s
+  0xD910/0xD911 carry their ranges in the DID table. `docs/Safety_Model.md` describes the step.
+
+  **Migration:** if you declared `write_range` as metadata only, out-of-range writes your handler accepted are now
+  refused with NRC 0x31 before it runs. Widen or remove the range if your handler meant to accept them.
+
 ## [1.29.1] — 2026-11-15
 
 ### Added

@@ -1,10 +1,13 @@
 """
-tests/test_did_write_range.py -- `write_range` on a DID (EDS-toolchain#253).
+tests/test_did_write_range.py -- `write_range` on a DID (EDS-toolchain#253, #257).
 
 An app-owned writable DID whose handler enforces a range had no way to say so:
 the range lived in a YAML comment, so the generated write tests sent an
-arbitrary pattern and got NRC 0x31. `write_range: {min, max}` declares it.
-Validation only; what testgen does with it is tested in EDS-toolchain.
+arbitrary pattern and got NRC 0x31. `write_range: {min, max}` declares it, and
+since EDS-toolchain#257 the stack enforces it (uds_safety_check_write_range(),
+REQ-SAFE-008) for generated and app-owned handlers alike. Validation and the
+codegen context here; the C check is tested in tests/unit_runnable, what testgen
+does with the range in EDS-toolchain.
 
 Run:  pytest tests/test_did_write_range.py -v
 """
@@ -70,13 +73,28 @@ def test_range_needs_write_access() -> None:
     assert any("'write' in 'access'" in e for e in _errors(access=["read"]))
 
 
-def test_range_is_for_app_owned_dids_only() -> None:
-    # A generated handler stores any value; a declared range would be a promise
-    # nothing keeps.
-    assert any("source: app" in e for e in _errors(source="stub"))
+def test_range_is_allowed_on_generated_handlers() -> None:
+    # [EDS-toolchain#257] the stack enforces the range, so a stub DID may carry one.
+    assert _errors(source="stub") == []
     cfg = _did()
     del cfg["dids"][0]["source"]
-    assert any("source: app" in e for e in config_parser.validate_config(cfg))
+    assert config_parser.validate_config(cfg) == []
+
+
+def test_range_needs_data_length_up_to_4() -> None:
+    # uds_safety_check_write_range() reads the value as a uint32_t.
+    assert _errors(data_length=4, write_range={"min": 0, "max": 2**32 - 1}) == []
+    assert any("data_length 1 to 4" in e
+               for e in _errors(data_length=5, write_range={"min": 0, "max": 1}))
+
+
+def test_codegen_passes_the_range_to_the_templates() -> None:
+    import codegen
+    by_id = {d["id"]: d for d in codegen._build_did_list(_did())}
+    assert by_id["0x4200"]["write_range"] == {"min": 10, "max": 20}
+    cfg = _did()
+    del cfg["dids"][0]["write_range"]
+    assert codegen._build_did_list(cfg)[0]["write_range"] is None
 
 
 def test_bms_ecu_declares_the_ranges_its_handlers_enforce() -> None:
@@ -92,3 +110,27 @@ def test_bms_ecu_declares_the_ranges_its_handlers_enforce() -> None:
         "0xD910": {"min": const("BMS_OV_MIN_MV"), "max": const("BMS_OV_MAX_MV")},
         "0xD911": {"min": const("BMS_UV_MIN_MV"), "max": const("BMS_UV_MAX_MV")},
     }
+
+
+# [EDS-toolchain#257] codegen emits the range into the DID table, so its own
+# validate_config() must refuse what uds_safety_check_write_range() cannot hold.
+@pytest.mark.parametrize("kw,message", [
+    ({"data_length": 5, "write_range": {"min": 0, "max": 1}}, "data_length 1 to 4"),
+    ({"write_range": {"min": 21, "max": 20}}, "above max"),
+    ({"write_range": {"min": 0, "max": 65536}}, "does not fit"),
+    ({"write_range": {"min": -1, "max": 2}}, "must be {min"),
+    ({"access": ["read"]}, "'write' in 'access'"),
+])
+def test_codegen_refuses_a_range_the_stack_cannot_enforce(kw, message, capsys) -> None:
+    import codegen
+    with pytest.raises(SystemExit):
+        codegen.validate_config(_did(**{"min_session": "extended",
+                                        "write_security_level": 1, **kw}))
+    assert message in capsys.readouterr().err
+
+
+def test_codegen_accepts_a_range_on_stub_and_app_dids() -> None:
+    import codegen
+    for source in ("stub", "app"):
+        cfg = _did(source=source, min_session="extended", write_security_level=1)
+        codegen.validate_config(cfg)

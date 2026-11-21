@@ -696,11 +696,12 @@ the DID gets a generated stub that returns its `default_value` or zeros; the
 only way to change that value from app code is a UDS-writable DID, so use
 `source: app` for live measurements instead of adding `write`
 (EDS-toolchain#201). `source: app` cannot be combined with `default_value`.
-A writable `source: app` DID whose `did_write_<name>()` rejects some values can say
-which it accepts with `write_range: { min: 3800, max: 4350 }` (inclusive, the unsigned
-big-endian value of the `data_length` bytes). It is used by the generated tests; your write
-handler still enforces the range, and codegen emits the same C with or without it
-(EDS-toolchain#253).
+Any writable DID (`source: stub` or `source: app`) can declare the values a write may
+carry with `write_range: { min: 3800, max: 4350 }` (inclusive, the unsigned big-endian
+value of the `data_length` bytes; `data_length` 1 to 4). The stack enforces it: step 4 of
+the safety chain answers a value outside it with NRC 0x31 before the handler runs, after
+the length and security checks (`uds_safety_check_write_range()`, EDS-toolchain#257). The
+generated tests write inside it, and at min-1 / max+1 expecting 0x31.
 
 ```c
 #include "did_handlers.h"

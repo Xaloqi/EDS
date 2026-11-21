@@ -27,6 +27,7 @@
  *   REQ-SAFE-005 : All initialisation shall be deterministic and sequenced.
  *   REQ-SAFE-006 : Diagnostic data_length fields shall match DID database records.
  *   REQ-SAFE-007 : Stack-local buffers shall never exceed compile-time bounds.
+ *   REQ-SAFE-008 : A written value outside a DID's write_range shall be refused.
  *
  * USAGE:
  *   Include this header in any module that performs UDS session/DID/DTC
@@ -422,6 +423,32 @@ uds_safety_result_t uds_safety_check_request_length(
  */
 uds_safety_result_t uds_safety_check_write_data_length(
     const did_entry_t *entry,
+    uint16_t           write_len
+);
+
+/**
+ * @brief Validate a written value against the DID's write_range.
+ *
+ * [EDS-toolchain#257] Step 4 of the write chain, after the length check: the
+ * dataRecord is read as an unsigned big-endian integer over data_length bytes
+ * and must lie within [entry->write_min, entry->write_max]. A DID without a
+ * range (write_range_set == false) passes. Runs last before write_cb, so the
+ * callback never sees a value outside the declared range.
+ *
+ * TRACEABILITY: REQ-SAFE-008
+ *
+ * @param[in] entry      DID descriptor.
+ * @param[in] buf        Write dataRecord.
+ * @param[in] write_len  Bytes in buf; equals entry->data_length after step 4.
+ *
+ * @return UDS_STATUS_OK if no range is set or the value is inside it.
+ * @return UDS_STATUS_ERR_NULL_PTR if entry or buf is NULL.
+ * @return UDS_STATUS_ERR_INVALID_PARAM if write_len does not match a ranged DID.
+ * @return UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE (NRC 0x31) if the value is outside it.
+ */
+uds_safety_result_t uds_safety_check_write_range(
+    const did_entry_t *entry,
+    const uint8_t     *buf,
     uint16_t           write_len
 );
 

@@ -4,7 +4,7 @@
 #
 # ECU       : MotorController_Inverter
 # Version   : 1.0.0
-# Generated : 2026-10-30T11:26:57Z
+# Generated : 2026-11-21T07:44:36Z
 #
 # PURPOSE: pytest conftest — shared fixtures backed by xaloqi-tester.
 #
@@ -621,6 +621,10 @@ def _inline_handle(pdu: bytes, state: _InlineEcuState, verbose: bool) -> Optiona
         if entry['write_sec'] > 0 and not state.sec_unlocked.get(entry['write_sec']): return nrc(0x2E, 0x33)
         data = pdu[3:]
         if len(data) != entry['data_length']: return nrc(0x2E, 0x13)
+        # EDS-toolchain#257: a value outside write_range is refused before the
+        # handler runs (uds_safety_check_write_range(), NRC 0x31).
+        wr = entry.get('write_range')
+        if wr and not wr[0] <= int.from_bytes(data, 'big') <= wr[1]: return nrc(0x2E, 0x31)
         state.did_store[did_id] = bytearray(data); return bytes([0x6E, pdu[1], pdu[2]])
     if sid == 0x19:
         if len(pdu) < 2: return nrc(0x19, 0x13)

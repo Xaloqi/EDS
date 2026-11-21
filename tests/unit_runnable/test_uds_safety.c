@@ -887,6 +887,46 @@ ZTEST(test_safety_bounds_s, test_write_len_too_long)
                   "Write length longer than expected must also fail");
 }
 
+/**
+ * TC-SAFE-BOUNDS-011: check_write_range (REQ-SAFE-008, EDS-toolchain#257):
+ * NULL args, no range set, inclusive edges, 1- and 4-byte values.
+ */
+ZTEST(test_safety_bounds_s, test_write_range)
+{
+    did_entry_t   e;
+    const uint8_t in2[2]  = { 0x0EU, 0xD8U };                /* 3800 */
+    const uint8_t lo2[2]  = { 0x0EU, 0xD7U };                /* 3799 */
+    const uint8_t hi2[2]  = { 0x10U, 0xFFU };                /* 4351 */
+    const uint8_t max4[4] = { 0xFFU, 0xFFU, 0xFFU, 0xFFU };
+    const uint8_t one[1]  = { 0x08U };
+
+    memset(&e, 0, sizeof(e));
+    e.data_length = 2U;
+    zassert_equal(uds_safety_check_write_range(NULL, in2, 2U), UDS_STATUS_ERR_NULL_PTR, "NULL entry");
+    zassert_equal(uds_safety_check_write_range(&e, NULL, 2U), UDS_STATUS_ERR_NULL_PTR, "NULL buf");
+    zassert_equal(uds_safety_check_write_range(&e, hi2, 2U), UDS_STATUS_OK, "no range: anything passes");
+
+    e.write_range_set = true;
+    e.write_min = 3800U;
+    e.write_max = 4350U;
+    zassert_equal(uds_safety_check_write_range(&e, in2, 2U), UDS_STATUS_OK, "min accepted");
+    zassert_equal(uds_safety_check_write_range(&e, lo2, 2U),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "min-1 refused");
+    zassert_equal(uds_safety_check_write_range(&e, hi2, 2U),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "max+1 refused");
+    zassert_equal(uds_safety_check_write_range(&e, in2, 1U),
+                  UDS_STATUS_ERR_INVALID_PARAM, "length must match a ranged DID");
+
+    e.data_length = 1U; e.write_min = 8U; e.write_max = 8U;
+    zassert_equal(uds_safety_check_write_range(&e, one, 1U), UDS_STATUS_OK, "1-byte single value");
+
+    e.data_length = 4U; e.write_min = 0U; e.write_max = 0xFFFFFFFEU;
+    zassert_equal(uds_safety_check_write_range(&e, max4, 4U),
+                  UDS_STATUS_ERR_REQUEST_OUT_OF_RANGE, "4-byte value read big-endian");
+    e.write_max = 0xFFFFFFFFU;
+    zassert_equal(uds_safety_check_write_range(&e, max4, 4U), UDS_STATUS_OK, "4-byte max accepted");
+}
+
 /* =========================================================================
  * Test suite: DTC status mask validation
  * ========================================================================= */
@@ -1015,6 +1055,7 @@ extern void test_safety_bounds_s__test_req_len_too_short(void);
 extern void test_safety_bounds_s__test_write_len_exact(void);
 extern void test_safety_bounds_s__test_write_len_mismatch(void);
 extern void test_safety_bounds_s__test_write_len_too_long(void);
+extern void test_safety_bounds_s__test_write_range(void);
 extern void test_safety_dtc_mask__test_all_bits_in_mask_ok(void);
 extern void test_safety_dtc_mask__test_zero_status_ok(void);
 extern void test_safety_dtc_mask__test_unsupported_bit_rejected(void);
@@ -1064,6 +1105,7 @@ void run_all_tests(void)
     RUN_TEST(test_safety_bounds_s__test_write_len_exact);
     RUN_TEST(test_safety_bounds_s__test_write_len_mismatch);
     RUN_TEST(test_safety_bounds_s__test_write_len_too_long);
+    RUN_TEST(test_safety_bounds_s__test_write_range);
     RUN_TEST(test_safety_dtc_mask__test_all_bits_in_mask_ok);
     RUN_TEST(test_safety_dtc_mask__test_zero_status_ok);
     RUN_TEST(test_safety_dtc_mask__test_unsupported_bit_rejected);

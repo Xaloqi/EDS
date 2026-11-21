@@ -31,6 +31,7 @@
  *             REQ-SAFE-002 — Active session >= DID min_session
  *             REQ-SAFE-003 — Security level >= DID write_access_level
  *             REQ-SAFE-006 — Write data length == DID data_length exactly
+ *             REQ-SAFE-008 — Written value inside the DID's write_range (NRC 0x31)
  *           service_0x2E.c never calls did_database_find() directly.
  *           ASIL-B candidate per ISO 26262-6.
  * STANDARD: MISRA C:2012 alignment intended.
@@ -143,6 +144,12 @@ static uds_status_t s_did_safe_write(
      * security check (NRC 0x33). */
     UDS_SAFETY_RETURN_IF_ERR(uds_safety_validate_did_access(
         entry, session_ctx, security_ctx, UDS_SAFETY_ACCESS_WRITE));
+
+    /* Step 4 (value): [EDS-toolchain#257] a DID with a write_range refuses a
+     * value outside it with NRC 0x31 (REQ-SAFE-008). Last check before the
+     * callback, so a locked tester gets 0x33 and the callback never sees an
+     * out-of-range value. */
+    UDS_SAFETY_RETURN_IF_ERR(uds_safety_check_write_range(entry, buf, len));
 
     /* Step 5: Invoke the DID write callback.
      *

@@ -108,12 +108,12 @@ DID_ENTRY_SCHEMA = {
             },
             "additionalProperties": False,
             "description": (
-                "Used by the generated tests; your write handler still enforces the "
-                "range. Inclusive range of the value the application's "
-                "did_write_<name>() accepts, read as an unsigned big-endian integer "
-                "over data_length bytes. Only for 'source: app' DIDs with write "
-                "access: the generated write tests send a value inside it instead of "
-                "an arbitrary pattern (EDS-toolchain#253). Codegen does not enforce it."
+                "Inclusive range of the value a write may carry, read as an "
+                "unsigned big-endian integer over data_length bytes (1 to 4). "
+                "Enforced: the stack answers a write outside it with NRC 0x31 "
+                "before your did_write_<name>() runs, for 'source: stub' and "
+                "'source: app' DIDs alike (EDS-toolchain#257). The generated "
+                "tests write inside it and at min-1 / max+1."
             )
         },
         "source": {
@@ -424,12 +424,12 @@ def validate_config(config: dict) -> list:
                     errors.append(
                         f"dids[{idx}] ({did_id}): 'write_range' needs 'write' in 'access'."
                     )
-                if did.get("source") != "app":
-                    errors.append(
-                        f"dids[{idx}] ({did_id}): 'write_range' is only for "
-                        f"'source: app' DIDs; generated handlers do not enforce a range."
-                    )
                 dl = did.get("data_length")
+                if isinstance(dl, int) and dl > 4:
+                    errors.append(
+                        f"dids[{idx}] ({did_id}): 'write_range' needs data_length "
+                        f"1 to 4 (the value is checked as a 32-bit integer); it is {dl}."
+                    )
                 ok = (isinstance(wr, dict) and set(wr) == {"min", "max"}
                       and all(isinstance(wr[k], int) and not isinstance(wr[k], bool)
                               and wr[k] >= 0 for k in wr))

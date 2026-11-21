@@ -381,6 +381,28 @@ ZTEST(test_did_db_count, test_count_increments_after_register)
                   "Count must increment by 1 after registration");
 }
 
+/**
+ * TC-DID-REG-RANGE: [EDS-toolchain#257] a write range on a DID longer than
+ * DID_WRITE_RANGE_MAX_LEN, or with min > max, is refused at registration.
+ */
+ZTEST(test_did_db_count, test_register_rejects_bad_write_range)
+{
+    db_init_fresh();
+    did_entry_t e = make_did(0xCC02U, 5U, DID_ACCESS_WRITE);
+    e.write_range_set = true;
+    e.write_min = 0U;
+    e.write_max = 1U;
+    zassert_equal(did_database_register(&e), UDS_STATUS_ERR_INVALID_PARAM,
+                  "range on a 5-byte DID must be refused");
+
+    e = make_did(0xCC03U, 2U, DID_ACCESS_WRITE);
+    e.write_range_set = true;
+    e.write_min = 10U;
+    e.write_max = 9U;
+    zassert_equal(did_database_register(&e), UDS_STATUS_ERR_INVALID_PARAM,
+                  "min > max must be refused");
+}
+
 /* =========================================================================
  * AUTO-GENERATED: run_all_tests — wires ZTEST functions into Unity runner
  * ========================================================================= */
@@ -400,6 +422,7 @@ extern void test_did_db_find__test_find_vin_fields(void);
 extern void test_did_db_find__test_find_spare_part_fields(void);
 extern void test_did_db_count__test_null_out_count(void);
 extern void test_did_db_count__test_count_increments_after_register(void);
+extern void test_did_db_count__test_register_rejects_bad_write_range(void);
 
 void run_all_tests(void)
 {
@@ -418,4 +441,5 @@ void run_all_tests(void)
     RUN_TEST(test_did_db_find__test_find_spare_part_fields);
     RUN_TEST(test_did_db_count__test_null_out_count);
     RUN_TEST(test_did_db_count__test_count_increments_after_register);
+    RUN_TEST(test_did_db_count__test_register_rejects_bad_write_range);
 }

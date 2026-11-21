@@ -5,7 +5,7 @@
  *
  * ECU       : CanFdEcu
  * Version   : 1.0.0
- * Generated : 2026-11-02T08:21:02Z
+ * Generated : 2026-11-21T07:44:36Z
  * ASIL Level: B
  *
  * PURPOSE: Per-DID safe accessor implementations (ASIL-B).
@@ -25,7 +25,8 @@
  *   1. NULL-checks all pointer arguments (REQ-SAFE-004).
  *   2. Resolves the DID in the database (REQ-SAFE-001).
  *   3. Validates session + security access (REQ-SAFE-002/003).
- *   4. Checks buffer length against DID data_length (REQ-SAFE-006).
+ *   4. Checks buffer length against DID data_length (REQ-SAFE-006) and,
+ *      on write, the value against the DID's write_range (REQ-SAFE-008).
  *   5. Invokes the DID read/write callback.
  * STANDARD: MISRA C:2012 alignment intended.
  * =============================================================================
