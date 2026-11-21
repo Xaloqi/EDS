@@ -2,7 +2,7 @@
 
 ## Replacing `driftregion/iso14229` with the Xaloqi EDS
 
-**Platform:** Mercedes-Benz ARDEP (Automotive Rapid DEvelopment Platform)  
+**Platform:** Mercedes-Benz ARDEP (Automotive Rapid Development Platform, open-source, Apache-2.0)  
 **Board:** `boards/mercedes/ardep` (STM32G4-series, onboard CAN + LIN)  
 **Time to complete:** ~2 hours for a working build; ~1 day for full integration
 
@@ -37,9 +37,10 @@ documentation your customers will ask for.
 
 ## What This Example Provides
 
-`examples/ardep_ecu/` is a complete ARDEP I/O Controller configuration:
+`examples/ardep_ecu/` is a complete I/O-controller configuration for the ARDEP board (compile-verified on
+`native_sim` only; not built for or run on the `ardep` board):
 
-- **35 DIDs** covering all ARDEP use cases: ECU identity, PowerIO output/input
+- **35 DIDs** covering an I/O-controller application: ECU identity, PowerIO output/input
   state and control, CAN/LIN bus status, ECU health monitoring, calibration
   parameters, and firmware update metadata
 - **19 DTCs** covering PowerIO overcurrent, CAN/LIN faults, supply voltage,
@@ -244,7 +245,7 @@ pytest test_firmware_services.py -v
 
 ## Preserving ARDEP's DFU Workflow
 
-ARDEP's primary feature is firmware update over UDS (DFU). The EDS stack
+ARDEP includes a firmware loader that updates over UDS (DFU). The EDS stack
 is compatible with ARDEP's MCUboot-based DFU because:
 
 1. **Session compatibility**: ARDEP's UDS Firmware Loader uses Extended and

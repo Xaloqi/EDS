@@ -528,7 +528,7 @@ inspect without a license.
 | `canfd_ecu` | 5 | 0 | 0 | native\_sim (loopback and SocketCAN on an MTU-72 vcan) | **compile-verified** (native\_sim); CAN FD runtime smoke against Linux can-isotp in CI; no hardware |
 | `bms_ecu` | 24 | 10 | 5 | native\_sim | **compile-verified** (native\_sim) |
 | `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | **compile-verified** (native\_sim) |
-| `ardep_ecu` | 35 | 19 | 6 | ardep (custom board, ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim) |
+| `ardep_ecu` | 35 | 19 | 6 | ardep (Mercedes-Benz ARDEP board, in the ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim only; not built for or run on the `ardep` board) |
 | `basic_ecu_cda_demo` | 6 | 2 | 4 | native\_sim (host SocketCAN) | **compile-verified** (native\_sim); the CDA interop script above drives it, run by hand, not in CI |
 | `vehicle_state_ecu` | 5 | 2 | 2 | native\_sim (loopback) | **compile-verified** (native\_sim) |
 

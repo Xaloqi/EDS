@@ -1,12 +1,15 @@
 # ARDEP I/O Controller Example — Xaloqi EDS
 
-**Automotive Remote Digital/Analogue I/O Controller — 32 DIDs · 8 DTCs · 6 routines**
+**An I/O controller diagnostics configuration for the ARDEP board — 35 DIDs · 19 DTCs · 6 routines**
 
-This example demonstrates Xaloqi EDS configured for an **ARDEP (Automotive Remote
-Digital/Analogue Processing) zone controller** — a general-purpose I/O expansion ECU
-managing discrete inputs, analogue sensors, PWM outputs, and relay control.
+ARDEP is the **Automotive Rapid Development Platform**: Mercedes-Benz's open-source
+(Apache-2.0) hardware and Zephyr software platform ([mercedes-benz/ardep](https://github.com/mercedes-benz/ardep);
+board `boards/mercedes/ardep`, STM32G474). This example shows Xaloqi EDS configured for
+an I/O-controller application on that board and its PowerIO Shield: discrete inputs,
+analogue sensors, high-side outputs, CAN/LIN status and firmware-update metadata.
 
-The reference for body-domain and zone-controller ECU teams.
+Evidence: compile-verified on `native_sim` only. It has not been built for or run on the
+`ardep` board.
 
 ---
 
@@ -14,7 +17,7 @@ The reference for body-domain and zone-controller ECU teams.
 
 ```
 ardep_ecu/
-├── diagnostics_config.yaml      32 DIDs across 6 I/O banks, 8 DTCs, 6 routines
+├── diagnostics_config.yaml      35 DIDs, 19 DTCs, 6 routines
 ├── src/main.c
 ├── CMakeLists.txt
 ├── prj.conf

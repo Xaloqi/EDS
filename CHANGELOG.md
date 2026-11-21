@@ -20,6 +20,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **ARDEP is described correctly** (#621). `examples/ardep_ecu/README.md` expanded ARDEP as "Automotive Remote
+  Digital/Analogue Processing" and called it a zone controller; ARDEP is the Automotive Rapid Development Platform,
+  Mercedes-Benz's open-source (Apache-2.0) Zephyr hardware and software platform. The README, `docs/ARDEP_UPGRADE_GUIDE.md`,
+  the example's config, `main.c` and overlay comments, `docs/AI_CONTEXT.md` and the README's evidence row now say so
+  ("DEvelopment" casing and "ARDEP's primary feature" claims fixed; the example README's 32 DIDs / 8 DTCs corrected to
+  the config's 35 / 19). Evidence unchanged: compile-verified on `native_sim` only, not built for or run on the `ardep`
+  board.
+- **Examples regenerated for the clearer no-harness skip** (Xaloqi/EDS-toolchain#260). Each example's
+  `conftest_firmware.py` skips with "the firmware tests need the Professional harness, not in the public repository"
+  instead of "Harness build failed". Output of Xaloqi/EDS-toolchain's template; merge this before that PR so its
+  freshness check against EDS main stays green.
 - **One DTCFormatIdentifier per ECU** (#602). An ECU that declares `wwh_obd.functional_group` reports
   DTCFormatIdentifier 0x04 (SAE J2012-DA format 04) in 0x01 and 0x07 as well as 0x55, because 0x55 allows no other
   3-byte format and a server reports one format (ISO 14229-1:2026 Table 335). ECUs without the key still report 0x01.

@@ -7,7 +7,8 @@
  *
  * PURPOSE: ARDEP I/O Controller ECU — application entry point.
  *
- * TARGET: Mercedes-Benz ARDEP (Automotive Rapid DEvelopment Platform)
+ * TARGET: Mercedes-Benz ARDEP (Automotive Rapid Development Platform,
+ *         Apache-2.0 Zephyr platform)
  *         boards/mercedes/ardep in the ARDEP Zephyr workspace.
  *
  * CONTEXT — ARDEP UPGRADE PATH:
@@ -25,7 +26,7 @@
  *     - 6× high-side switch outputs (48V / 3A per channel)
  *     - 6× analog/digital inputs
  *     - CAN ↔ LIN gateway status reporting
- *     - Firmware update metadata (DFU over UDS — ARDEP primary feature)
+ *     - Firmware update metadata (DFU over UDS, ARDEP firmware loader workflow)
  *     - ECU health and calibration DIDs
  *
  * DID HANDLERS:
