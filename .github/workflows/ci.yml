@@ -1607,7 +1607,8 @@ jobs:
           cd ardep-ws
           west init -l ardep
           west update --narrow -o=--depth=1
-          git -C iso14229 fetch -q --depth=1 origin "$ISO14229_REV"
+          # west-cloned projects have no "origin" remote: fetch by the manifest's URL.
+          git -C iso14229 fetch -q --depth=1 "$(west list -f '{url}' iso14229)" "$ISO14229_REV"
           git -C iso14229 checkout -q "$ISO14229_REV"
           west list -f "{name:14} {sha}"
           pip install -q -r zephyr/scripts/requirements-base.txt
