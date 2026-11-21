@@ -4,7 +4,7 @@
  * boards/ardep/ardep.overlay
  *
  * Device Tree overlay for the Mercedes-Benz ARDEP (Automotive Rapid
- * DEvelopment Platform) board.
+ * Development Platform) board.
  *
  * PURPOSE:
  *   Maps the 'can0' alias used by zephyr_can.c to the ARDEP's onboard

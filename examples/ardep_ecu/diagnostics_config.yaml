@@ -4,7 +4,8 @@
 #
 # PURPOSE: ARDEP I/O Controller ECU — diagnostics configuration.
 #
-# TARGET HARDWARE: Mercedes-Benz ARDEP (Automotive Rapid DEvelopment Platform)
+# TARGET HARDWARE: Mercedes-Benz ARDEP (Automotive Rapid Development Platform,
+#   the open-source Apache-2.0 Zephyr platform)
 #   Board : ardep (boards/mercedes/ardep in the ARDEP Zephyr workspace)
 #   MCU   : STM32G4-series Cortex-M4 @ 170 MHz (ARDEP v2.0 hardware)
 #   CAN   : FDCAN transceiver, onboard (no external components needed)
@@ -21,7 +22,7 @@
 #   MISRA deviation log, and auto-generated test suites — with identical
 #   Zephyr CAN driver integration.
 #
-# ECU ROLE: Automotive I/O Controller (typical ARDEP use case)
+# ECU ROLE: Automotive I/O Controller application on ARDEP
 #   The ARDEP PowerIO Shield provides:
 #     - 6× high-side switches (up to 48V / 3A each)
 #     - 6× digital/analog inputs
@@ -29,7 +30,7 @@
 #     - Output actuators (lighting, relays, solenoids)
 #     - Input sensors (voltage, current, digital state)
 #     - Bus gateway function (CAN ↔ LIN routing status)
-#     - Firmware update support (DFU over UDS — ARDEP's primary use case)
+#     - Firmware update support (DFU over UDS, ARDEP firmware loader workflow)
 #
 # UPGRADE GUIDE: docs/ARDEP_UPGRADE_GUIDE.md
 #
@@ -393,7 +394,7 @@ dids:
     write_security_level: 1
     data_length: 2             # uint16 ms: 50–1000 ms watchdog window
 
-  # ── Firmware update support (DFU — ARDEP's primary feature) ───────────────
+  # ── Firmware update support (DFU — ARDEP firmware loader workflow) ───────────────
   # These DIDs support the ARDEP firmware loader workflow.
   # The actual data transfer uses service 0x34/0x36/0x37 (RequestDownload/
   # TransferData/RequestTransferExit) — which EDS implements as future services.

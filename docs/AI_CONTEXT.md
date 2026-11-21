@@ -63,7 +63,7 @@ EDS/
 │   ├── canfd_ecu/                    # CAN FD channel (can.fd): FD ISO-TP + FD periodic messages
 │   ├── bms_ecu/                      # Battery Management System (24 DIDs)
 │   ├── motor_controller_ecu/         # Motor controller (27 DIDs)
-│   └── ardep_ecu/                    # Mercedes ARDEP reference platform (35 DIDs)
+│   └── ardep_ecu/                    # I/O controller example for the Mercedes-Benz ARDEP board (35 DIDs)
 ├── ide/
 │   └── vscode-extension/   # VS Code extension (YAML validation, hover docs, Run Codegen)
 ├── gui/                    # React/TypeScript live dashboard + WebSocket ECU bridge
