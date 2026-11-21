@@ -4,7 +4,7 @@
 #
 # ECU       : SensorECU
 # Version   : 1.0.0
-# Generated : 2026-10-29T05:47:06Z
+# Generated : 2026-11-21T08:40:48Z
 #
 # PURPOSE: pytest conftest for firmware-backed integration tests.
 #
@@ -637,6 +637,14 @@ class FirmwareIsoTpTransport:
 @pytest.fixture(scope="session")
 def harness_binary() -> Path:
     """Build the harness binary once per session. Skips if build fails."""
+    # The harness is Professional tier and not in the public repository;
+    # build_harness.sh refuses without it, which is not a build failure
+    # (EDS-toolchain#260).
+    if not (_REPO_ROOT / "harness" / "harness_main.c").is_file():
+        pytest.skip(
+            "the firmware tests need the Professional harness, not in the "
+            "public repository; the simulator tests ran"
+        )
     try:
         binary = build_harness(_REPO_ROOT, _EXAMPLE_NAME)
         assert binary.exists(), f"Harness binary not found after build: {binary}"
