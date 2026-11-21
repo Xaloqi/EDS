@@ -56,6 +56,17 @@ def uds(sock, req, timeout=2.0):
     raise TimeoutError("no response to %s" % bytes(req).hex())
 
 
+def drain(sock, quiet=0.3):
+    """[#633] Discard queued frames until the bus is quiet for `quiet` s, so a
+    late answer to an earlier, timed-out request is not read as the next one."""
+    while True:
+        sock.settimeout(quiet)
+        try:
+            sock.recv(16)
+        except socket.timeout:
+            return
+
+
 def temp_c(sock):
     r = uds(sock, [0x22, 0xA0, 0x03])
     assert r[:3] == b"\x62\xA0\x03" and len(r) == 4, r.hex()
@@ -90,6 +101,7 @@ def main():
                 time.sleep(0.1)
         else:
             raise SystemExit("FAIL: ECU did not answer on %s" % iface)
+        drain(sock)  # [#633] a boot probe that timed out may still be answered
 
         pos = uds(sock, [0x22, 0xA0, 0x00])
         assert pos[:3] == b"\x62\xA0\x00" and len(pos) == 7, pos.hex()
