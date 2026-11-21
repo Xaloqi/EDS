@@ -1612,6 +1612,8 @@ jobs:
           git -C iso14229 checkout -q "$ISO14229_REV"
           west list -f "{name:14} {sha}"
           pip install -q -r zephyr/scripts/requirements-base.txt
+          # The ardep board builds an MCUboot image (imgtool needs cryptography).
+          pip install -q -r bootloader/mcuboot/scripts/requirements.txt
           west zephyr-export
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
 
