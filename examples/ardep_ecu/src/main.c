@@ -11,11 +11,9 @@
  *         Apache-2.0 Zephyr platform)
  *         boards/mercedes/ardep in the ARDEP Zephyr workspace.
  *
- * CONTEXT — ARDEP UPGRADE PATH:
- *   ARDEP ships with UDS support via the driftregion/iso14229 library
- *   (MIT-licensed, no ASIL documentation, no test generation).
- *   This file demonstrates replacing that integration with the Embedded
- *   Diagnostics Suite:
+ * CONTEXT — XALOQI EDS ON ARDEP:
+ *   ARDEP ships its own UDS stack (lib/uds, on lib/iso14229). This file
+ *   shows the Embedded Diagnostics Suite as an alternative stack:
  *     - ASIL-B-oriented safety wrappers (5-step validation chain, generated)
  *     - AES-128-CMAC security access (Phase 1 hardening)
  *     - Auto-generated test suite (pytest, simulator + firmware modes)
@@ -840,8 +838,8 @@ int main(void)
             (unsigned)DIAG_RX_CAN_ID, (unsigned)DIAG_TX_CAN_ID);
     LOG_INF("  Stack: ASIL-B | AES-CMAC | MISRA C:2012");
     LOG_INF("=========================================================");
-    LOG_INF("Upgrade note: replacing driftregion/iso14229 integration.");
-    LOG_INF("See docs/ARDEP_UPGRADE_GUIDE.md for migration steps.");
+    LOG_INF("EDS as the UDS stack of an ARDEP-based ECU.");
+    LOG_INF("See docs/ARDEP_UPGRADE_GUIDE.md for how it differs from ARDEP's own.");
 
     if (diag_mutex_init(&s_session_lock)  != UDS_STATUS_OK) { return -1; }
     if (diag_mutex_init(&s_security_lock) != UDS_STATUS_OK) { return -1; }

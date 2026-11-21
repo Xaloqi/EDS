@@ -1,37 +1,51 @@
-# ARDEP Upgrade Guide
+# Xaloqi EDS on ARDEP
 
-## Replacing `driftregion/iso14229` with the Xaloqi EDS
+## Using the Xaloqi EDS as the UDS stack of an ARDEP-based ECU
 
 **Platform:** Mercedes-Benz ARDEP (Automotive Rapid Development Platform, open-source, Apache-2.0)  
 **Board:** `boards/mercedes/ardep` (STM32G4-series, onboard CAN + LIN)  
-**Time to complete:** ~2 hours for a working build; ~1 day for full integration
+**Evidence:** `examples/ardep_ecu` is compile-verified on `native_sim` only. It has not been built for or run on the `ardep` board, nor inside the ARDEP workspace.
 
 ---
 
-## Why Upgrade
+## ARDEP's UDS stack, and where EDS differs
 
-ARDEP ships with excellent hardware and a well-structured Zephyr framework. Its
-UDS diagnostics layer is built on two MIT-licensed libraries:
+ARDEP ships its own UDS server for Zephyr, in three layers
+([mercedes-benz/ardep](https://github.com/mercedes-benz/ardep)):
 
-- `driftregion/iso14229` — UDS server (C, platform-agnostic)
-- `SimonCahill/isotp-c` — ISO-TP transport (C)
+- **`lib/uds`** (Apache-2.0): an event-driven API. An application registers
+  check/action handlers per service, statically (`UDS_REGISTER_*` macros) or at
+  runtime, on a default instance that sets up CAN and the UDS thread. It
+  implements 0x10, 0x11, 0x14, 0x19, 0x22, 0x23, 0x27, 0x28, 0x29, 0x2C, 0x2E,
+  0x2F, 0x31, 0x34 to 0x38, 0x3D, 0x3E, 0x85 and LinkControl, and has a ztest
+  per service in `tests/lib/uds`.
+- **`lib/iso14229`**: a Zephyr wrapper around
+  [driftregion/iso14229](https://github.com/driftregion/iso14229) (MIT), which
+  embeds [SimonCahill/isotp-c](https://github.com/SimonCahill/isotp-c) for ISO-TP
+  over CAN.
+- **Firmware loader**: updates the application over UDS or USB DFU, behind MCUboot.
 
-These work well for prototyping. For production ECUs, Tier-1 suppliers and OEM
-integration reviews ask questions these libraries cannot answer:
+The Xaloqi EDS is a separate UDS stack. An ECU uses one or the other; they are
+not layered. Where they differ:
 
-| Question | `driftregion/iso14229` | Xaloqi EDS |
+| | ARDEP `lib/uds` | Xaloqi EDS |
 |---|---|---|
-| ASIL-B-oriented safety documentation? | None | ASIL-B-oriented safety wrappers, 5-step validation chain, `docs/Safety_Model.md` |
-| MISRA C:2012 compliance? | Not stated | the MISRA Deviation Log (Professional tier — xaloqi.com) — 44 deviations, 0 open violations (cppcheck 2.19.0) |
-| Automated test generation? | Manual tests only | `--test-gen` generates pytest suite from YAML config |
-| ISO 26262 work products? | None | MISRA deviation log (Table 1 Method 1b, Table 4 Row 1) |
-| AES-128-CMAC security? | Not included | Phase 1 hardening: RFC 4493 AES-CMAC + TRNG seed generation |
-| Configuration-driven DIDs? | Code-only | YAML → C code generation; 35 DIDs in one afternoon |
-| CI-verified firmware tests? | Not included | pytest suite runs against real compiled firmware in CI |
+| Defining DIDs, DTCs and routines | Handlers registered in C | Declared in YAML; codegen emits the tables, wrappers and access rules |
+| Tests | Hand-written ztest per service | A pytest suite generated per ECU from the same YAML (simulator and firmware modes) |
+| SecurityAccess | Handler hooks; the application supplies seed and key (`samples/uds/src/security_access.c`) | Built-in AES-128-CMAC key derivation with a TRNG seed, with an OEM override hook |
+| Safety documentation | None in the repository | ASIL-B-oriented wrappers and a 5-step validation chain (`docs/Safety_Model.md`); safety work products in the Professional tier |
+| Transports | CAN (ISO-TP) | CAN, CAN FD and DoIP |
+| RTOS | Zephyr | Zephyr and FreeRTOS |
 
-The upgrade path is surgical — the Zephyr CAN driver integration is identical.
-You replace the library, keep your application layer, and gain the safety
-documentation your customers will ask for.
+In the other direction, ARDEP implements services this EDS does not
+(Authentication 0x29, DynamicallyDefineDataIdentifier 0x2C, RequestFileTransfer
+0x38, LinkControl); EDS implements ReadDataByPeriodicIdentifier 0x2A, which
+ARDEP's list does not include. Check service coverage against your requirements
+before choosing.
+
+Zephyr versions differ too: ARDEP's `west.yml` pins Zephyr v4.4.0, while this
+repository's CI gates on Zephyr 3.7 and builds weekly against Zephyr `main`
+(report-only). Building the example inside an ARDEP workspace has not been done.
 
 ---
 
@@ -245,13 +259,17 @@ pytest test_firmware_services.py -v
 
 ## Preserving ARDEP's DFU Workflow
 
-ARDEP includes a firmware loader that updates over UDS (DFU). The EDS stack
-is compatible with ARDEP's MCUboot-based DFU because:
+ARDEP's firmware loader updates the application over UDS (DFU) behind MCUboot.
+What the EDS example shares with it, and what it does not:
 
-1. **Session compatibility**: ARDEP's UDS Firmware Loader uses Extended and
-   Programming sessions — identical to EDS session management (service 0x10)
-2. **Security access**: EDS implements the same seed/key security access
-   (service 0x27) with AES-CMAC instead of XOR — a drop-in upgrade
+1. **Session**: the loader switches to the Programming session
+   (`firmware_loader/src/uds_session.c`); the example's download services also
+   require Programming session (service 0x10).
+2. **Security access and routine IDs differ**: ARDEP's flash tool
+   (`scripts/runner/ardep-uds.py`) erases slot0 with routine `0xFF00`, then runs
+   0x34, 0x36 and 0x37, and sends no SecurityAccess. This example erases with
+   `0xFF10`, verifies with `0xFF11` and requires Security Level 1, so that tool
+   would need adapting. This has not been tried.
 3. **MCUboot integration**: The `boards/ardep/ardep.conf` overlay includes
    `CONFIG_BOOTLOADER_MCUBOOT=y` — the EDS application image is MCUboot-signed
 4. **DFU download services**: EDS now implements the complete firmware download
@@ -281,21 +299,6 @@ enables `CONFIG_BOOTLOADER_MCUBOOT=y` and `CONFIG_FLASH_MAP=y`.
 
 ---
 
-## What Changes vs. `driftregion/iso14229`
-
-| Component | `driftregion/iso14229` | Xaloqi EDS |
-|---|---|---|
-| DID registration | Function pointer per DID | YAML → generated C, ASIL-B-oriented wrapper per DID |
-| Session management | Caller-managed state | `uds_session_ctx_t` with S3server timer |
-| Security access | No AES, no TRNG | AES-128-CMAC, RFC 4493, Zephyr TRNG |
-| Error propagation | Return codes | `uds_status_t` + 5-step NRC chain |
-| Tests | None | 40+ generated pytest tests (simulator + firmware) |
-| MISRA docs | None | the MISRA Deviation Log (Professional tier — xaloqi.com) |
-| ISO 26262 docs | None | ASIL-B-oriented safety model, MISRA work product |
-| CI | None | 6-job GitHub Actions: unit + simulator + firmware + MISRA + Zephyr builds |
-
----
-
 ## Troubleshooting
 
 **`DT_ALIAS(can0)` not resolved:**
@@ -305,8 +308,9 @@ see which overlays are applied.
 
 **`can_frame_flags_t` undeclared:**
 Zephyr 3.x removed these typedefs. The EDS `platform/zephyr/zephyr_can.c` already
-uses `(uint8_t)0U` casts — this is fixed. If you see this error, your Zephyr
-version may be unpinned. Check `west.yml` pins `zephyr` to `v3.7.0`.
+uses `(uint8_t)0U` casts. If you still see this error, compare your workspace's
+Zephyr revision (`zephyr` in `west.yml`) with the versions this repository's CI
+builds against (see the README).
 
 **Security access NRC 0x35 (invalidKey) when testing:**
 The placeholder AES keys must match between the tester and firmware. When
