@@ -24,6 +24,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   simulator with a 128-byte write block (new `native_sim_bench_nvs_wb128.overlay`, new steps in the
   `example-robot-permanent-dtc` job) fails at 14 FF FF FF on NVS and passes on the append backend; host tests TC-009 to
   TC-011 (the mock now rejects writes that are not whole write blocks, as flash drivers do). Hardware: rerun pending.
+- **`e2e_isotp_burst.py` waits and retries when the transmit queue is full** (#641). On a CANable run by `slcand`, `can0`
+  has a 10-frame queue and the 4000-byte request is about 570 back-to-back frames, so round 1 died on the tester with
+  `No buffer space available`; the ECU was not involved. The script retries a refused frame (ENOBUFS) for up to 2 s, and
+  its usage text names `sudo ip link set can0 txqueuelen 1000`, with which the FRDM-MCXN947 bench passed 5/5. New
+  `tests/test_e2e_isotp_burst_enobufs.py`, which fails on the old script.
 - **DoIP disconnect resets the UDS state under the lock** (#635). On a dropped connection, `doip_server.c` returned the
   session to DEFAULT, reset SecurityAccess and comm control, and aborted a pending job and a transfer without the
   EDS#353 lock callbacks, while the UDS tick task changes the same state under them. It now takes the lock like every
