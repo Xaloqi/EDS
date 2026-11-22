@@ -39,6 +39,9 @@
  *           trusted — read falls through to DID_NOT_FOUND rather than
  *           returning corrupt data
  *   TC-008  erase_all() preserves NVM_KEY_SEC_STATE (the #280 contract)
+ *   TC-009  [EDS#640] 128-byte write block (MCX N947): round trip and re-init
+ *   TC-010  [EDS#640] 128-byte write block: largest record through compaction
+ *   TC-011  [EDS#640] a write block above the supported maximum is refused
  *
  * REGRESSION PROOF: TC-005 is written specifically to catch the real bug
  * found on hardware during this issue's own hardware-verification pass —
@@ -251,6 +254,72 @@ ZTEST(nvm_store_append, test_erase_all_preserves_sec_state)
                   "every other key must be cleared by erase_all()");
 }
 
+/* TC-009..011 [EDS#640] A 128-byte write block (MCX N947 internal flash, which
+ * Zephyr NVS cannot mount). The mock rejects unaligned writes like the real
+ * flash driver, so the 32-byte bank header the backend used to write fails here. */
+#define TEST_BANK_SIZE_WB128   (2048U)
+
+static nvm_store_cfg_t s_cfg_wb128 = {
+    .flash_dev    = (const void *)1,
+    .flash_offset = 0U,
+    .sector_size  = TEST_BANK_SIZE_WB128,
+    .sector_count = 2U,
+};
+
+/* TC-009 */
+ZTEST(nvm_store_append, test_write_block_128_roundtrip_and_reinit)
+{
+    uint8_t  written[4] = { 0x11, 0x22, 0x33, 0x44 };
+    uint8_t  readback[4] = { 0 };
+    size_t   read_len = 0U;
+
+    nvm_mock_set_write_block(128U);
+    zassert_equal(UDS_STATUS_OK, nvm_store_init(&s_cfg_wb128), "");
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_write(NVM_KEY_LIFECYCLE_CNT, written, sizeof(written)), "");
+
+    /* "Reboot": fresh in-RAM state over the same flash contents. */
+    nvm_mock_deinit();
+    zassert_equal(UDS_STATUS_OK, nvm_store_init(&s_cfg_wb128), "");
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_read(NVM_KEY_LIFECYCLE_CNT, readback, sizeof(readback), &read_len), "");
+    zassert_equal(sizeof(written), read_len, "");
+    zassert_equal(0, memcmp(written, readback, sizeof(written)), "");
+}
+
+/* TC-010: the largest record, padded to 128 B, is 640 bytes; compaction
+ * copies it through a scratch buffer that used to be 520 bytes. */
+ZTEST(nvm_store_append, test_write_block_128_max_record_compaction)
+{
+    uint8_t  value[NVM_MAX_RECORD_BYTES];
+    uint8_t  readback[NVM_MAX_RECORD_BYTES];
+    size_t   read_len = 0U;
+    uint8_t  i;
+
+    nvm_mock_set_write_block(128U);
+    zassert_equal(UDS_STATUS_OK, nvm_store_init(&s_cfg_wb128), "");
+
+    /* Bank: 128 B header + 640 B records, so every second write compacts. */
+    for (i = 0U; i < 12U; i++) {
+        (void)memset(value, (int)(0xA0U + i), sizeof(value));
+        zassert_equal(UDS_STATUS_OK,
+                      nvm_store_write(NVM_KEY_LIFECYCLE_CNT, value, sizeof(value)), "");
+    }
+
+    zassert_equal(UDS_STATUS_OK,
+                  nvm_store_read(NVM_KEY_LIFECYCLE_CNT, readback, sizeof(readback), &read_len), "");
+    zassert_equal(sizeof(value), read_len, "");
+    zassert_equal(0, memcmp(value, readback, sizeof(value)), "");
+}
+
+/* TC-011: a write block larger than the scratch buffers hold is refused at init. */
+ZTEST(nvm_store_append, test_write_block_too_large_rejected)
+{
+    nvm_mock_set_write_block(256U);
+    zassert_equal(UDS_STATUS_ERR_INVALID_PARAM, nvm_store_init(&s_cfg_wb128), "");
+    zassert_false(nvm_store_is_ready(), "");
+}
+
 /* ==========================================================================
  * run_all_tests
  * ========================================================================== */
@@ -265,4 +334,7 @@ void run_all_tests(void)
     RUN_TEST(nvm_store_append__test_compaction_preserves_live_set);
     RUN_TEST(nvm_store_append__test_corrupt_record_not_trusted);
     RUN_TEST(nvm_store_append__test_erase_all_preserves_sec_state);
+    RUN_TEST(nvm_store_append__test_write_block_128_roundtrip_and_reinit);
+    RUN_TEST(nvm_store_append__test_write_block_128_max_record_compaction);
+    RUN_TEST(nvm_store_append__test_write_block_too_large_rejected);
 }

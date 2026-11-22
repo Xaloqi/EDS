@@ -308,15 +308,17 @@ target_sources(app PRIVATE
 #
 #   platform/nvm_store.c      — real Zephyr NVS backend.
 #     Includes <zephyr/fs/nvs.h> and <zephyr/drivers/flash.h>.
-#     Requires CONFIG_FLASH=y, CONFIG_FLASH_MAP=y, CONFIG_NVS=y (set in
-#     boards/nucleo_h743zi/nucleo_h743zi.conf) and a DTS flash partition
-#     (defined in boards/nucleo_h743zi/nucleo_h743zi.overlay as "diag_nvs").
-#     Used for the other real hardware targets (frdm_mcxn947).
+#     Requires CONFIG_FLASH=y, CONFIG_FLASH_MAP=y, CONFIG_NVS=y and a DTS flash
+#     partition (the boards' overlays name it "diag_nvs"). NVS takes a flash
+#     write block of at most 32 bytes, so the boards below do not use it.
+#     Used for the other real hardware targets (mr_canhubk3: write block 8 B).
 #
-#   platform/nvm_store_append.c — append-only backend (#304) for STM32H7
-#     boards. Their 128 KB sectors overflow NVS's uint16_t sector_size, so
-#     nvm_store.c fails nvs_mount() there (EDS#504). Same diag_nvs partition
-#     (2 x 128 KB) and the same nvm_store_* API. Used for nucleo_h743zi/h753zi.
+#   platform/nvm_store_append.c — append-only backend (#304) for flash NVS
+#     cannot mount, on the same diag_nvs partition and with the same
+#     nvm_store_* API: the STM32H7 boards (128 KB sectors overflow NVS's
+#     uint16_t sector_size, EDS#504) and frdm_mcxn947 (128-byte write block,
+#     NVS maximum 32, EDS#640). Two banks, each half the partition.
+#     Used for nucleo_h743zi/h753zi and frdm_mcxn947.
 #
 #   platform/nvm_store_mock.c — RAM-backed mock for host simulation.
 #     Self-defines NVM_STORE_HOST_MOCK at the top of the file.
@@ -329,7 +331,7 @@ target_sources(app PRIVATE
 # ──────────────────────────────────────────────────────────────────────────────
 if(CONFIG_BOARD_NATIVE_SIM)
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
-elseif(CONFIG_BOARD_NUCLEO_H743ZI OR CONFIG_BOARD_NUCLEO_H753ZI)
+elseif(CONFIG_BOARD_NUCLEO_H743ZI OR CONFIG_BOARD_NUCLEO_H753ZI OR CONFIG_BOARD_FRDM_MCXN947)
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_append.c)
     target_compile_definitions(app PRIVATE DIAG_NVM_BACKEND_APPEND=1)
 else()

@@ -308,10 +308,15 @@ target_sources(app PRIVATE
 #
 #   platform/nvm_store.c      — real Zephyr NVS backend.
 #     Includes <zephyr/fs/nvs.h> and <zephyr/drivers/flash.h>.
-#     Requires CONFIG_FLASH=y, CONFIG_FLASH_MAP=y, CONFIG_NVS=y (set in
-#     boards/nucleo_h743zi/nucleo_h743zi.conf) and a DTS flash partition
-#     (defined in boards/nucleo_h743zi/nucleo_h743zi.overlay as "diag_nvs").
-#     Used for all real hardware targets.
+#     Requires CONFIG_FLASH=y, CONFIG_FLASH_MAP=y, CONFIG_NVS=y and a DTS flash
+#     partition (the boards' overlays name it "diag_nvs"). NVS takes a flash
+#     write block of at most 32 bytes and a sector size below 64 KB.
+#     Used for the other real hardware targets (mr_canhubk3).
+#
+#   platform/nvm_store_append.c — append-only backend (#304) for flash NVS
+#     cannot mount: nucleo_h743zi/h753zi (128 KB sectors, EDS#504) and
+#     frdm_mcxn947 (128-byte write block, EDS#640). Same partition and API;
+#     basic_ecu's CMakeLists.txt has the full reasoning.
 #
 #   platform/nvm_store_mock.c — RAM-backed mock for host simulation.
 #     Self-defines NVM_STORE_HOST_MOCK at the top of the file.
@@ -324,6 +329,9 @@ target_sources(app PRIVATE
 # ──────────────────────────────────────────────────────────────────────────────
 if(CONFIG_BOARD_NATIVE_SIM)
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
+elseif(CONFIG_BOARD_NUCLEO_H743ZI OR CONFIG_BOARD_NUCLEO_H753ZI OR CONFIG_BOARD_FRDM_MCXN947)
+    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_append.c)
+    target_compile_definitions(app PRIVATE DIAG_NVM_BACKEND_APPEND=1)
 else()
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store.c)
 endif()

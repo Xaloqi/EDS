@@ -2349,6 +2349,34 @@ jobs:
           sudo ip link set up zcan0
           python3 EDS/scripts/smoke_permanent_dtc.py --control build/zephyr/zephyr.exe zcan0
 
+      # [EDS#640] The same smoke on a flash simulator with the MCX N947's 128-byte
+      # write block, which Zephyr NVS cannot mount (maximum 32): the append
+      # backend on the same partition. On NVS this build fails at 14 FF FF FF.
+      - name: West build — native_sim, 128 B write block, append backend
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          EX="${GITHUB_WORKSPACE}/EDS/examples/robot_joint_controller_ecu"
+          west build \
+            --pristine \
+            -b native_sim \
+            -d build-wb128 \
+            EDS/examples/robot_joint_controller_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DDIAG_BENCH_PERMANENT_DTC=ON \
+            -DDIAG_NVM_BACKEND_APPEND=ON \
+            "-DEXTRA_CONF_FILE=${EX}/boards/native_sim/native_sim_socketcan.conf;${EX}/boards/native_sim/native_sim_bench_nvs.conf" \
+            "-DDTC_OVERLAY_FILE=${EX}/boards/native_sim/native_sim_socketcan.overlay;${EX}/boards/native_sim/native_sim_bench_nvs_wb128.overlay"
+          test -f build-wb128/zephyr/zephyr.exe
+
+      - name: Bench smoke — 128 B write block, append backend
+        run: |
+          sudo ip link del zcan0 || true
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set up zcan0
+          python3 EDS/scripts/smoke_permanent_dtc.py build-wb128/zephyr/zephyr.exe zcan0
+
   # [EDS#557][EDS#546] CAN FD end to end: examples/canfd_ecu (can.fd: true) on
   # native_sim over an MTU-72 vcan, tested by the Linux kernel's own ISO-TP
   # stack (can-isotp, net/can/isotp.c) set to CAN FD, plus a raw FD socket on

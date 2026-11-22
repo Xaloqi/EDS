@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **NVM works on the FRDM-MCXN947: the append backend replaces NVS there** (#640). The MCX N947 internal flash has a
+  128-byte write block and Zephyr NVS accepts 32 at most, so `nvs_mount()` failed (`Unsupported write block size`):
+  no NVM at all on the board, 0x14 answered NRC 0x22, and a confirmed DTC was lost even over `11 01`. `basic_ecu` and
+  `basic_ecu_cda_demo` now link `nvm_store_append.c` on `frdm_mcxn947`, on the same `diag_nvs` partition (two 128 KB
+  banks). The backend itself now handles a write block above 32 bytes (up to 128): the bank header slot and the first
+  record are padded to the write block, and the record scratch buffers hold a padded record (a full 512-byte record is
+  640 bytes with a 128-byte block, 520 before). `nvm_store_init()` refuses a larger block or a bank that is not whole
+  blocks. The on-flash format is unchanged where the block is 32 bytes or less, so STM32H7 stores still mount.
+  `robot_joint_controller_ecu` on hardware used `storage_partition`, which on this board is the external QSPI NOR, not
+  `diag_nvs`; it now uses `diag_nvs`, and takes `-DDIAG_NVM_BACKEND_APPEND=ON` on native_sim. The FRDM overlay and conf
+  and the `basic_ecu` CMake comment no longer say NVS works there. Fail-first: the permanent-DTC smoke on a flash
+  simulator with a 128-byte write block (new `native_sim_bench_nvs_wb128.overlay`, new steps in the
+  `example-robot-permanent-dtc` job) fails at 14 FF FF FF on NVS and passes on the append backend; host tests TC-009 to
+  TC-011 (the mock now rejects writes that are not whole write blocks, as flash drivers do). Hardware: rerun pending.
 - **DoIP disconnect resets the UDS state under the lock** (#635). On a dropped connection, `doip_server.c` returned the
   session to DEFAULT, reset SecurityAccess and comm control, and aborted a pending job and a transfer without the
   EDS#353 lock callbacks, while the UDS tick task changes the same state under them. It now takes the lock like every

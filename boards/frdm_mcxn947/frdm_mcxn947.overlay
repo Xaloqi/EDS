@@ -79,14 +79,19 @@
 	sample-point = <875>;
 };
 
-/* ── NVS flash partition for platform/nvm_store.c ───────────────────────────
+/* ── diag_nvs flash partition for the NVM store ─────────────────────────────
  *
  * Reserves the last 256 KB (32 × 8 KB sectors) of the MCX N947's 2 MB
- * internal flash for Zephyr NVS (Non-Volatile Storage).
+ * internal flash for the NVM store (security counters, DTC mirror).
+ *
+ * The store is the append-only backend, platform/zephyr/nvm_store_append.c:
+ * two banks of 128 KB (16 sectors each) in this partition. Zephyr NVS cannot
+ * mount this flash: its write block is 128 bytes, NVS accepts 32 at most
+ * (EDS#640).
  *
  * MCX N947 flash layout (2 MB total, base 0x00000000):
  *   erase-block-size = 8192 (8 KB sectors)
- *   write-block-size = 128 bytes
+ *   write-block-size = 128 bytes (every write is whole 128-byte blocks)
  *
  * EDS layout (replaces the MCUboot-centric default partition table):
  *
@@ -96,9 +101,9 @@
  *   0x0E0000   896 KB  image-1      Secondary / OTA staging slot.
  *                                   platform/zephyr_flash_ops.c writes DFU
  *                                   payloads here via FLASH_AREA_ID(image_1).
- *   0x1C0000   256 KB  diag_nvs     Zephyr NVS (security counters, DTC mirror,
- *                                   session stats). Needs ≥ 2 sectors (16 KB)
- *                                   for wear levelling; 32 × 8 KB provided.
+ *   0x1C0000   256 KB  diag_nvs     NVM store, append backend (security counters,
+ *                                   DTC mirror, session stats): 2 banks of
+ *                                   128 KB, one erased per compaction.
  *
  * All offsets are 8 KB-aligned (MCX N947 erase-block-size requirement).
  *

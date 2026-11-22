@@ -373,11 +373,19 @@ int main(void)
             const nvm_store_cfg_t nvm_cfg = {
                 .flash_dev    = (const void *)nvs_dev,
                 .flash_offset = (uint32_t)nvs_off,
+#if defined(DIAG_NVM_BACKEND_APPEND)
+                /* Append backend: two banks, each half of diag_nvs, erased
+                 * whole. Half of 2 x 128 KB (STM32H7) is one page; half of
+                 * 256 KB on the MCX N947 is sixteen 8 KB pages (EDS#640). */
+                .sector_size  = (uint32_t)(nvs_sz / 2U),
+                .sector_count = (uint8_t)2U,
+#else
                 .sector_size  = (uint32_t)page_info.size,
                 /* diag_nvs is sized as an exact multiple of the page size
                  * on every board this targets; NVS requires >= 2 sectors
                  * for wear levelling (see nvm_store.c). */
                 .sector_count = (uint8_t)(nvs_sz / page_info.size),
+#endif
             };
 
             status = nvm_store_init(&nvm_cfg);
