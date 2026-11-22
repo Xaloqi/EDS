@@ -1,0 +1,35 @@
+/*
+ * =============================================================================
+ * Xaloqi EDS
+ * examples/canfd_ecu/boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay
+ *
+ * CAN FD on the FRDM-MCXN947's FlexCAN0: 500 kbit/s arbitration phase, 2 Mbit/s
+ * data phase (BRS). Use it after boards/frdm_mcxn947/frdm_mcxn947.overlay (the
+ * can0 alias, pinmux, the diag_nvs partition) and with its .conf:
+ *
+ *   -DEXTRA_CONF_FILE=$W/boards/frdm_mcxn947/frdm_mcxn947.conf
+ *   "-DDTC_OVERLAY_FILE=$W/boards/frdm_mcxn947/frdm_mcxn947.overlay;$E/boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay"
+ *
+ * WHY THE COMPATIBLE: Zephyr v3.7.0 (EDS's pin) declares flexcan0 as
+ * "nxp,flexcan", the classic controller; the FD driver path and the
+ * bitrate-data property need "nxp,flexcan-fd". Zephyr v4.4.0 and later declare
+ * exactly this list in dts/arm/nxp/mcx/nxp_mcxnx4x_common.dtsi, so on those
+ * versions the line below changes nothing. The MCX N947's FlexCAN0 is an FD
+ * controller (that same file), and the board's transceiver, U10 TJA1057GTK/3Z
+ * (UM12018 Rev. 2.0, which calls J10 a "4-pin CAN FD" header), carries 2 Mbit/s.
+ *
+ * EVIDENCE: FRDM-MCXN947 board 700-90818 A1, EDS v1.30.0, Zephyr v3.7.0, one
+ * CANable V2.0 Pro as the tester, 2026-11-22: one 24-byte FD frame with BRS
+ * (`22 F190`, scripts/fd_probe.py) received. The multi-frame FD cases in
+ * README.md (64-byte First and Consecutive Frames, Flow Control) have not run
+ * on this board. NXP MCX is an industrial MCU line.
+ * =============================================================================
+ */
+
+&flexcan0 {
+	compatible = "nxp,flexcan-fd", "nxp,flexcan";
+	bitrate = <500000>;
+	sample-point = <875>;
+	bitrate-data = <2000000>;
+	sample-point-data = <750>;
+};

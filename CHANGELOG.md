@@ -8,6 +8,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **CAN FD overlay for the FRDM-MCXN947** (#642). `examples/canfd_ecu/boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay`
+  sets FlexCAN0 to 500 kbit/s and 2 Mbit/s with BRS. Zephyr v3.7.0 declares the node as the classic `nxp,flexcan`; the
+  overlay declares `nxp,flexcan-fd`, which Zephyr v4.4.0 and later declare themselves. It builds on both (CI builds it on
+  v3.7.0). Hardware evidence: one 24-byte CAN FD frame with BRS received on 2026-11-22; the multi-frame FD cases have not
+  run on a board. The `canfd_ecu` README says so, and uses the current property name `bitrate-data`.
+
 ### Fixed
 
 - **NVM works on the FRDM-MCXN947: the append backend replaces NVS there** (#640). The MCX N947 internal flash has a

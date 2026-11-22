@@ -1368,6 +1368,21 @@ jobs:
           test -f build/zephyr/zephyr.elf && echo "PASS: .elf" || exit 1
           test -f build/zephyr/zephyr.hex && echo "PASS: .hex" || exit 1
 
+      # [EDS#642] CAN FD on FlexCAN0: examples/canfd_ecu with its board overlay.
+      - name: West build — canfd_ecu on frdm_mcxn947 (CAN FD overlay)
+        run: |
+          west build \
+            --pristine \
+            -d build-canfd \
+            -b frdm_mcxn947/mcxn947/cpu0 \
+            EDS/examples/canfd_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay;${GITHUB_WORKSPACE}/EDS/examples/canfd_ecu/boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay"
+          test -f build-canfd/zephyr/zephyr.hex
+          grep -q 'bitrate-data = < 0x1e8480 >' build-canfd/zephyr/zephyr.dts
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
