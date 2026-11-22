@@ -316,8 +316,8 @@ target_sources(app PRIVATE
 #   platform/nvm_store_append.c — append-only backend (#304) for flash NVS
 #     cannot mount, on the same diag_nvs partition and with the same
 #     nvm_store_* API: the STM32H7 boards (128 KB sectors overflow NVS's
-#     uint16_t sector_size, EDS#504) and frdm_mcxn947 (128-byte write block,
-#     NVS maximum 32, EDS#640). Two banks, each half the partition.
+#     uint16_t sector_size, EDS#504) and frdm_mcxn947 (128-byte write block
+#     on Zephyr v3.7.0, NVS maximum 32, EDS#640). Two banks, each half the partition.
 #     Used for nucleo_h743zi/h753zi and frdm_mcxn947.
 #
 #   platform/nvm_store_mock.c — RAM-backed mock for host simulation.

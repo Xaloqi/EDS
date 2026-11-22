@@ -86,8 +86,9 @@
  *
  * The store is the append-only backend, platform/zephyr/nvm_store_append.c:
  * two banks of 128 KB (16 sectors each) in this partition. Zephyr NVS cannot
- * mount this flash: its write block is 128 bytes, NVS accepts 32 at most
- * (EDS#640).
+ * mount this flash: its write block is 128 bytes in Zephyr v3.7.0 (EDS's pin;
+ * v4.4.1 declares 16), NVS accepts 32 at most (EDS#640). The backend reads the
+ * block at run time, so it takes either.
  *
  * MCX N947 flash layout (2 MB total, base 0x00000000):
  *   erase-block-size = 8192 (8 KB sectors)

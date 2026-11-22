@@ -27,7 +27,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **NVM works on the FRDM-MCXN947: the append backend replaces NVS there** (#640). The MCX N947 internal flash has a
-  128-byte write block and Zephyr NVS accepts 32 at most, so `nvs_mount()` failed (`Unsupported write block size`):
+  128-byte write block in Zephyr v3.7.0's devicetree (v4.4.1 declares 16 for it; the MCXN236 still 128) and Zephyr NVS
+  accepts 32 at most, so `nvs_mount()` failed (`Unsupported write block size`):
   no NVM at all on the board, 0x14 answered NRC 0x22, and a confirmed DTC was lost even over `11 01`. `basic_ecu` and
   `basic_ecu_cda_demo` now link `nvm_store_append.c` on `frdm_mcxn947`, on the same `diag_nvs` partition (two 128 KB
   banks). The backend itself now handles a write block above 32 bytes (up to 128): the bank header slot and the first
