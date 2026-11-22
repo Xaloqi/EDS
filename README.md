@@ -129,7 +129,7 @@ dtcs:
 
 **2. Generate everything:**
 
-> **Licensed step** — `tools/codegen.py` requires an EDS Developer or Professional license; the code-generation templates are the commercial deliverable. The runtime stack and the committed example outputs (`examples/*/generated/`) are fully GPL. See [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md) or [xaloqi.com](https://xaloqi.com).
+> **Licensed step** — `tools/codegen.py` requires an EDS Developer or Professional license; the code-generation templates are the commercial deliverable. The runtime stack and the committed example outputs (`examples/*/generated/`) are fully GPL. See [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md) or [xaloqi.com/eds](https://xaloqi.com/eds).
 
 ```bash
 python3 tools/codegen.py \
@@ -428,7 +428,7 @@ bash run_python_tests.sh
 ### GUI configurator
 
 > **Included in Developer and Professional tiers** — not part of the open-source runtime.
-> [Get access → xaloqi.com](https://xaloqi.com)
+> [Get access → xaloqi.com/eds](https://xaloqi.com/eds#pricing)
 
 ![Xaloqi EDS GUI — live dashboard showing DIDs panel with sensor readings, DTC panel with active faults, Security Access walkthrough, Routines panel, and Raw Frames ISO-TP log](docs/assets/gui_dashboard.svg)
 
@@ -649,7 +649,7 @@ Code generation tools and Safety Manual require a commercial license.
 
 The runtime is GPL v2, so you can use it in a product under GPL v2's terms, including its source-disclosure obligations. Shipping it inside closed-source firmware needs a commercial license (see the open-core table above and [COMMERCIAL_NOTICE.md](COMMERCIAL_NOTICE.md)).
 
-→ **[Commercial licenses](https://xaloqi.com)**  
+→ **[Commercial licenses](https://xaloqi.com/eds#pricing)**  
 → **[License activation & tier details](docs/COMMERCIAL_ONBOARDING.md)**
 
 ---
@@ -696,4 +696,4 @@ west build -t run
 [Xaloqi TestLab Core](https://github.com/Xaloqi/xaloqi-testlab-core)
 
 **Want to generate your own ECU configuration?** →
-[xaloqi.com](https://xaloqi.com)
+[xaloqi.com/eds](https://xaloqi.com/eds)
