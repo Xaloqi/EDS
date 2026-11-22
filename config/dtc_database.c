@@ -184,6 +184,27 @@ dtc_entry_t *dtc_database_find(uint32_t dtc_code)
     return entry;
 }
 
+uds_status_t dtc_database_get_entry(uint32_t dtc_code, dtc_entry_t *out)
+{
+    const dtc_entry_t *entry;
+
+    if (out == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    if (!s_initialized) {
+        return UDS_STATUS_ERR_NOT_INITIALIZED;
+    }
+
+    dtc_db_lock();
+    entry = dtc_find_internal(dtc_code);
+    if (entry != NULL) {
+        *out = *entry;
+    }
+    dtc_db_unlock();
+
+    return (entry != NULL) ? UDS_STATUS_OK : UDS_STATUS_ERR_DID_NOT_FOUND;
+}
+
 /* [EDS#145] Empty every record that names dtc_code. Caller holds the lock. */
 static void records_forget(uint32_t dtc_code)
 {

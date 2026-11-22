@@ -128,6 +128,21 @@ uds_status_t dtc_database_register(
 dtc_entry_t *dtc_database_find(uint32_t dtc_code);
 
 /**
+ * @brief [EDS#637] Copy a DTC entry out under the lock callbacks.
+ *
+ * Use this, not dtc_database_find(), when another thread may change the
+ * entry (an application monitor calling dtc_database_set_status() or
+ * dtc_database_set_fault_counter()): every field of the copy comes from one
+ * critical section, so a value filtered on is the value reported.
+ *
+ * @param[in]  dtc_code  24-bit DTC code to search for.
+ * @param[out] out       Copy of the entry.
+ * @return UDS_STATUS_OK, UDS_STATUS_ERR_NULL_PTR, UDS_STATUS_ERR_NOT_INITIALIZED,
+ *         or UDS_STATUS_ERR_DID_NOT_FOUND if the code is not registered.
+ */
+uds_status_t dtc_database_get_entry(uint32_t dtc_code, dtc_entry_t *out);
+
+/**
  * @brief Set the status byte for a registered DTC (monitor result).
  *
  * [EDS#448] Refused while ControlDTCSetting is off: ISO 14229-1:2026 Annex

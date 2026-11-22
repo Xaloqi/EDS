@@ -104,6 +104,7 @@ dids:
 
   - id:   "0xF186"
     name: "ActiveDiagnosticSession"
+    source: app   # the active session, read in src/ (EDS#636)
     description: >
       Current UDS session: 0x01 default, 0x02 programming, 0x03 extended.
       Useful for tester scripts to confirm session before starting DFU.

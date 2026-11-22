@@ -417,6 +417,34 @@ extern void test_dtc_db_count_by_status__test_count_one_active(void);
 extern void test_dtc_db_count_by_status__test_count_both_confirmed(void);
 extern void test_dtc_db_count_by_status__test_count_mask_no_match(void);
 
+/* =========================================================================
+ * [EDS#637] dtc_database_get_entry(): a copy taken under the lock
+ * ========================================================================= */
+
+ZTEST_SUITE(test_dtc_db_get_entry, NULL, NULL, NULL, NULL, NULL);
+
+ZTEST(test_dtc_db_get_entry, test_copy_matches_entry)
+{
+    dtc_entry_t copy;
+
+    dtc_init_fresh();
+    (void)dtc_database_register(0xC00100UL, 0x20U, "copy");
+    (void)dtc_database_set_fault_counter(0xC00100UL, 50U);
+    zassert_equal(UDS_STATUS_OK, dtc_database_get_entry(0xC00100UL, &copy), "");
+    zassert_equal(0xC00100UL, copy.dtc_code, "");
+    zassert_equal(50U, copy.fault_detection_counter, "");
+    zassert_equal(0x20U, copy.severity, "");
+}
+
+ZTEST(test_dtc_db_get_entry, test_unknown_code_and_null)
+{
+    dtc_entry_t copy;
+
+    dtc_init_fresh();
+    zassert_equal(UDS_STATUS_ERR_DID_NOT_FOUND, dtc_database_get_entry(0xC00999UL, &copy), "");
+    zassert_equal(UDS_STATUS_ERR_NULL_PTR, dtc_database_get_entry(0xC00100UL, NULL), "");
+}
+
 void run_all_tests(void)
 {
     RUN_TEST(test_dtc_db_init__test_init_ok);
@@ -439,4 +467,6 @@ void run_all_tests(void)
     RUN_TEST(test_dtc_db_count_by_status__test_count_one_active);
     RUN_TEST(test_dtc_db_count_by_status__test_count_both_confirmed);
     RUN_TEST(test_dtc_db_count_by_status__test_count_mask_no_match);
+    RUN_TEST(test_dtc_db_get_entry__test_copy_matches_entry);
+    RUN_TEST(test_dtc_db_get_entry__test_unknown_code_and_null);
 }

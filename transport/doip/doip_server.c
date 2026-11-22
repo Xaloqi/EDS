@@ -1540,7 +1540,14 @@ connection_closed:
          * from any current session (see session_validate_transition()),
          * and uds_security_reset() locks security while correctly
          * preserving the failed-attempt/lockout counters per ISO
-         * 14229-1 §10.4.5.3 — same two calls SEC-S3-RESET-01 makes. */
+         * 14229-1 §10.4.5.3 — same two calls SEC-S3-RESET-01 makes.
+         *
+         * [EDS#635] Under the EDS#353 lock pair, like every other UDS call
+         * in this file: the UDS tick task changes the same session,
+         * security and comm-control state under that lock. */
+        if (s_doip_lock_cb != NULL) {
+            s_doip_lock_cb();
+        }
         (void)uds_session_transition(uds_ctx->cfg.session_ctx, UDS_SESSION_DEFAULT);
         (void)uds_security_reset(uds_ctx->cfg.security_ctx);
         /* [SEC-SESS-COMMRESTORE-01] The third return-to-DEFAULT producer:
@@ -1552,6 +1559,9 @@ connection_closed:
         uds_server_pending_abort(uds_ctx);
         /* [EDS#442] Session ended: abort any transfer. */
         uds_service_0x34_abort_transfer();
+        if (s_doip_unlock_cb != NULL) {
+            s_doip_unlock_cb();
+        }
     }
 
     /* Unreachable in normal operation */
