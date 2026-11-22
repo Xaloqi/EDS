@@ -16,6 +16,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   v3.7.0). Hardware evidence: one 24-byte CAN FD frame with BRS received on 2026-11-22; the multi-frame FD cases have not
   run on a board. The `canfd_ecu` README says so, and uses the current property name `bitrate-data`.
 
+### Changed
+
+- **README board rows from the FRDM-MCXN947 bench** (taken over from #642). Where cells passed on 2026-11-22 (board
+  700-90818 A1, v1.30.0, Zephyr v3.7.0): `basic_ecu` (UDS and ISO-TP conformance vectors, 4000-byte burst, P2 timing
+  over CAN at 500 kbit/s), `basic_ecu_doip` (Pro campaign 8/8 over DoIP, bench build with a test random generator and
+  mock NVM) and `canfd_ecu` (one CAN FD frame with BRS). The `basic_ecu` row says NVM persistence does not work on the
+  board yet: the fix is in this release but has not run on hardware. NXP MCX is described as industrial.
+
 ### Fixed
 
 - **NVM works on the FRDM-MCXN947: the append backend replaces NVS there** (#640). The MCX N947 internal flash has a
