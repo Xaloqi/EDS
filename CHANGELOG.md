@@ -60,6 +60,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The FRDM-MCXN947 DoIP build no longer panics on received frames longer than 128 bytes** (#647). Zephyr v3.7.0's
+  ENET QoS driver puts each received frame into one network buffer of `CONFIG_NET_BUF_DATA_SIZE` bytes (default 128)
+  while its DMA takes frames up to 1512 bytes, so a DHCP offer, a 1000-byte ping or an 81-byte UDS request over DoIP
+  tripped `net_buf_simple_tailroom` in the `ENETQOS_RX` thread and reset the board (with asserts off it would write
+  past the buffer). `frdm_mcxn947_doip.conf` sets 1536 (at least the 1518-byte largest normal frame, 32-byte aligned),
+  about 99 KB more RAM (191 KB of 320 KB). Hardware: the panic reproduced on main and is gone with the change (pings of
+  1000 and 1400 bytes 100 times, the long request, the DoIP Pro campaign before and after a reset). Frames over 1512
+  bytes are still dropped by that driver (#648). The `basic_ecu_doip` README and conf no longer say the FRDM build is
+  compile-checked only.
 - **A confirmed DTC survives a power loss** (#632). A DTC confirmed through `dtc_database_set_status()` used to reach
   NVM only at a controlled reset (0x11) or a 0x14, so a power cut, a watchdog reset or the reset pin lost it. A change
   of ConfirmedDTC or TestFailedSinceLastClear now marks the DTC mirror dirty, and `uds_server_tick_1ms()` writes it
