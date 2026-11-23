@@ -35,6 +35,7 @@
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
 #include "nvm_store.h"
+#include "eds_nvm_diag_nvs.h"
 #include "uds_init.h"
 #include "uds_security_algo.h"
 #include "generated_config.h"
@@ -330,12 +331,11 @@ int main(void)
     /*
      * [EDS#200] Must run before uds_generated_init() (dtc_mirror_init() at
      * Step 3.5 sits on top of nvm_store and silently no-ops until this
-     * succeeds). This example only targets native_sim, where
-     * platform/zephyr/nvm_store_mock.c (RAM-backed) is linked instead of
-     * the real NVS backend — its nvm_store_init() ignores cfg entirely, so
-     * NULL is correct here (see nvm_store.h: "may be NULL on host").
+     * succeeds). eds_nvm_init_diag_nvs() resolves the board's diag_nvs
+     * partition on hardware (append backend where NVS cannot mount, EDS#643)
+     * and is nvm_store_init(NULL) on native_sim, where the RAM mock ignores cfg.
      */
-    rc = nvm_store_init(NULL);
+    rc = eds_nvm_init_diag_nvs(&s_wdt);
     if (rc != UDS_STATUS_OK) {
         LOG_ERR("NVM store init failed: 0x%02X — DTC mirror will not "
                 "survive reset this run.", (unsigned)rc);
