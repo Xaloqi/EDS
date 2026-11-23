@@ -69,7 +69,8 @@ west flash
 `DIAG_USE_MOCK_NVM=ON` keeps DTC storage in RAM. Without it the board needs a
 `diag_nvs` flash partition in its devicetree (the NUCLEO-H753ZI and
 FRDM-MCXN947 setups below pass one). This build is compile-checked; the
-NUCLEO-H753ZI setup below is the hardware-verified one for DoIP traffic.
+NUCLEO-H753ZI and FRDM-MCXN947 setups below have carried DoIP traffic on
+hardware.
 
 Ensure your board DTS includes an Ethernet driver and that `CONFIG_NETWORKING=y` is
 satisfied. The DoIP server listens on port 13400 immediately after boot.
@@ -107,7 +108,7 @@ west flash
   ([#399](https://github.com/Xaloqi/EDS/issues/399)). The comment at the
   top of `src/main.c` lists exactly what is supervised.
 
-### FRDM-MCXN947 (on-board Ethernet, real flash storage; compile-checked)
+### FRDM-MCXN947 (on-board Ethernet, real flash storage)
 
 NXP MCX N947 is an industrial-grade MCU.
 
@@ -120,9 +121,15 @@ west build -b frdm_mcxn947/mcxn947/cpu0 examples/basic_ecu_doip -- \
 
 The storage is the board's `diag_nvs` partition with the append backend (the
 128-byte write block is more than NVS takes, [#640](https://github.com/Xaloqi/EDS/issues/640)).
-**This build has not been run on hardware**: no DoIP traffic has been
-exchanged with a FRDM-MCXN947, and the storage has been run on the board
-with `basic_ecu` and `robot_joint_controller_ecu` only. The TCP sequence
+**Run on hardware** (2026-11-23): the DoIP Pro campaign 8/8 before and after a
+reset, and the SecurityAccess attempt counter kept in `diag_nvs` over the
+reset pin. The conf sets `CONFIG_NET_BUF_DATA_SIZE=1536`: with Zephyr v3.7.0's
+ENET QoS driver a received frame must fit one network buffer, and the default
+128 bytes made any longer frame panic the board
+([#647](https://github.com/Xaloqi/EDS/issues/647)); it costs about 99 KB of
+RAM. Frames over 1512 bytes are still dropped by that driver
+([#648](https://github.com/Xaloqi/EDS/issues/648)), so keep DoIP transfers
+below full-size TCP segments for now. The TCP sequence
 numbers come from Zephyr's test random generator (see the conf), so this is a
 bench setup, not a product one.
 
