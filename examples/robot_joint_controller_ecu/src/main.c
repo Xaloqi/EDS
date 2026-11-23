@@ -56,6 +56,9 @@
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
 #include "nvm_store.h"
+#if defined(DIAG_NVM_BACKEND_APPEND)
+#include "nvm_store_append.h"
+#endif
 #include "uds_init.h"
 #include "uds_security_algo.h"
 #include "generated_config.h"
@@ -342,13 +345,28 @@ int main(void)
      * the real NVS backend — its nvm_store_init() ignores cfg entirely, so
      * NULL is correct here (see nvm_store.h: "may be NULL on host").
      */
-#if defined(DIAG_BENCH_PERMANENT_DTC) && defined(CONFIG_NVS)
-    /* [EDS#580] Bench: NVS on native_sim's flash simulator (storage_partition),
-     * so the DTC mirror survives a reboot. */
+#if defined(DIAG_NVM_BACKEND_APPEND)
+    /* [EDS#504] The append backend feeds the watchdog across its bank erase.
+     * Must run before nvm_store_init() below. */
+    nvm_store_append_set_wdt(&s_wdt);
+#endif
+#if (defined(DIAG_BENCH_PERMANENT_DTC) && defined(CONFIG_NVS)) || \
+    !defined(CONFIG_BOARD_NATIVE_SIM)
+    /* [EDS#580] Bench: the DTC mirror in flash, so it survives a reboot. On
+     * native_sim that is the flash simulator's storage_partition (NVS) or, with
+     * DIAG_NVM_BACKEND_APPEND, the same partition with the append backend. On
+     * hardware it is the board overlay's diag_nvs: storage_partition there can
+     * be another flash (the FRDM-MCXN947's is its external QSPI NOR, 8 MB of
+     * 4 KB sectors, which the first bench run opened by mistake, EDS#640). */
+#if defined(CONFIG_BOARD_NATIVE_SIM)
+#define ROBOT_NVM_PARTITION storage_partition
+#else
+#define ROBOT_NVM_PARTITION eds_nvs_slot
+#endif
     {
-        const struct device    *nvs_dev = EDS_PARTITION_DEVICE(storage_partition);
-        const off_t              nvs_off = EDS_PARTITION_OFFSET(storage_partition);
-        const size_t              nvs_sz = EDS_PARTITION_SIZE(storage_partition);
+        const struct device    *nvs_dev = EDS_PARTITION_DEVICE(ROBOT_NVM_PARTITION);
+        const off_t              nvs_off = EDS_PARTITION_OFFSET(ROBOT_NVM_PARTITION);
+        const size_t              nvs_sz = EDS_PARTITION_SIZE(ROBOT_NVM_PARTITION);
         struct flash_pages_info  page_info;
 
         if (flash_get_page_info_by_offs(nvs_dev, nvs_off, &page_info) != 0) {
@@ -357,8 +375,14 @@ int main(void)
             const nvm_store_cfg_t nvm_cfg = {
                 .flash_dev    = (const void *)nvs_dev,
                 .flash_offset = (uint32_t)nvs_off,
+#if defined(DIAG_NVM_BACKEND_APPEND)
+                /* Two banks, each half of the partition (EDS#640). */
+                .sector_size  = (uint32_t)(nvs_sz / 2U),
+                .sector_count = (uint8_t)2U,
+#else
                 .sector_size  = (uint32_t)page_info.size,
                 .sector_count = (uint8_t)(nvs_sz / page_info.size),
+#endif
             };
 
             rc = nvm_store_init(&nvm_cfg);

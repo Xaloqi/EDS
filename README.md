@@ -411,10 +411,10 @@ bash run_python_tests.sh
 > `pytest.ini`) — every example's `generated/tests/` is its own
 > self-contained pytest project and must be run scoped to its own
 > directory, exactly as shown above. `run_python_tests.sh` runs all of them
-> for you. It executes **2,087 of 3,198** collected cases in a Developer-tier
+> for you. It executes **2,087 of 3,218** collected cases in a Developer-tier
 > checkout (the Developer ZIP unpacked into this repo; a plain clone is the
 > Community tier, has no `tools/templates` or `testgen.py`, and executes fewer)
-> and **3,143 of 3,198** with the
+> and **3,143 of 3,218** with the
 > Professional-tier `harness/` build present — the gap is cases gated on
 > commercial prerequisites (TestLab, the firmware harness, or the
 > `tools/templates` codegen ZIP), not failures. Not every executed case
@@ -516,16 +516,16 @@ inspect without a license.
 
 | Example | DIDs | DTCs | Routines | Boards | Evidence |
 |---|---|---|---|---|---|
-| `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947, MR-CANHUBK3 | **compile-verified** (3 board targets + native\_sim) |
+| `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947, MR-CANHUBK3 | **hardware-validated** (FRDM-MCXN947, an NXP MCX industrial MCU: UDS and ISO-TP conformance vectors, 4000-byte ISO-TP burst and P2 timing over CAN at 500 kbit/s; DTCs stored in internal flash by the append NVM backend survive an ECU reset (`11 01`)); **compile-verified** (Nucleo-H743ZI2, MR-CANHUBK3, native\_sim) |
 | `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU | **compile-verified** (QEMU Cortex-M4) |
-| `basic_ecu_doip` | 5 | 2 | 3 | NUCLEO-H753ZI, MR-CANHUBK3, native\_sim (loopback), any Zephyr Ethernet board | **hardware-validated** (NUCLEO-H753ZI, real Ethernet); **compile-verified** (MR-CANHUBK3) |
+| `basic_ecu_doip` | 5 | 2 | 3 | NUCLEO-H753ZI, FRDM-MCXN947, MR-CANHUBK3, native\_sim (loopback), any Zephyr Ethernet board | **hardware-validated** (NUCLEO-H753ZI, real Ethernet; FRDM-MCXN947, on-board Ethernet, bench build with a test random generator and mock NVM); **compile-verified** (MR-CANHUBK3) |
 | `basic_ecu_doip_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) | **compile-verified** (QEMU Cortex-M4) |
 | `sensor_ecu` | 7 | 4 | 2 | native\_sim, any Zephyr sensor board | **compile-verified** (native\_sim) |
 | `sensor_ecu_freertos` | 7 | 4 | 2 | QEMU Cortex-M4, STM32F4, Nucleo-H743ZI2 | **compile-verified** (QEMU Cortex-M4) |
 | `safeboot_ecu` | 5 | 3 | 2 | NUCLEO-H753ZI, Nucleo-H743ZI2, MR-CANHUBK3 (Zephyr 4.4 or later, sysbuild); MCUboot required | **hardware-validated** (NUCLEO-H753ZI, CAN); **compile-verified** (MR-CANHUBK3, with MCUboot) |
 | `safeboot_freertos_ecu` | 5 | 3 | 2 | Nucleo-H743ZI2 / QEMU Cortex-M4 (FreeRTOS, no MCUboot) | **compile-verified** (QEMU Cortex-M4) |
 | `robot_joint_controller_ecu` | 10 | 5 | 3 | native\_sim (simulated joint; loopback and SocketCAN variants) | **compile-verified** (native\_sim); runtime smoke over vcan in CI; no hardware |
-| `canfd_ecu` | 5 | 0 | 0 | native\_sim (loopback and SocketCAN on an MTU-72 vcan) | **compile-verified** (native\_sim); CAN FD runtime smoke against Linux can-isotp in CI; no hardware |
+| `canfd_ecu` | 5 | 0 | 0 | native\_sim (loopback and SocketCAN on an MTU-72 vcan), FRDM-MCXN947 (`boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay`) | **hardware-validated** (FRDM-MCXN947: one CAN FD frame with BRS at 500 kbit/s / 2 Mbit/s; the multi-frame FD cases not run on a board); **compile-verified** (native\_sim); CAN FD runtime smoke against Linux can-isotp in CI |
 | `bms_ecu` | 24 | 10 | 5 | native\_sim | **compile-verified** (native\_sim) |
 | `motor_controller_ecu` | 27 | 8 | 6 | native\_sim | **compile-verified** (native\_sim) |
 | `ardep_ecu` | 35 | 19 | 6 | ardep (Mercedes-Benz ARDEP board, in the ARDEP Zephyr workspace), native\_sim | **compile-verified** (native\_sim, and the `ardep` board in ARDEP's own workspace); not run on an ARDEP board |

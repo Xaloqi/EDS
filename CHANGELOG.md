@@ -8,8 +8,44 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **CAN FD overlay for the FRDM-MCXN947** (#642). `examples/canfd_ecu/boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay`
+  sets FlexCAN0 to 500 kbit/s and 2 Mbit/s with BRS. Zephyr v3.7.0 declares the node as the classic `nxp,flexcan`; the
+  overlay declares `nxp,flexcan-fd`, which Zephyr v4.4.0 and later declare themselves. It builds on both (CI builds it on
+  v3.7.0). Hardware evidence: one 24-byte CAN FD frame with BRS received on 2026-11-22; the multi-frame FD cases have not
+  run on a board. The `canfd_ecu` README says so, and uses the current property name `bitrate-data`.
+
+### Changed
+
+- **README board rows from the FRDM-MCXN947 bench** (taken over from #642). Where cells passed on 2026-11-22 (board
+  700-90818 A1, v1.30.0, Zephyr v3.7.0): `basic_ecu` (UDS and ISO-TP conformance vectors, 4000-byte burst, P2 timing
+  over CAN at 500 kbit/s), `basic_ecu_doip` (Pro campaign 8/8 over DoIP, bench build with a test random generator and
+  mock NVM) and `canfd_ecu` (one CAN FD frame with BRS). The `basic_ecu` row says NVM persistence does not work on the
+  board yet: the fix is in this release but has not run on hardware. NXP MCX is described as industrial.
+
 ### Fixed
 
+- **NVM works on the FRDM-MCXN947: the append backend replaces NVS there** (#640). The MCX N947 internal flash has a
+  128-byte write block in Zephyr v3.7.0's devicetree (v4.4.1 declares 16 for it; the MCXN236 still 128) and Zephyr NVS
+  accepts 32 at most, so `nvs_mount()` failed (`Unsupported write block size`):
+  no NVM at all on the board, 0x14 answered NRC 0x22, and a confirmed DTC was lost even over `11 01`. `basic_ecu` and
+  `basic_ecu_cda_demo` now link `nvm_store_append.c` on `frdm_mcxn947`, on the same `diag_nvs` partition (two 128 KB
+  banks). The backend itself now handles a write block above 32 bytes (up to 128): the bank header slot and the first
+  record are padded to the write block, and the record scratch buffers hold a padded record (a full 512-byte record is
+  640 bytes with a 128-byte block, 520 before). `nvm_store_init()` refuses a larger block or a bank that is not whole
+  blocks. The on-flash format is unchanged where the block is 32 bytes or less, so STM32H7 stores still mount.
+  `robot_joint_controller_ecu` on hardware used `storage_partition`, which on this board is the external QSPI NOR, not
+  `diag_nvs`; it now uses `diag_nvs`, and takes `-DDIAG_NVM_BACKEND_APPEND=ON` on native_sim. The FRDM overlay and conf
+  and the `basic_ecu` CMake comment no longer say NVS works there. Fail-first: the permanent-DTC smoke on a flash
+  simulator with a 128-byte write block (new `native_sim_bench_nvs_wb128.overlay`, new steps in the
+  `example-robot-permanent-dtc` job) fails at 14 FF FF FF on NVS and passes on the append backend; host tests TC-009 to
+  TC-011 (the mock now rejects writes that are not whole write blocks, as flash drivers do). Hardware: rerun pending.
+- **`e2e_isotp_burst.py` waits and retries when the transmit queue is full** (#641). On a CANable run by `slcand`, `can0`
+  has a 10-frame queue and the 4000-byte request is about 570 back-to-back frames, so round 1 died on the tester with
+  `No buffer space available`; the ECU was not involved. The script retries a refused frame (ENOBUFS) for up to 2 s, and
+  its usage text names `sudo ip link set can0 txqueuelen 1000`, with which the FRDM-MCXN947 bench passed 5/5. New
+  `tests/test_e2e_isotp_burst_enobufs.py`, which fails on the old script.
 - **DoIP disconnect resets the UDS state under the lock** (#635). On a dropped connection, `doip_server.c` returned the
   session to DEFAULT, reset SecurityAccess and comm control, and aborted a pending job and a transfer without the
   EDS#353 lock callbacks, while the UDS tick task changes the same state under them. It now takes the lock like every

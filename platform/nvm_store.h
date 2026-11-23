@@ -376,6 +376,20 @@ void nvm_mock_deinit(void);
  * @param[in] byte_offset  Offset into the mock's raw backing buffer.
  */
 void nvm_mock_corrupt_byte(uint32_t byte_offset);
+
+/**
+ * @brief Set the write block (program unit) of the append backend's mock flash.
+ *
+ * FOR HOST/TEST USE ONLY (NVM_STORE_HOST_MOCK builds). Default 8 bytes;
+ * nvm_mock_reset() restores it. The mock rejects any write whose offset or
+ * length is not a multiple of it, as a real flash driver does. Only the
+ * append backend implements it (EDS#640: 128, the MCX N947's).
+ * [MISRA 8.7] Prototype provided here so all callers have a visible
+ * declaration; guarded so the symbol is unreachable in production.
+ *
+ * @param[in] write_block  Write block in bytes; set before nvm_store_init().
+ */
+void nvm_mock_set_write_block(size_t write_block);
 #endif /* NVM_STORE_HOST_MOCK */
 
 #ifdef __cplusplus

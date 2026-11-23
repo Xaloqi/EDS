@@ -86,8 +86,10 @@ static uint8_t s_mock_flash[NVM_APPEND_MOCK_FLASH_SIZE];
 
 /** Host builds have no watchdog to bridge and no real write-block-size
  *  discovery — a small power-of-two exercises the padding/alignment logic
- *  without needing Zephyr headers. */
+ *  without needing Zephyr headers. A test can change it with
+ *  nvm_mock_set_write_block() (EDS#640: 128, the MCX N947's). */
 #define NVM_APPEND_WRITE_BLOCK      (8U)
+static size_t s_mock_write_block = NVM_APPEND_WRITE_BLOCK;
 
 #else /* real Zephyr target */
 
@@ -102,9 +104,10 @@ static uint8_t s_mock_flash[NVM_APPEND_MOCK_FLASH_SIZE];
  * across this project's other platform/zephyr source files. */
 LOG_MODULE_REGISTER(nvm_store_append, LOG_LEVEL_INF);
 
-/** STM32H7: 32 bytes (this SoC's devicetree write-block-size). Read at
- *  runtime instead of hardcoded, so this file is not silently wrong if
- *  ever linked for a different target with a different write granularity. */
+/** STM32H7: 32 bytes (this SoC's devicetree write-block-size); MCX N947:
+ *  128 (EDS#640). Read at runtime instead of hardcoded, so this file is not
+ *  silently wrong if ever linked for a different target with a different
+ *  write granularity. */
 static size_t s_write_block_size;
 
 /* --------------------------------------------------------------------------
@@ -138,6 +141,11 @@ void nvm_store_append_set_wdt(diag_wdt_t *wdt)
 
 #endif /* NVM_STORE_HOST_MOCK */
 
+/** Largest flash write block this backend supports (EDS#640: the MCX N947's
+ *  128 B). Sizes the record scratch buffers below, which hold a record padded
+ *  up to the write block. nvm_store_init() rejects a larger one. */
+#define NVM_APPEND_MAX_WRITE_BLOCK  (128U)
+
 /* --------------------------------------------------------------------------
  * On-flash format constants
  * -------------------------------------------------------------------------- */
@@ -147,9 +155,14 @@ void nvm_store_append_set_wdt(diag_wdt_t *wdt)
  *  or zero-filled region is unambiguously "no valid header here". */
 #define NVM_APPEND_BANK_MAGIC       (0x45445356UL)
 
-/** Padded header slot size — generous relative to the raw 8-byte header
- *  (magic + generation) so it is always >= any real write-block size. */
+/** Minimum header slot size. The raw header is 8 bytes (magic + generation);
+ *  the slot actually used is this rounded up to the write block (header_slot()),
+ *  so the first record starts write-block-aligned. Unchanged, so the format
+ *  is, where the write block is <= 32 B (the STM32H7's). */
 #define NVM_APPEND_HEADER_SLOT      (32U)
+
+_Static_assert(NVM_APPEND_MAX_WRITE_BLOCK >= NVM_APPEND_HEADER_SLOT,
+               "header buffer is sized by the largest write block");
 
 /** Record header: key(2) + len(2) + crc32(4). */
 #define NVM_APPEND_RECORD_HDR_LEN   (8U)
@@ -212,8 +225,12 @@ static nvm_index_entry_t   s_index[NVM_APPEND_MAX_KEYS];
  * s_req_buf/s_resp_buf, for the same reason.
  */
 static uint8_t s_scratch_scan_payload[NVM_MAX_RECORD_BYTES];
-static uint8_t s_scratch_append_record[NVM_APPEND_RECORD_HDR_LEN + NVM_MAX_RECORD_BYTES];
-static uint8_t s_scratch_compact_record[NVM_APPEND_RECORD_HDR_LEN + NVM_MAX_RECORD_BYTES];
+/** A record padded up to the write block: at most one block less than this
+ *  is padding (EDS#640: with a 128 B block a full record is 640 B, not 520). */
+#define NVM_APPEND_MAX_PADDED_RECORD \
+    (NVM_APPEND_RECORD_HDR_LEN + NVM_MAX_RECORD_BYTES + NVM_APPEND_MAX_WRITE_BLOCK - 1U)
+static uint8_t s_scratch_append_record[NVM_APPEND_MAX_PADDED_RECORD];
+static uint8_t s_scratch_compact_record[NVM_APPEND_MAX_PADDED_RECORD];
 static uint8_t s_scratch_write_compare[NVM_MAX_RECORD_BYTES];
 static uint8_t s_scratch_read_payload[NVM_MAX_RECORD_BYTES];
 static uint8_t s_scratch_erase_all_sec_state[NVM_MAX_RECORD_BYTES];
@@ -243,6 +260,11 @@ static int raw_write(uint32_t rel_offset, const void *data, size_t len)
 {
 #if defined(NVM_STORE_HOST_MOCK)
     if ((rel_offset + len) > (uint32_t)sizeof(s_mock_flash)) {
+        return -1;
+    }
+    /* Real flash drivers reject a write that is not whole write blocks. */
+    if (((rel_offset % (uint32_t)s_mock_write_block) != 0U) ||
+        ((len % s_mock_write_block) != 0U)) {
         return -1;
     }
     (void)memcpy(&s_mock_flash[rel_offset], data, len);
@@ -296,7 +318,7 @@ static uint32_t bank_base(uint8_t bank)
 static size_t write_block_size(void)
 {
 #if defined(NVM_STORE_HOST_MOCK)
-    return (size_t)NVM_APPEND_WRITE_BLOCK;
+    return s_mock_write_block;
 #else
     return s_write_block_size;
 #endif
@@ -313,6 +335,13 @@ static uint32_t padded_record_size(uint16_t payload_len)
 {
     return round_up((uint32_t)NVM_APPEND_RECORD_HDR_LEN + (uint32_t)payload_len,
                     (uint32_t)write_block_size());
+}
+
+/** Bytes the bank header occupies: the minimum slot rounded up to the write
+ *  block, so the header write and the first record are write-block-aligned. */
+static uint32_t header_slot(void)
+{
+    return round_up((uint32_t)NVM_APPEND_HEADER_SLOT, (uint32_t)write_block_size());
 }
 
 static void index_clear(void)
@@ -434,7 +463,7 @@ static int read_record_header(uint32_t bank, uint32_t rel_offset,
  *  recovery point). */
 static uint32_t scan_bank(uint8_t bank)
 {
-    uint32_t offset = (uint32_t)NVM_APPEND_HEADER_SLOT;
+    uint32_t offset = header_slot();
     uint32_t bank_end = s_cfg.sector_size;
 
     index_clear();
@@ -491,7 +520,7 @@ static bool read_bank_header(uint8_t bank, uint32_t *out_generation)
 
 static int write_bank_header(uint8_t bank, uint32_t generation)
 {
-    uint8_t hdr[NVM_APPEND_HEADER_SLOT];
+    uint8_t hdr[NVM_APPEND_MAX_WRITE_BLOCK];
 
     (void)memset(hdr, 0xFF, sizeof(hdr));
     hdr[0] = (uint8_t)(NVM_APPEND_BANK_MAGIC & 0xFFU);
@@ -503,7 +532,7 @@ static int write_bank_header(uint8_t bank, uint32_t generation)
     hdr[6] = (uint8_t)((generation >> 16U) & 0xFFU);
     hdr[7] = (uint8_t)((generation >> 24U) & 0xFFU);
 
-    return raw_write(bank_base(bank), hdr, sizeof(hdr));
+    return raw_write(bank_base(bank), hdr, (size_t)header_slot());
 }
 
 /** Formats `bank` as a fresh, empty, active bank at `generation`: erase,
@@ -603,7 +632,7 @@ static uds_status_t nvm_store_append_compact_internal(void)
 {
     uint8_t  other_bank = (uint8_t)(1U - s_active_bank);
     uint32_t new_generation = s_generation + 1U;
-    uint32_t new_cursor = (uint32_t)NVM_APPEND_HEADER_SLOT;
+    uint32_t new_cursor = header_slot();
     uint32_t i;
     uds_status_t rc;
 
@@ -663,7 +692,7 @@ static uds_status_t full_wipe(void)
 
     s_active_bank  = 0U;
     s_generation   = 1U;
-    s_write_cursor = (uint32_t)NVM_APPEND_HEADER_SLOT;
+    s_write_cursor = header_slot();
     index_clear();
     return UDS_STATUS_OK;
 }
@@ -710,6 +739,12 @@ uds_status_t nvm_store_init(const nvm_store_cfg_t *cfg)
         s_write_block_size = 32U; /* STM32H7's own known value, defensive fallback */
     }
 #endif
+    /* Records and the header are padded to the write block, and the scratch
+     * buffers hold one such record; banks are erased whole. */
+    if ((write_block_size() > (size_t)NVM_APPEND_MAX_WRITE_BLOCK) ||
+        ((cfg->sector_size % (uint32_t)write_block_size()) != 0U)) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
 
     bank0_valid = read_bank_header(0U, &gen0);
     bank1_valid = read_bank_header(1U, &gen1);
@@ -928,6 +963,7 @@ bool nvm_store_is_ready(void)
 void nvm_mock_reset(void)
 {
     (void)memset(s_mock_flash, 0xFF, sizeof(s_mock_flash));
+    s_mock_write_block = NVM_APPEND_WRITE_BLOCK;
     index_clear();
     s_initialized  = false;
     s_active_bank  = 0U;
@@ -938,6 +974,11 @@ void nvm_mock_reset(void)
 void nvm_mock_deinit(void)
 {
     s_initialized = false;
+}
+
+void nvm_mock_set_write_block(size_t write_block)
+{
+    s_mock_write_block = write_block;
 }
 
 void nvm_mock_corrupt_byte(uint32_t byte_offset)

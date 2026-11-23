@@ -126,8 +126,17 @@ if(DIAG_BENCH_PERMANENT_DTC)
     target_compile_definitions(app PRIVATE DIAG_BENCH_PERMANENT_DTC=1)
 endif()
 
+# [EDS#640] The append-only backend (#304) instead of NVS, on the same partition:
+# for flash whose write block NVS cannot take (the MCX N947's is 128 bytes, NVS
+# maximum 32). On by default on frdm_mcxn947; on native_sim pass
+# -DDIAG_NVM_BACKEND_APPEND=ON with native_sim_bench_nvs_wb128.overlay.
+option(DIAG_NVM_BACKEND_APPEND "Use the append-only NVM backend instead of NVS" OFF)
+
 if(CONFIG_BOARD_NATIVE_SIM AND NOT (DIAG_BENCH_PERMANENT_DTC AND CONFIG_NVS))
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
+elseif(DIAG_NVM_BACKEND_APPEND OR CONFIG_BOARD_FRDM_MCXN947)
+    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_append.c)
+    target_compile_definitions(app PRIVATE DIAG_NVM_BACKEND_APPEND=1)
 else()
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store.c)
 endif()
