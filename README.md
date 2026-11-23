@@ -516,7 +516,7 @@ inspect without a license.
 
 | Example | DIDs | DTCs | Routines | Boards | Evidence |
 |---|---|---|---|---|---|
-| `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947, MR-CANHUBK3 | **hardware-validated** (FRDM-MCXN947, an NXP MCX industrial MCU: UDS and ISO-TP conformance vectors, 4000-byte ISO-TP burst and P2 timing over CAN at 500 kbit/s; NVM persistence does not work on this board yet: the fix for #640 is not run on hardware); **compile-verified** (Nucleo-H743ZI2, MR-CANHUBK3, native\_sim) |
+| `basic_ecu` | 5 | 2 | 3 | native\_sim, Nucleo-H743ZI2, FRDM-MCXN947, MR-CANHUBK3 | **hardware-validated** (FRDM-MCXN947, an NXP MCX industrial MCU: UDS and ISO-TP conformance vectors, 4000-byte ISO-TP burst and P2 timing over CAN at 500 kbit/s; DTCs stored in internal flash by the append NVM backend survive an ECU reset (`11 01`)); **compile-verified** (Nucleo-H743ZI2, MR-CANHUBK3, native\_sim) |
 | `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU | **compile-verified** (QEMU Cortex-M4) |
 | `basic_ecu_doip` | 5 | 2 | 3 | NUCLEO-H753ZI, FRDM-MCXN947, MR-CANHUBK3, native\_sim (loopback), any Zephyr Ethernet board | **hardware-validated** (NUCLEO-H753ZI, real Ethernet; FRDM-MCXN947, on-board Ethernet, bench build with a test random generator and mock NVM); **compile-verified** (MR-CANHUBK3) |
 | `basic_ecu_doip_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) | **compile-verified** (QEMU Cortex-M4) |
