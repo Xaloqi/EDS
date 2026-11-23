@@ -1456,7 +1456,7 @@ jobs:
             -DDIAG_SKIP_CODEGEN=ON \
             "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.conf;${GITHUB_WORKSPACE}/EDS/examples/basic_ecu_doip/boards/frdm_mcxn947/frdm_mcxn947_doip.conf" \
             "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay"
-          test -f build-doip/zephyr/zephyr.hex
+          test -f build-doip/zephyr/zephyr.elf
 
       - name: Verify the NVM partition is wired on every example (EDS#643)
         run: |
