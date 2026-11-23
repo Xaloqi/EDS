@@ -231,6 +231,7 @@ uds_status_t uds_session_tick_1ms(uds_session_ctx_t *ctx)
     return UDS_STATUS_OK;
 }
 
+#if defined(EDS_TEST_HOOKS)
 bool uds_session_is_default(const uds_session_ctx_t *ctx)
 {
     if (ctx == NULL) {
@@ -244,6 +245,7 @@ bool uds_session_is_default(const uds_session_ctx_t *ctx)
 
     return (ctx->active_session == UDS_SESSION_DEFAULT);
 }
+#endif /* EDS_TEST_HOOKS */
 
 uds_status_t uds_session_set_strict_programming(
     uds_session_ctx_t *ctx,

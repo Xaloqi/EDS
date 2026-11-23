@@ -549,6 +549,7 @@ uds_status_t isotp_transmit_uudt(
  */
 uds_status_t isotp_tick_1ms(isotp_ctx_t *ctx);
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Reset BOTH directions of the ISO-TP channel to IDLE state.
  *
@@ -569,6 +570,7 @@ uds_status_t isotp_tick_1ms(isotp_ctx_t *ctx);
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if ctx is not initialized.
  */
 uds_status_t isotp_reset(isotp_ctx_t *ctx);
+#endif /* EDS_TEST_HOOKS */
 
 /**
  * @brief [#132] Reset ONLY the receive direction to IDLE state.

@@ -217,6 +217,7 @@ const uds_safety_ctx_t *uds_safety_get_ctx(void);
  */
 void uds_safety_record_platform_violation(uds_status_t code);
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Reset violation counters (for test harnesses only).
  *
@@ -227,6 +228,7 @@ void uds_safety_record_platform_violation(uds_status_t code);
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if module not initialized.
  */
 uds_status_t uds_safety_reset_counters(void);
+#endif /* EDS_TEST_HOOKS */
 
 /* =============================================================================
  * Public API — NULL pointer checks
@@ -287,6 +289,7 @@ uds_safety_result_t uds_safety_validate_session(
     uds_session_type_t       required
 );
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Check whether the active session permits a specific service.
  *
@@ -305,6 +308,7 @@ uds_safety_result_t uds_safety_check_service_in_session(
     const uds_session_ctx_t *session_ctx,
     uint8_t                  service_id
 );
+#endif /* EDS_TEST_HOOKS */
 
 /* =============================================================================
  * Public API — DID access control

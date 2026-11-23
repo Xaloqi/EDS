@@ -18,6 +18,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **A production build no longer exports the 12 accessors that only tests call** (#599). `isotp_reset`,
+  `uds_safety_reset_counters`, `uds_safety_check_service_in_session`, `uds_security_algo_get_sequence`,
+  `uds_security_algo_derive_key`, `uds_server_get_counters`, `uds_server_pending_active`, `uds_session_is_default` and
+  `uds_session_stats_init/_on_change/_record_security/_get` are declared and defined only under `EDS_TEST_HOOKS`.
+  `build_tests.sh`, `build_harness.sh`, `tests/CMakeLists.txt` and the TSan script define it; no Kconfig symbol does,
+  and it is separate from `UNIT_TEST`. Of these, `uds_security_algo_derive_key` returns the valid key for any seed at
+  any level, so code that could call it minted keys without the 0x27 handshake, its attempt counter and its lockout.
+  Rule 8.7 deviation record DEV-ACCS-03 is deleted (the MISRA gate stays at 0 open). **Integration change:** an
+  application that calls one of these must define `EDS_TEST_HOOKS` itself; none is documented for it. Fail-first:
+  `scripts/verify_no_test_hooks.py` finds all 12 exported and declared on `main` and none after, and still finds all 12
+  with the macro (CI job `unit-tests`). Not decided here: `uds_safety_check_service_in_session` and the session
+  statistics have no production caller (see #599).
 - **README board rows from the FRDM-MCXN947 bench** (taken over from #642). Where cells passed on 2026-11-22 (board
   700-90818 A1, v1.30.0, Zephyr v3.7.0): `basic_ecu` (UDS and ISO-TP conformance vectors, 4000-byte burst, P2 timing
   over CAN at 500 kbit/s), `basic_ecu_doip` (Pro campaign 8/8 over DoIP, bench build with a test random generator and

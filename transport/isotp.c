@@ -954,6 +954,7 @@ uds_status_t isotp_tick_1ms(isotp_ctx_t *ctx)
  * which is already the behaviour after a full isotp_reset().
  */
 
+#if defined(EDS_TEST_HOOKS)
 uds_status_t isotp_reset(isotp_ctx_t *ctx)
 {
     if (ctx == NULL) {
@@ -975,6 +976,7 @@ uds_status_t isotp_reset(isotp_ctx_t *ctx)
 
     return UDS_STATUS_OK;
 }
+#endif /* EDS_TEST_HOOKS */
 
 uds_status_t isotp_reset_rx(isotp_ctx_t *ctx)
 {

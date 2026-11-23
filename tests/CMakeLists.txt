@@ -145,6 +145,7 @@ set(TEST_MOCKS_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/mocks")
 # the same way build_tests.sh applies its CFLAGS to every gcc invocation.
 #
 #   UNIT_TEST=1                  activates test-only resets/hooks
+#   EDS_TEST_HOOKS=1             compiles the 12 test-only accessors (EDS#599)
 #   NVM_STORE_HOST_MOCK=1        substitutes a malloc-backed NVM store for
 #                                 the Zephyr flash driver
 #   ISOTP_ENABLE_CAN_FD=1        enables CAN FD ISO-TP paths (test_isotp_canfd)
@@ -161,6 +162,7 @@ set(TEST_MOCKS_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/mocks")
 # ---------------------------------------------------------------------------
 add_compile_definitions(
     UNIT_TEST=1
+    EDS_TEST_HOOKS=1             # [EDS#599] the test-only accessors
     NVM_STORE_HOST_MOCK=1
     ISOTP_ENABLE_CAN_FD=1
     ISOTP_TX_PADDING=1

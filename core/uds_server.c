@@ -337,6 +337,7 @@ uds_status_t uds_server_build_negative_response(
     return UDS_STATUS_OK;
 }
 
+#if defined(EDS_TEST_HOOKS)
 uds_status_t uds_server_get_counters(
     const uds_server_ctx_t *ctx,
     uint32_t               *out_request_count,
@@ -355,6 +356,7 @@ uds_status_t uds_server_get_counters(
 
     return UDS_STATUS_OK;
 }
+#endif /* EDS_TEST_HOOKS */
 
 uds_status_t uds_server_take_pending_reset(uds_server_ctx_t *ctx,
                                            uint8_t          *out_reset_type)
@@ -468,10 +470,12 @@ void uds_server_frame_sent(uds_server_ctx_t *ctx)
     }
 }
 
+#if defined(EDS_TEST_HOOKS)
 bool uds_server_pending_active(const uds_server_ctx_t *ctx)
 {
     return (ctx != NULL) && ctx->pending.active;
 }
+#endif /* EDS_TEST_HOOKS */
 
 void uds_server_pending_abort(uds_server_ctx_t *ctx)
 {

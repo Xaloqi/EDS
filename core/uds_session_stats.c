@@ -19,6 +19,7 @@ static bool                s_initialized = false;
 static nvm_session_stats_t s_stats;
 static bool                s_dirty = false;  /* true = RAM ahead of NVM */
 
+#if defined(EDS_TEST_HOOKS)
 uds_status_t uds_session_stats_init(void)
 {
     size_t       bytes_read;
@@ -65,7 +66,9 @@ uds_status_t uds_session_stats_init(void)
     s_initialized = true;
     return UDS_STATUS_OK;
 }
+#endif /* EDS_TEST_HOOKS */
 
+#if defined(EDS_TEST_HOOKS)
 void uds_session_stats_on_change(
     uds_session_type_t old_session,
     uds_session_type_t new_session)
@@ -89,7 +92,9 @@ void uds_session_stats_on_change(
             break; /* DEFAULT and SAFETY_SYSTEM not separately counted. */
     }
 }
+#endif /* EDS_TEST_HOOKS */
 
+#if defined(EDS_TEST_HOOKS)
 void uds_session_stats_record_security(bool was_unlock)
 {
     if (!s_initialized) {
@@ -103,6 +108,7 @@ void uds_session_stats_record_security(bool was_unlock)
     }
     s_dirty = true;
 }
+#endif /* EDS_TEST_HOOKS */
 
 uds_status_t uds_session_stats_flush(void)
 {
@@ -131,6 +137,7 @@ uds_status_t uds_session_stats_flush(void)
     return rc;
 }
 
+#if defined(EDS_TEST_HOOKS)
 uds_status_t uds_session_stats_get(nvm_session_stats_t *out_stats)
 {
     if (out_stats == NULL) {
@@ -144,6 +151,7 @@ uds_status_t uds_session_stats_get(nvm_session_stats_t *out_stats)
     *out_stats = s_stats;
     return UDS_STATUS_OK;
 }
+#endif /* EDS_TEST_HOOKS */
 
 /* Test-only reset function */
 void uds_session_stats_test_reset(void)

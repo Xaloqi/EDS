@@ -105,6 +105,11 @@ Target branch for pull requests: `main`.
 - **Unit test:** Every new module in `core/` or `transport/` needs a corresponding
   `tests/unit_runnable/test_<module>.c`. New service handlers need both a unit test
   and an entry in `tests/CMakeLists.txt`.
+- **Test-only functions:** A function that only `tests/` calls (a reset, a read accessor)
+  is declared and defined under `#if defined(EDS_TEST_HOOKS)`, so a production build does
+  not export it. The test and harness builds define the macro; no Kconfig or production
+  build does. It is separate from `UNIT_TEST`. `scripts/verify_no_test_hooks.py` lists the
+  current ones; add a new one there.
 - **SPDX header** on every new file:
   - Runtime stack: `// SPDX-License-Identifier: GPL-2.0-only`
   - Examples: `// SPDX-License-Identifier: Apache-2.0`

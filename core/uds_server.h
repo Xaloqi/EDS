@@ -334,6 +334,7 @@ uds_status_t uds_server_build_negative_response(
     uds_msg_buf_t *resp
 );
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Return current server diagnostic counters.
  *
@@ -349,6 +350,7 @@ uds_status_t uds_server_get_counters(
     uint32_t               *out_request_count,
     uint32_t               *out_neg_response_count
 );
+#endif /* EDS_TEST_HOOKS */
 
 /**
  * @brief [EDS#434] Take the reset a 0x11 ECUReset left pending, and clear it.
@@ -427,8 +429,10 @@ uds_poll_result_t uds_server_poll(uds_server_ctx_t *ctx,
  */
 void uds_server_frame_sent(uds_server_ctx_t *ctx);
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /** @brief [EDS#282] True while a job is pending (or its final frame owed). */
 bool uds_server_pending_active(const uds_server_ctx_t *ctx);
+#endif /* EDS_TEST_HOOKS */
 
 /**
  * @brief [EDS#282] Abort the pending job, if any: call its abort once and

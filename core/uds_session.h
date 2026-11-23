@@ -151,10 +151,12 @@ uds_status_t uds_session_reset_s3_timer(uds_session_ctx_t *ctx);
  */
 uds_status_t uds_session_tick_1ms(uds_session_ctx_t *ctx);
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Check if the active session is the default session.
  */
 bool uds_session_is_default(const uds_session_ctx_t *ctx);
+#endif /* EDS_TEST_HOOKS */
 
 /**
  * @brief Enable or disable strict programming session gate.

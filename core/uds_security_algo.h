@@ -347,10 +347,12 @@ uds_status_t uds_security_algo_set_level_key(
  */
 void uds_security_algo_reset(void);
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Return current sequence counter (for test validation).
  */
 uint16_t uds_security_algo_get_sequence(void);
+#endif /* EDS_TEST_HOOKS */
 
 /**
  * @brief [HIGH-2 FIX] Return the number of TRNG call failures observed.
@@ -483,6 +485,7 @@ bool uds_security_algo_validate_key(
  * Key derivation helper (tester-side tools and unit tests)
  * -------------------------------------------------------------------------- */
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Derive the expected key from seed and security level.
  *
@@ -500,6 +503,7 @@ uds_status_t uds_security_algo_derive_key(
     uint8_t        security_level,
     const uint8_t *seed,
     uint8_t       *key_out);
+#endif /* EDS_TEST_HOOKS */
 
 #ifdef __cplusplus
 }

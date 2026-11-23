@@ -129,6 +129,8 @@ CFLAGS=(
     "-Wno-unused-parameter"
     # Activate test-only hooks
     "-DUNIT_TEST=1"
+    # Compile the test-only accessors (EDS#599); a production build defines neither
+    "-DEDS_TEST_HOOKS=1"
     "-DNVM_STORE_HOST_MOCK=1"
     # Enable CAN FD ISO-TP paths so the test_isotp_canfd suite runs.
     # Production integrators set this flag themselves when FD is needed.
