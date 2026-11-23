@@ -186,12 +186,10 @@ target_sources(app PRIVATE
     ${DIAG_GENERATED_DIR}/routine_handlers.c
 )
 
-# NVM store — mock on native_sim, real NVS on hardware
-if(CONFIG_BOARD_NATIVE_SIM)
-    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
-else()
-    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store.c)
-endif()
+# NVM store: RAM mock on native_sim; on hardware the board's diag_nvs partition,
+# append backend where NVS cannot mount (EDS#643, cmake/eds_nvm_backend.cmake)
+include(${DIAG_ROOT}/cmake/eds_nvm_backend.cmake)
+eds_select_nvm_backend(app ${DIAG_ROOT})
 
 if(NOT DIAG_SKIP_CODEGEN AND TARGET run_codegen)
     add_dependencies(app run_codegen)

@@ -265,6 +265,7 @@ CFLAGS=(
     # Preprocessor defines
     "-DNVM_STORE_HOST_MOCK=1"
     "-DUNIT_TEST=1"
+    "-DEDS_TEST_HOOKS=1"   # [EDS#599] test-only accessors
     # Suppress the uds_msg_buf_t _Static_assert: harness runs on the host
     # with a large process stack. The guard is for embedded targets only.
     "-DEDS_MSG_BUF_MAX_STACK_BYTES=8192"

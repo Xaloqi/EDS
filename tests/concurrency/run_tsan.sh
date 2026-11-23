@@ -20,7 +20,7 @@ SRCS=$(sed -n '/^STACK_SRCS=(/,/^)/p' "$ROOT/build_tests.sh" | grep -o '\${ROOT}
 INC="-I$ROOT/core -I$ROOT/core/uds_services -I$ROOT/transport -I$ROOT/config -I$ROOT/platform \
      -I$ROOT/platform/zephyr -I$ROOT/examples/basic_ecu/generated -I$ROOT/project/unity \
      -I$ROOT/tests/runner -I$ROOT/tests/mocks -I$ROOT/transport/doip"
-CFLAGS="-std=gnu11 -g -O1 -fsanitize=thread -DUNIT_TEST=1 -DNVM_STORE_HOST_MOCK=1 \
+CFLAGS="-std=gnu11 -g -O1 -fsanitize=thread -DUNIT_TEST=1 -DEDS_TEST_HOOKS=1 -DNVM_STORE_HOST_MOCK=1 \
         -DZTEST_HOST_SHIM=1 -DEDS_MSG_BUF_MAX_STACK_BYTES=8192 -include $ROOT/tests/runner/ztest_shim.h"
 
 fail=0

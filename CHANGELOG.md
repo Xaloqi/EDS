@@ -18,11 +18,45 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **`canfd_ecu`, `sensor_ecu`, `bms_ecu` and `motor_controller_ecu` get an NVM partition on hardware** (#643). On a board
+  they called `nvm_store_init(NULL)`, which the NVS backend rejects, so the boot log said `NVM store init failed` and the
+  DTC mirror and the SecurityAccess counters lived in RAM. They now call `eds_nvm_init_diag_nvs()`
+  (`platform/zephyr/eds_nvm_diag_nvs.c`), which opens the board overlay's `diag_nvs` partition;
+  `cmake/eds_nvm_backend.cmake` links the append backend on NUCLEO-H743ZI/H753ZI and FRDM-MCXN947 (where NVS cannot
+  mount, #504, #640) and NVS elsewhere, as `basic_ecu` does. native_sim keeps the RAM mock; MR-CANHUBK3 on Zephyr 3.7.0
+  keeps no partition (no flash driver there). Fail-first: `scripts/verify_hw_nvm_wiring.py` fails on all four built from
+  `main` and passes after; `ci.yml` builds them for NUCLEO-H743ZI and FRDM-MCXN947 and runs it. Built for NUCLEO-H743ZI,
+  NUCLEO-H753ZI and FRDM-MCXN947 on Zephyr 3.7.0 and for FRDM-MCXN947 and MR-CANHUBK3 on 4.4.1; `sensor_ecu` does not
+  build for the FRDM board on 3.7.0 (#645, upstream). **Not run on hardware.**
+- **`basic_ecu_doip` uses real flash on the NUCLEO-H753ZI and the FRDM-MCXN947** (#408). The DTC mirror and the
+  SecurityAccess counters go to the board's `diag_nvs` partition (append backend) and survive a reset. The watchdog is
+  now armed before the store opens, so the backend can feed it across a 128 KB bank erase. The NUCLEO-H753ZI build takes
+  `boards/nucleo_h753zi/nucleo_h753zi.overlay` as `DTC_OVERLAY_FILE` for the partition table; the FRDM-MCXN947 has a new
+  `frdm_mcxn947_doip.conf` for its on-board Ethernet. `-DDIAG_USE_MOCK_NVM=ON` keeps the RAM mock on any board, and
+  native_sim still uses it. The weekly job's `basic_ecu_doip_nucleo_h753zi_nvs` row built NVS with a NULL config; it is
+  now `..._flash`, the real configuration. **Not run on hardware:** a DTC set before a real reset reading back after it,
+  and a first-boot erase without a reset loop, are the checks that remain.
+- **The weekly Zephyr job also builds against Zephyr v4.5.0** (the latest release; policy: "current stable"). The
+  workflow runs one leg per ref (`main`, `v4.5.0`), each with its own concurrency group, log artifact and tracking
+  issue ("EDS breaks against Zephyr <ref>"); every row of `builds.tsv` is built on both. A manual run with no
+  `zephyr_rev` runs both legs. `ci.yml` stays the gate on Zephyr 3.7.
+- **A production build no longer exports the 12 accessors that only tests call** (#599). `isotp_reset`,
+  `uds_safety_reset_counters`, `uds_safety_check_service_in_session`, `uds_security_algo_get_sequence`,
+  `uds_security_algo_derive_key`, `uds_server_get_counters`, `uds_server_pending_active`, `uds_session_is_default` and
+  `uds_session_stats_init/_on_change/_record_security/_get` are declared and defined only under `EDS_TEST_HOOKS`.
+  `build_tests.sh`, `build_harness.sh`, `tests/CMakeLists.txt` and the TSan script define it; no Kconfig symbol does,
+  and it is separate from `UNIT_TEST`. Of these, `uds_security_algo_derive_key` returns the valid key for any seed at
+  any level, so code that could call it minted keys without the 0x27 handshake, its attempt counter and its lockout.
+  Rule 8.7 deviation record DEV-ACCS-03 is deleted (the MISRA gate stays at 0 open). **Integration change:** an
+  application that calls one of these must define `EDS_TEST_HOOKS` itself; none is documented for it. Fail-first:
+  `scripts/verify_no_test_hooks.py` finds all 12 exported and declared on `main` and none after, and still finds all 12
+  with the macro (CI job `unit-tests`). Not decided here: `uds_safety_check_service_in_session` and the session
+  statistics have no production caller (see #599).
 - **README board rows from the FRDM-MCXN947 bench** (taken over from #642). Where cells passed on 2026-11-22 (board
   700-90818 A1, v1.30.0, Zephyr v3.7.0): `basic_ecu` (UDS and ISO-TP conformance vectors, 4000-byte burst, P2 timing
   over CAN at 500 kbit/s), `basic_ecu_doip` (Pro campaign 8/8 over DoIP, bench build with a test random generator and
-  mock NVM) and `canfd_ecu` (one CAN FD frame with BRS). The `basic_ecu` row says NVM persistence does not work on the
-  board yet: the fix is in this release but has not run on hardware. NXP MCX is described as industrial.
+  mock NVM) and `canfd_ecu` (one CAN FD frame with BRS). The `basic_ecu` row says DTCs survive an ECU reset on the
+  board: the DTC persistence cells passed there on 2026-11-23 (KB#412). NXP MCX is described as industrial.
 
 ### Fixed
 
@@ -48,7 +82,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   and the `basic_ecu` CMake comment no longer say NVS works there. Fail-first: the permanent-DTC smoke on a flash
   simulator with a 128-byte write block (new `native_sim_bench_nvs_wb128.overlay`, new steps in the
   `example-robot-permanent-dtc` job) fails at 14 FF FF FF on NVS and passes on the append backend; host tests TC-009 to
-  TC-011 (the mock now rejects writes that are not whole write blocks, as flash drivers do). Hardware: rerun pending.
+  TC-011 (the mock now rejects writes that are not whole write blocks, as flash drivers do).
+  Hardware (FRDM-MCXN947, 2026-11-23, KB#412): the rerun passed. `basic_ecu` mounts the append backend with no
+  `fs_nvs` error, 0x14 answers OK (TestLab `core_validation` 8/8, first run 7/8), and a confirmed DTC is restored after `11 01`.
 - **`e2e_isotp_burst.py` waits and retries when the transmit queue is full** (#641). On a CANable run by `slcand`, `can0`
   has a 10-frame queue and the 4000-byte request is about 570 back-to-back frames, so round 1 died on the tester with
   `No buffer space available`; the ECU was not involved. The script retries a refused frame (ENOBUFS) for up to 2 s, and

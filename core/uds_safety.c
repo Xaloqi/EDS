@@ -256,6 +256,7 @@ void uds_safety_record_platform_violation(uds_status_t code)
     }
 }
 
+#if defined(EDS_TEST_HOOKS)
 uds_status_t uds_safety_reset_counters(void)
 {
     /*
@@ -276,6 +277,7 @@ uds_status_t uds_safety_reset_counters(void)
 
     return UDS_STATUS_OK;
 }
+#endif /* EDS_TEST_HOOKS */
 
 /* =============================================================================
  * NULL pointer checks (REQ-SAFE-004)
@@ -359,6 +361,7 @@ uds_safety_result_t uds_safety_validate_session(
 #endif
 }
 
+#if defined(EDS_TEST_HOOKS)
 uds_safety_result_t uds_safety_check_service_in_session(
     const uds_session_ctx_t *session_ctx,
     uint8_t                  service_id)
@@ -412,6 +415,7 @@ uds_safety_result_t uds_safety_check_service_in_session(
 
     return uds_safety_validate_session(session_ctx, required_session);
 }
+#endif /* EDS_TEST_HOOKS */
 
 /* =============================================================================
  * DID access control (REQ-SAFE-001, REQ-SAFE-003)

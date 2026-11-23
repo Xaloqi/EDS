@@ -645,10 +645,12 @@ void uds_security_algo_reset(void)
     s_placeholder_keys[1] = true;
 }
 
+#if defined(EDS_TEST_HOOKS)
 uint16_t uds_security_algo_get_sequence(void)
 {
     return s_sequence;
 }
+#endif /* EDS_TEST_HOOKS */
 
 /**
  * [HIGH-2 FIX] Return the TRNG fallback count.
@@ -833,6 +835,7 @@ bool uds_security_algo_keys_are_placeholder(void)
     return false;
 }
 
+#if defined(EDS_TEST_HOOKS)
 uds_status_t uds_security_algo_derive_key(
     uint8_t        security_level,
     const uint8_t *seed,
@@ -854,3 +857,4 @@ uds_status_t uds_security_algo_derive_key(
 
     return algo_derive_cmac(level_idx, seed, key_out);
 }
+#endif /* EDS_TEST_HOOKS */

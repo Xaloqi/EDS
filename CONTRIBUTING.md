@@ -105,6 +105,11 @@ Target branch for pull requests: `main`.
 - **Unit test:** Every new module in `core/` or `transport/` needs a corresponding
   `tests/unit_runnable/test_<module>.c`. New service handlers need both a unit test
   and an entry in `tests/CMakeLists.txt`.
+- **Test-only functions:** A function that only `tests/` calls (a reset, a read accessor)
+  is declared and defined under `#if defined(EDS_TEST_HOOKS)`, so a production build does
+  not export it. The test and harness builds define the macro; no Kconfig or production
+  build does. It is separate from `UNIT_TEST`. `scripts/verify_no_test_hooks.py` lists the
+  current ones; add a new one there.
 - **SPDX header** on every new file:
   - Runtime stack: `// SPDX-License-Identifier: GPL-2.0-only`
   - Examples: `// SPDX-License-Identifier: Apache-2.0`
@@ -158,8 +163,13 @@ row** passes, so the list must stay current:
   the two disagree, on purpose: a job that silently built fewer things would look green.
 - **A row fails against `main`:** that is an upstream change reaching EDS. Fix EDS (or file an
   issue); do not add `-Wno-error` to a row.
+- **Two Zephyr refs:** every row is built against `main` and against the latest Zephyr release
+  (`v4.5.0`, the version policy's "current stable"), one workflow leg each, with its own tracking
+  issue. When Zephyr tags a new stable release, change `v4.5.0` in both `matrix.zrev` lists of the
+  workflow. A row that fails only on the release is a finding about the version EDS says it
+  supports: file it.
 - **Run it by hand:** Actions > "zephyr main weekly" > Run workflow, optionally with a `zephyr_rev`
-  (a Zephyr 4.4 or newer ref; the job needs SDK 1.x).
+  (a Zephyr 4.4 or newer ref; the job needs SDK 1.x). Empty runs both legs.
 
 ### 5. Pull request checklist
 

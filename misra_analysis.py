@@ -1560,47 +1560,6 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
         "approved_by": "Xaloqi engineering review",
         "date":        "2026-11-12",
     },
-    {
-        "id":          "DEV-ACCS-03",
-        "rule":        "8.7",
-        "category":    "advisory",
-        "description": "External linkage for internal accessors that only the unit tests call",
-        "rationale":   (
-            "The functions listed in `symbols` are not documented for the application to "
-            "call and have no caller in generated, example, platform or core code: only "
-            "tests/ use them (cross-file, as the stack is linked as a library there). They "
-            "have external linkage because the tests need it. This is a deviation to be "
-            "removed, not an architectural boundary: the follow-up is to compile them only "
-            "under a test-hooks macro (EDS#599), after which this record is deleted. "
-            "[EDS#583] "
-            "Risk: LOW — each is a read accessor or reset, but a production build still "
-            "exports it; see the issue for the two that touch SecurityAccess state."
-        ),
-        "files":       [
-            "core/uds_safety.c",
-            "core/uds_security_algo.c",
-            "core/uds_server.c",
-            "core/uds_session.c",
-            "core/uds_session_stats.c",
-            "transport/isotp.c",
-        ],
-        "symbols":     [
-            "isotp_reset",
-            "uds_safety_check_service_in_session",
-            "uds_safety_reset_counters",
-            "uds_security_algo_derive_key",
-            "uds_security_algo_get_sequence",
-            "uds_server_get_counters",
-            "uds_server_pending_active",
-            "uds_session_is_default",
-            "uds_session_stats_get",
-            "uds_session_stats_init",
-            "uds_session_stats_on_change",
-            "uds_session_stats_record_security",
-        ],
-        "approved_by": "Xaloqi engineering review",
-        "date":        "2026-11-12",
-    },
 ]
 
 # =============================================================================

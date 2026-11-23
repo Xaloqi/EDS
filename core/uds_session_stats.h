@@ -34,6 +34,7 @@
 extern "C" {
 #endif
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Initialize the session statistics module.
  *
@@ -44,7 +45,9 @@ extern "C" {
  * @return UDS_STATUS_ERR_ALREADY_INITIALIZED if already initialized.
  */
 uds_status_t uds_session_stats_init(void);
+#endif /* EDS_TEST_HOOKS */
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Session change callback — update statistics on transition.
  *
@@ -57,13 +60,16 @@ uds_status_t uds_session_stats_init(void);
 void uds_session_stats_on_change(
     uds_session_type_t old_session,
     uds_session_type_t new_session);
+#endif /* EDS_TEST_HOOKS */
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Record a security event in the statistics.
  *
  * @param[in] was_unlock  true = successful unlock, false = lockout triggered.
  */
 void uds_session_stats_record_security(bool was_unlock);
+#endif /* EDS_TEST_HOOKS */
 
 /**
  * @brief Flush session statistics to NVM.
@@ -75,6 +81,7 @@ void uds_session_stats_record_security(bool was_unlock);
  */
 uds_status_t uds_session_stats_flush(void);
 
+#if defined(EDS_TEST_HOOKS)   /* EDS#599: test-only, absent from a production build */
 /**
  * @brief Read the current session statistics (live RAM copy).
  *
@@ -85,6 +92,7 @@ uds_status_t uds_session_stats_flush(void);
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if not initialized.
  */
 uds_status_t uds_session_stats_get(nvm_session_stats_t *out_stats);
+#endif /* EDS_TEST_HOOKS */
 
 #ifdef __cplusplus
 }

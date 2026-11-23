@@ -93,6 +93,7 @@
 #include "bench_slow_routine.h"   /* [EDS#282] bench slow routine */
 #endif
 #include "nvm_store.h"
+#include "eds_nvm_diag_nvs.h"
 #if defined(DIAG_WCET_MEASURE)
 #include "zephyr_wcet.h"     /* [#31] see header comment */
 #endif
@@ -284,18 +285,42 @@ int main(void)
     (void)uds_security_algo_set_rng_cb(NULL);
 
     /*
+     * [EDS#408] Arm the watchdog before the NVM store opens. On the append
+     * backend nvm_store_init() may erase a 128 KB bank (up to 4 s on STM32H7)
+     * on first boot or at compaction; the backend feeds the watchdog across
+     * that erase (nvm_store_append_set_wdt, called by eds_nvm_init_diag_nvs()),
+     * but only a watchdog that is armed and registered can be fed. Fail closed:
+     * Zephyr's boot-time arming is off (boards/nucleo_h753zi/
+     * nucleo_h753zi_doip.conf), so ignoring a failure here would run
+     * unsupervised while appearing supervised (EDS#306's class). On native_sim
+     * (CONFIG_WATCHDOG=n) this returns OK in degraded mode. From here on, a
+     * `return -1` leaves no DoIP check-ins and ends in a watchdog reset on
+     * hardware. The window is kept by the feeds after the NVM and UDS init
+     * below, then by the tick task.
+     */
+    if (diag_wdt_init(&s_wdt) != UDS_STATUS_OK) {
+        LOG_ERR("Watchdog arming failed — refusing to run unsupervised.");
+        return -1;
+    }
+#if defined(DIAG_DOIP_FLASH_BENCH)
+    /* [EDS#423] Feed across each bounded erase step (#312). */
+    zephyr_flash_ops_set_wdt(&s_wdt);
+#endif
+
+    /*
      * [EDS#200] Must run before uds_generated_init() (dtc_mirror_init() at
      * Step 3.5 sits on top of nvm_store and silently no-ops until this
-     * succeeds). This example only targets native_sim, where
-     * platform/zephyr/nvm_store_mock.c (RAM-backed) is linked instead of
-     * the real NVS backend — its nvm_store_init() ignores cfg entirely, so
-     * NULL is correct here (see nvm_store.h: "may be NULL on host").
+     * succeeds). eds_nvm_init_diag_nvs() resolves the board's diag_nvs
+     * partition on hardware (append backend: STM32H7, MCX N947; EDS#408) and
+     * is nvm_store_init(NULL) on native_sim and with -DDIAG_USE_MOCK_NVM=ON,
+     * where the RAM mock ignores cfg.
      */
-    status = nvm_store_init(NULL);
+    status = eds_nvm_init_diag_nvs(&s_wdt);
     if (status != UDS_STATUS_OK) {
         LOG_ERR("NVM store init failed: 0x%02X — DTC mirror will not "
                 "survive reset this run.", (unsigned)status);
     }
+    (void)diag_wdt_feed(&s_wdt);
 
     /*
      * UDS stack init — DoIP build passes NULL for the CAN transport
@@ -324,6 +349,7 @@ int main(void)
         LOG_ERR("UDS stack init failed: 0x%02X", (unsigned)status);
         return -1;
     }
+    (void)diag_wdt_feed(&s_wdt);   /* [EDS#408] the tick task, the first feeder, starts below */
 
 #if defined(DIAG_BENCH_SLOW_ROUTINE)
     /* [EDS#282] Bench only: RID 0xF0F0 answers 0x78 (bench_slow_routine.h);
@@ -359,26 +385,6 @@ int main(void)
     eds_doip_set_lock_callbacks(doip_lock_cb, doip_unlock_cb);
     eds_doip_set_checkin_callback(doip_checkin_cb);   /* [EDS#399] */
 
-
-    /*
-     * [EDS#399] Arm the watchdog here, immediately before its only feeder
-     * starts. Not earlier: on this example's NVS backend, nvm_store_init()
-     * above may erase a flash sector, which can block far past the 100 ms
-     * window, and there is no feeder yet. Fail closed: Zephyr's boot-time
-     * arming is off (boards/nucleo_h753zi/nucleo_h753zi_doip.conf), so
-     * ignoring a failure here would run unsupervised while appearing
-     * supervised (EDS#306's class). On native_sim (CONFIG_WATCHDOG=n) this
-     * returns OK in degraded mode. From here on, a `return -1` leaves no
-     * DoIP check-ins and ends in a watchdog reset on hardware.
-     */
-    if (diag_wdt_init(&s_wdt) != UDS_STATUS_OK) {
-        LOG_ERR("Watchdog arming failed — refusing to run unsupervised.");
-        return -1;
-    }
-#if defined(DIAG_DOIP_FLASH_BENCH)
-    /* [EDS#423] Feed across each bounded erase step (#312). */
-    zephyr_flash_ops_set_wdt(&s_wdt);
-#endif
 
     /*
      * [EDS#191] Start the 1 ms UDS tick task before the DoIP server so
