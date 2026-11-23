@@ -1,19 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Weekly, REPORT-ONLY: build representative EDS examples against Zephyr `main` with
-# CONFIG_COMPILER_WARNINGS_AS_ERRORS=y.
+# Weekly, REPORT-ONLY: build representative EDS examples against Zephyr `main` and against the
+# latest Zephyr release (matrix below) with CONFIG_COMPILER_WARNINGS_AS_ERRORS=y.
 #
 # ci.yml (Zephyr 3.7, west.yml's pin) stays the gate. This job exists so that we, not a customer
 # on the next Zephyr release, are first to see an upstream deprecation or removal break EDS. It
 # deliberately has no pull_request or push trigger: `main` moves, and a PR made red by upstream
 # churn would teach everyone to ignore red.
 #
+# Two Zephyr refs, one leg each: `main` (watched, not supported) and the latest release, which
+# docs/ and the version policy call "checked by CI" (EDS#408 batch; xaloqi-knowledge
+# products/eds-zephyr-version-policy.md). When Zephyr tags a new stable release, change the
+# release entry (`v4.5.0`) of both `matrix.zrev` lists below. Each leg has its own tracking issue ("EDS breaks against Zephyr
+# <ref>"), so a break that only `main` has does not hide behind the release leg, or the reverse.
+#
 # Pass = every row of .github/zephyr-main/builds.tsv has a PASS line, plus the deprecation sweep
 # (EDS#524), and the row count equals EXPECT_ROWS below (check-results.py). A missing, failed or
 # skipped row fails the job. Adding or removing a build: edit builds.tsv AND EXPECT_ROWS, see
 # CONTRIBUTING.md "Weekly build against Zephyr main".
 #
-# Zephyr is fetched at `zephyr_rev` (default main) through a manifest generated from west.yml
+# Zephyr is fetched at the leg's ref (a manual run takes `zephyr_rev`, empty = both legs) through a manifest generated from west.yml
 # with ONLY Zephyr's revision replaced and the module import narrowed; the SDK is the one that
 # tree's SDK_VERSION names, verified against the release's own sha256.sum. Needs SDK 1.x (Zephyr
 # 4.4 or newer); the exact SHA and SDK are in the job summary.
@@ -29,15 +35,14 @@ on:
   workflow_dispatch:
     inputs:
       zephyr_rev:
-        description: "Zephyr ref to test (default: main)"
-        default: main
+        description: "Zephyr ref to test (empty: every leg, main and the latest release)"
+        default: ""
 permissions:
   contents: read
 defaults:
   run:
     shell: bash   # = bash -eo pipefail: a failing `check-results.py | tee` must fail the step
 env:
-  ZREV: ${{ inputs.zephyr_rev || 'main' }}
   OUT: ${{ github.workspace }}/ci-out
   # 18 builds/tests in builds.tsv + the deprecation sweep. Update together with builds.tsv.
   EXPECT_ROWS: "19"
@@ -52,8 +57,14 @@ jobs:
     # only exists there. Asserted below.
     runs-on: ubuntu-26.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        zrev: ${{ fromJSON(inputs.zephyr_rev && format('["{0}"]', inputs.zephyr_rev) || '["main","v4.5.0"]') }}
+    env:
+      ZREV: ${{ matrix.zrev }}
     concurrency:
-      group: zephyr-main-weekly-${{ github.ref }}
+      group: zephyr-main-weekly-${{ github.ref }}-${{ matrix.zrev }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,7 +123,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: zephyr-main-logs
+          name: zephyr-weekly-logs-${{ matrix.zrev }}
           path: ci-out/
           retention-days: 14
           if-no-files-found: warn
@@ -124,11 +135,15 @@ jobs:
     if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        zrev: ${{ fromJSON(inputs.zephyr_rev && format('["{0}"]', inputs.zephyr_rev) || '["main","v4.5.0"]') }}
     permissions:
       contents: read
       issues: write
     concurrency:
-      group: zephyr-main-weekly-report
+      group: zephyr-main-weekly-report-${{ matrix.zrev }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,7 +152,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
-          name: zephyr-main-logs
+          name: zephyr-weekly-logs-${{ matrix.zrev }}
           path: ci-out
       - name: Open, update or close the tracking issue
         env:
@@ -146,6 +161,7 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'schedule' && '0' || '1' }}
           JOB_RESULT: ${{ needs.main.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ZREV: ${{ matrix.zrev }}
         run: |
           if [ "$JOB_RESULT" = cancelled ] || [ "$JOB_RESULT" = skipped ]; then
             echo "job was $JOB_RESULT: no verdict, leaving the tracking issue alone"; exit 0

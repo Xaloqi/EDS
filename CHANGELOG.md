@@ -18,6 +18,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The weekly Zephyr job also builds against Zephyr v4.5.0** (the latest release; policy: "current stable"). The
+  workflow runs one leg per ref (`main`, `v4.5.0`), each with its own concurrency group, log artifact and tracking
+  issue ("EDS breaks against Zephyr <ref>"); every row of `builds.tsv` is built on both. A manual run with no
+  `zephyr_rev` runs both legs. `ci.yml` stays the gate on Zephyr 3.7.
 - **A production build no longer exports the 12 accessors that only tests call** (#599). `isotp_reset`,
   `uds_safety_reset_counters`, `uds_safety_check_service_in_session`, `uds_security_algo_get_sequence`,
   `uds_security_algo_derive_key`, `uds_server_get_counters`, `uds_server_pending_active`, `uds_session_is_default` and
