@@ -6,7 +6,7 @@ backend, which returns UDS_STATUS_ERR_NULL_PTR for a NULL config: the DTC mirror
 and the SecurityAccess counters then live in RAM only (EDS#643). That compiles,
 links and boots, so only the build's objects show it.
 
-Checks on a west build directory:
+Checks on a finished west build directory:
   * exactly the expected backend is linked: append -> nvm_store_append.c.obj,
     nvs -> nvm_store.c.obj, never both (--backend)
   * some app object references flash_get_page_info_by_offs (the syscall's
@@ -38,6 +38,8 @@ def main():
     args = ap.parse_args()
 
     build = pathlib.Path(args.build_dir)
+    if not (build / "zephyr" / "zephyr.elf").is_file():
+        sys.exit(f"FAIL: {build}/zephyr/zephyr.elf missing: the build did not finish")
     objs = sorted((build / "CMakeFiles" / "app.dir").rglob("*.obj"))
     if not objs:
         sys.exit(f"FAIL: no app objects under {build}/CMakeFiles/app.dir")
