@@ -14,14 +14,45 @@
  *
  *          This module:
  *            1. Loads the DTC mirror from NVM on boot (dtc_mirror_load).
- *            2. Saves the mirror to NVM on any status change (dtc_mirror_save).
- *            3. Provides a scheduled flush for bulk writes at service 0x14
- *               (ClearDiagnosticInformation) and ECU reset (0x11).
+ *            2. Writes a monitor-path status change to NVM within a bounded
+ *               delay (dtc_mirror_tick_1ms, see WHAT IS GUARANTEED).
+ *            3. Writes at once at service 0x14 (ClearDiagnosticInformation)
+ *               and before a controlled ECU reset (0x11).
  *
  *          Wire points:
  *            - dtc_mirror_load()        → called from uds_stack_init()
+ *            - dtc_mirror_tick_1ms()    → called from uds_server_tick_1ms()
  *            - dtc_mirror_save_one()    → called from SID 0x14 (single-DTC clear)
  *            - dtc_mirror_flush_all()   → called from zephyr_port_nvm_flush()
+ *
+ * WHAT IS GUARANTEED [EDS#632]:
+ *   - A dtc_database_set_status() call that changes ConfirmedDTC or
+ *     TestFailedSinceLastClear (DTC_PERSIST_TRIGGER_MASK) is written to NVM
+ *     by uds_server_tick_1ms() at most DTC_MIRROR_FLUSH_INTERVAL_MS after
+ *     the change, plus the time of one NVM write, provided the server is
+ *     ticked, the mirror is initialised and the NVM write succeeds. A power
+ *     loss, watchdog reset or reset pin inside that window loses that
+ *     change; after it, the change survives.
+ *   - A failed write is retried at the next interval; the change is not
+ *     dropped.
+ *   - 0x14 and the flush before a controlled reset (0x11) still write at
+ *     once.
+ *   - The other status bits are written with the whole byte at the next
+ *     write, but do not cause one. The permanent flag is not persisted, by
+ *     decision (EDS#580): the application marks a restored DTC permanent
+ *     again.
+ *   - Flash wear: at most one mirror write (the mirror record, then the
+ *     first/most recent records) per DTC_MIRROR_FLUSH_INTERVAL_MS, however
+ *     often the bits change. A conforming monitor sets ConfirmedDTC once
+ *     per fault and only 0x14 (or aging) clears it, so the real rate is
+ *     about one write per new fault. An application that clears and sets
+ *     the bits on every debounce cycle reaches the cap: size the NVM
+ *     partition for it or raise the interval.
+ *   - Time: the write runs in the thread that ticks the server, under the
+ *     integration's UDS locks, never in the caller of
+ *     dtc_database_set_status() (that only sets a flag under the DTC
+ *     lock). It costs what a 0x14 already costs: one NVM write, which can
+ *     include a sector erase when the NVM backend garbage-collects.
  *
  * WIRE FORMAT (NVM_KEY_DTC_MIRROR) — v1, integrity-checked (issue #114):
  *   [magic:2][version:1][count:2][entry_0:4]...[entry_n:4][crc32:4]
@@ -135,6 +166,16 @@ extern "C" {
                                   (DTC_MIRROR_MAX_PERSISTED_DTCS * DTC_MIRROR_ENTRY_BYTES) + \
                                   DTC_MIRROR_CRC_BYTES))
 
+/**
+ * [EDS#632] Longest time, in ms, a monitor-path change of a bit in
+ * DTC_PERSIST_TRIGGER_MASK waits before dtc_mirror_tick_1ms() writes it,
+ * and the shortest time between two such writes (the wear cap).
+ * Override with -DDTC_MIRROR_FLUSH_INTERVAL_MS=<ms> (at least 1).
+ */
+#ifndef DTC_MIRROR_FLUSH_INTERVAL_MS
+#define DTC_MIRROR_FLUSH_INTERVAL_MS  (1000U)
+#endif
+
 /* --------------------------------------------------------------------------
  * Public API
  * -------------------------------------------------------------------------- */
@@ -226,6 +267,15 @@ uds_status_t dtc_mirror_load(void);
 uds_status_t dtc_mirror_flush_all(void);
 
 /**
+ * @brief [EDS#632] Write a pending monitor-path status change to NVM within
+ *        DTC_MIRROR_FLUSH_INTERVAL_MS (see WHAT IS GUARANTEED above).
+ * Called by uds_server_tick_1ms() once per millisecond, so every integration
+ * that ticks the server gets it, under the same lock as the tick. Does
+ * nothing before dtc_mirror_init(), and nothing while no change is pending.
+ */
+void dtc_mirror_tick_1ms(void);
+
+/**
  * @brief Persist a single DTC status update to NVM immediately.
  *
  * Called by SID 0x14 after a single-DTC clear.
@@ -239,10 +289,9 @@ uds_status_t dtc_mirror_flush_all(void);
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if not initialized.
  * @return UDS_STATUS_ERR_PLATFORM if NVM write failed.
  *
- * @note PERFORMANCE: This writes the entire mirror on each status change.
- *       For high-frequency DTC events, consider debouncing via a dirty flag
- *       and periodic flush (see dtc_mirror_flush_all). For Phase 3 the
- *       eager write strategy is used for simplicity and data integrity.
+ * @note PERFORMANCE: This writes the entire mirror at once. It is for 0x14
+ *       only; monitor-path changes are rate-limited through
+ *       dtc_mirror_tick_1ms() instead [EDS#632].
  */
 uds_status_t dtc_mirror_save_one(uint32_t dtc_code, uint8_t status_byte);
 

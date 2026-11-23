@@ -313,7 +313,7 @@ status = dtc_mirror_init();
 uds_status_t mirror_rc = dtc_mirror_load();
 ```
 
-The NVM mirror (`config/dtc_mirror.c`) serialises all registered DTC status bytes into a single Zephyr NVS record. On boot, `dtc_mirror_load()` restores those bytes into the live DTC database before any diagnostic communication begins. `dtc_mirror_flush_all()` is called from `zephyr_port_nvm_flush()` before every ECU reset (SID 0x11).
+The NVM mirror (`config/dtc_mirror.c`) serialises all registered DTC status bytes into a single Zephyr NVS record. On boot, `dtc_mirror_load()` restores those bytes into the live DTC database before any diagnostic communication begins. `dtc_mirror_flush_all()` is called from `zephyr_port_nvm_flush()` before every ECU reset (SID 0x11). [EDS#632] Between resets, a change of ConfirmedDTC or TestFailedSinceLastClear made by a monitor (`dtc_database_set_status()`) is written by `uds_server_tick_1ms()` within `DTC_MIRROR_FLUSH_INTERVAL_MS` (default 1000 ms), so a power loss, watchdog reset or reset pin loses at most the changes of that window. `config/dtc_mirror.h` ("WHAT IS GUARANTEED") states the exact terms.
 
 ### Boot-time soft-degrade (first boot / flash erase)
 

@@ -180,7 +180,9 @@ unshare -rn bash -c 'ip link add zcan0 type vcan && ip link set zcan0 up &&
 `14 FF FF FF` (extended session) answers `54` and leaves it, an ECUReset restarts the ECU on the same
 `flash.bin`, the DTC is restored (the motor is cold again) and `14 FF FF FF` still leaves it.
 `--control` sets `EDS_BENCH_NO_PERMANENT=1` and expects the opposite: not in `0x19 0x15`, and
-`14 FF FF FF` clears it after the reboot. CI runs both (`example-robot-permanent-dtc`).
+`14 FF FF FF` clears it after the reboot. `--kill` kills the ECU two seconds after the DTC is confirmed, instead of
+`11 01`, as a power cut would (EDS#632), and expects the DTC back after the restart. CI runs all three
+(`example-robot-permanent-dtc`).
 
 ## Regenerating
 

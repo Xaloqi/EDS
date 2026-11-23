@@ -53,6 +53,14 @@ extern "C" {
  */
 #define DTC_STATUS_INIT_AND_CLEARED                     (0x50U)
 
+/** [EDS#632] Status bits whose change on the monitor path
+ *  (dtc_database_set_status()) makes the DTC mirror write NVM within its
+ *  bounded delay (DTC_MIRROR_FLUSH_INTERVAL_MS, dtc_mirror.h). Both bits
+ *  are kept in long-term memory and, set by a conforming monitor, change
+ *  only on a new fault or a clear, so they bound the write rate. */
+#define DTC_PERSIST_TRIGGER_MASK  (DTC_STATUS_CONFIRMED_DTC | \
+                                   DTC_STATUS_TEST_FAILED_SINCE_LAST_CLEAR)
+
 /* --------------------------------------------------------------------------
  * DTC descriptor record
  * -------------------------------------------------------------------------- */
@@ -378,6 +386,19 @@ uds_status_t dtc_database_restore_record(dtc_record_t which, uint32_t dtc_code);
  */
 typedef void (*dtc_database_lock_cb_t)(void);
 typedef void (*dtc_database_unlock_cb_t)(void);
+
+/**
+ * @brief [EDS#632] True if a dtc_database_set_status() call changed a bit in
+ *        DTC_PERSIST_TRIGGER_MASK since the mirror last took the flag.
+ * For config/dtc_mirror.c. Takes the lock callbacks, if registered.
+ */
+bool dtc_database_has_unsaved(void);
+
+/** @brief [EDS#632] As dtc_database_has_unsaved(), and clear the flag. */
+bool dtc_database_take_unsaved(void);
+
+/** @brief [EDS#632] Set the flag again (a mirror write failed). */
+void dtc_database_mark_unsaved(void);
 
 /**
  * @brief Register lock/unlock callbacks for dtc_database's internal state.

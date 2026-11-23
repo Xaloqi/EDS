@@ -26,6 +26,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A confirmed DTC survives a power loss** (#632). A DTC confirmed through `dtc_database_set_status()` used to reach
+  NVM only at a controlled reset (0x11) or a 0x14, so a power cut, a watchdog reset or the reset pin lost it. A change
+  of ConfirmedDTC or TestFailedSinceLastClear now marks the DTC mirror dirty, and `uds_server_tick_1ms()` writes it
+  within `DTC_MIRROR_FLUSH_INTERVAL_MS` (default 1000 ms), at most once per interval. The write runs on the thread
+  that ticks the server, never in the caller. No integration change and no NVM format change. `config/dtc_mirror.h`
+  states what is guaranteed. `scripts/smoke_permanent_dtc.py --kill` kills the ECU instead of resetting it, and the
+  robot bench CI job runs it. Hardware: on the FRDM-MCXN947 (2026-11-23) a confirmed DTC was lost over the reset pin
+  without this change and kept with it; the 1 s bound itself was not measured there.
 - **NVM works on the FRDM-MCXN947: the append backend replaces NVS there** (#640). The MCX N947 internal flash has a
   128-byte write block in Zephyr v3.7.0's devicetree (v4.4.1 declares 16 for it; the MCXN236 still 128) and Zephyr NVS
   accepts 32 at most, so `nvs_mount()` failed (`Unsupported write block size`):

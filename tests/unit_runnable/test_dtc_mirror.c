@@ -77,6 +77,12 @@
  *                    formula — header + UDS_MAX_DTC_COUNT entries + CRC —
  *                    directly from the raw wire-format constants, and
  *                    shows it exceeds NVM_MAX_RECORD_BYTES.
+ *     TC-MIRROR-036  [EDS#632] A confirmed DTC set on the monitor path reaches
+ *                    NVM within DTC_MIRROR_FLUSH_INTERVAL_MS of ticks, with no
+ *                    0x11/0x14 flush, and survives a power cut
+ *     TC-MIRROR-037  [EDS#632] A change of testFailed alone does not write
+ *     TC-MIRROR-038  [EDS#632] At most one write per interval (wear cap)
+ *     TC-MIRROR-039  [EDS#632] A write that fails (NVM not ready) is retried
  *
  * FRAMEWORK: Zephyr Ztest (via ztest_shim.h for host compilation)
  * NVM:       NVM_STORE_HOST_MOCK (RAM-backed mock, controlled via nvm_mock_reset /
@@ -988,6 +994,112 @@ ZTEST(dtc_mirror, test_clear_all_keeps_permanent_status)
  * run_all_tests
  * ========================================================================== */
 
+/* ==========================================================================
+ * [EDS#632] Monitor-path changes reach NVM within a bounded delay
+ * ========================================================================== */
+
+static void tick_ms(uint32_t n)
+{
+    uint32_t i;
+    for (i = 0U; i < n; i++) {
+        dtc_mirror_tick_1ms();
+    }
+}
+
+static bool nvm_has_mirror(void)
+{
+    uint8_t buf[DTC_MIRROR_MAX_BYTES];
+    size_t  len = 0U;
+    return nvm_store_read(NVM_KEY_DTC_MIRROR, buf, sizeof(buf), &len) == UDS_STATUS_OK;
+}
+
+/* Status byte of the first entry of the mirror record in NVM (0xFF if none). */
+static uint8_t nvm_first_status(void)
+{
+    uint8_t buf[DTC_MIRROR_MAX_BYTES];
+    size_t  len = 0U;
+
+    if ((nvm_store_read(NVM_KEY_DTC_MIRROR, buf, sizeof(buf), &len) != UDS_STATUS_OK) ||
+        (len < (size_t)(DTC_MIRROR_HEADER_BYTES + DTC_MIRROR_ENTRY_BYTES))) {
+        return 0xFFU;
+    }
+    return buf[DTC_MIRROR_HEADER_BYTES + 3U];
+}
+
+static uint8_t status_after_power_cut(uint32_t code)
+{
+    uint32_t got_code = 0U;
+    uint8_t  status   = 0xFFU;
+
+    simulate_power_cycle();
+    (void)dtc_database_register(code, 0x00U, "DTC");
+    (void)dtc_mirror_load();
+    (void)dtc_database_get_by_index(0U, &got_code, &status);
+    return status;
+}
+
+/* TC-MIRROR-036 */
+ZTEST(dtc_mirror, test_632_confirmed_reaches_nvm_within_interval)
+{
+    (void)dtc_mirror_init();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+    (void)dtc_database_set_status(DTC_1, 0x2BU);   /* confirmed + TFSLC */
+
+    tick_ms((uint32_t)DTC_MIRROR_FLUSH_INTERVAL_MS - 1U);
+    zassert_false(nvm_has_mirror(), "written before the interval");
+    tick_ms(2U);
+    zassert_true(nvm_has_mirror(), "not written within the interval");
+
+    /* No 0x11/0x14 flush: a power cut now keeps the DTC. */
+    zassert_equal(0x2BU, status_after_power_cut(DTC_1),
+                  "confirmed DTC lost over a power cut");
+}
+
+/* TC-MIRROR-037 */
+ZTEST(dtc_mirror, test_632_test_failed_alone_does_not_write)
+{
+    (void)dtc_mirror_init();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+    (void)dtc_database_set_status(DTC_1, 0x01U);   /* testFailed only */
+    (void)dtc_database_set_status(DTC_1, 0x00U);
+
+    tick_ms((uint32_t)DTC_MIRROR_FLUSH_INTERVAL_MS + 2U);
+    zassert_false(nvm_has_mirror(), "testFailed alone caused a write");
+}
+
+/* TC-MIRROR-038 */
+ZTEST(dtc_mirror, test_632_one_write_per_interval)
+{
+    (void)dtc_mirror_init();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+    tick_ms((uint32_t)DTC_MIRROR_FLUSH_INTERVAL_MS);
+
+    (void)dtc_database_set_status(DTC_1, 0x2BU);
+    tick_ms(1U);                                     /* written at once */
+    zassert_equal(0x2BU, nvm_first_status(), "first change not written");
+
+    (void)dtc_database_set_status(DTC_1, 0x00U);     /* a flap right after */
+    tick_ms((uint32_t)DTC_MIRROR_FLUSH_INTERVAL_MS - 1U);
+    zassert_equal(0x2BU, nvm_first_status(), "second write inside the interval");
+    tick_ms(2U);
+    zassert_equal(0x00U, nvm_first_status(), "second change never written");
+}
+
+/* TC-MIRROR-039 */
+ZTEST(dtc_mirror, test_632_failed_write_is_retried)
+{
+    (void)dtc_mirror_init();
+    (void)dtc_database_register(DTC_1, 0x00U, "DTC_1");
+    (void)dtc_database_set_status(DTC_1, 0x2BU);
+
+    nvm_mock_deinit();                               /* NVM not ready */
+    tick_ms((uint32_t)DTC_MIRROR_FLUSH_INTERVAL_MS + 2U);
+    (void)nvm_store_init(NULL);                      /* back */
+    zassert_false(nvm_has_mirror(), "written while NVM was not ready");
+    tick_ms(1U);
+    zassert_true(nvm_has_mirror(), "change dropped after a failed write");
+}
+
 void run_all_tests(void)
 {
     /* dtc_mirror_init() */
@@ -1042,4 +1154,10 @@ void run_all_tests(void)
     RUN_TEST(dtc_mirror__test_records_corrupt_reported);
     RUN_TEST(dtc_mirror__test_records_cleared_persist);
     RUN_TEST(dtc_mirror__test_records_unregistered_dtc_dropped);
+
+    /* Bounded-delay write of monitor-path changes (EDS#632) */
+    RUN_TEST(dtc_mirror__test_632_confirmed_reaches_nvm_within_interval);
+    RUN_TEST(dtc_mirror__test_632_test_failed_alone_does_not_write);
+    RUN_TEST(dtc_mirror__test_632_one_write_per_interval);
+    RUN_TEST(dtc_mirror__test_632_failed_write_is_retried);
 }
