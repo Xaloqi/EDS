@@ -21,8 +21,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **README board rows from the FRDM-MCXN947 bench** (taken over from #642). Where cells passed on 2026-11-22 (board
   700-90818 A1, v1.30.0, Zephyr v3.7.0): `basic_ecu` (UDS and ISO-TP conformance vectors, 4000-byte burst, P2 timing
   over CAN at 500 kbit/s), `basic_ecu_doip` (Pro campaign 8/8 over DoIP, bench build with a test random generator and
-  mock NVM) and `canfd_ecu` (one CAN FD frame with BRS). The `basic_ecu` row says NVM persistence does not work on the
-  board yet: the fix is in this release but has not run on hardware. NXP MCX is described as industrial.
+  mock NVM) and `canfd_ecu` (one CAN FD frame with BRS). The `basic_ecu` row says DTCs survive an ECU reset on the
+  board: the DTC persistence cells passed there on 2026-11-23 (KB#412). NXP MCX is described as industrial.
 
 ### Fixed
 
@@ -48,7 +48,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   and the `basic_ecu` CMake comment no longer say NVS works there. Fail-first: the permanent-DTC smoke on a flash
   simulator with a 128-byte write block (new `native_sim_bench_nvs_wb128.overlay`, new steps in the
   `example-robot-permanent-dtc` job) fails at 14 FF FF FF on NVS and passes on the append backend; host tests TC-009 to
-  TC-011 (the mock now rejects writes that are not whole write blocks, as flash drivers do). Hardware: rerun pending.
+  TC-011 (the mock now rejects writes that are not whole write blocks, as flash drivers do).
+  Hardware (FRDM-MCXN947, 2026-11-23, KB#412): the rerun passed. `basic_ecu` mounts the append backend with no
+  `fs_nvs` error, 0x14 answers OK (TestLab `core_validation` 8/8, first run 7/8), and a confirmed DTC is restored after `11 01`.
 - **`e2e_isotp_burst.py` waits and retries when the transmit queue is full** (#641). On a CANable run by `slcand`, `can0`
   has a 10-frame queue and the 4000-byte request is about 570 back-to-back frames, so round 1 died on the tester with
   `No buffer space available`; the ECU was not involved. The script retries a refused frame (ENOBUFS) for up to 2 s, and
