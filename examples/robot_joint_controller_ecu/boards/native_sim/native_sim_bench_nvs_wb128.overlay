@@ -1,0 +1,9 @@
+/*
+ * [EDS#640] Bench only. Use with native_sim_bench_nvs.conf: the flash simulator
+ * gets the MCX N947's write block (128 B; native_sim's own is 1 B), the size
+ * Zephyr NVS cannot mount (NVS_BLOCK_SIZE is 32). The flash simulator rejects
+ * writes that are not a multiple of it, as the MCX flash driver does.
+ */
+&flash0 {
+	write-block-size = <128>;
+};

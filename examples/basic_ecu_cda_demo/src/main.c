@@ -51,6 +51,9 @@
 #include "zephyr_timer.h"
 #include "zephyr_wdt.h"
 #include "nvm_store.h"
+#if defined(DIAG_NVM_BACKEND_APPEND)
+#include "nvm_store_append.h"
+#endif
 
 /* --------------------------------------------------------------------------
  * Generated headers (from diagnostics_config.yaml via codegen.py)
@@ -277,6 +280,12 @@ int main(void)
         }
     }
 
+#if defined(DIAG_NVM_BACKEND_APPEND)
+    /* [EDS#504] The append backend feeds the watchdog across its bank erase.
+     * Must run before nvm_store_init() below. */
+    nvm_store_append_set_wdt(&s_wdt);
+#endif
+
     /*
      * [EDS#200] Must run before uds_generated_init() (dtc_mirror_init() at
      * Step 3.5 sits on top of nvm_store and silently no-ops until this
@@ -339,11 +348,17 @@ int main(void)
             const nvm_store_cfg_t nvm_cfg = {
                 .flash_dev    = (const void *)nvs_dev,
                 .flash_offset = (uint32_t)nvs_off,
+#if defined(DIAG_NVM_BACKEND_APPEND)
+                /* Append backend: two banks, each half of diag_nvs (EDS#640). */
+                .sector_size  = (uint32_t)(nvs_sz / 2U),
+                .sector_count = (uint8_t)2U,
+#else
                 .sector_size  = (uint32_t)page_info.size,
                 /* diag_nvs is sized as an exact multiple of the page size
                  * on every board this targets; NVS requires >= 2 sectors
                  * for wear levelling (see nvm_store.c). */
                 .sector_count = (uint8_t)(nvs_sz / page_info.size),
+#endif
             };
 
             status = nvm_store_init(&nvm_cfg);

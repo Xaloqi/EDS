@@ -14,7 +14,8 @@ codegen turns that into `isotp_cfg_t.use_fd / tx_dl / brs` in the generated
 
 Every frame is a CAN FD frame with BRS set. Build with `ISOTP_ENABLE_CAN_FD=1`
 (`CMakeLists.txt`) and `CONFIG_CAN_FD_MODE=y` (`prj.conf`); on hardware the
-data bit rate comes from the board's devicetree (`bus-speed-data`).
+data bit rate comes from the board's devicetree (`bitrate-data`; `bus-speed-data`
+is its deprecated name).
 
 ## Run it on native_sim against Linux can-isotp
 
@@ -35,5 +36,22 @@ frames; a raw FD socket checks lengths, padding and flags. CI runs it
 (`example-canfd-runtime`). `boards/native_sim/native_sim.conf` is the loopback
 variant the build matrix compiles.
 
-**Evidence:** compile-verified and run on native_sim only. No CAN FD board has
-been validated with this example.
+## On the FRDM-MCXN947
+
+`boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay` sets FlexCAN0 to 500 kbit/s and
+2 Mbit/s with BRS. Build it after the board's own overlay and conf:
+
+```sh
+W=<EDS checkout>; E=$W/examples/canfd_ecu
+west build -p always -b frdm_mcxn947/mcxn947/cpu0 $E -- -DDIAG_SKIP_CODEGEN=ON \
+  -DEXTRA_CONF_FILE=$W/boards/frdm_mcxn947/frdm_mcxn947.conf \
+  "-DDTC_OVERLAY_FILE=$W/boards/frdm_mcxn947/frdm_mcxn947.overlay;$E/boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay"
+```
+
+The ECU keeps its DTC mirror in RAM here: this example passes no NVM partition
+to `nvm_store_init()` on hardware.
+
+**Evidence:** compile-verified, run on native_sim, and one CAN FD frame with BRS
+received from the FRDM-MCXN947 (`22 F190`, 24 bytes, 500 kbit/s / 2 Mbit/s,
+board 700-90818 A1, 2026-11-22). The multi-frame cases above have not run on any
+board.

@@ -5,7 +5,7 @@
  *
  * ECU       : SafeBootFreeRTOSECU
  * Version   : 1.0.0
- * Generated : 2026-08-30T11:15:05Z
+ * Generated : 2026-11-21T20:07:14Z
  *
  * PURPOSE: Declarations for all generated DID read/write handler functions
  *          and the generated DID registration entry point.
@@ -116,7 +116,9 @@ uds_status_t did_read_applicationsoftwareidentification(
  * Security level: 0
  * Data length  : 1 byte(s)
  *
- * TODO [APPLICATION]: Implement to return current sensor / ECU data for ActiveDiagnosticSession.
+ * IMPLEMENTED BY THE APPLICATION (source: app). Not generated: define this
+ * function in application code. It is called only after the service layer
+ * or did_safe_read_activediagnosticsession() has checked session and security.
  *
  * @param[out] buf      Output buffer for DID data.
  * @param[in]  buf_len  Size of buf in bytes (must be >= 1).

@@ -366,7 +366,9 @@ target_sources(app PRIVATE
 )
 
 # NVM store: real Zephyr NVS on hardware, RAM mock on native_sim.
-# STM32H7 boards (128 KB sectors) use platform/zephyr/nvm_store_append.c instead of nvm_store.c.
+# Flash that Zephyr NVS cannot mount uses platform/zephyr/nvm_store_append.c instead of nvm_store.c:
+# the STM32H7 boards (128 KB sectors) and the FRDM-MCXN947 (128-byte write block; NVS takes 32 at most).
+# Pass the append backend two banks: sector_size = half the partition, sector_count = 2.
 if(CONFIG_BOARD_NATIVE_SIM)
     target_sources(app PRIVATE ${EDS_ROOT}/platform/zephyr/nvm_store_mock.c)
 else()

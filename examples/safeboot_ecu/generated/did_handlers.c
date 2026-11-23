@@ -5,7 +5,7 @@
  *
  * ECU       : SafeBootECU
  * Version   : 1.0.0
- * Generated : 2026-08-30T13:15:59Z
+ * Generated : 2026-11-21T20:07:14Z
  *
  * PURPOSE: DID read/write handler stubs and static DID registration table.
  *          Each handler returns deterministic stub data (zeros) until the
@@ -63,13 +63,19 @@ static uint8_t s_mock_ecuserialnumber[8U] = { 0U };
 /* TODO [APPLICATION]: Replace with real data source for 'ApplicationSoftwareIdentification'. */
 static uint8_t s_mock_applicationsoftwareidentification[8U] = { 0U };
 
-/** Stub backing store for DID 0xF186 — ActiveDiagnosticSession (1 byte(s)). */
-/* TODO [APPLICATION]: Replace with real data source for 'ActiveDiagnosticSession'. */
-static uint8_t s_mock_activediagnosticsession[1U] = { 0U };
-
 /** Stub backing store for DID 0xF18A — SystemSupplierIdentifier (10 byte(s)). */
 /* TODO [APPLICATION]: Replace with real data source for 'SystemSupplierIdentifier'. */
 static uint8_t s_mock_systemsupplieridentifier[10U] = { 0U };
+
+/* =============================================================================
+ * Application-owned DIDs (source: app, EDS-toolchain#201)
+ *
+ * No backing store and no handler body is generated for these. The
+ * application defines the functions declared in did_handlers.h; a missing
+ * definition is a link error. The registration table and the safety wrappers
+ * below still reference them, so session and security gating is unchanged.
+ * ============================================================================= */
+/*   DID 0xF186 — ActiveDiagnosticSession: did_read_activediagnosticsession() */
 
 
 /* =============================================================================
@@ -202,47 +208,6 @@ uds_status_t did_read_applicationsoftwareidentification(
     /* TODO [APPLICATION]: Replace with real sensor/NVM access for ApplicationSoftwareIdentification. */
     (void)memcpy(buf, s_mock_applicationsoftwareidentification, (size_t)8U);
     *out_len = (uint16_t)8U;
-
-    return UDS_STATUS_OK;
-}
-
-/**
- * @brief Read handler for DID 0xF186 — ActiveDiagnosticSession.
- *
- * Stub: copies 1 zero byte(s) into buf.
- *
- * MIN SESSION  : UDS_SESSION_DEFAULT
- * SEC LEVEL    : 0
- * DATA LENGTH  : 1 byte(s)
- *
- * TODO [APPLICATION]: Replace the memcpy below with real data access.
- *   Example: read from NVM or driver:
- *     (void)memcpy(buf, real_data_source_for_activediagnosticsession, 1U);
- *     *out_len = 1U;
- *
- * @param[out] buf      Buffer to receive DID data (caller-allocated).
- * @param[in]  buf_len  Capacity of buf in bytes. Must be >= 1.
- * @param[out] out_len  Set to number of bytes written on success.
- * @return UDS_STATUS_OK on success.
- * @return UDS_STATUS_ERR_NULL_PTR if buf or out_len is NULL.
- * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if buf_len < 1.
- */
-uds_status_t did_read_activediagnosticsession(
-    uint8_t  *buf,
-    uint16_t  buf_len,
-    uint16_t *out_len)
-{
-    if ((buf == NULL) || (out_len == NULL)) {
-        return UDS_STATUS_ERR_NULL_PTR;
-    }
-
-    if (buf_len < (uint16_t)1U) {
-        return UDS_STATUS_ERR_BUFFER_OVERFLOW;
-    }
-
-    /* TODO [APPLICATION]: Replace with real sensor/NVM access for ActiveDiagnosticSession. */
-    (void)memcpy(buf, s_mock_activediagnosticsession, (size_t)1U);
-    *out_len = (uint16_t)1U;
 
     return UDS_STATUS_OK;
 }

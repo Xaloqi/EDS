@@ -96,6 +96,7 @@ dids:
 
   - id:   "0xF186"
     name: "ActiveDiagnosticSession"
+    source: app   # the active session, read in src/ (EDS#636)
     access:
       - read
     min_session: "default"

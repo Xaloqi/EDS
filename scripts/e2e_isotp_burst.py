@@ -34,12 +34,20 @@ as the channel, and the ECU's console to scan it for queue overflows:
     python3 scripts/e2e_isotp_burst.py - /dev/serial/by-id/<canable> --slcan \
         --rx-id 0x7E0 --console /dev/serial/by-id/<st-link>
 
+A CANable run by slcand ("sudo slcand -o -c -s6 <dev> can0") gets a SocketCAN
+transmit queue of 10 frames, and this request is about 570 back-to-back frames
+(EDS#641). The script waits and retries a frame the queue refuses (ENOBUFS), up
+to 2 s; it is still faster with a longer queue first:
+
+    sudo ip link set can0 txqueuelen 1000
+
 Exit 0 when every request is answered.
 """
 
 from __future__ import annotations
 
 import argparse
+import errno
 import subprocess
 import sys
 import threading
@@ -54,6 +62,8 @@ REQ_LEN = 4000           # fits the 12-bit FF_DL, so classic and FD use the same
 FD_DLS = (8, 12, 16, 20, 24, 32, 48, 64)
 FC_TIMEOUT_S = 1.0       # N_Bs
 RESP_TIMEOUT_S = 3.0     # past the ECU's N_Cr (1000 ms), so a lost CF cannot pass
+SEND_BUSY_TIMEOUT_S = 2.0   # how long a frame the tx queue refuses (ENOBUFS) is retried
+SEND_BUSY_RETRY_S = 0.001
 
 failures: List[str] = []
 
@@ -80,8 +90,19 @@ class IsoTpSender:
             data = data + b"\xCC" * (fd_len(len(data)) - len(data))
         else:
             data = data + b"\xCC" * (8 - len(data))
-        self.bus.send(can.Message(arbitration_id=RX_ID, data=data,
-                                  is_extended_id=False, is_fd=self.fd))
+        msg = can.Message(arbitration_id=RX_ID, data=data,
+                          is_extended_id=False, is_fd=self.fd)
+        # [EDS#641] SocketCAN refuses a frame when its tx queue is full (slcand's
+        # can0 holds 10): the adapter drains it at bus speed, so wait and retry.
+        give_up = time.monotonic() + SEND_BUSY_TIMEOUT_S
+        while True:
+            try:
+                self.bus.send(msg)
+                return
+            except can.CanOperationError as exc:
+                if exc.error_code != errno.ENOBUFS or time.monotonic() >= give_up:
+                    raise
+                time.sleep(SEND_BUSY_RETRY_S)
 
     def _recv(self, deadline: float) -> Optional[bytes]:
         while True:

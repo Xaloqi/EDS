@@ -732,7 +732,7 @@ static uds_status_t handle_report_fault_detection_counter(
     uint16_t      i;
     uint32_t      dtc_code;
     uint8_t       dtc_status;
-    dtc_entry_t  *entry;
+    dtc_entry_t   snapshot;
 
     status = s_exact_len(req, (uint16_t)2U);
     if (status != UDS_STATUS_OK) { return status; }
@@ -752,8 +752,10 @@ static uds_status_t handle_report_fault_detection_counter(
         }
 
         (void)dtc_status;
-        entry = dtc_database_find(dtc_code);
-        if (entry == NULL) {
+        /* [EDS#637] One copy taken under the DTC lock: a monitor thread may
+         * change the counter, and the value filtered on must be the value
+         * reported. */
+        if (dtc_database_get_entry(dtc_code, &snapshot) != UDS_STATUS_OK) {
             continue;
         }
 
@@ -762,14 +764,14 @@ static uds_status_t handle_report_fault_detection_counter(
          * confirmed". It used to skip every testFailed DTC and exclude only
          * 0xFF, so it reported 0x00, +127 (failed) and negative counters. */
         {
-            int8_t fdc = (int8_t)entry->fault_detection_counter;
+            int8_t fdc = (int8_t)snapshot.fault_detection_counter;
             if ((fdc < (int8_t)1) || (fdc > (int8_t)SVC_0x19_FDC_MAX_PREFAILED)) {
                 continue;
             }
         }
 
         /* Reuse append_dtc_record: 4th byte is faultDetectionCounter, not status */
-        status = append_dtc_record(resp, dtc_code, entry->fault_detection_counter);
+        status = append_dtc_record(resp, dtc_code, snapshot.fault_detection_counter);
         if (status != UDS_STATUS_OK) {
             return status;
         }
