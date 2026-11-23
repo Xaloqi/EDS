@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 Xaloqi
 #
-# eds_select_nvm_backend(<app-target> <diag-root>)
+# eds_select_nvm_backend(<app-target> <diag-root> [MOCK])
 #
 # Links exactly one nvm_store_* implementation into the Zephyr app, plus
 # platform/zephyr/eds_nvm_diag_nvs.c, the one call that gives an example its
@@ -15,11 +15,17 @@
 #                                           EDS#640)
 #   everything else (mr_canhubk3)           nvm_store.c (NVS, write block 8 B)
 #
+# MOCK links the RAM mock on every board, for a bring-up build whose board has
+# no diag_nvs partition (basic_ecu_doip: -DDIAG_USE_MOCK_NVM=ON, EDS#31).
+#
 # Call after the app's other sources are added. Needs CONFIG_FLASH, CONFIG_FLASH_MAP
 # and (NVS) CONFIG_NVS from the board's .conf, as for basic_ecu.
 function(eds_select_nvm_backend app_target diag_root)
     target_sources(${app_target} PRIVATE ${diag_root}/platform/zephyr/eds_nvm_diag_nvs.c)
-    if(CONFIG_BOARD_NATIVE_SIM)
+    if("MOCK" IN_LIST ARGN)
+        target_sources(${app_target} PRIVATE ${diag_root}/platform/zephyr/nvm_store_mock.c)
+        target_compile_definitions(${app_target} PRIVATE EDS_NVM_MOCK=1)
+    elseif(CONFIG_BOARD_NATIVE_SIM)
         target_sources(${app_target} PRIVATE ${diag_root}/platform/zephyr/nvm_store_mock.c)
     elseif(CONFIG_BOARD_NUCLEO_H743ZI OR CONFIG_BOARD_NUCLEO_H753ZI OR CONFIG_BOARD_FRDM_MCXN947)
         target_sources(${app_target} PRIVATE ${diag_root}/platform/zephyr/nvm_store_append.c)

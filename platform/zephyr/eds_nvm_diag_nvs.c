@@ -21,13 +21,14 @@
 #include "nvm_store_append.h"
 #endif
 
-#if defined(CONFIG_BOARD_NATIVE_SIM) || \
+#if defined(CONFIG_BOARD_NATIVE_SIM) || defined(EDS_NVM_MOCK) || \
     (defined(CONFIG_BOARD_MR_CANHUBK3) && !defined(CONFIG_SOC_FLASH_MCUX_C40))
 
 uds_status_t eds_nvm_init_diag_nvs(diag_wdt_t *wdt)
 {
     (void)wdt;
-    /* nvm_store_mock.c ignores the config (native_sim). Zephyr v3.7.0 has no
+    /* nvm_store_mock.c ignores the config (native_sim, or a bring-up build
+     * that asked for the mock, EDS_NVM_MOCK). Zephyr v3.7.0 has no
      * driver for the S32K344 internal flash, so there is no partition device
      * to resolve there; v4.4.0 adds one (CONFIG_SOC_FLASH_MCUX_C40). */
     return nvm_store_init(NULL);

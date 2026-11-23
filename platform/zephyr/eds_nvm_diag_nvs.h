@@ -32,7 +32,8 @@ extern "C" {
  *
  * The backend is the one cmake/eds_nvm_backend.cmake linked: the append backend
  * (DIAG_NVM_BACKEND_APPEND, two banks of half the partition) where NVS cannot
- * mount, NVS elsewhere. On native_sim, and on mr_canhubk3 before Zephyr 4.4
+ * mount, NVS elsewhere. On native_sim, with the mock requested (EDS_NVM_MOCK),
+ * and on mr_canhubk3 before Zephyr 4.4
  * (no flash driver for the S32K344), the store takes no partition and this is
  * nvm_store_init(NULL).
  *

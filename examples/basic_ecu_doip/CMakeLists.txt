@@ -167,20 +167,22 @@ target_sources(app PRIVATE
     ${DIAG_GENERATED_DIR}/routine_handlers.c
 )
 
-# NVM mock for native_sim (no NVS flash on simulator).
+# NVM store (EDS#408): the RAM mock on native_sim; on hardware the board's
+# diag_nvs partition, append backend on NUCLEO-H743ZI/H753ZI and FRDM-MCXN947
+# (cmake/eds_nvm_backend.cmake). Needs the board's diag_nvs partition: pass
+# boards/<board>/<board>.overlay as DTC_OVERLAY_FILE (see README).
 #
 # [#31] DIAG_USE_MOCK_NVM: explicit opt-in escape hatch for a real board that
-# doesn't (yet) define the eds_nvs_slot partition nvm_store.c needs — e.g. a
-# one-off WCET measurement bring-up where persistent NVM is irrelevant to
-# what's being measured and not worth a real flash-partition overlay for.
-# Defaults OFF: every existing real-hardware board keeps linking the real
-# nvm_store.c exactly as before unless a build explicitly passes this.
-option(DIAG_USE_MOCK_NVM "Link the RAM-backed NVM mock instead of real NVS, even on real hardware" OFF)
+# has no diag_nvs partition, e.g. a one-off WCET measurement bring-up where
+# persistent NVM is irrelevant to what's being measured. Links the RAM mock on
+# any board; the DTC mirror then does not survive a reset. Defaults OFF.
+option(DIAG_USE_MOCK_NVM "Link the RAM-backed NVM mock instead of the board's flash partition, even on real hardware" OFF)
 
-if(CONFIG_BOARD_NATIVE_SIM OR DIAG_USE_MOCK_NVM)
-    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store_mock.c)
+include(${DIAG_ROOT}/cmake/eds_nvm_backend.cmake)
+if(DIAG_USE_MOCK_NVM)
+    eds_select_nvm_backend(app ${DIAG_ROOT} MOCK)
 else()
-    target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/nvm_store.c)
+    eds_select_nvm_backend(app ${DIAG_ROOT})
 endif()
 
 # [EDS#423] Bench flash-download build: see DIAG_DOIP_FLASH_BENCH above.

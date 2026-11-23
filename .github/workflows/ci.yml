@@ -1166,9 +1166,24 @@ jobs:
               "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h743zi/nucleo_h743zi.overlay"
           done
 
+      # [EDS#408] basic_ecu_doip on NUCLEO-H753ZI (the board its Ethernet bench
+      # config targets), real flash. The H753 and H743 share the flash layout.
+      - name: West build — basic_ecu_doip on nucleo_h753zi (NVM partition)
+        run: |
+          west build \
+            --pristine \
+            -d build-doip \
+            -b nucleo_h753zi \
+            EDS/examples/basic_ecu_doip \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h753zi/nucleo_h753zi.overlay" \
+            "-DEXTRA_DTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.overlay"
+
       - name: Verify the NVM partition is wired on every example (EDS#643)
         run: |
-          for d in build build-canfd_ecu build-sensor_ecu build-bms_ecu build-motor_controller_ecu; do
+          for d in build build-canfd_ecu build-sensor_ecu build-bms_ecu build-motor_controller_ecu build-doip; do
             python3 EDS/scripts/verify_hw_nvm_wiring.py "$d" --backend append
           done
 
@@ -1423,9 +1438,24 @@ jobs:
               "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay"
           done
 
+      # [EDS#408] basic_ecu_doip on real flash (append backend) with the board's
+      # Ethernet; compile-checked only.
+      - name: West build — basic_ecu_doip on frdm_mcxn947 (Ethernet, NVM partition)
+        run: |
+          west build \
+            --pristine \
+            -d build-doip \
+            -b frdm_mcxn947/mcxn947/cpu0 \
+            EDS/examples/basic_ecu_doip \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.conf;${GITHUB_WORKSPACE}/EDS/examples/basic_ecu_doip/boards/frdm_mcxn947/frdm_mcxn947_doip.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay"
+          test -f build-doip/zephyr/zephyr.hex
+
       - name: Verify the NVM partition is wired on every example (EDS#643)
         run: |
-          for d in build build-canfd build-bms_ecu build-motor_controller_ecu; do
+          for d in build build-canfd build-bms_ecu build-motor_controller_ecu build-doip; do
             python3 EDS/scripts/verify_hw_nvm_wiring.py "$d" --backend append
           done
 

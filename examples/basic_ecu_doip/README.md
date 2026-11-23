@@ -67,20 +67,21 @@ west flash
 ```
 
 `DIAG_USE_MOCK_NVM=ON` keeps DTC storage in RAM. Without it the board needs a
-flash partition for the NVM backend, which this example does not provide
-([#408](https://github.com/Xaloqi/EDS/issues/408)). This build is
-compile-checked; the NUCLEO-H753ZI setup below is the hardware-verified one.
+`diag_nvs` flash partition in its devicetree (the NUCLEO-H753ZI and
+FRDM-MCXN947 setups below pass one). This build is compile-checked; the
+NUCLEO-H753ZI setup below is the hardware-verified one for DoIP traffic.
 
 Ensure your board DTS includes an Ethernet driver and that `CONFIG_NETWORKING=y` is
 satisfied. The DoIP server listens on port 13400 immediately after boot.
 
-### NUCLEO-H753ZI (real Ethernet, hardware-verified bench setup)
+### NUCLEO-H753ZI (real Ethernet, real flash storage)
 
 ```bash
 B=examples/basic_ecu_doip/boards/nucleo_h753zi
 west build -b nucleo_h753zi examples/basic_ecu_doip -- \
-  -DDIAG_SKIP_CODEGEN=ON -DDIAG_USE_MOCK_NVM=ON \
+  -DDIAG_SKIP_CODEGEN=ON \
   -DEXTRA_CONF_FILE=$PWD/$B/nucleo_h753zi_doip.conf \
+  -DDTC_OVERLAY_FILE=$PWD/boards/nucleo_h753zi/nucleo_h753zi.overlay \
   -DEXTRA_DTC_OVERLAY_FILE=$PWD/$B/nucleo_h753zi_doip.overlay
 west flash
 ```
@@ -89,17 +90,41 @@ west flash
   the host an address on the same subnet, e.g.
   `sudo ip addr add 10.10.10.2/24 dev <iface>`. The console is the
   ST-LINK virtual COM port at 115200.
-- **Storage is RAM-backed on this board (supported bench setup).**
-  `DIAG_USE_MOCK_NVM=ON` keeps the DTC mirror in RAM, so it does not
-  survive a reset. Without it the build does not link: the conf provides
-  no flash partition for the real backend
-  ([#403](https://github.com/Xaloqi/EDS/issues/403)). Real flash storage
-  with the append backend is tracked in
-  [#408](https://github.com/Xaloqi/EDS/issues/408).
-- **Watchdog:** the overlay enables the IWDG. `main()` arms it and the
+- **Storage:** the DTC mirror and the SecurityAccess counters are in the
+  board's `diag_nvs` flash partition (256 KB at `0x1C0000`, from
+  `boards/nucleo_h753zi/nucleo_h753zi.overlay`), written with the append
+  backend: two 128 KB banks, because NVS cannot mount the STM32H7's 128 KB
+  sectors ([#408](https://github.com/Xaloqi/EDS/issues/408)). **Not yet run
+  on hardware:** a DTC set before a real reset reading back after it, and a
+  boot without a reset loop on first-boot formatting, are the checks that
+  remain. For a RAM-backed mirror (no partition needed, does not survive a
+  reset) add `-DDIAG_USE_MOCK_NVM=ON` and drop `DTC_OVERLAY_FILE`
+  ([#403](https://github.com/Xaloqi/EDS/issues/403)); the firmware-download
+  bench below keeps that setting.
+- **Watchdog:** the overlay enables the IWDG. `main()` arms it before the NVM
+  store opens, so the append backend can feed it across a bank erase, and the
   UDS tick task feeds it only while the DoIP server keeps checking in
   ([#399](https://github.com/Xaloqi/EDS/issues/399)). The comment at the
   top of `src/main.c` lists exactly what is supervised.
+
+### FRDM-MCXN947 (on-board Ethernet, real flash storage; compile-checked)
+
+NXP MCX N947 is an industrial-grade MCU.
+
+```bash
+west build -b frdm_mcxn947/mcxn947/cpu0 examples/basic_ecu_doip -- \
+  -DDIAG_SKIP_CODEGEN=ON \
+  "-DEXTRA_CONF_FILE=$PWD/boards/frdm_mcxn947/frdm_mcxn947.conf;$PWD/examples/basic_ecu_doip/boards/frdm_mcxn947/frdm_mcxn947_doip.conf" \
+  -DDTC_OVERLAY_FILE=$PWD/boards/frdm_mcxn947/frdm_mcxn947.overlay
+```
+
+The storage is the board's `diag_nvs` partition with the append backend (the
+128-byte write block is more than NVS takes, [#640](https://github.com/Xaloqi/EDS/issues/640)).
+**This build has not been run on hardware**: no DoIP traffic has been
+exchanged with a FRDM-MCXN947, and the storage has been run on the board
+with `basic_ecu` and `robot_joint_controller_ecu` only. The TCP sequence
+numbers come from Zephyr's test random generator (see the conf), so this is a
+bench setup, not a product one.
 
 ### NUCLEO-H753ZI firmware-download bench (bench only)
 
