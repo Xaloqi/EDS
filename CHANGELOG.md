@@ -18,6 +18,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **`canfd_ecu`, `sensor_ecu`, `bms_ecu` and `motor_controller_ecu` get an NVM partition on hardware** (#643). On a board
+  they called `nvm_store_init(NULL)`, which the NVS backend rejects, so the boot log said `NVM store init failed` and the
+  DTC mirror and the SecurityAccess counters lived in RAM. They now call `eds_nvm_init_diag_nvs()`
+  (`platform/zephyr/eds_nvm_diag_nvs.c`), which opens the board overlay's `diag_nvs` partition;
+  `cmake/eds_nvm_backend.cmake` links the append backend on NUCLEO-H743ZI/H753ZI and FRDM-MCXN947 (where NVS cannot
+  mount, #504, #640) and NVS elsewhere, as `basic_ecu` does. native_sim keeps the RAM mock; MR-CANHUBK3 on Zephyr 3.7.0
+  keeps no partition (no flash driver there). Fail-first: `scripts/verify_hw_nvm_wiring.py` fails on all four built from
+  `main` and passes after; `ci.yml` builds them for NUCLEO-H743ZI and FRDM-MCXN947 and runs it. Built for NUCLEO-H743ZI,
+  NUCLEO-H753ZI and FRDM-MCXN947 on Zephyr 3.7.0 and for FRDM-MCXN947 and MR-CANHUBK3 on 4.4.1; `sensor_ecu` does not
+  build for the FRDM board on 3.7.0 (#645, upstream). **Not run on hardware.**
+- **`basic_ecu_doip` uses real flash on the NUCLEO-H753ZI and the FRDM-MCXN947** (#408). The DTC mirror and the
+  SecurityAccess counters go to the board's `diag_nvs` partition (append backend) and survive a reset. The watchdog is
+  now armed before the store opens, so the backend can feed it across a 128 KB bank erase. The NUCLEO-H753ZI build takes
+  `boards/nucleo_h753zi/nucleo_h753zi.overlay` as `DTC_OVERLAY_FILE` for the partition table; the FRDM-MCXN947 has a new
+  `frdm_mcxn947_doip.conf` for its on-board Ethernet. `-DDIAG_USE_MOCK_NVM=ON` keeps the RAM mock on any board, and
+  native_sim still uses it. The weekly job's `basic_ecu_doip_nucleo_h753zi_nvs` row built NVS with a NULL config; it is
+  now `..._flash`, the real configuration. **Not run on hardware:** a DTC set before a real reset reading back after it,
+  and a first-boot erase without a reset loop, are the checks that remain.
 - **The weekly Zephyr job also builds against Zephyr v4.5.0** (the latest release; policy: "current stable"). The
   workflow runs one leg per ref (`main`, `v4.5.0`), each with its own concurrency group, log artifact and tracking
   issue ("EDS breaks against Zephyr <ref>"); every row of `builds.tsv` is built on both. A manual run with no
