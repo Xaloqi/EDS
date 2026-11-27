@@ -103,7 +103,10 @@ uds_status_t uds_service_0x10_handler(
          * re-locks security, resets CommunicationControl and
          * ControlDTCSetting (§9.2.1 d), SEC-SESS-COMMRESTORE-01), aborts a
          * transfer (EDS#442) and clears the session owner. The server only
-         * dispatches this request from the owner, or when there is none. */
+         * dispatches this request from the owner, or when there is none.
+         * The transition comes first: 10 01 in DEFAULT re-enters the
+         * session and notifies, which end_session() alone no longer does. */
+        (void)uds_session_transition(ctx->cfg.session_ctx, UDS_SESSION_DEFAULT);
         (void)uds_server_end_session(ctx, uds_server_request_src(ctx));
     } else {
         /* [P2-0x10-04] Transition enforces the session matrix (uds_session.c).

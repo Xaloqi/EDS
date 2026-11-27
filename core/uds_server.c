@@ -552,8 +552,12 @@ bool uds_server_end_session(uds_server_ctx_t *ctx, uint8_t src)
         return false;
     }
 
-    /* Valid from every session (session_validate_transition()). */
-    (void)uds_session_transition(ctx->cfg.session_ctx, UDS_SESSION_DEFAULT);
+    /* Valid from every session (session_validate_transition()). Already
+     * DEFAULT (S3 ended it first): nothing changes, so the application is
+     * not told of a DEFAULT -> DEFAULT change; the resets still run. */
+    if (!srv_session_is_default(ctx)) {
+        (void)uds_session_transition(ctx->cfg.session_ctx, UDS_SESSION_DEFAULT);
+    }
     srv_end_session_resets(ctx);
     return true;
 }
