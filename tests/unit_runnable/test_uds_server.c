@@ -39,6 +39,7 @@
 #include "uds_security.h"
 #include "uds_types.h"
 #include "uds_access_table.h"
+#include "services.h"   /* uds_service_0x10_handler [EDS#197] */
 
 /* =========================================================================
  * Shared stubs for session / security / service table
@@ -727,6 +728,198 @@ ZTEST(test_uds_server_tick, test_s3_timeout_resets_security_unlock)
 }
 
 /* =========================================================================
+ * [EDS#197] Request source and session owner (decision ⬥A)
+ *
+ * Source 0 is CAN (the _ex() call), source 1 another transport. SID 0xFD is
+ * the stub, allowed only outside the default session here, so it stands
+ * for any extended-only request. S3 is 100 ms.
+ * ========================================================================= */
+
+ZTEST_SUITE(test_uds_server_owner, NULL, NULL, NULL, NULL, NULL);
+
+static const uds_service_entry_t g_owner_service_table[] = {
+    { 0x10U, uds_service_0x10_handler, true },
+    { 0x3EU, stub_handler_ok,          true },
+    { 0xFDU, stub_handler_cfg,         true },
+};
+static const uds_access_entry_t g_owner_access_table[] = {
+    { 0x10U, UDS_ACL_SESSION_ALL,         0U, false },
+    { 0x3EU, UDS_ACL_SESSION_ALL,         0U, false },
+    { 0xFDU, UDS_ACL_SESSION_NON_DEFAULT, 0U, false },
+};
+
+#define SRC_CAN   (0U)
+#define SRC_OTHER (1U)
+
+static uds_msg_buf_t s_owner_resp;
+
+static void owner_setup(void)
+{
+    static const uds_server_cfg_t cfg = {
+        .p2_server_max_ms      = 25U,
+        .p2_star_server_max_ms = 5000U,
+        .session_ctx           = &g_sess,
+        .security_ctx          = &g_sec,
+        .service_table         = g_owner_service_table,
+        .service_table_count   = 3U,
+        .access_table          = g_owner_access_table,
+        .access_table_count    = 3U,
+    };
+    ctx_init_all();
+    memset(&g_sess, 0, sizeof(g_sess));
+    uds_session_init(&g_sess, 100U);
+    zassert_equal(uds_server_init(&g_srv, &cfg), UDS_STATUS_OK, "init");
+    g_stub_status  = UDS_STATUS_OK;
+    g_stub_raw_nrc = 0U;
+}
+
+/* Send sid/sub from src; return the response's first byte, 0 if none,
+ * 0xEE if the dispatch itself failed. */
+static uint8_t owner_send(uint8_t sid, uint8_t sub, uds_addressing_t a, uint8_t src)
+{
+    uds_msg_buf_t req = make_req(sid, sub);
+
+    memset(&s_owner_resp, 0, sizeof(s_owner_resp));
+    if (uds_server_process_request_src(&g_srv, &req, &s_owner_resp, a, src) != UDS_STATUS_OK) {
+        return 0xEEU;
+    }
+    return (s_owner_resp.length > 0U) ? s_owner_resp.data[0] : 0U;
+}
+
+static uds_session_type_t owner_session(void)
+{
+    uds_session_type_t t = UDS_SESSION_DEFAULT;
+    (void)uds_session_get_active(&g_sess, &t);
+    return t;
+}
+
+/** TC-SRV-OWN-001: while CAN owns the session, a physical request from
+ *  another source gets 7F sid 21 and changes nothing. */
+ZTEST(test_uds_server_owner, test_other_src_physical_gets_0x21)
+{
+    owner_setup();
+    zassert_equal(owner_send(0x10U, 0x03U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x50U, "10 03");
+
+    zassert_equal(owner_send(0xFDU, 0x00U, UDS_ADDRESSING_PHYSICAL, SRC_OTHER), 0x7FU, "refused");
+    zassert_equal(s_owner_resp.data[1], 0xFDU, "echoes the SID");
+    zassert_equal(s_owner_resp.data[2], 0x21U, "NRC 0x21 busyRepeatRequest");
+    /* 10 01 from the other source does not end the owner's session. */
+    zassert_equal(owner_send(0x10U, 0x01U, UDS_ADDRESSING_PHYSICAL, SRC_OTHER), 0x7FU, "10 01");
+    zassert_equal(s_owner_resp.data[2], 0x21U, "10 01 refused 0x21");
+    zassert_equal(owner_session(), UDS_SESSION_EXTENDED, "session unchanged");
+    /* The owner is still served. */
+    zassert_equal(owner_send(0xFDU, 0x00U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), (uint8_t)(0xFDU + 0x40U),
+                  "owner served");
+}
+
+/** TC-SRV-OWN-002: a functional request from another source gets no
+ *  response at all, and changes nothing. */
+ZTEST(test_uds_server_owner, test_other_src_functional_is_silent)
+{
+    owner_setup();
+    zassert_equal(owner_send(0x10U, 0x03U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x50U, "10 03");
+
+    zassert_equal(owner_send(0x3EU, 0x00U, UDS_ADDRESSING_FUNCTIONAL, SRC_OTHER), 0U, "3E 00");
+    zassert_equal(owner_send(0x10U, 0x01U, UDS_ADDRESSING_FUNCTIONAL, SRC_OTHER), 0U, "10 01");
+    zassert_equal(owner_send(0xFDU, 0x00U, UDS_ADDRESSING_FUNCTIONAL, SRC_OTHER), 0U, "FD");
+    zassert_equal(owner_session(), UDS_SESSION_EXTENDED, "session unchanged");
+}
+
+/** TC-SRV-OWN-003: a refused request does not restart S3; the owner's does. */
+ZTEST(test_uds_server_owner, test_refused_request_does_not_restart_s3)
+{
+    uint32_t ms;
+    uds_status_t rc = UDS_STATUS_OK;
+
+    owner_setup();
+    zassert_equal(owner_send(0x10U, 0x03U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x50U, "10 03");
+    for (ms = 0U; ms < 60U; ms++) {
+        (void)uds_server_tick_1ms(&g_srv);
+    }
+    /* Physical and functional TesterPresent from the other source. */
+    zassert_equal(owner_send(0x3EU, 0x00U, UDS_ADDRESSING_PHYSICAL, SRC_OTHER), 0x7FU, "3E 00");
+    zassert_equal(owner_send(0x3EU, 0x80U, UDS_ADDRESSING_FUNCTIONAL, SRC_OTHER), 0U, "3E 80");
+    for (ms = 60U; (ms < 100U) && (rc == UDS_STATUS_OK); ms++) {
+        rc = uds_server_tick_1ms(&g_srv);
+    }
+    zassert_equal(rc, UDS_STATUS_ERR_SESSION_TIMEOUT, "S3 expired on the owner's clock");
+    zassert_equal(ms, 100U, "at 100 ms, not restarted at 60 ms");
+    zassert_equal(owner_session(), UDS_SESSION_DEFAULT, "back to DEFAULT");
+
+    /* Control: the owner's own TesterPresent does restart it. */
+    zassert_equal(owner_send(0x10U, 0x03U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x50U, "10 03");
+    for (ms = 0U; ms < 60U; ms++) {
+        (void)uds_server_tick_1ms(&g_srv);
+    }
+    zassert_equal(owner_send(0x3EU, 0x00U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x7EU, "owner 3E");
+    for (ms = 60U; ms < 100U; ms++) {
+        zassert_equal(uds_server_tick_1ms(&g_srv), UDS_STATUS_OK, "S3 restarted by the owner");
+    }
+}
+
+/** TC-SRV-OWN-004: the owner's 10 01, and an S3 timeout, free the session
+ *  for the next source that leaves DEFAULT. */
+ZTEST(test_uds_server_owner, test_owner_released_by_10_01_and_s3)
+{
+    uint32_t ms;
+
+    owner_setup();
+    zassert_equal(owner_send(0x10U, 0x03U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x50U, "CAN 10 03");
+    zassert_equal(owner_send(0x10U, 0x01U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x50U, "CAN 10 01");
+    zassert_equal(owner_send(0x10U, 0x03U, UDS_ADDRESSING_PHYSICAL, SRC_OTHER), 0x50U, "other 10 03");
+    zassert_equal(owner_send(0xFDU, 0x00U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x7FU, "CAN refused");
+    zassert_equal(s_owner_resp.data[2], 0x21U, "0x21");
+
+    for (ms = 0U; ms < 100U; ms++) {
+        (void)uds_server_tick_1ms(&g_srv);
+    }
+    zassert_equal(owner_session(), UDS_SESSION_DEFAULT, "S3 expired");
+    zassert_equal(owner_send(0x10U, 0x03U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x50U, "CAN again");
+}
+
+/** TC-SRV-OWN-005: uds_server_end_session() ends only the caller's session
+ *  (decision ⬥B for a transport's disconnect). */
+ZTEST(test_uds_server_owner, test_end_session_only_by_owner)
+{
+    owner_setup();
+    zassert_false(uds_server_end_session(NULL, SRC_CAN), "NULL");
+    zassert_equal(owner_send(0x10U, 0x03U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x50U, "10 03");
+    zassert_false(uds_server_end_session(&g_srv, SRC_OTHER), "not the owner");
+    zassert_equal(owner_session(), UDS_SESSION_EXTENDED, "kept");
+    zassert_true(uds_server_end_session(&g_srv, SRC_CAN), "owner");
+    zassert_equal(owner_session(), UDS_SESSION_DEFAULT, "ended");
+}
+
+/** TC-SRV-OWN-006: a non-default session no request opened (the
+ *  application's own transition) has no owner and serves every source. */
+ZTEST(test_uds_server_owner, test_unowned_session_serves_every_src)
+{
+    owner_setup();
+    zassert_equal(uds_session_transition(&g_sess, UDS_SESSION_EXTENDED), UDS_STATUS_OK, "app");
+    zassert_equal(owner_send(0xFDU, 0x00U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), (uint8_t)(0xFDU + 0x40U), "CAN");
+    zassert_equal(owner_send(0xFDU, 0x00U, UDS_ADDRESSING_PHYSICAL, SRC_OTHER), (uint8_t)(0xFDU + 0x40U),
+                  "other");
+    zassert_true(uds_server_end_session(&g_srv, SRC_OTHER), "anyone may end it");
+}
+
+/** TC-SRV-OWN-007: UDS_SERVER_SRC_NONE is not a source; _ex() is source 0. */
+ZTEST(test_uds_server_owner, test_src_none_rejected_and_ex_is_src_0)
+{
+    uds_msg_buf_t req = make_req(0x10U, 0x03U);
+
+    owner_setup();
+    zassert_equal(uds_server_process_request_src(&g_srv, &req, &s_owner_resp,
+                                                 UDS_ADDRESSING_PHYSICAL,
+                                                 (uint8_t)UDS_SERVER_SRC_NONE),
+                  UDS_STATUS_ERR_INVALID_PARAM, "SRC_NONE");
+    zassert_equal(uds_server_process_request_ex(&g_srv, &req, &s_owner_resp,
+                                                UDS_ADDRESSING_PHYSICAL), UDS_STATUS_OK, "_ex");
+    zassert_equal(uds_server_request_src(&g_srv), (uint8_t)UDS_SERVER_SRC_DEFAULT, "src 0");
+    zassert_equal(owner_send(0xFDU, 0x00U, UDS_ADDRESSING_PHYSICAL, SRC_OTHER), 0x7FU,
+                  "_ex() owns as source 0");
+}
+
+/* =========================================================================
  * [EDS#444] Functional addressing: ISO 14229-1:2026 §7.7.1, Table 4
  * ========================================================================= */
 
@@ -1079,6 +1272,13 @@ extern void test_uds_server_timing__test_timing_config_does_not_affect_dispatch(
 extern void test_uds_server_functional__test_five_nrcs_suppressed(void);
 extern void test_uds_server_functional__test_other_nrcs_still_sent(void);
 extern void test_uds_server_functional__test_positive_unaffected(void);
+extern void test_uds_server_owner__test_other_src_physical_gets_0x21(void);
+extern void test_uds_server_owner__test_other_src_functional_is_silent(void);
+extern void test_uds_server_owner__test_refused_request_does_not_restart_s3(void);
+extern void test_uds_server_owner__test_owner_released_by_10_01_and_s3(void);
+extern void test_uds_server_owner__test_end_session_only_by_owner(void);
+extern void test_uds_server_owner__test_unowned_session_serves_every_src(void);
+extern void test_uds_server_owner__test_src_none_rejected_and_ex_is_src_0(void);
 
 void run_all_tests(void)
 {
@@ -1122,5 +1322,12 @@ void run_all_tests(void)
     RUN_TEST(test_uds_server_functional__test_five_nrcs_suppressed);
     RUN_TEST(test_uds_server_functional__test_other_nrcs_still_sent);
     RUN_TEST(test_uds_server_functional__test_positive_unaffected);
+    RUN_TEST(test_uds_server_owner__test_other_src_physical_gets_0x21);
+    RUN_TEST(test_uds_server_owner__test_other_src_functional_is_silent);
+    RUN_TEST(test_uds_server_owner__test_refused_request_does_not_restart_s3);
+    RUN_TEST(test_uds_server_owner__test_owner_released_by_10_01_and_s3);
+    RUN_TEST(test_uds_server_owner__test_end_session_only_by_owner);
+    RUN_TEST(test_uds_server_owner__test_unowned_session_serves_every_src);
+    RUN_TEST(test_uds_server_owner__test_src_none_rejected_and_ex_is_src_0);
 
 }

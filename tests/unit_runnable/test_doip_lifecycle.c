@@ -44,6 +44,9 @@
  *   Return to DEFAULT on disconnect (SEC-SESS-COMMRESTORE-01):
  *     - test_doip_disconnect_restores_comm_and_dtc_setting
  *     - test_doip_disconnect_reset_runs_under_lock (EDS#635)
+ *   Session owner across transports (EDS#197, decision ⬥B):
+ *     - test_doip_disconnect_keeps_can_session
+ *     - test_doip_disconnect_ends_doip_session
  *   Supervision check-in (EDS#399):
  *     - test_doip_checkin_while_idle_without_client
  *     - test_doip_checkin_while_connected_idle
@@ -489,6 +492,8 @@ static uds_server_ctx_t *uds_ctx(void)
             { 0x22U, handler_pending_0x22, false },
             { 0x11U, uds_service_0x11_handler, true },   /* [EDS#434] */
             { 0x31U, handler_deferring_0x31, true },     /* [EDS#282] */
+            { 0x10U, uds_service_0x10_handler, true },   /* [EDS#197] */
+            { 0x85U, uds_service_0x85_handler, true },   /* [EDS#197] non-default only */
         };
         static const uds_security_cfg_t sec_cfg = {
             .max_attempts     = 3U,
@@ -502,7 +507,7 @@ static uds_server_ctx_t *uds_ctx(void)
             .session_ctx           = &g_session_ctx,
             .security_ctx          = &g_security_ctx,
             .service_table         = table,
-            .service_table_count   = 4U,
+            .service_table_count   = 6U,
             .access_table          = NULL,
             .access_table_count    = 0U,
         };
@@ -553,6 +558,14 @@ static const uint8_t k_ecu_reset_hard_suppressed[] = {
     (uint8_t)(TEST_TESTER_ADDR >> 8U), (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
     (uint8_t)(TEST_ECU_ADDR >> 8U),    (uint8_t)(TEST_ECU_ADDR & 0xFFU),
     0x11U, 0x81U,
+};
+
+/* [EDS#197] DiagnosticSessionControl extendedDiagnosticSession. */
+static const uint8_t k_extended_session[] = {
+    0x02U, 0xFDU, 0x80U, 0x01U, 0x00U, 0x00U, 0x00U, 0x06U,
+    (uint8_t)(TEST_TESTER_ADDR >> 8U), (uint8_t)(TEST_TESTER_ADDR & 0xFFU),
+    (uint8_t)(TEST_ECU_ADDR >> 8U),    (uint8_t)(TEST_ECU_ADDR & 0xFFU),
+    0x10U, 0x03U,
 };
 
 static const uint8_t k_tester_present[] = {
@@ -1125,6 +1138,71 @@ ZTEST(doip_lifecycle_suite, test_doip_disconnect_reset_runs_under_lock)
 }
 
 /* =========================================================================
+ * Session owner across transports (EDS#197, decision ⬥B)
+ * ========================================================================= */
+
+/* Send a 2-byte request on the CAN path (uds_server_process_request_ex(),
+ * source 0); return the response's first byte, 0 if none. */
+static uint8_t can_send(uint8_t sid, uint8_t sub)
+{
+    static uds_msg_buf_t req;
+    static uds_msg_buf_t resp;
+
+    (void)memset(&req, 0, sizeof(req));
+    (void)memset(&resp, 0, sizeof(resp));
+    req.data[0] = sid;
+    req.data[1] = sub;
+    req.length  = 2U;
+    (void)uds_server_process_request_ex(uds_ctx(), &req, &resp, UDS_ADDRESSING_PHYSICAL);
+    return (resp.length > 0U) ? resp.data[0] : 0U;
+}
+
+/* Fail-first for #197 (§8.3 J2): a CAN tester opens the extended session,
+ * a DoIP tester connects and drops. The CAN tester's next extended-only
+ * request (85 02, ControlDTCSetting off) must still be served. Before J2
+ * the DoIP disconnect reset the shared session to DEFAULT, and 85 02 got
+ * 7F 85 7F. */
+ZTEST(doip_lifecycle_suite, test_doip_disconnect_keeps_can_session)
+{
+    uds_session_type_t sess = UDS_SESSION_DEFAULT;
+
+    reset_observations();
+    uds_comm_control_test_reset();
+    TEST_ASSERT_EQUAL(UDS_STATUS_OK, uds_comm_control_init(NULL));
+    (void)uds_session_transition(uds_ctx()->cfg.session_ctx, UDS_SESSION_DEFAULT);
+    EXPECT_EQ_MSG(0x50U, can_send(0x10U, 0x03U), "CAN 10 03");
+
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_error();
+    run_server();
+
+    (void)uds_session_get_active(uds_ctx()->cfg.session_ctx, &sess);
+    EXPECT_EQ_MSG(UDS_SESSION_EXTENDED, sess,
+        "a DoIP disconnect ended the CAN tester's session (EDS#197)");
+    EXPECT_EQ_MSG(0xC5U, can_send(0x85U, 0x02U),
+        "CAN's extended-only request refused after a DoIP disconnect (EDS#197)");
+    EXPECT_EQ_MSG(0x50U, can_send(0x10U, 0x01U), "CAN 10 01");
+}
+
+/* The other half of ⬥B: a session DoIP opened still ends with DoIP's
+ * connection (EDS#191). */
+ZTEST(doip_lifecycle_suite, test_doip_disconnect_ends_doip_session)
+{
+    uds_session_type_t sess = UDS_SESSION_EXTENDED;
+
+    reset_observations();
+    (void)uds_session_transition(uds_ctx()->cfg.session_ctx, UDS_SESSION_DEFAULT);
+    add_data(k_routing_activation, sizeof(k_routing_activation));
+    add_data(k_extended_session, sizeof(k_extended_session));
+    add_error();
+    run_server();
+
+    (void)uds_session_get_active(uds_ctx()->cfg.session_ctx, &sess);
+    EXPECT_EQ_MSG(UDS_SESSION_DEFAULT, sess, "DoIP's own session survived its disconnect");
+    EXPECT_EQ_MSG(0x7FU, can_send(0x85U, 0x02U), "85 02 in DEFAULT");
+}
+
+/* =========================================================================
  * Generic header NACK on TCP (EDS#571, ISO 13400-2)
  * ========================================================================= */
 
@@ -1266,6 +1344,8 @@ void run_all_tests(void)
     RUN_TEST(doip_lifecycle_suite__test_doip_no_reset_without_ecu_reset_request);
     RUN_TEST(doip_lifecycle_suite__test_doip_disconnect_restores_comm_and_dtc_setting);
     RUN_TEST(doip_lifecycle_suite__test_doip_disconnect_reset_runs_under_lock);
+    RUN_TEST(doip_lifecycle_suite__test_doip_disconnect_keeps_can_session);
+    RUN_TEST(doip_lifecycle_suite__test_doip_disconnect_ends_doip_session);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_idle_without_client);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_while_connected_idle);
     RUN_TEST(doip_lifecycle_suite__test_doip_checkin_cleared_is_never_called);

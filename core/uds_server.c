@@ -79,6 +79,11 @@ static void srv_clock_add(uint32_t *clock_ms, uint32_t add_ms);
 static void srv_pending_owe_nrc(uds_server_ctx_t *ctx, uds_nrc_t nrc, bool is_final);
 static void srv_pending_run_step(uds_server_ctx_t *ctx);
 
+/* [EDS#197] Session ownership helpers. */
+static bool srv_session_is_default(const uds_server_ctx_t *ctx);
+static bool srv_session_held_by_other(uds_server_ctx_t *ctx);
+static void srv_end_session_resets(uds_server_ctx_t *ctx);
+
 /* --------------------------------------------------------------------------
  * Sub-function suppress-bit mask (ISO 14229-1:2026 §7.7.3, Tables 3–4)
  * -------------------------------------------------------------------------- */
@@ -126,6 +131,8 @@ uds_status_t uds_server_init(
     ctx->request_count           = 0U;
     ctx->negative_response_count = 0U;
     ctx->rx_addressing           = UDS_ADDRESSING_PHYSICAL;
+    ctx->rx_src                  = (uint8_t)UDS_SERVER_SRC_DEFAULT;
+    ctx->session_owner           = (uint8_t)UDS_SERVER_SRC_NONE;
     ctx->initialized             = true;
 
     return UDS_STATUS_OK;
@@ -145,10 +152,25 @@ uds_status_t uds_server_process_request_ex(
     uds_msg_buf_t       *resp,
     uds_addressing_t     addressing)
 {
+    return uds_server_process_request_src(ctx, req, resp, addressing,
+                                          (uint8_t)UDS_SERVER_SRC_DEFAULT);
+}
+
+uds_status_t uds_server_process_request_src(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp,
+    uds_addressing_t     addressing,
+    uint8_t              src)
+{
     uds_status_t status;
 
+    if (src == (uint8_t)UDS_SERVER_SRC_NONE) {
+        return UDS_STATUS_ERR_INVALID_PARAM;
+    }
     if (ctx != NULL) {
         ctx->rx_addressing = addressing;  /* [EDS#282] read by uds_server_defer() */
+        ctx->rx_src        = src;         /* [EDS#197] read by the ownership rule */
     }
     status = srv_process(ctx, req, resp);
 
@@ -175,6 +197,7 @@ static uds_status_t srv_process(
     uds_nrc_t                   nrc;
     bool                        suppress;
     uint8_t                     raw_sub_fn;
+    bool                        was_default;
 
     if ((ctx == NULL) || (req == NULL) || (resp == NULL)) {
         return UDS_STATUS_ERR_NULL_PTR;
@@ -198,6 +221,18 @@ static uds_status_t srv_process(
     ctx->request_count++;
 
     service_id = req->data[0];
+
+    /* [EDS#197] Another source owns the session: no state change, no S3
+     * restart. Physical: NRC 0x21; functional: no response. */
+    if (srv_session_held_by_other(ctx)) {
+        if (ctx->rx_addressing == UDS_ADDRESSING_FUNCTIONAL) {
+            resp->length = (uint16_t)0U;
+            return UDS_STATUS_OK;
+        }
+        ctx->negative_response_count++;
+        return uds_server_build_negative_response(
+            service_id, UDS_NRC_BUSY_REPEAT_REQUEST, resp);
+    }
 
     /* [EDS#282] One job at a time: nothing else runs while one is pending. */
     if (ctx->pending.active) {
@@ -231,12 +266,18 @@ static uds_status_t srv_process(
     }
 
     /* Dispatch to handler. */
+    was_default = srv_session_is_default(ctx);
     status = entry->handler(ctx, req, resp);
 
     if (status != UDS_STATUS_OK) {
         ctx->negative_response_count++;
         nrc = srv_status_to_nrc(status);
         return uds_server_build_negative_response(service_id, nrc, resp);
+    }
+
+    /* [EDS#197] This request left DEFAULT: its source owns the session. */
+    if (was_default && !srv_session_is_default(ctx)) {
+        ctx->session_owner = ctx->rx_src;
     }
 
     /* [EDS#282] The handler deferred: resp is 7F sid 78. ISO 14229-1 never
@@ -298,15 +339,11 @@ uds_status_t uds_server_tick_1ms(uds_server_ctx_t *ctx)
          * Security tick still runs even on timeout (lockout must expire).
          */
         if (status == UDS_STATUS_ERR_SESSION_TIMEOUT) {
-            (void)uds_security_reset(ctx->cfg.security_ctx);
-            /* [SEC-SESS-COMMRESTORE-01] Same return to DEFAULT as an
-             * explicit 10 01, so the same ISO 14229-1:2026 §9.2.1 d) reset. */
-            (void)uds_comm_control_restore_defaults();
-            /* [EDS#282] Session ended: drop a pending job. Only reachable
-             * when nothing polls it, since every frame restarts S3. */
-            uds_server_pending_abort(ctx);
-            /* [EDS#442] Session ended: abort any transfer. */
-            uds_service_0x34_abort_transfer();
+            /* [EDS#197] The session module already moved to DEFAULT (and
+             * told the application); the rest is every return's reset. A
+             * pending job is only dropped here when nothing polls it,
+             * since every frame restarts S3. */
+            srv_end_session_resets(ctx);
         }
         (void)uds_security_tick_1ms(ctx->cfg.security_ctx);
         return status;
@@ -495,6 +532,74 @@ void uds_server_pending_release(uds_server_ctx_t *ctx)
     if (ctx != NULL) {
         (void)memset(&ctx->pending, 0, sizeof(uds_pending_slot_t));
     }
+}
+
+uint8_t uds_server_request_src(const uds_server_ctx_t *ctx)
+{
+    return (ctx != NULL) ? ctx->rx_src : (uint8_t)UDS_SERVER_SRC_DEFAULT;
+}
+
+bool uds_server_end_session(uds_server_ctx_t *ctx, uint8_t src)
+{
+    if ((ctx == NULL) || !ctx->initialized) {
+        return false;
+    }
+
+    /* [EDS#197] Only the owner, or anyone when no request opened it. */
+    if ((ctx->session_owner != (uint8_t)UDS_SERVER_SRC_NONE) &&
+        (ctx->session_owner != src)) {
+        return false;
+    }
+
+    /* Valid from every session (session_validate_transition()). */
+    (void)uds_session_transition(ctx->cfg.session_ctx, UDS_SESSION_DEFAULT);
+    srv_end_session_resets(ctx);
+    return true;
+}
+
+/* --------------------------------------------------------------------------
+ * [EDS#197] Session ownership helpers
+ * -------------------------------------------------------------------------- */
+
+static bool srv_session_is_default(const uds_server_ctx_t *ctx)
+{
+    uds_session_type_t active = UDS_SESSION_DEFAULT;
+
+    (void)uds_session_get_active(ctx->cfg.session_ctx, &active);
+    return (active == UDS_SESSION_DEFAULT);
+}
+
+static bool srv_session_held_by_other(uds_server_ctx_t *ctx)
+{
+    if (ctx->session_owner == (uint8_t)UDS_SERVER_SRC_NONE) {
+        return false;
+    }
+    /* Back in DEFAULT by a path that does not end it (the application
+     * called uds_session_transition()): nothing is owned any more. */
+    if (srv_session_is_default(ctx)) {
+        ctx->session_owner = (uint8_t)UDS_SERVER_SRC_NONE;
+        return false;
+    }
+    return (ctx->session_owner != ctx->rx_src);
+}
+
+/*
+ * Every return to DEFAULT: S3 timeout, 10 01, a transport's disconnect.
+ *
+ * [SEC-S3-RESET-01] [EDS#191] SecurityAccess re-locks, or an unlock outlives
+ * the session; uds_security_reset() keeps the failed-attempt and lockout
+ * counters. [SEC-SESS-COMMRESTORE-01] ISO 14229-1:2026 §9.2.1 d) resets
+ * CommunicationControl and ControlDTCSetting on the return to the default
+ * session. [EDS#282] A pending job ends with its session. [EDS#442] So does
+ * a transfer.
+ */
+static void srv_end_session_resets(uds_server_ctx_t *ctx)
+{
+    (void)uds_security_reset(ctx->cfg.security_ctx);
+    (void)uds_comm_control_restore_defaults();
+    uds_server_pending_abort(ctx);
+    uds_service_0x34_abort_transfer();
+    ctx->session_owner = (uint8_t)UDS_SERVER_SRC_NONE;
 }
 
 /* --------------------------------------------------------------------------

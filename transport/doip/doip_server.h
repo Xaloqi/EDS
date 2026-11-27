@@ -155,6 +155,14 @@ extern "C" {
 #define DOIP_MAX_CONNECTIONS    (4U)
 #endif
 
+/** [EDS#197] The UDS request source (uds_server_process_request_src()) of
+ * every request this server dispatches. A disconnect ends the session only
+ * if this source owns it, so it cannot end a session another transport
+ * (UDS_SERVER_SRC_DEFAULT on CAN) opened. Any value but 0xFF. */
+#ifndef EDS_DOIP_UDS_SRC
+#define EDS_DOIP_UDS_SRC        (1U)
+#endif
+
 /**
  * [EDS#400] Per-read timeout in ms once a frame has STARTED — how long the
  * rest of a partially received header or payload may stall before the

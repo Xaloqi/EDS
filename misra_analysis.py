@@ -1536,6 +1536,7 @@ MISRA_DEVIATIONS: List[Dict[str, Any]] = [
             "uds_security_nvm_save",
             "uds_security_nvm_clear",
             "uds_server_init",
+            "uds_server_process_request",
             "uds_server_tick_1ms",
             "uds_service_0x34_pending_tick",
             "uds_session_init",
