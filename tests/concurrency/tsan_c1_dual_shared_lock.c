@@ -8,7 +8,8 @@
  *
  * PURPOSE: [EDS#197] Scenario C1: a CAN and a DoIP producer share one lock
  *   (dual_producers.h). Expected: no data race, and request_count is
- *   exactly 2 * ROUNDS (the exit status is non-zero otherwise).
+ *   exactly 2 * ROUNDS after one batch (the exit status is non-zero
+ *   otherwise).
  * =============================================================================
  */
 
@@ -17,5 +18,5 @@
 
 int main(void)
 {
-    return (dual_producers_run("tsan_c1_dual_shared_lock") == (2U * ROUNDS)) ? 0 : 1;
+    return dual_producers_run("tsan_c1_dual_shared_lock", 1U) ? 0 : 1;
 }
