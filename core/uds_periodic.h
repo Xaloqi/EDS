@@ -198,6 +198,31 @@ void uds_periodic_set_tx_can_id(uint32_t can_id);
 bool uds_periodic_tx_can_id_is_set(void);
 
 /**
+ * @brief [EDS#197] Subscribe, recording the request source (decision ⬥E):
+ *        the subscription's frames go to the producer that asked for them.
+ *        uds_periodic_subscribe() is this with source 0.
+ */
+uds_status_t uds_periodic_subscribe_src(uint8_t periodic_id, uint8_t mode, uint8_t src);
+
+/**
+ * @brief [EDS#197] uds_periodic_pop_due(), and the source that subscribed
+ *        the frame's pDID, so the caller can route the frame to it.
+ * @return As uds_periodic_pop_due(); UDS_STATUS_ERR_NULL_PTR if out_src is NULL.
+ */
+uds_status_t uds_periodic_pop_due_src(uds_msg_buf_t *out_frame, uint8_t *out_src);
+
+/**
+ * @brief [EDS#197] Which request sources can send periodic messages: bit n
+ *        for source n (sources 0..7). Default: all. The executor sets it from
+ *        its producers; SID 0x2A answers NRC 0x22 to a schedule request from a
+ *        source without the bit (decision ⬥E). Survives uds_periodic_init().
+ */
+void uds_periodic_set_tx_src_mask(uint8_t mask);
+
+/** @brief [EDS#197] True if source src can send periodic messages. */
+bool uds_periodic_src_can_tx(uint8_t src);
+
+/**
  * @brief [EDS#194] Re-queue the subscription most recently popped by
  *        uds_periodic_pop_due() for the next tick.
  *

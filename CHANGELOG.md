@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **The diagnostic executor's core, `core/uds_exec.c`** (#197). One thread owns the UDS server; each transport (a
+  producer) posts its request into its own slot (no copy, one request in flight) and takes the response when the
+  slot is done. The executor runs elapsed 1 ms ticks, serves posted slots round-robin, drives a response-pending
+  job and routes its frames to the source that started it, routes each periodic message to the source that
+  subscribed it, and performs an ECUReset only after its source has sent the response. While another producer's job
+  runs a step, a physical request is answered NRC 0x21 by its own producer at once and a functional one is dropped;
+  the same holds for a producer whose previous request is still in flight. `uds_exec_call()` runs a function on the
+  executor (a disconnect's end of session, say). RTOS-free: waking, completion and a short critical section are
+  function pointers; the Zephyr and FreeRTOS bindings follow (#197), and no example uses the executor yet. Periodic
+  subscriptions now record their request source (`uds_periodic_subscribe_src()`, `uds_periodic_pop_due_src()`), and
+  0x2A from a source that cannot send periodic messages gets NRC 0x22 (`uds_periodic_set_tx_src_mask()`; default:
+  every source can, so builds without the executor are unchanged). Tests: 12 unit tests, two of which run every
+  order of two producers' requests, a clock tick and executor passes (60 and 30 orders); a new ThreadSanitizer
+  scenario, C2's two producers through the executor: 0 races, `request_count` 40 000 of 40 000 (C2 itself stays an
+  expected failure for the lock-based path). MISRA: the nine `uds_exec_*` functions join DEV-ACCS-02 (Rule 8.7,
+  API called from the platform bindings; 48 functions, still 43 records).
+
 - **A ThreadSanitizer CI job for two-thread races** (#197, first step). The new `concurrency-tsan` job builds the host
   tests in `tests/concurrency/` with `-fsanitize=thread` and real threads on every PR, which native_sim cannot do. Two
   new scenarios: a CAN and a DoIP producer on one lock (passes: no race, `request_count` = 40 000) and on separate

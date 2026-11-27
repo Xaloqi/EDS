@@ -385,7 +385,7 @@ claim that EDS is "the" SoDeV diagnostics layer.
 ### Run the test suite
 
 ```bash
-# 63 Unity unit tests (host-native, no Zephyr SDK needed)
+# 64 Unity unit tests (host-native, no Zephyr SDK needed)
 bash build_tests.sh
 
 # 68 harness integration tests (Professional tier — requires harness/ sources)
@@ -499,7 +499,7 @@ at all is refused before this chain, by the service access table (NRC 0x7F or
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command *(Developer/Professional tier)* |
 | `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · basic\_ecu\_cda\_demo · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · safeboot\_freertos\_ecu · robot\_joint\_controller\_ecu · canfd\_ecu · vehicle\_state\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu (15) · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard *(Developer/Professional tier)* |
-| `tests/` | 63 Unity unit tests, harness, Python integration tests |
+| `tests/` | 64 Unity unit tests, harness, Python integration tests |
 
 ---
 

@@ -292,6 +292,7 @@ STACK_SRCS=(
     "${ROOT}/core/uds_services/service_0x28.c"
     "${ROOT}/core/uds_services/service_0x2A.c"   # [0x2A] ReadDataByPeriodicIdentifier
     "${ROOT}/core/uds_periodic.c"                 # [0x2A] periodic scheduler
+    "${ROOT}/core/uds_exec.c"                     # [EDS#197] diagnostic executor (RTOS-free)
     "${ROOT}/core/uds_services/service_0x2E.c"
     "${ROOT}/core/uds_services/service_0x2F.c"   # InputOutputControlByIdentifier
     "${ROOT}/core/uds_services/service_0x31.c"
@@ -381,6 +382,7 @@ TESTS=(
     test_service_0x3E
     test_service_0x85
     test_uds_server_pending  # [EDS#282] response-pending jobs (defer/poll)
+    test_uds_exec            # [EDS#197] diagnostic executor (RTOS-free core)
     # [EDS#374] Independent ISO 14229-1 UDS SID framing conformance vectors
     # ported from pylessard/python-udsoncan (MIT) — the third and last leg
     # of EDS#361's conformance-vector set (PR 2 = ISO-TP #366, PR 3 = DoIP

@@ -101,6 +101,8 @@ static uds_status_t s_check_pdid(const uds_server_ctx_t *ctx, uint8_t periodic_i
  *   stopSending: stop the listed pDIDs, or all of them if none is listed
  *   per pDID: not supported in the active session → skipped; 0x33 security
  *   0x22 — no periodic CAN ID configured (uds_periodic_set_tx_can_id), nothing scheduled
+ *   0x22 — [EDS#197] the request's source cannot send periodic messages
+ *          (uds_periodic_set_tx_src_mask), nothing scheduled
  *   0x31 — none supported, or the scheduler can't take all supported pDIDs
  *          (then none is scheduled, §10.5.1)
  * A pDID repeated in one request is scheduled once (§10.5.1).
@@ -193,6 +195,13 @@ uds_status_t uds_service_0x2A_handler(
         return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
     }
 
+    /* [EDS#197] Decision ⬥E: the frames go to the subscribing source, so
+     * a source with no periodic transmit path (DoIP today) gets NRC 0x22
+     * rather than a subscription nobody sends. */
+    if (!uds_periodic_src_can_tx(uds_server_request_src(ctx))) {
+        return UDS_STATUS_ERR_CONDITIONS_NOT_MET;
+    }
+
     /* Pass 2: schedule, in request order. */
     uds_periodic_set_access_ctx(ctx->cfg.session_ctx, ctx->cfg.security_ctx);
     (void)memset(seen, 0, sizeof(seen));
@@ -200,7 +209,8 @@ uds_status_t uds_service_0x2A_handler(
         periodic_id = req->data[idx];
         if (s_bit(supported, periodic_id) && !s_bit(seen, periodic_id)) {
             s_set_bit(seen, periodic_id);
-            status = uds_periodic_subscribe(periodic_id, mode);
+            status = uds_periodic_subscribe_src(periodic_id, mode,
+                                                uds_server_request_src(ctx));
             if (status != UDS_STATUS_OK) {
                 return status;   /* unreachable: capacity checked above */
             }

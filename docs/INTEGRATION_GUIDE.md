@@ -307,6 +307,7 @@ target_sources(app PRIVATE
     ${EDS_ROOT}/core/uds_session_stats.c
     ${EDS_ROOT}/core/uds_security_nvm.c
     ${EDS_ROOT}/core/uds_periodic.c                       # periodic scheduler (SID 0x2A)
+    ${EDS_ROOT}/core/uds_exec.c                           # diagnostic executor (EDS#197; unused until a binding calls it)
 
     # UDS service handlers
     ${EDS_ROOT}/core/uds_services/service_registration.c

@@ -369,6 +369,7 @@ set(DIAG_STACK_SRCS
     "${DIAG_SERVICES}/service_0x28.c"
     "${DIAG_SERVICES}/service_0x2A.c"   # [0x2A] ReadDataByPeriodicIdentifier
     "${DIAG_CORE}/uds_periodic.c"       # [0x2A] periodic scheduler
+    "${DIAG_CORE}/uds_exec.c"           # [EDS#197] diagnostic executor (RTOS-free)
     "${DIAG_SERVICES}/service_0x2E.c"
     "${DIAG_SERVICES}/service_0x2F.c"   # InputOutputControlByIdentifier
     "${DIAG_SERVICES}/service_0x31.c"
@@ -566,6 +567,11 @@ add_diag_test(test_service_0x34_chunked_erase
 add_diag_test(test_uds_server_pending
     SOURCES
         "${TEST_UNIT_DIR}/test_uds_server_pending.c"
+)
+
+add_diag_test(test_uds_exec
+    SOURCES
+        "${TEST_UNIT_DIR}/test_uds_exec.c"
 )
 
 add_diag_test(test_service_0x35
