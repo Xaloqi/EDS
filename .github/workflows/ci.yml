@@ -666,6 +666,59 @@ jobs:
           name: sanitizer-run-log
           path: sanitizer_run.log
 
+  # ── Job 1d: ThreadSanitizer, two real threads (EDS#197 J1) ────────────────
+  #
+  # native_sim runs one Zephyr thread at a time, so it cannot show a data race
+  # between a CAN and a DoIP producer. tests/concurrency/ builds the stack on
+  # the host with real pthreads under -fsanitize=thread. Scenario C2 (two
+  # producers, separate locks) is today's #197 race: an expected failure that
+  # must keep failing until the executor lands. run_tsan.sh decides pass,
+  # XFAIL and XPASS; the step after it checks from the log that every
+  # tsan_*.c file ran, so a test that did not run is not counted as a pass.
+  concurrency-tsan:
+    name: "Concurrency — ThreadSanitizer (host, tests/concurrency)"
+    runs-on: ubuntu-22.04
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc binutils
+
+      # The runner kernel randomises mmap with more bits than gcc 11's TSan
+      # runtime can map ("unexpected memory mapping"); 28 is the old default.
+      - name: Let the TSan runtime map its shadow memory
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Run the ThreadSanitizer tests (3 runs each)
+        shell: bash
+        run: |
+          set -o pipefail
+          bash tests/concurrency/run_tsan.sh 3 2>&1 | tee tsan_run.log
+
+      - name: Verify every test ran (positive assertions)
+        shell: bash
+        run: |
+          files=$(ls tests/concurrency/tsan_*.c | wc -l)
+          marked=$(grep -l 'TSAN_EXPECT: XFAIL' tests/concurrency/tsan_*.c | wc -l)
+          line=$(grep '^TSAN SUMMARY:' tsan_run.log) || { echo "::error::no TSAN SUMMARY line"; exit 1; }
+          get() { echo "$line" | sed -n "s/.* $1=\([0-9]*\).*/\1/p"; }
+          echo "$line (files on disk: $files, XFAIL-marked: $marked)"
+          [ "$files" -gt 0 ] || { echo "::error::no tsan_*.c test found"; exit 1; }
+          [ "$(get ran)" -eq "$files" ] || { echo "::error::ran $(get ran) of $files tests"; exit 1; }
+          [ "$(get fail)" -eq 0 ] || { echo "::error::$(get fail) test(s) failed"; exit 1; }
+          [ "$(get xfail)" -eq "$marked" ] || { echo "::error::$(get xfail) XFAIL of $marked marked"; exit 1; }
+          [ $(( $(get pass) + $(get xfail) )) -eq "$files" ] || { echo "::error::pass + xfail != files"; exit 1; }
+
+      - name: Upload TSan log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsan-run-log
+          path: tsan_run.log
+
   # ── Job 5: Generated integration tests (simulator mode) ───────────────────
   #
   # Runs the auto-generated pytest suite produced by --test-gen.

@@ -17,7 +17,7 @@
  *   data race if any UDS state is changed outside the lock; the exit status
  *   is non-zero then. native_sim cannot show this (one thread at a time).
  *
- * NOT IN CI YET: the CI job is the January plan's J1 (EDS#197).
+ * CI: the concurrency-tsan job (EDS#197 J1).
  * =============================================================================
  */
 
