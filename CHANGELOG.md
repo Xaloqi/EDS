@@ -20,7 +20,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - **FRDM-MCXN947 DoIP: TCP segments now fit the 1512 bytes the ENET QoS driver can receive** (#648). Zephyr v3.7.0's
   driver drops any received frame over 1512 bytes without a log line, and a tester's full-size TCP segment is 1514, so
-  a `0x36` block over 1460 bytes was retransmitted until the connection gave up. The `basic_ecu_doip` FRDM conf sets
+  a TCP segment carrying more than 1460 bytes (e.g. a large `0x36` block) would be dropped and retransmitted until the
+  connection gave up. The `basic_ecu_doip` FRDM conf sets
   the new `CONFIG_EDS_DOIP_EXAMPLE_NET_IF_MTU=1498` (default 0 = unchanged); `main()` passes it to `net_if_set_mtu()`
   before the server starts, Zephyr advertises MSS 1458, and 1458 + 40 + 14 = 1512. Other boards are unchanged. Known
   limit: ICMP and UDP datagrams over 1512 bytes on the wire (`ping -s 1471` and up) are still dropped on this board.
