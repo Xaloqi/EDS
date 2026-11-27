@@ -14,9 +14,13 @@ For the six sources that hold them:
     the check above is not vacuous.
 
 It checks the race-point hook the same way (EDS#197): core/eds_race_point.h
-expands EDS_RACE_POINT(id) to nothing without UNIT_TEST. A probe that uses the
-macro must reference eds_race_point_hook with UNIT_TEST and not without it,
-and a build that defines EDS_RACE_POINT itself must stop at the header's #error.
+expands EDS_RACE_POINT(id) to nothing without UNIT_TEST (host tests) or
+EDS_RACE_POINTS (the RTOS selftest builds). A probe that uses the macro must
+reference eds_race_point_hook with either and with neither not at all; a
+production build with EDS_RACE_POINTS, and a build that defines EDS_RACE_POINT
+itself, must stop at the header's #error. UNIT_TEST stays host-only: no
+firmware build file (examples/, cmake/, tests/zephyr_*, tests/freertos_*)
+may define it.
 
 Usage: verify_no_test_hooks.py [EDS_ROOT]
 """
@@ -113,9 +117,34 @@ def race_point_problems(root, tmp):
     if test is None or RACE_HOOK not in test:
         problems.append(f"EDS_RACE_POINT: no {RACE_HOOK} reference even with UNIT_TEST "
                         "(the check above would be vacuous)")
+    test = symbols(["-DEDS_RACE_POINTS=1"])
+    if test is None or RACE_HOOK not in test:
+        problems.append(f"EDS_RACE_POINT: no {RACE_HOOK} reference with EDS_RACE_POINTS")
+    if symbols(["-UCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY", "-DCONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=0",
+                "-DEDS_RACE_POINTS=1"]) is not None:
+        problems.append("EDS_RACE_POINTS: a production build that defines it compiles "
+                        "(eds_race_point.h must stop it with #error)")
     if symbols(["-DEDS_RACE_POINT(x)=(void)(x)"]) is not None:
         problems.append("EDS_RACE_POINT: a build that defines it compiles "
                         "(eds_race_point.h must stop it with #error)")
+    return problems
+
+
+FIRMWARE_BUILD_GLOBS = ["examples/*/CMakeLists.txt", "examples/**/*.conf", "cmake/**/*.cmake",
+                        "tests/zephyr_*/**/CMakeLists.txt", "tests/zephyr_*/**/*.conf",
+                        "tests/freertos_*/**/CMakeLists.txt"]
+
+
+def unit_test_in_firmware_builds(root):
+    """EDS#197: UNIT_TEST is host-only (uds_security_algo.c relies on it)."""
+    problems = []
+    for pattern in FIRMWARE_BUILD_GLOBS:
+        for path in sorted(root.glob(pattern)):
+            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                code = line.split("#", 1)[0]
+                if "UNIT_TEST" in code:
+                    problems.append(f"{path.relative_to(root)}:{n}: a firmware build defines "
+                                    "UNIT_TEST (host-only; use EDS_RACE_POINTS for race points)")
     return problems
 
 
@@ -137,6 +166,7 @@ def main():
             if header_declares(root, tmp, [], name):
                 problems.append(f"{name}: a production build declares it")
         problems += race_point_problems(root, tmp)
+    problems += unit_test_in_firmware_builds(root)
     if problems:
         print("FAIL: test-only accessors reach a production build:")
         for p in problems:
@@ -144,8 +174,10 @@ def main():
         sys.exit(1)
     print(f"PASS: none of the {len(TEST_ONLY)} test-only accessors is defined or declared "
           "without EDS_TEST_HOOKS; all are present with it")
-    print("PASS: EDS_RACE_POINT is empty without UNIT_TEST, calls the hook with it, "
-          "and cannot be defined outside eds_race_point.h")
+    print("PASS: EDS_RACE_POINT is empty without UNIT_TEST or EDS_RACE_POINTS, calls the hook "
+          "with either, stops a production build with EDS_RACE_POINTS, and cannot be defined "
+          "outside eds_race_point.h")
+    print("PASS: no firmware build file defines UNIT_TEST")
 
 
 if __name__ == "__main__":

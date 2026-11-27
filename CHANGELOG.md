@@ -34,7 +34,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `cmake/eds_service_sources.cmake` and the integration harness. Tests: `basic_ecu_doip -DDIAG_DOIP_SELFTEST=...`
   on native_sim, an in-process DoIP client with a counter watchdog, in the `doip-integration` CI job: one
   `on_session_change` for an S3 expiry and a disconnect forced to meet at the S3 reset (2 before), and a hung call
-  on the executor trips the watchdog.
+  on the executor trips the watchdog. Those test builds turn the race-point hook on with `EDS_RACE_POINTS`, never
+  `UNIT_TEST`, which stays host-only; `scripts/verify_no_test_hooks.py` now fails a production build with
+  `EDS_RACE_POINTS` and any firmware build file that defines `UNIT_TEST`.
 
 - **The diagnostic executor's core, `core/uds_exec.c`** (#197). One thread owns the UDS server; each transport (a
   producer) posts its request into its own slot (no copy, one request in flight) and takes the response when the
