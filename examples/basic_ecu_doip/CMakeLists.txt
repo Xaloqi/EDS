@@ -172,7 +172,7 @@ target_sources(app PRIVATE
     # Minimal set for DoIP-only: no zephyr_can.c, no zephyr_timer.c
     # (CAN-path dependencies).
     ${DIAG_ROOT}/platform/zephyr/zephyr_platform_api.c
-    ${DIAG_ROOT}/platform/zephyr/zephyr_mutex.c  # [EDS#353] s_session_lock/s_security_lock
+    ${DIAG_ROOT}/platform/zephyr/zephyr_exec.c   # [EDS#197] the diagnostic executor
     ${DIAG_ROOT}/platform/zephyr/zephyr_wdt.c    # [EDS#399] no-op on native_sim (CONFIG_WATCHDOG=n)
 
     # ── Generated sources ─────────────────────────────────────────────────

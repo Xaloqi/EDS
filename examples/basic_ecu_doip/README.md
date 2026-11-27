@@ -104,8 +104,9 @@ west flash
   bench below keeps that setting.
 - **Watchdog:** the overlay enables the IWDG. `main()` arms it before the NVM
   store opens, so the append backend can feed it across a bank erase, and the
-  UDS tick task feeds it only while the DoIP server keeps checking in
-  ([#399](https://github.com/Xaloqi/EDS/issues/399)). The comment at the
+  diagnostic executor's loop feeds it only while the DoIP server keeps
+  checking in ([#399](https://github.com/Xaloqi/EDS/issues/399),
+  [#197](https://github.com/Xaloqi/EDS/issues/197)). The comment at the
   top of `src/main.c` lists exactly what is supervised.
 
 ### FRDM-MCXN947 (on-board Ethernet, real flash storage)

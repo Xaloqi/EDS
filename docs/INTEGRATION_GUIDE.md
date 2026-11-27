@@ -1144,8 +1144,11 @@ See `examples/basic_ecu_doip/` for the complete working example.
 > lock: call `eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` **before**
 > `eds_doip_platform_start()`, with the *same* lock/unlock pair your tick
 > task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with — see
-> `examples/basic_ecu_doip/src/main.c`'s `s_session_lock`/
-> `s_security_lock` pair for the exact pattern. **In a production build
+> `examples/basic_ecu_doip_freertos/src/main.c`'s `s_session_lock`/
+> `s_security_lock` pair for the exact pattern. On Zephyr,
+> `examples/basic_ecu_doip` runs the diagnostic executor instead
+> (`platform/zephyr/zephyr_exec.h`, EDS#197): no tick task and no lock,
+> and `zephyr_exec_lend()`/`zephyr_exec_lend_end()` are its callbacks. **In a production build
 > (`EDS_BUILD_IS_PRODUCTION`), `eds_doip_platform_start()`'s underlying
 > `eds_doip_server_run()` refuses to run at all if this isn't done** —
 > development/CI builds are unaffected. See

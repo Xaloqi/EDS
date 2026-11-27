@@ -206,6 +206,7 @@ STACK_SRCS=(
     "$ROOT/core/uds_services/service_0x35.c"
     "$ROOT/core/uds_services/service_0x3D.c"
     "$ROOT/core/uds_periodic.c"
+    "$ROOT/core/uds_exec.c"            # [EDS#197] the executor core (platform bindings: Zephyr, FreeRTOS)
     "$ROOT/core/uds_transfer_ctx.c"
     "$ROOT/transport/isotp.c"
     "$ROOT/transport/can_transport.c"

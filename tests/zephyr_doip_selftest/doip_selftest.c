@@ -21,6 +21,13 @@
  *     yield never runs it). Expected: the application hears of one session
  *     end (one on_session_change), not two.
  *
+ *   WDT_STALL: the EDS#399 supervision in the executor loop. The example
+ *     runs 3 s with the watchdog armed and fed (no reset), then a call
+ *     posted on the DoIP slot hangs the executor. Expected: the watchdog
+ *     expires and resets; on native_sim the reset ends the process
+ *     ("sys_arch_reboot called"). If the process is still alive 2 s after
+ *     the stall, the test prints FAIL and exits 2.
+ *
  * The addresses are the example's: tester 0x0E00, ECU 0xE400.
  * =============================================================================
  */
@@ -37,12 +44,17 @@
 #include "uds_session.h"
 #include "uds_init.h"
 #include "eds_race_point.h"
+#if defined(DIAG_DOIP_SELFTEST_WDT_STALL)
+#include "zephyr_exec.h"
+#include "doip_server.h"   /* EDS_DOIP_UDS_SRC */
+#endif
 
 #define ST_TESTER        (0x0E00U)
 #define ST_ECU           (0xE400U)
 #define ST_PORT          (13400U)
 #define ST_HDR           (8U)
 
+#if defined(DIAG_DOIP_SELFTEST_SESSION_END)
 static int             s_fd = -1;
 static atomic_t        s_changes;
 static atomic_t        s_armed;
@@ -204,6 +216,34 @@ static int st_session_end(void)
     return (n == 1L) ? 0 : 1;
 }
 
+#endif /* DIAG_DOIP_SELFTEST_SESSION_END */
+
+#if defined(DIAG_DOIP_SELFTEST_WDT_STALL)
+/* Runs on the executor and never returns: the loop stalls. */
+static void st_hang(uds_server_ctx_t *srv, void *arg)
+{
+    (void)srv;
+    (void)arg;
+    for (;;) {
+        k_sleep(K_FOREVER);
+    }
+}
+
+static int st_wdt_stall(void)
+{
+    k_msleep(3000);
+    printk("SELFTEST wdt_stall: 3 s fed, no reset; stalling the executor\n");
+    if (uds_exec_call(zephyr_exec_get(), (uint8_t)EDS_DOIP_UDS_SRC, st_hang, NULL) !=
+        UDS_STATUS_OK) {
+        printk("SELFTEST wdt_stall: could not post the call FAIL\n");
+        return 2;
+    }
+    k_msleep(2000);
+    printk("SELFTEST wdt_stall: still running 2 s after the stall FAIL\n");
+    return 2;
+}
+#endif
+
 static void st_entry(void *p1, void *p2, void *p3)
 {
     int rc = 1;
@@ -213,6 +253,8 @@ static void st_entry(void *p1, void *p2, void *p3)
     (void)p3;
 #if defined(DIAG_DOIP_SELFTEST_SESSION_END)
     rc = st_session_end();
+#elif defined(DIAG_DOIP_SELFTEST_WDT_STALL)
+    rc = st_wdt_stall();
 #endif
     printk("SELFTEST exit %d\n", rc);
     k_msleep(200);   /* let the deferred log drain */
