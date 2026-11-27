@@ -609,7 +609,7 @@ implementation.
 ```json
 {
   "edsCdaSchemaVersion": "1.0.0",
-  "generatedBy":  "Xaloqi EDS codegen v1.30.0",
+  "generatedBy":  "Xaloqi EDS codegen v1.31.0",
   "generatedAt":  "<ISO 8601 UTC>",
   "ecuIdentification": {
     "name":    "<ecu_name>",

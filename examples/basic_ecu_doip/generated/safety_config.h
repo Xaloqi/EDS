@@ -40,7 +40,7 @@
 #ifndef SAFETY_CONFIG_H
 #define SAFETY_CONFIG_H
 
-#define UDS_STACK_VERSION "1.30.0"
+#define UDS_STACK_VERSION "1.31.0"
 
 /* =============================================================================
  * ASIL level identification
