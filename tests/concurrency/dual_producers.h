@@ -12,9 +12,11 @@
  *     - a DoIP producer, as doip_server.c's dispatch with lock callbacks.
  *   DUAL_SHARED_LOCK = 1: both producers take one lock (today's documented
  *   integrator duty). 0: each takes its own (what an integrator writes from
- *   two examples). Each producer sends ROUNDS requests, so the server's own
- *   request_count must end at 2 * ROUNDS. The last line printed is
- *     "<name>: request_count=<n> expected=<2 * ROUNDS>"
+ *   two examples). A batch is ROUNDS requests from each producer; the
+ *   server's own request_count must grow by 2 * ROUNDS per batch.
+ *   dual_producers_run() runs up to max_batches batches and stops after the
+ *   first one that lost an update. The last line printed is
+ *     "<name>: request_count=<n> expected=<batches * 2 * ROUNDS>"
  *   and run_tsan.sh reads it. Not a tsan_*.c file: run_tsan.sh builds those.
  * =============================================================================
  */
@@ -42,6 +44,9 @@
 
 static pthread_mutex_t s_can_lock  = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t s_doip_lock = PTHREAD_MUTEX_INITIALIZER;
+/* Both producers start together: under TSan's slow thread start, one could
+ * otherwise finish most of its rounds before the other runs at all. */
+static pthread_barrier_t s_start;
 static uds_session_ctx_t  g_sess;
 static uds_security_ctx_t g_sec;
 static uds_server_ctx_t   g_srv;
@@ -50,6 +55,7 @@ static void producer(pthread_mutex_t *m, const uint8_t *seq, uint32_t n, uds_add
 {
     uint32_t i;
 
+    (void)pthread_barrier_wait(&s_start);
     for (i = 0U; i < ROUNDS; i++) {
         uds_msg_buf_t req = { .length = 2U };
         uds_msg_buf_t resp = { 0 };
@@ -93,8 +99,9 @@ static bool t_key(uint8_t l, const uint8_t *s, uint8_t sl, const uint8_t *k, uin
     return uds_security_algo_validate_key(l, s, sl, k, kl);
 }
 
-/* Runs both producers; returns the server's request_count. */
-static uint32_t dual_producers_run(const char *name)
+/* Runs up to max_batches batches of both producers; stops after the first
+ * batch that lost a request_count update. Returns true if none was lost. */
+static bool dual_producers_run(const char *name, uint32_t max_batches)
 {
     static const uds_security_cfg_t sc = {
         .max_attempts = 3U, .lockout_ms = 100U,
@@ -108,6 +115,8 @@ static uint32_t dual_producers_run(const char *name)
     };
     pthread_t c;
     pthread_t d;
+    uint32_t  batches = 0U;
+    uint32_t  expected = 0U;
 
     uds_security_algo_reset();
     (void)uds_session_init(&g_sess, 5000U);
@@ -115,14 +124,20 @@ static uint32_t dual_producers_run(const char *name)
     (void)uds_comm_control_init(NULL);
     (void)uds_periodic_init();
     (void)uds_server_init(&g_srv, &svc);
+    (void)pthread_barrier_init(&s_start, NULL, 2U);
 
-    (void)pthread_create(&c, NULL, can_task, NULL);
-    (void)pthread_create(&d, NULL, doip_task, NULL);
-    (void)pthread_join(c, NULL);
-    (void)pthread_join(d, NULL);
-    printf("%s: request_count=%u expected=%u\n", name,
-           (unsigned)g_srv.request_count, (unsigned)(2U * ROUNDS));
-    return g_srv.request_count;
+    while ((batches < max_batches) && (g_srv.request_count == expected)) {
+        (void)pthread_create(&c, NULL, can_task, NULL);
+        (void)pthread_create(&d, NULL, doip_task, NULL);
+        (void)pthread_join(c, NULL);
+        (void)pthread_join(d, NULL);
+        batches++;
+        expected += 2U * ROUNDS;
+    }
+    (void)pthread_barrier_destroy(&s_start);
+    printf("%s: batches=%u request_count=%u expected=%u\n", name, (unsigned)batches,
+           (unsigned)g_srv.request_count, (unsigned)expected);
+    return g_srv.request_count == expected;
 }
 
 #endif /* DUAL_PRODUCERS_H */
