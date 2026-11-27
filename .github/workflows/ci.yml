@@ -1427,8 +1427,6 @@ jobs:
 
       # [EDS#643] Every example with a hardware branch gets its NVM on the board's
       # diag_nvs partition, append backend here (128-byte write block, EDS#640).
-      # sensor_ecu is not built on Zephyr 3.7.0 for this board: the NXP LPCMP
-      # sensor driver does not compile there (EDS#645, upstream).
       - name: West build — bms_ecu, motor_controller_ecu on frdm_mcxn947 (NVM partition)
         run: |
           for ex in bms_ecu motor_controller_ecu; do
@@ -1442,6 +1440,22 @@ jobs:
               "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.conf" \
               "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay"
           done
+
+      # [EDS#645] sensor_ecu needs its own overlay on Zephyr 3.7.0: the NXP LPCMP
+      # sensor driver does not compile there (upstream), and nothing in the
+      # example reads the comparator, so the overlay disables the node.
+      - name: West build — sensor_ecu on frdm_mcxn947 (NVM partition, LPCMP off)
+        run: |
+          west build \
+            --pristine \
+            -d build-sensor_ecu \
+            -b frdm_mcxn947/mcxn947/cpu0 \
+            EDS/examples/sensor_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay;${GITHUB_WORKSPACE}/EDS/examples/sensor_ecu/boards/frdm_mcxn947/frdm_mcxn947_sensor.overlay"
+          test -f build-sensor_ecu/zephyr/zephyr.elf
 
       # [EDS#408] basic_ecu_doip on real flash (append backend) with the board's
       # Ethernet; compile-checked only.
@@ -1460,7 +1474,7 @@ jobs:
 
       - name: Verify the NVM partition is wired on every example (EDS#643)
         run: |
-          for d in build build-canfd build-bms_ecu build-motor_controller_ecu build-doip; do
+          for d in build build-canfd build-sensor_ecu build-bms_ecu build-motor_controller_ecu build-doip; do
             python3 EDS/scripts/verify_hw_nvm_wiring.py "$d" --backend append
           done
 

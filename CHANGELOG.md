@@ -8,6 +8,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Fixed
+
+- **`sensor_ecu` builds for the FRDM-MCXN947 on Zephyr v3.7.0** (#645). The board's devicetree enables the LPCMP
+  comparator, and v3.7.0's `mcux_lpcmp` driver does not compile with `CONFIG_ASSERT=y` (`'val' undeclared`, upstream).
+  `examples/sensor_ecu/boards/frdm_mcxn947/frdm_mcxn947_sensor.overlay` disables the node; the example does not read it.
+  Fail-first: without the overlay the build stops in `mcux_lpcmp.c:276`; with it the build passes on v3.7.0 and v4.4.1,
+  and `verify_hw_nvm_wiring.py` passes. CI now builds `sensor_ecu` for the board (job `Zephyr Build — frdm_mcxn947`).
+  Compile-checked only: `sensor_ecu` is not in the bench checklist and was not run on the board.
+
 ## [1.31.0] — 2026-11-27
 
 ### Changed

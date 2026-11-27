@@ -1,0 +1,19 @@
+/*
+ * Xaloqi EDS
+ * examples/sensor_ecu/boards/frdm_mcxn947/frdm_mcxn947_sensor.overlay
+ *
+ * PURPOSE: let sensor_ecu build for the FRDM-MCXN947 on Zephyr v3.7.0 [EDS#645].
+ *
+ * Zephyr's own frdm_mcxn947 devicetree enables the LPCMP comparator. With
+ * CONFIG_SENSOR=y that builds drivers/sensor/nxp/mcux_lpcmp, which in v3.7.0
+ * does not compile with CONFIG_ASSERT=y ('val' undeclared in
+ * mcux_lpcmp_sample_fetch(), an upstream bug). sensor_ecu does not read the
+ * comparator, so the node is switched off and the driver is not built.
+ *
+ * BUILDING (after the board's own files, see boards/frdm_mcxn947/):
+ *   -DDTC_OVERLAY_FILE="boards/frdm_mcxn947/frdm_mcxn947.overlay;examples/sensor_ecu/boards/frdm_mcxn947/frdm_mcxn947_sensor.overlay"
+ */
+
+&lpcmp0 {
+	status = "disabled";
+};
