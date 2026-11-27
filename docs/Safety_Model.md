@@ -368,6 +368,7 @@ The EDS safety model makes the following assumptions about the integration envir
 | The platform TRNG provides adequate entropy | Seed predictability; replay attack surface opens |
 | AES keys are provisioned with genuine OEM key material | Security access can be brute-forced with placeholder keys |
 | `uds_generated_init()` is called before any UDS traffic is processed | Uninitialised state; undefined behaviour |
+| While the application holds a safety-relevant output in a safe state, its `io_control_cb` refuses every 0x2F `inputOutputControlParameter` for that DID (0x00 to 0x03) with `UDS_STATUS_ERR_CONDITIONS_NOT_MET` (NRC 0x22), and ends any tester control itself when the session ends (EDS does not call the callback then), keeping the safe state | A tester takes the output out of the safe state with `resetToDefault` or `returnControlToECU`, or control stays with the tester after the session ends |
 | NVM is not externally modified after `dtc_mirror_load()` | DTC status bytes become inconsistent |
 | The platform NVM driver sets `nvm_store_is_ready()` to false when NVM is permanently degraded | DTC mirror silently discards writes; fault history lost without detection (residual risk — mitigate via NVM driver qualification) |
 

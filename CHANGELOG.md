@@ -8,6 +8,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Documentation
+
+- **0x2F and an application safe state** (#650). `docs/INTEGRATION_GUIDE.md` and the assumptions table in
+  `docs/Safety_Model.md` §10 now say what the code does: `io_control_cb` runs for all four
+  `inputOutputControlParameter` values, so it can refuse `returnControlToECU` and `resetToDefault` as well as
+  `shortTermAdjustment` (NRC 0x22), and EDS does not call it when a session ends, so the application ends tester
+  control itself (`uds_session_register_change_cb()`). No behaviour change. The callback-on-session-end gap is #654.
+
+### Fixed
+
+- **FRDM-MCXN947 DoIP: TCP segments now fit the 1512 bytes the ENET QoS driver can receive** (#648). Zephyr v3.7.0's
+  driver drops any received frame over 1512 bytes without a log line, and a tester's full-size TCP segment is 1514, so
+  a TCP segment carrying more than 1460 bytes (e.g. a large `0x36` block) would be dropped and retransmitted until the
+  connection gave up. The `basic_ecu_doip` FRDM conf sets
+  the new `CONFIG_EDS_DOIP_EXAMPLE_NET_IF_MTU=1498` (default 0 = unchanged); `main()` passes it to `net_if_set_mtu()`
+  before the server starts, Zephyr advertises MSS 1458, and 1458 + 40 + 14 = 1512. Other boards are unchanged. Known
+  limit: ICMP and UDP datagrams over 1512 bytes on the wire (`ping -s 1471` and up) are still dropped on this board.
+  Compile-checked on Zephyr v3.7.0; not yet run on the board, so #648 stays open (Refs): the bench check is a DoIP
+  request over 1460 bytes failing on the v1.31.0 image and passing with this change, plus the 11-23 checks.
+
+- **`sensor_ecu` builds for the FRDM-MCXN947 on Zephyr v3.7.0** (#645). The board's devicetree enables the LPCMP
+  comparator, and v3.7.0's `mcux_lpcmp` driver does not compile with `CONFIG_ASSERT=y` (`'val' undeclared`, upstream).
+  `examples/sensor_ecu/boards/frdm_mcxn947/frdm_mcxn947_sensor.overlay` disables the node; the example does not read it.
+  Fail-first: without the overlay the build stops in `mcux_lpcmp.c:276`; with it the build passes on v3.7.0 and v4.4.1,
+  and `verify_hw_nvm_wiring.py` passes. CI now builds `sensor_ecu` for the board (job `Zephyr Build — frdm_mcxn947`).
+  Compile-checked only: `sensor_ecu` is not in the bench checklist and was not run on the board.
+
 ## [1.31.0] — 2026-11-27
 
 ### Changed

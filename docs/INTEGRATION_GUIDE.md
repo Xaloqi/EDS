@@ -58,6 +58,8 @@ The following table covers every service defined in ISO 14229-1:2020. "Implement
 | 0x86 | ResponseOnEvent | **Out of scope** | — |
 | 0x87 | LinkControl | **Out of scope** | — |
 
+**0x2F and an application safe state.** `io_control_cb` runs for every `inputOutputControlParameter`, including `returnControlToECU` (0x00) and `resetToDefault` (0x01), after the DID, session and security checks have passed (`core/uds_services/service_0x2F.c`). Whatever it returns is the answer: `UDS_STATUS_ERR_CONDITIONS_NOT_MET` becomes NRC 0x22 and the output is left alone. While your application holds a safety-relevant output in a safe state, refuse all four parameters from the callback; refusing only `shortTermAdjustment` (0x03) lets a tester take the output out of the safe state with `resetToDefault`. EDS keeps no I/O-control state, saves no output value and calls `io_control_cb` only when a 0x2F request arrives, not when a session ends. If your callbacks hold an output under tester control, end that control yourself when the session leaves the extended or programming session (including the S3Server timeout) with `uds_session_register_change_cb()`, and hand the output back to application code that keeps the safe state rather than restoring the value from before the tester took control. A 0x2F request in the default session, or without the DID's security level, never reaches the callback (NRC 0x31 and NRC 0x33).
+
 **Services not listed** (e.g. 0x24 ReadScalingDataByIdentifier, 0x29 Authentication, 0x2C DynamicallyDefineDataIdentifier) are all out of scope and return NRC 0x11. 0x23 ReadMemoryByAddress and 0x3D WriteMemoryByAddress ARE implemented -- see the table above, not this exclusion list (EDS#237).
 
 ---

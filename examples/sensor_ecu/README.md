@@ -85,6 +85,21 @@ gap O-132 found and documented for `examples/bms_ecu`). `-DDIAG_SKIP_CODEGEN=ON`
 from the committed `generated/` (it's the default here, so the flag is redundant —
 included to match CI's own invocation).
 
+### Building for the FRDM-MCXN947
+
+```
+west build -b frdm_mcxn947/mcxn947/cpu0 examples/sensor_ecu -- \
+  -DDIAG_SKIP_CODEGEN=ON \
+  "-DEXTRA_CONF_FILE=<eds>/boards/frdm_mcxn947/frdm_mcxn947.conf" \
+  "-DDTC_OVERLAY_FILE=<eds>/boards/frdm_mcxn947/frdm_mcxn947.overlay;<eds>/examples/sensor_ecu/boards/frdm_mcxn947/frdm_mcxn947_sensor.overlay"
+```
+
+The second overlay switches off the board's LPCMP comparator node. With it enabled,
+Zephyr v3.7.0's `mcux_lpcmp` sensor driver does not compile
+([#645](https://github.com/Xaloqi/EDS/issues/645)); this example does not read the
+comparator. Compile-checked on Zephyr v3.7.0 and v4.4.1 and built in CI; it has not been
+run on the board.
+
 ---
 
 ## Availability

@@ -53,6 +53,21 @@ config EDS_DOIP_DISCOVERY
 	  only the announcements, use eds_doip_set_discovery() (YAML:
 	  ecu.doip.discovery.enabled / .announce).
 
+config EDS_DOIP_EXAMPLE_NET_IF_MTU
+	int "basic_ecu_doip: network interface MTU to set before the DoIP server starts"
+	default 0
+	range 0 1500
+	help
+	  Used by examples/basic_ecu_doip only (the EDS library never sets it).
+	  0 leaves the MTU the Ethernet driver registered (1500 on every board).
+	  A value above 0 is passed to net_if_set_mtu() on the default interface
+	  just before eds_doip_platform_start(). Zephyr advertises
+	  MTU - 40 as the TCP MSS in each SYN and SYN-ACK, so this caps the
+	  segments a tester sends. frdm_mcxn947 sets 1498 for EDS#648: its
+	  Zephyr v3.7.0 ENET QoS driver drops received frames over 1512 bytes,
+	  and 1498 + 14 (Ethernet header) is exactly 1512. ICMP and UDP
+	  datagrams that fill a 1500-byte IP packet are still dropped.
+
 # ---------------------------------------------------------------------------
 # ISO-TP timing parameters (ISO 15765-2 §6.7)
 # ---------------------------------------------------------------------------

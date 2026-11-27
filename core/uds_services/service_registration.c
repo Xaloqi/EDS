@@ -201,8 +201,12 @@ const uds_service_entry_t g_uds_service_table[UDS_SERVICE_TABLE_COUNT] = {
          *
          * SAFETY: IO control modifies physical actuator state. Incorrect
          *         implementation may leave outputs in an unsafe state.
-         *         returnControlToECU (0x00) must always restore ECU
-         *         autonomous operation regardless of prior commands.
+         *         The callback runs for returnControlToECU (0x00) and
+         *         resetToDefault (0x01) too and may refuse them with
+         *         UDS_STATUS_ERR_CONDITIONS_NOT_MET (NRC 0x22), e.g. while
+         *         the application holds the output in a safe state; see
+         *         docs/INTEGRATION_GUIDE.md. EDS does not call it when a
+         *         session ends (EDS#654).
          *         suppressPosRspMsgIndicationBit not applicable — no
          *         sub-function byte.
          */

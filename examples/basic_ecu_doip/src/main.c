@@ -111,6 +111,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/logging/log.h>
+#if (CONFIG_EDS_DOIP_EXAMPLE_NET_IF_MTU > 0)
+#include <zephyr/net/net_if.h>
+#endif
 
 LOG_MODULE_REGISTER(basic_ecu_doip, LOG_LEVEL_INF);
 
@@ -407,6 +410,24 @@ int main(void)
      * restricted the response says "VIN not available".
      */
     eds_doip_set_discovery(uds_generated_doip_discovery());
+
+#if (CONFIG_EDS_DOIP_EXAMPLE_NET_IF_MTU > 0)
+    /*
+     * [EDS#648] Cap the MSS this board advertises, before the first
+     * connection: Zephyr sends MTU - 40 in every SYN-ACK. See the Kconfig
+     * help and boards/frdm_mcxn947/frdm_mcxn947_doip.conf for the value.
+     */
+    {
+        struct net_if *iface = net_if_get_default();
+
+        if (iface == NULL) {
+            LOG_ERR("No default network interface for the MTU of EDS#648");
+            return -1;
+        }
+        net_if_set_mtu(iface, (uint16_t)CONFIG_EDS_DOIP_EXAMPLE_NET_IF_MTU);
+        LOG_INF("Network interface MTU set to %u", (unsigned)net_if_get_mtu(iface));
+    }
+#endif
 
     /*
      * Start DoIP server.

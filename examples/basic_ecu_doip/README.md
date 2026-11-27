@@ -127,9 +127,13 @@ reset pin. The conf sets `CONFIG_NET_BUF_DATA_SIZE=1536`: with Zephyr v3.7.0's
 ENET QoS driver a received frame must fit one network buffer, and the default
 128 bytes made any longer frame panic the board
 ([#647](https://github.com/Xaloqi/EDS/issues/647)); it costs about 99 KB of
-RAM. Frames over 1512 bytes are still dropped by that driver
-([#648](https://github.com/Xaloqi/EDS/issues/648)), so keep DoIP transfers
-below full-size TCP segments for now. The TCP sequence
+RAM. That driver also drops received frames over 1512 bytes
+([#648](https://github.com/Xaloqi/EDS/issues/648)), so the conf sets
+`CONFIG_EDS_DOIP_EXAMPLE_NET_IF_MTU=1498`: `main()` sets the interface MTU to
+1498 before the server starts, Zephyr advertises MSS 1458 (MTU minus 40), and a
+full TCP segment is then 1512 bytes on the wire. **Known limit:** ICMP and UDP
+datagrams that fill a 1500-byte IP packet (`ping -s 1471` and up) are still
+dropped on this board; DoIP over TCP is not affected. The TCP sequence
 numbers come from Zephyr's test random generator (see the conf), so this is a
 bench setup, not a product one.
 
