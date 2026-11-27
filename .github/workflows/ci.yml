@@ -3109,6 +3109,38 @@ jobs:
       - name: Build
         run: ninja -C build_${{ matrix.example }}
 
+      # [EDS#197] basic_ecu_doip_freertos on the executor, run under QEMU with
+      # the real lwIP (compat-tests' pin): tests/freertos_doip_selftest's
+      # in-firmware DoIP client (lwIP loopback) forces an S3 expiry and a
+      # disconnect to meet at the S3 reset. One on_session_change expected;
+      # QEMU exits with the verdict (semihosting).
+      - name: Executor selftest (QEMU + lwIP)
+        if: matrix.example == 'basic_ecu_doip_freertos'
+        run: |
+          sudo apt-get install -y --no-install-recommends qemu-system-arm
+          git clone --depth=1 --branch STABLE-2_2_1_RELEASE \
+            https://github.com/lwip-tcpip/lwip.git /opt/lwip
+          cmake -B build_selftest \
+            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/cmake/toolchain/arm-none-eabi.cmake" \
+            -DEDS_PLATFORM=freertos \
+            -DFREERTOS_DIR=/opt/freertos-kernel \
+            -DBOARD=qemu_cortex_m4 \
+            -DFREERTOS_CONFIG_DIR="${GITHUB_WORKSPACE}/examples/basic_ecu_doip_freertos/boards/qemu_cortex_m4" \
+            -DLWIP_DIR=/opt/lwip \
+            -DDIAG_DOIP_SELFTEST=SESSION_END \
+            -GNinja \
+            examples/basic_ecu_doip_freertos
+          ninja -C build_selftest
+          rc=0
+          timeout 120 qemu-system-arm -machine mps2-an386 \
+            -kernel build_selftest/eds_freertos_doip.elf \
+            -net nic,model=lan9118 -net user -nographic -monitor none -semihosting \
+            -serial file:selftest_uart.log || rc=$?
+          grep -a SELFTEST selftest_uart.log || true
+          if [ "$rc" -ne 0 ] || ! grep -aq "calls=1 expected=1 PASS" selftest_uart.log; then
+            echo "FAIL: SESSION_END on FreeRTOS (QEMU exit $rc)"; cat selftest_uart.log; exit 1
+          fi
+
       - name: Verify ELF and report size
         run: |
           elf="build_${{ matrix.example }}/${{ matrix.elf }}"

@@ -34,6 +34,13 @@
  * ------------------------------------------------------------------------ */
 
 #define NO_SYS                          0
+
+/* [EDS#197] tests/freertos_doip_selftest only: its in-firmware DoIP client
+ * reaches the server on 127.0.0.1, lwIP's loopback interface. */
+#if defined(DIAG_DOIP_SELFTEST_SESSION_END)
+#define LWIP_NETIF_LOOPBACK             1
+#define LWIP_HAVE_LOOPIF                1
+#endif
 #define SYS_LIGHTWEIGHT_PROT            1
 #define LWIP_TCPIP_CORE_LOCKING         1
 
