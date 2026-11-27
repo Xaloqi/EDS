@@ -23,6 +23,8 @@
 #include "uds_security.h"
 #include "uds_access_table.h"
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -222,7 +224,41 @@ struct uds_server_ctx {
     uint8_t             pending_reset_type;                     /**< [P2-0x11-01] Non-zero after 0x11; deferred reset type. */
     uds_addressing_t    rx_addressing;                          /**< [EDS#282] Addressing of the request being dispatched. */
     uds_pending_slot_t  pending;                                /**< [EDS#282] Response-pending job. */
+    /* [EDS#197] Appended after `pending` so no earlier member moves. */
+    uint8_t             rx_src;                                 /**< [EDS#197] Source of the request being dispatched. */
+    uint8_t             session_owner;                          /**< [EDS#197] Source that left DEFAULT, or UDS_SERVER_SRC_NONE. */
 };
+
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L) && !defined(MISRA_ANALYSIS)
+/* [EDS#197] Generated code reads ctx->cfg.* directly (gen_doip_vin() in
+ * uds_init.c), so cfg stays the member right after `initialized`. The
+ * MISRA_ANALYSIS guard is the one uds_types.h uses for its _Static_assert. */
+_Static_assert(offsetof(uds_server_ctx_t, cfg) == _Alignof(uds_server_cfg_t),
+               "uds_server_ctx_t.cfg moved: generated code reads it directly");
+#endif
+
+/* --------------------------------------------------------------------------
+ * [EDS#197] Request sources
+ *
+ * A source (src) names the producer a request came from: one transport, or
+ * one connection of it. uds_server_process_request() and _ex() are src
+ * UDS_SERVER_SRC_DEFAULT. A single-transport build never needs another one.
+ *
+ * Session ownership: the source whose request leaves the default session
+ * owns the session until it returns to DEFAULT (S3 timeout, 10 01 or
+ * uds_server_end_session() from that source). While it is owned, a request
+ * from any other source changes no state and does not restart S3: a
+ * physically addressed one is answered NRC 0x21 (busyRepeatRequest), a
+ * functionally addressed one gets no response. A non-default session that
+ * no request opened (the application called uds_session_transition()) has
+ * no owner and serves every source, as before.
+ * -------------------------------------------------------------------------- */
+
+/** The source of uds_server_process_request() and _ex(). */
+#define UDS_SERVER_SRC_DEFAULT  (0U)
+
+/** No source: the session has no owner. Not a valid src argument. */
+#define UDS_SERVER_SRC_NONE     (0xFFU)
 
 /* --------------------------------------------------------------------------
  * Public API
@@ -300,6 +336,59 @@ uds_status_t uds_server_process_request_ex(
     uds_msg_buf_t       *resp,
     uds_addressing_t     addressing
 );
+
+/**
+ * @brief [EDS#197] Process a request from a named source.
+ *
+ * Identical to uds_server_process_request_ex(), which is this function with
+ * UDS_SERVER_SRC_DEFAULT, plus the session-ownership rule above.
+ *
+ * @param[in]  ctx         Pointer to initialized server context.
+ * @param[in]  req         Pointer to the assembled request PDU buffer.
+ * @param[out] resp        Pointer to the response buffer to populate.
+ * @param[in]  addressing  How the request was addressed.
+ * @param[in]  src         The producer it came from (not UDS_SERVER_SRC_NONE).
+ *
+ * @return As uds_server_process_request(); UDS_STATUS_ERR_INVALID_PARAM
+ *         for src == UDS_SERVER_SRC_NONE.
+ */
+uds_status_t uds_server_process_request_src(
+    uds_server_ctx_t    *ctx,
+    const uds_msg_buf_t *req,
+    uds_msg_buf_t       *resp,
+    uds_addressing_t     addressing,
+    uint8_t              src
+);
+
+/**
+ * @brief [EDS#197] The source of the request being dispatched.
+ *
+ * For service handlers. Outside a dispatch: the last request's source.
+ */
+uint8_t uds_server_request_src(const uds_server_ctx_t *ctx);
+
+/**
+ * @brief [EDS#197] End the session for a source: the one return to DEFAULT.
+ *
+ * Returns the session to DEFAULT and does what every return to DEFAULT
+ * does: re-locks SecurityAccess (failed-attempt and lockout counters kept),
+ * restores CommunicationControl and ControlDTCSetting, aborts a pending
+ * job and an active transfer, and clears the owner. 10 01 and a transport's
+ * disconnect call this; the S3 timeout in uds_server_tick_1ms() runs the
+ * same resets.
+ *
+ * Does nothing when another source owns the session, so a transport's
+ * disconnect cannot end a session another transport opened.
+ *
+ * Same lock as uds_server_process_request().
+ *
+ * @param[in] ctx  Pointer to initialized server context.
+ * @param[in] src  The source ending it.
+ *
+ * @return true if the session was ended; false if another source owns it,
+ *         or ctx is NULL or not initialized.
+ */
+bool uds_server_end_session(uds_server_ctx_t *ctx, uint8_t src);
 
 /**
  * @brief Periodic tick function — must be called at 1 ms resolution.

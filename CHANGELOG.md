@@ -18,6 +18,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `EDS_RACE_POINT(id)`, a hook for forcing a thread switch in tests; it is empty unless `UNIT_TEST` is defined, and
   `scripts/verify_no_test_hooks.py` now checks that. No firmware behaviour change.
 
+### Changed
+
+- **A diagnostic session belongs to the transport that opened it** (#197). The transport whose request leaves the
+  default session owns the session until it returns to DEFAULT (S3 timeout, 10 01, or that transport's disconnect).
+  While it is open, requests from another transport get NRC 0x21 (busyRepeatRequest) when physically addressed and
+  no response when functionally addressed; they change no state and do not restart S3. A DoIP disconnect ends the
+  session only if DoIP opened it: before, a DoIP tester dropping its connection ended a CAN tester's extended or
+  programming session too. New API: `uds_server_process_request_src()` names the source (`uds_server_process_request()`
+  and `_ex()` are source 0, CAN; the DoIP server uses `EDS_DOIP_UDS_SRC`, default 1), and `uds_server_end_session()`
+  is now the one return to DEFAULT that S3, 10 01 and the DoIP disconnect share. A session the application opened
+  itself (`uds_session_transition()`) has no owner and serves every transport, as before. Single-transport builds
+  behave as before and need no source change; code that allocates `uds_server_ctx_t` must be rebuilt (two fields
+  appended after `pending`; `cfg` does not move, and a `_Static_assert` now holds it in place). No example needs
+  regenerating. The executor that serializes the two transports follows in later #197 changes. MISRA:
+  `uds_server_process_request` joins DEV-ACCS-02 (Rule 8.7, documented API; 39 functions, still 43 records).
+
 ### Documentation
 
 - **0x2F and an application safe state** (#650). `docs/INTEGRATION_GUIDE.md` and the assumptions table in

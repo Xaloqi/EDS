@@ -31,8 +31,6 @@
 
 #include "doip_server.h"
 #include "uds_server.h"
-#include "uds_comm_control.h"   /* [SEC-SESS-COMMRESTORE-01] */
-#include "services.h"           /* uds_service_0x34_abort_transfer() [EDS#442] */
 #include "uds_types.h"
 #include "eds_elapsed.h"      /* [EDS#412] connection lifetime */
 #include "uds_security_algo.h" /* [EDS#358] EDS_BUILD_IS_PRODUCTION (SEC-BUILD-MODE-01) */
@@ -477,9 +475,9 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
         if (s_doip_lock_cb != NULL) {
             s_doip_lock_cb();
         }
-        uds_status_t dispatch_rc = uds_server_process_request(uds_ctx,
-                                                               req_buf,
-                                                               resp_buf);
+        uds_status_t dispatch_rc = uds_server_process_request_src(
+            uds_ctx, req_buf, resp_buf, UDS_ADDRESSING_PHYSICAL,
+            (uint8_t)EDS_DOIP_UDS_SRC);
         if (s_doip_unlock_cb != NULL) {
             s_doip_unlock_cb();
         }
@@ -1522,25 +1520,17 @@ connection_closed:
             }
         }
 
-        /* [EDS#191] Reset UDS session/security state on every disconnect —
-         * only DoIP-layer routing state was reset above. Without this, a
-         * new TCP connection (a different tester, or the same one
-         * reconnecting) inherits whatever session/security state the
-         * previous connection left behind (e.g. Extended session +
-         * SecurityAccess unlocked) until S3 eventually times it out.
+        /* [EDS#191] End the UDS session on every disconnect: only DoIP-layer
+         * routing state was reset above. Without this, a new TCP connection
+         * (a different tester, or the same one reconnecting) inherits the
+         * previous connection's session and SecurityAccess unlock until S3
+         * times it out. uds_server_end_session() is the same return to
+         * DEFAULT as S3 and 10 01: security re-locked, CommunicationControl
+         * and ControlDTCSetting restored, pending job and transfer aborted.
          *
-         * Same lesson as [SEC-S3-RESET-01] (core/uds_server.c) recurring
-         * in a different code path: that fix taught this exact codebase
-         * that a forced return to DEFAULT (there, an S3 timeout) must
-         * reset SecurityAccess too, or the unlock survives the transition
-         * — a disconnect is a second, independent way a tester's session
-         * can end, and needed the identical pairing.
-         *
-         * uds_session_transition() to DEFAULT is unconditionally valid
-         * from any current session (see session_validate_transition()),
-         * and uds_security_reset() locks security while correctly
-         * preserving the failed-attempt/lockout counters per ISO
-         * 14229-1 §10.4.5.3 — same two calls SEC-S3-RESET-01 makes.
+         * [EDS#197] Only if DoIP owns the session: a CAN tester's extended
+         * or programming session (a running download, say) survives a DoIP
+         * tester dropping.
          *
          * [EDS#635] Under the EDS#353 lock pair, like every other UDS call
          * in this file: the UDS tick task changes the same session,
@@ -1548,17 +1538,7 @@ connection_closed:
         if (s_doip_lock_cb != NULL) {
             s_doip_lock_cb();
         }
-        (void)uds_session_transition(uds_ctx->cfg.session_ctx, UDS_SESSION_DEFAULT);
-        (void)uds_security_reset(uds_ctx->cfg.security_ctx);
-        /* [SEC-SESS-COMMRESTORE-01] The third return-to-DEFAULT producer:
-         * ISO 14229-1:2026 §9.2.1 d) resets CommunicationControl and
-         * ControlDTCSetting here too, or a dropped tester leaves the ECU
-         * silent with DTC recording off. */
-        (void)uds_comm_control_restore_defaults();
-        /* [EDS#282] Session ended: drop a pending job. */
-        uds_server_pending_abort(uds_ctx);
-        /* [EDS#442] Session ended: abort any transfer. */
-        uds_service_0x34_abort_transfer();
+        (void)uds_server_end_session(uds_ctx, (uint8_t)EDS_DOIP_UDS_SRC);
         if (s_doip_unlock_cb != NULL) {
             s_doip_unlock_cb();
         }
