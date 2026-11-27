@@ -8,6 +8,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Documentation
+
+- **0x2F and an application safe state** (#650). `docs/INTEGRATION_GUIDE.md` and the assumptions table in
+  `docs/Safety_Model.md` §10 now say what the code does: `io_control_cb` runs for all four
+  `inputOutputControlParameter` values, so it can refuse `returnControlToECU` and `resetToDefault` as well as
+  `shortTermAdjustment` (NRC 0x22), and EDS does not call it when a session ends, so the application ends tester
+  control itself (`uds_session_register_change_cb()`). No behaviour change. The callback-on-session-end gap is #654.
+
 ### Fixed
 
 - **`sensor_ecu` builds for the FRDM-MCXN947 on Zephyr v3.7.0** (#645). The board's devicetree enables the LPCMP
