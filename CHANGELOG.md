@@ -34,8 +34,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `boards/nucleo_h753zi/nucleo_h753zi.overlay` as `DTC_OVERLAY_FILE` for the partition table; the FRDM-MCXN947 has a new
   `frdm_mcxn947_doip.conf` for its on-board Ethernet. `-DDIAG_USE_MOCK_NVM=ON` keeps the RAM mock on any board, and
   native_sim still uses it. The weekly job's `basic_ecu_doip_nucleo_h753zi_nvs` row built NVS with a NULL config; it is
-  now `..._flash`, the real configuration. **Not run on hardware:** a DTC set before a real reset reading back after it,
-  and a first-boot erase without a reset loop, are the checks that remain.
+  now `..._flash`, the real configuration. Hardware (FRDM-MCXN947, 2026-11-23, KB#413/#414): the store mounts on an
+  erased partition with no reset loop, the DoIP Pro campaign passes 8/8 before and after a reset, and the SecurityAccess
+  attempt counter survives the reset pin. **Not run on hardware:** the NUCLEO-H753ZI build, and a DTC read back after a
+  reset in this example (the DTC mirror over a reset was shown on `robot_joint_dtc`, #632). The FRDM-MCXN947 DoIP build
+  uses Zephyr's test random generator for TCP sequence numbers (v3.7.0 has no devicetree node for the board's TRNG): fine
+  on a bench link, not for production. SecurityAccess seeds do not come from it.
 - **The weekly Zephyr job also builds against Zephyr v4.5.0** (the latest release; policy: "current stable"). The
   workflow runs one leg per ref (`main`, `v4.5.0`), each with its own concurrency group, log artifact and tracking
   issue ("EDS breaks against Zephyr <ref>"); every row of `builds.tsv` is built on both. A manual run with no
@@ -54,8 +58,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   statistics have no production caller (see #599).
 - **README board rows from the FRDM-MCXN947 bench** (taken over from #642). Where cells passed on 2026-11-22 (board
   700-90818 A1, v1.30.0, Zephyr v3.7.0): `basic_ecu` (UDS and ISO-TP conformance vectors, 4000-byte burst, P2 timing
-  over CAN at 500 kbit/s), `basic_ecu_doip` (Pro campaign 8/8 over DoIP, bench build with a test random generator and
-  mock NVM) and `canfd_ecu` (one CAN FD frame with BRS). The `basic_ecu` row says DTCs survive an ECU reset on the
+  over CAN at 500 kbit/s), `basic_ecu_doip` (Pro campaign 8/8 over DoIP; on 11-22 a bench build with mock NVM, rerun on real
+  flash on 11-23, see the #408 entry) and `canfd_ecu` (one CAN FD frame with BRS). The `basic_ecu` row says DTCs survive an ECU reset on the
   board: the DTC persistence cells passed there on 2026-11-23 (KB#412). NXP MCX is described as industrial.
 
 ### Fixed
