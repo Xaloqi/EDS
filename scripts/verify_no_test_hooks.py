@@ -13,6 +13,11 @@ For the six sources that hold them:
   * compiled with -DEDS_TEST_HOOKS=1, all twelve are defined and declared, so
     the check above is not vacuous.
 
+It checks the race-point hook the same way (EDS#197): core/eds_race_point.h
+expands EDS_RACE_POINT(id) to nothing without UNIT_TEST. A probe that uses the
+macro must reference eds_race_point_hook with UNIT_TEST and not without it,
+and a build that defines EDS_RACE_POINT itself must stop at the header's #error.
+
 Usage: verify_no_test_hooks.py [EDS_ROOT]
 """
 import pathlib
@@ -77,6 +82,43 @@ def header_declares(root, tmp, extra, name):
     return r.returncode != 0
 
 
+RACE_HOOK = "eds_race_point_hook"
+RACE_PROBE = ('#include "eds_race_point.h"\n'
+              "void eds_race_probe(void);\n"
+              "void eds_race_probe(void) { EDS_RACE_POINT(1U); }\n")
+
+
+def race_point_problems(root, tmp):
+    """EDS#197: EDS_RACE_POINT is empty and hook-free in a production build."""
+    tu = tmp / "race.c"
+    tu.write_text(RACE_PROBE)
+    obj = tmp / "race.o"
+    inc = [f"-I{root / d}" for d in INCLUDE_DIRS]
+
+    def symbols(extra):
+        r = subprocess.run(BASE + extra + inc + [str(tu), "-o", str(obj)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            return None
+        return subprocess.run(["nm", str(obj)], capture_output=True, text=True,
+                              check=True).stdout.split()
+
+    problems = []
+    prod = symbols([])
+    if prod is None:
+        problems.append("eds_race_point.h: the production probe does not compile")
+    elif RACE_HOOK in prod:
+        problems.append(f"EDS_RACE_POINT: a production build references {RACE_HOOK}")
+    test = symbols(["-DUNIT_TEST=1"])
+    if test is None or RACE_HOOK not in test:
+        problems.append(f"EDS_RACE_POINT: no {RACE_HOOK} reference even with UNIT_TEST "
+                        "(the check above would be vacuous)")
+    if symbols(["-DEDS_RACE_POINT(x)=(void)(x)"]) is not None:
+        problems.append("EDS_RACE_POINT: a build that defines it compiles "
+                        "(eds_race_point.h must stop it with #error)")
+    return problems
+
+
 def main():
     root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else
                         pathlib.Path(__file__).resolve().parent.parent).resolve()
@@ -94,6 +136,7 @@ def main():
                 problems.append(f"{name}: not declared with EDS_TEST_HOOKS (stale list?)")
             if header_declares(root, tmp, [], name):
                 problems.append(f"{name}: a production build declares it")
+        problems += race_point_problems(root, tmp)
     if problems:
         print("FAIL: test-only accessors reach a production build:")
         for p in problems:
@@ -101,6 +144,8 @@ def main():
         sys.exit(1)
     print(f"PASS: none of the {len(TEST_ONLY)} test-only accessors is defined or declared "
           "without EDS_TEST_HOOKS; all are present with it")
+    print("PASS: EDS_RACE_POINT is empty without UNIT_TEST, calls the hook with it, "
+          "and cannot be defined outside eds_race_point.h")
 
 
 if __name__ == "__main__":

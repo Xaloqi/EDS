@@ -8,6 +8,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
+### Added
+
+- **A ThreadSanitizer CI job for two-thread races** (#197, first step). The new `concurrency-tsan` job builds the host
+  tests in `tests/concurrency/` with `-fsanitize=thread` and real threads on every PR, which native_sim cannot do. Two
+  new scenarios: a CAN and a DoIP producer on one lock (passes: no race, `request_count` = 40 000) and on separate
+  locks (the #197 race, an expected failure: every run must still show races and lost `request_count` updates, or the
+  job fails). The job also fails if any `tsan_*.c` test did not run. `core/eds_race_point.h` adds
+  `EDS_RACE_POINT(id)`, a hook for forcing a thread switch in tests; it is empty unless `UNIT_TEST` is defined, and
+  `scripts/verify_no_test_hooks.py` now checks that. No firmware behaviour change.
+
 ### Documentation
 
 - **0x2F and an application safe state** (#650). `docs/INTEGRATION_GUIDE.md` and the assumptions table in
