@@ -25,8 +25,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   the new `CONFIG_EDS_DOIP_EXAMPLE_NET_IF_MTU=1498` (default 0 = unchanged); `main()` passes it to `net_if_set_mtu()`
   before the server starts, Zephyr advertises MSS 1458, and 1458 + 40 + 14 = 1512. Other boards are unchanged. Known
   limit: ICMP and UDP datagrams over 1512 bytes on the wire (`ping -s 1471` and up) are still dropped on this board.
-  Compile-checked on Zephyr v3.7.0; not yet run on the board, so #648 stays open (Refs): the bench check is a DoIP
-  request over 1460 bytes failing on the v1.31.0 image and passing with this change, plus the 11-23 checks.
+  Bench (FRDM-MCXN947 700-90818 A1, Zephyr v3.7.0, 2026-11-27): a 1601-byte DoIP request is not answered on the v1.31.0
+  image (`mss:1460`, retransmitted) and is answered with this change (`mss:1458`); Pro campaign 8/8 before and after a
+  reset and `ping -s 1400` 100/100. Not tested: a real `0x36` (this image has no flash-download path). Record:
+  `campaigns/2026-11-22-frdm-mcxn947-bench-results.md` in xaloqi-knowledge.
 
 - **`sensor_ecu` builds for the FRDM-MCXN947 on Zephyr v3.7.0** (#645). The board's devicetree enables the LPCMP
   comparator, and v3.7.0's `mcux_lpcmp` driver does not compile with `CONFIG_ASSERT=y` (`'val' undeclared`, upstream).
