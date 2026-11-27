@@ -33,9 +33,18 @@
  *    uds_exec_done()      true once the slot's request or call has run; the
  *                         response is in the producer's buffer (length 0:
  *                         nothing to send).
- *    uds_exec_release()   the producer has sent that response (or had
- *                         nothing to send); the slot is free again. A reset
- *                         the request left pending is performed after this.
+ *    uds_exec_release()   the producer is finished with the slot: on every
+ *                         exit path, once it has posted. After sending the
+ *                         response, after a send error, on a disconnect or a
+ *                         timeout. A reset the request left pending is
+ *                         performed after this. Released before it ran, a
+ *                         request is withdrawn; released while it runs, the
+ *                         slot is freed when the executor is done with it.
+ *
+ *  Buffers: once posted, a slot's req and resp are the executor's until
+ *  uds_exec_done(), or, after a release, until the producer can post again
+ *  (uds_exec_submit() returns POSTED). Meanwhile the producer receives into
+ *  a buffer of its own, not into req.
  *    uds_exec_push_frame() / uds_exec_push_done()
  *                         a frame the executor routes to this producer: a
  *                         pending job's 7F sid 78 keepalive or final
@@ -132,6 +141,7 @@ typedef enum uds_exec_slot_state {
 typedef struct uds_exec_slot {
     uds_exec_slot_state_t state;
     bool                  is_call;
+    bool                  released;   /* released while RUNNING: free, not DONE */
     uds_addressing_t      addressing;
     uint32_t              rx_ms;
     const uds_msg_buf_t  *req;
@@ -198,7 +208,13 @@ uds_status_t uds_exec_call(uds_exec_t *ex, uint8_t src, uds_exec_fn_t fn, void *
 /** @brief Producer: true once its request or call has run. */
 bool uds_exec_done(uds_exec_t *ex, uint8_t src);
 
-/** @brief Producer: its response is sent (or there was none); free the slot. */
+/**
+ * @brief Producer: it is finished with its slot. Call on every exit path
+ *        after posting: response sent, send error, disconnect, timeout.
+ *        DONE: the slot is free. Not yet run: the request is withdrawn.
+ *        Running: the slot is freed, with no DONE, once the run ends; the
+ *        buffers stay the executor's until then.
+ */
 void uds_exec_release(uds_exec_t *ex, uint8_t src);
 
 /**

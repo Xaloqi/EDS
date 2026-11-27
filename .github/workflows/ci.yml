@@ -3386,6 +3386,38 @@ jobs:
           echo "         xaloqi-compatibility-tests' basic_ecu_doip leg, which runs the real"
           echo "         campaign over real DoIP/TCP and passes on main."
 
+      # [EDS#197] basic_ecu_doip on the executor, driven by an in-process
+      # DoIP client over loopback (tests/zephyr_doip_selftest), with a
+      # counter watchdog standing in for the board's:
+      #   SESSION_END  S3 and a disconnect meet at the race point at the S3
+      #                reset: one on_session_change, not two.
+      #   WDT_STALL    the EDS#399 supervision now in the executor loop: a
+      #                hung call stalls the loop and the watchdog resets
+      #                (native_sim's reset ends the process).
+      - name: Executor selftests (native_sim, in-process DoIP client)
+        run: |
+          C="${GITHUB_WORKSPACE}/examples/basic_ecu_doip/boards/native_sim/native_sim_doip.conf"
+          T="${GITHUB_WORKSPACE}/tests/zephyr_doip_selftest/selftest.conf"
+          for m in SESSION_END WDT_STALL; do
+            west build -b native_sim examples/basic_ecu_doip -p always -d "build-st-$m" -- \
+              "-DEXTRA_CONF_FILE=$C;$T" -DDIAG_DOIP_SELFTEST=$m \
+              -DDIAG_SKIP_CODEGEN=ON -DZEPHYR_TOOLCHAIN_VARIANT=host
+          done
+
+          rc=0; timeout 120 build-st-SESSION_END/zephyr/zephyr.exe > st-session.txt 2>&1 || rc=$?
+          grep SELFTEST st-session.txt
+          if [ "$rc" -ne 0 ] || ! grep -q "calls=1 expected=1 PASS" st-session.txt; then
+            echo "FAIL: SESSION_END (exit $rc)"; cat st-session.txt; exit 1
+          fi
+
+          timeout 120 build-st-WDT_STALL/zephyr/zephyr.exe > st-wdt.txt 2>&1 || true
+          grep -E "SELFTEST|poll loop stalled|sys_arch_reboot" st-wdt.txt
+          if grep -q "FAIL" st-wdt.txt || ! grep -q "poll loop stalled" st-wdt.txt \
+             || ! grep -q "sys_arch_reboot called" st-wdt.txt; then
+            echo "FAIL: WDT_STALL: the watchdog did not reset a stalled executor"; cat st-wdt.txt; exit 1
+          fi
+          echo "PASS: one notification per session end; a stalled executor trips the watchdog"
+
       # [EDS#392] Vehicle discovery end to end, over a real TAP: the same
       # example built with native_sim_doip_realzeth.conf, on (default) and
       # with CONFIG_EDS_DOIP_DISCOVERY=n. scripts/doip_discovery_probe.py

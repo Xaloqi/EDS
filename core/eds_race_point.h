@@ -10,12 +10,16 @@
  *          now and then can be replayed every run (the forced-interleaving
  *          layer of the #197 test plan).
  *
- *          EDS_RACE_POINT(id) expands to nothing unless UNIT_TEST is
- *          defined. Under UNIT_TEST it calls eds_race_point_hook (when a
- *          test has set it) with the point's id; the test that sets the hook
- *          defines that variable. A production build has no hook, no call
- *          and no symbol: scripts/verify_no_test_hooks.py checks this on
- *          every PR.
+ *          EDS_RACE_POINT(id) expands to nothing unless UNIT_TEST (host
+ *          tests) or EDS_RACE_POINTS (an RTOS test build: the examples'
+ *          DIAG_DOIP_SELFTEST option, which never defines UNIT_TEST) is
+ *          defined. Then it calls eds_race_point_hook (when a test has set
+ *          it) with the point's id; core/uds_server.c defines that variable,
+ *          NULL, under the same condition. A production build has no hook,
+ *          no call and no symbol, and EDS_RACE_POINTS in a production build
+ *          (EDS_BUILD_IS_PRODUCTION) stops at the #error below.
+ *          scripts/verify_no_test_hooks.py checks all of this on every PR,
+ *          and that no firmware build file defines UNIT_TEST.
  *
  *          The macro is defined here and nowhere else. A build that defines
  *          it first (on the command line, say) stops with #error, so it
@@ -29,11 +33,21 @@
 #ifndef EDS_RACE_POINT_H
 #define EDS_RACE_POINT_H
 
+#include "uds_security_algo.h"   /* EDS_BUILD_IS_PRODUCTION */
+
 #if defined(EDS_RACE_POINT)
 #error "EDS_RACE_POINT is defined by core/eds_race_point.h only"
 #endif
 
-#if defined(UNIT_TEST)
+#if defined(EDS_RACE_POINTS) && EDS_BUILD_IS_PRODUCTION
+#error "EDS_RACE_POINTS is for test builds only; this is a production build (EDS_BUILD_IS_PRODUCTION)"
+#endif
+
+/* Race point ids. */
+#define EDS_RACE_SESSION_END      (1U)  /* uds_server.c: a return to DEFAULT, before its resets     */
+#define EDS_RACE_EXEC_RAN         (2U)  /* uds_exec.c: a slot's request or call ran, not yet DONE  */
+
+#if defined(UNIT_TEST) || defined(EDS_RACE_POINTS)
 
 #include <stddef.h>
 #include <stdint.h>
@@ -52,6 +66,6 @@ extern void (*eds_race_point_hook)(uint32_t id);
 
 #define EDS_RACE_POINT(id) do { } while (0)
 
-#endif /* UNIT_TEST */
+#endif /* UNIT_TEST || EDS_RACE_POINTS */
 
 #endif /* EDS_RACE_POINT_H */

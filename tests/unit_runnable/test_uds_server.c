@@ -902,6 +902,40 @@ ZTEST(test_uds_server_owner, test_unowned_session_serves_every_src)
     zassert_true(uds_server_end_session(&g_srv, SRC_OTHER), "anyone may end it");
 }
 
+static uint32_t s_owner_changes;
+
+static void owner_count_change(uds_session_type_t old_s, uds_session_type_t new_s)
+{
+    (void)old_s;
+    (void)new_s;
+    s_owner_changes++;
+}
+
+/** TC-SRV-OWN-008: one session end, one notification. S3 ends the
+ *  session, then the owner's transport disconnects: the disconnect finds
+ *  DEFAULT and tells the application nothing (it used to notify DEFAULT ->
+ *  DEFAULT). 10 01 in DEFAULT still notifies, as a re-entered session. */
+ZTEST(test_uds_server_owner, test_s3_then_end_session_notifies_once)
+{
+    uint32_t ms;
+
+    owner_setup();
+    (void)uds_session_register_change_cb(&g_sess, owner_count_change);
+    zassert_equal(owner_send(0x10U, 0x03U, UDS_ADDRESSING_PHYSICAL, SRC_OTHER), 0x50U, "10 03");
+    s_owner_changes = 0U;
+    for (ms = 0U; ms < 100U; ms++) {
+        (void)uds_server_tick_1ms(&g_srv);
+    }
+    zassert_equal(s_owner_changes, 1U, "S3");
+    zassert_true(uds_server_end_session(&g_srv, SRC_OTHER), "disconnect");
+    zassert_equal(s_owner_changes, 1U, "the disconnect ended nothing");
+    zassert_equal(owner_session(), UDS_SESSION_DEFAULT, "default");
+
+    zassert_equal(owner_send(0x10U, 0x01U, UDS_ADDRESSING_PHYSICAL, SRC_CAN), 0x50U, "10 01");
+    zassert_equal(s_owner_changes, 2U, "10 01 in DEFAULT notifies once");
+    (void)uds_session_register_change_cb(&g_sess, NULL);
+}
+
 /** TC-SRV-OWN-007: UDS_SERVER_SRC_NONE is not a source; _ex() is source 0. */
 ZTEST(test_uds_server_owner, test_src_none_rejected_and_ex_is_src_0)
 {
@@ -1329,5 +1363,6 @@ void run_all_tests(void)
     RUN_TEST(test_uds_server_owner__test_end_session_only_by_owner);
     RUN_TEST(test_uds_server_owner__test_unowned_session_serves_every_src);
     RUN_TEST(test_uds_server_owner__test_src_none_rejected_and_ex_is_src_0);
+    RUN_TEST(test_uds_server_owner__test_s3_then_end_session_notifies_once);
 
 }

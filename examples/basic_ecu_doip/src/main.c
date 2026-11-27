@@ -17,26 +17,33 @@
  *          example is DoIP-only. For a production "both" transport ECU,
  *          add the CAN thread from basic_ecu alongside the DoIP init.
  *
- * THREAD MODEL:
- *   main()        — init → uds_generated_init → start tick + DoIP → return
- *   uds_tick_task — 1 ms poll loop: uds_server_tick_1ms() + uds_periodic_tick_1ms(),
- *                   once per millisecond actually elapsed [EDS#401, EDS#411].
- *                   [EDS#191] A DoIP-only build has no CAN diag_task, so
- *                   without this thread the S3 session timeout and the
- *                   SecurityAccess lockout countdown never progress — a
- *                   session/unlock, once entered, never expires on its own.
+ * THREAD MODEL [EDS#197]:
+ *   main()        — init → uds_generated_init → start the executor + DoIP → return
+ *   eds_exec      — the diagnostic executor (platform/zephyr/zephyr_exec.c),
+ *                   the one thread that owns the UDS server. Woken every
+ *                   1 ms by a k_timer, it runs uds_server_tick_1ms() and
+ *                   uds_periodic_tick_1ms() once per millisecond actually
+ *                   elapsed [EDS#401, EDS#411]; [EDS#191] in a DoIP-only
+ *                   build nothing else progresses S3 and the SecurityAccess
+ *                   lockout. It replaces uds_tick_task.
  *   doip_thread   — started via a semaphore (zephyr_lwip.c), not a fixed
- *                   delay [EDS#192]; runs eds_doip_server_run()
+ *                   delay [EDS#192]; runs eds_doip_server_run(). Until DoIP
+ *                   posts its requests to the executor (EDS#197 J6), its
+ *                   lock callbacks borrow the server from the executor:
+ *                   zephyr_exec_lend() parks the executor, lend_end()
+ *                   resumes it. No mutex: the EDS#353 lock pair is gone.
  *
  * WATCHDOG SUPERVISION [EDS#399] (real hardware, CONFIG_WATCHDOG=y; a
- * no-op on native_sim):
- *   The IWDG is armed in main() just before uds_tick_task starts, and fed
- *   only from uds_tick_task. That thread feeds only while doip_thread has
- *   checked in, through eds_doip_set_checkin_callback(), within
- *   DOIP_SUPERVISION_WINDOW_MS. A hung tick loop, a dispatch hung holding
- *   the UDS locks, or doip_thread wedged on its socket or exited all reset
- *   the ECU. An idle server with no client checks in every accept poll
- *   (5 s), so it is never reset for being idle.
+ * no-op on native_sim unless the selftest's counter watchdog is built in):
+ *   The watchdog is armed in main() before the NVM store opens, and from
+ *   the executor's start it is fed only by the executor loop, after each
+ *   pass (exec_after_pass()). It feeds only while doip_thread has checked
+ *   in, through eds_doip_set_checkin_callback(), within
+ *   DOIP_SUPERVISION_WINDOW_MS. A stalled executor (a hung tick, a hung
+ *   call, a DoIP dispatch hung while it holds the server), or doip_thread
+ *   wedged on its socket or exited, all reset the ECU. An idle server with
+ *   no client checks in every accept poll (5 s), so it is never reset for
+ *   being idle. tests/zephyr_doip_selftest (WDT_STALL) shows the trip.
  *   NOT supervised: boot before the arming point (pre-main network wait
  *   and the init in main()), and a dead Ethernet link (accept still times
  *   out and checks in).
@@ -75,7 +82,6 @@
 #include "uds_security_algo.h"
 #include "uds_periodic.h"
 #include "uds_session.h"
-#include "eds_elapsed.h"     /* [EDS#411] elapsed-time ticking */
 
 /* --------------------------------------------------------------------------
  * DoIP platform headers
@@ -83,7 +89,7 @@
 #include "platform_api.h"    /* eds_platform_uptime_ms() */
 #include "platform_doip.h"   /* eds_doip_platform_start() */
 #include "doip_server.h"     /* DOIP_PORT */
-#include "zephyr_mutex.h"
+#include "zephyr_exec.h"     /* [EDS#197] the diagnostic executor */
 #include "zephyr_wdt.h"
 #if defined(DIAG_DOIP_FLASH_BENCH)
 #include "zephyr_flash_ops.h" /* [EDS#423] bench flash download */
@@ -130,67 +136,25 @@ LOG_MODULE_REGISTER(basic_ecu_doip, LOG_LEVEL_INF);
 
 #define DOIP_ECU_LOGICAL_ADDR   (0xE400U)
 
-/* =============================================================================
- * UDS tick task configuration [EDS#191]
- *
- * Drives uds_server_tick_1ms() and uds_periodic_tick_1ms() every 1 ms —
- * the only thing progressing the S3 session timeout and SecurityAccess
- * lockout countdown in a DoIP-only build (no isotp_tick_1ms(): there is
- * no ISO-TP/CAN transport here). Priority matches basic_ecu's diag_task
- * (5) — higher priority than doip_thread's default (7,
- * zephyr_lwip.c) so UDS timer progression is never starved by DoIP
- * request handling, same rationale as the CAN example's own priority split.
- * ============================================================================= */
-
-/* [EDS#411] Most 1 ms ticks one loop iteration runs, which bounds the work
- * done while the session/security locks are held. Time beyond it is not
- * lost: eds_elapsed_consume() carries it into the next iterations (up to
- * EDS_ELAPSED_MAX_CARRY_MS). */
-#define DIAG_TICK_MAX_PER_LOOP_MS         (100U)
-
-#ifndef CONFIG_DIAG_TICK_TASK_STACK_SIZE
-#define CONFIG_DIAG_TICK_TASK_STACK_SIZE   (1024U)
-#endif
-#ifndef CONFIG_DIAG_TICK_TASK_PRIORITY
-#define CONFIG_DIAG_TICK_TASK_PRIORITY     (5)
-#endif
-
-K_THREAD_STACK_DEFINE(s_tick_stack, CONFIG_DIAG_TICK_TASK_STACK_SIZE);
-static struct k_thread s_tick_thread;
-
-/* [EDS#353] uds_tick_task and doip_thread both touch uds_server_ctx_t
- * (session/security state) with no prior synchronization — the same
- * s_session_lock/s_security_lock pair the CAN examples already wrap
- * both their tick and dispatch call sites with, extended here to DoIP.
- * See docs/threading_guide.md's "Dual-Transport Concurrency" section:
- * the design intent was always "the same lock at every call site that
- * touches uds_server_ctx_t," never actually applied to this example. */
-static diag_mutex_t s_session_lock;
-static diag_mutex_t s_security_lock;
-
-/* [EDS#399] Fed only by uds_tick_task, and only while doip_thread has
+/* [EDS#399] Fed only by the executor loop, and only while doip_thread has
  * checked in recently. The window is the longest wait the server bounds
  * between check-ins (the accept poll with no client), plus margin for one
  * dispatch and its response send. See "WATCHDOG SUPERVISION" above. */
 #define DOIP_SUPERVISION_WINDOW_MS  (DOIP_CHECKIN_MAX_WAIT_MS + 2000U)
 static diag_wdt_t   s_wdt;
 static atomic_t     s_doip_checkins;
+static atomic_val_t s_doip_seen;        /* executor thread only */
+static int64_t      s_doip_checkin_ms;  /* executor thread only */
+
+/* [EDS#197] The one producer: DoIP. No periodic TX (decision E: 0x2A over
+ * DoIP answers NRC 0x22 until EDS#546). */
+static const uds_exec_producer_cfg_t s_producers[] = {
+    { .src = (uint8_t)EDS_DOIP_UDS_SRC, .periodic_tx = false },
+};
 
 static void doip_checkin_cb(void)
 {
     (void)atomic_inc(&s_doip_checkins);
-}
-
-static void doip_lock_cb(void)
-{
-    (void)diag_mutex_lock(&s_session_lock);
-    (void)diag_mutex_lock(&s_security_lock);
-}
-
-static void doip_unlock_cb(void)
-{
-    (void)diag_mutex_unlock(&s_security_lock);
-    (void)diag_mutex_unlock(&s_session_lock);
 }
 
 static void s_on_session_change(uds_session_type_t old_sess,
@@ -203,59 +167,24 @@ static void s_on_session_change(uds_session_type_t old_sess,
 }
 
 /* =============================================================================
- * UDS tick task [EDS#191]
+ * Executor supervision [EDS#399, EDS#197]
+ *
+ * Runs on the executor thread after every pass (1 ms or sooner). A pass
+ * that never ends (the executor parked for a DoIP dispatch that hangs, a
+ * hung call or tick) stops the feed, and the watchdog resets the ECU.
  * ============================================================================= */
 
-static void uds_tick_task_entry(void *p1, void *p2, void *p3)
+static void exec_after_pass(void)
 {
-    uds_server_ctx_t *srv = (uds_server_ctx_t *)p1;
-    (void)p2;
-    (void)p3;
+    int64_t      now_ms   = k_uptime_get();
+    atomic_val_t doip_now = atomic_get(&s_doip_checkins);
 
-    LOG_INF("UDS tick task started");
-
-    /* [EDS#399] Time of the last DoIP check-in seen. Starts now, so a DoIP
-     * thread that never starts is caught one window after arming. */
-    atomic_val_t doip_seen       = atomic_get(&s_doip_checkins);
-    int64_t      doip_checkin_ms = k_uptime_get();
-
-    /* [EDS#401] One loop iteration is NOT 1 ms: k_msleep(1) rounds up and
-     * adds a tick (~2 ms at 1 kHz), and a dispatch holding the locks below
-     * delays it further. Counting iterations ran every UDS timer (S3,
-     * SecurityAccess lockout, periodic) at about half speed. Run one tick
-     * per millisecond actually elapsed instead, via the shared helper
-     * [EDS#411]. */
-    eds_elapsed_t tick_clock;
-    eds_elapsed_init(&tick_clock, eds_platform_uptime_ms());
-
-    while (true) {
-        k_msleep(1);
-        int64_t  now_ms  = k_uptime_get();
-        uint32_t elapsed = eds_elapsed_consume(&tick_clock, eds_platform_uptime_ms(),
-                                               DIAG_TICK_MAX_PER_LOOP_MS);
-
-        /* [EDS#353] Same lock doip_lock_cb()/doip_unlock_cb() wrap
-         * uds_server_process_request() with below. */
-        (void)diag_mutex_lock(&s_session_lock);
-        (void)diag_mutex_lock(&s_security_lock);
-        for (uint32_t i = 0U; i < elapsed; i++) {
-            (void)uds_server_tick_1ms(srv);
-            (void)uds_periodic_tick_1ms();
-        }
-        (void)diag_mutex_unlock(&s_security_lock);
-        (void)diag_mutex_unlock(&s_session_lock);
-
-        /* [EDS#399] Feed only while the DoIP server loop is alive. Placed
-         * after the lock pair, so a dispatch hung holding the locks stops
-         * the feed too. */
-        atomic_val_t doip_now = atomic_get(&s_doip_checkins);
-        if (doip_now != doip_seen) {
-            doip_seen       = doip_now;
-            doip_checkin_ms = now_ms;
-        }
-        if ((now_ms - doip_checkin_ms) < (int64_t)DOIP_SUPERVISION_WINDOW_MS) {
-            (void)diag_wdt_feed(&s_wdt);
-        }
+    if (doip_now != s_doip_seen) {
+        s_doip_seen       = doip_now;
+        s_doip_checkin_ms = now_ms;
+    }
+    if ((now_ms - s_doip_checkin_ms) < (int64_t)DOIP_SUPERVISION_WINDOW_MS) {
+        (void)diag_wdt_feed(&s_wdt);
     }
 }
 
@@ -299,7 +228,7 @@ int main(void)
      * (CONFIG_WATCHDOG=n) this returns OK in degraded mode. From here on, a
      * `return -1` leaves no DoIP check-ins and ends in a watchdog reset on
      * hardware. The window is kept by the feeds after the NVM and UDS init
-     * below, then by the tick task.
+     * below, then by the executor loop.
      */
     if (diag_wdt_init(&s_wdt) != UDS_STATUS_OK) {
         LOG_ERR("Watchdog arming failed — refusing to run unsupervised.");
@@ -352,7 +281,7 @@ int main(void)
         LOG_ERR("UDS stack init failed: 0x%02X", (unsigned)status);
         return -1;
     }
-    (void)diag_wdt_feed(&s_wdt);   /* [EDS#408] the tick task, the first feeder, starts below */
+    (void)diag_wdt_feed(&s_wdt);   /* [EDS#408] the executor, the first feeder, starts below */
 
 #if defined(DIAG_BENCH_SLOW_ROUTINE)
     /* [EDS#282] Bench only: RID 0xF0F0 answers 0x78 (bench_slow_routine.h);
@@ -377,36 +306,38 @@ int main(void)
     LOG_INF("UDS stack ready: %u DIDs  %u DTCs",
             (unsigned)GEN_DID_COUNT, (unsigned)GEN_DTC_COUNT);
 
-    /* [EDS#353] Must be initialised and registered before the tick task
-     * and DoIP server start below — both race on uds_server_ctx_t from
-     * the moment either thread runs. */
-    if ((diag_mutex_init(&s_session_lock)  != UDS_STATUS_OK) ||
-        (diag_mutex_init(&s_security_lock) != UDS_STATUS_OK)) {
-        LOG_ERR("Mutex init failed.");
-        return -1;
-    }
-    eds_doip_set_lock_callbacks(doip_lock_cb, doip_unlock_cb);
-    eds_doip_set_checkin_callback(doip_checkin_cb);   /* [EDS#399] */
-
-
     /*
-     * [EDS#191] Start the 1 ms UDS tick task before the DoIP server so
-     * S3/lockout timing is live from the moment a connection can arrive.
+     * [EDS#197] Start the executor before the DoIP server, so S3/lockout
+     * timing and the watchdog feed are live from the moment a connection
+     * can arrive. Time of the last DoIP check-in starts now, so a DoIP
+     * thread that never starts is caught one window after this point.
      */
-    (void)k_thread_create(
-        &s_tick_thread, s_tick_stack,
-        K_THREAD_STACK_SIZEOF(s_tick_stack),
-        uds_tick_task_entry,
-        (void *)srv, NULL, NULL,
-        CONFIG_DIAG_TICK_TASK_PRIORITY, 0U, K_NO_WAIT
-    );
-    k_thread_name_set(&s_tick_thread, "uds_tick_task");
+    s_doip_seen       = atomic_get(&s_doip_checkins);
+    s_doip_checkin_ms = k_uptime_get();
+    {
+        const zephyr_exec_cfg_t ec = {
+            .srv            = srv,
+            .producers      = s_producers,
+            .producer_count = (uint8_t)ARRAY_SIZE(s_producers),
+            .reset          = NULL,   /* the DoIP server performs 0x11 (J6 moves it) */
+            .after_pass     = exec_after_pass,
+            .lend_src       = (uint8_t)EDS_DOIP_UDS_SRC,
+        };
+
+        status = zephyr_exec_start(&ec);
+        if (status != UDS_STATUS_OK) {
+            LOG_ERR("Executor start failed: 0x%02X", (unsigned)status);
+            return -1;
+        }
+    }
+    eds_doip_set_lock_callbacks(zephyr_exec_lend, zephyr_exec_lend_end);
+    eds_doip_set_checkin_callback(doip_checkin_cb);   /* [EDS#399] */
 
     /*
      * [EDS#392] Vehicle discovery: on by default (CONFIG_EDS_DOIP_DISCOVERY),
      * configured from ecu.doip.discovery in diagnostics_config.yaml. The
      * generated config reads the VIN through the 0xF190 safety wrapper, on
-     * the DoIP thread under the same lock as UDS dispatch; if 0xF190 is
+     * the DoIP thread with the server lent to it, like UDS dispatch; if 0xF190 is
      * restricted the response says "VIN not available".
      */
     eds_doip_set_discovery(uds_generated_doip_discovery());

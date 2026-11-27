@@ -122,9 +122,11 @@ The fix ships as an **opt-in** lock-callback pair:
 `eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` (`transport/doip/doip_server.h`), called once
 before `eds_doip_server_run()` starts, wrapping its internal
 `uds_server_process_request()` call with whatever lock your tick task already wraps
-`uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with — both shipped DoIP examples register it
-with their existing `s_session_lock`/`s_security_lock` pair; see
-`examples/basic_ecu_doip/src/main.c`. **In a production build
+`uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with — `examples/basic_ecu_doip_freertos`
+registers it with its `s_session_lock`/`s_security_lock` pair. `examples/basic_ecu_doip` (Zephyr)
+now runs the diagnostic executor instead (EDS#197): one thread owns the server, the tick task and
+the lock pair are gone, and `zephyr_exec_lend()`/`zephyr_exec_lend_end()` fill the callback slot
+until DoIP posts its requests to the executor. **In a production build
 (`EDS_BUILD_IS_PRODUCTION`), `eds_doip_server_run()` refuses to run at all unless both callbacks
 are registered** (EDS#358) — a build that compiles and links clean but was never wired up this
 way gets a loud `UDS_STATUS_ERR_NOT_INITIALIZED` at the point it would otherwise boot

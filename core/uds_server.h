@@ -370,8 +370,9 @@ uint8_t uds_server_request_src(const uds_server_ctx_t *ctx);
 /**
  * @brief [EDS#197] End the session for a source: the one return to DEFAULT.
  *
- * Returns the session to DEFAULT and does what every return to DEFAULT
- * does: re-locks SecurityAccess (failed-attempt and lockout counters kept),
+ * Returns the session to DEFAULT (no transition, so no session-change
+ * notification, when it is DEFAULT already) and does what every return to
+ * DEFAULT does: re-locks SecurityAccess (failed-attempt and lockout counters kept),
  * restores CommunicationControl and ControlDTCSetting, aborts a pending
  * job and an active transfer, and clears the owner. 10 01 and a transport's
  * disconnect call this; the S3 timeout in uds_server_tick_1ms() runs the

@@ -41,6 +41,21 @@ if(DIAG_DOIP_FLASH_BENCH)
         "${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h753zi/nucleo_h753zi_flash_bench.overlay")
 endif()
 
+# [EDS#197] Test only, native_sim: tests/zephyr_doip_selftest runs one
+# scenario (SESSION_END or WDT_STALL) against this example over loopback and
+# exits with its verdict. Adds a counter watchdog so the stall test can see
+# the watchdog trip. Never a firmware image. Pass
+# tests/zephyr_doip_selftest/selftest.conf last in EXTRA_CONF_FILE, after
+# native_sim_doip.conf (whose CONFIG_WATCHDOG=n it overrides).
+set(DIAG_DOIP_SELFTEST "" CACHE STRING "Test only (native_sim): SESSION_END or WDT_STALL")
+if(DIAG_DOIP_SELFTEST)
+    if(NOT BOARD MATCHES "^native_sim")
+        message(FATAL_ERROR "[DIAG] DIAG_DOIP_SELFTEST is for native_sim only (got '${BOARD}').")
+    endif()
+    list(APPEND EXTRA_DTC_OVERLAY_FILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/zephyr_doip_selftest/selftest_wdt.overlay")
+endif()
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(basic_ecu_doip
@@ -157,7 +172,7 @@ target_sources(app PRIVATE
     # Minimal set for DoIP-only: no zephyr_can.c, no zephyr_timer.c
     # (CAN-path dependencies).
     ${DIAG_ROOT}/platform/zephyr/zephyr_platform_api.c
-    ${DIAG_ROOT}/platform/zephyr/zephyr_mutex.c  # [EDS#353] s_session_lock/s_security_lock
+    ${DIAG_ROOT}/platform/zephyr/zephyr_exec.c   # [EDS#197] the diagnostic executor
     ${DIAG_ROOT}/platform/zephyr/zephyr_wdt.c    # [EDS#399] no-op on native_sim (CONFIG_WATCHDOG=n)
 
     # ── Generated sources ─────────────────────────────────────────────────
@@ -207,4 +222,17 @@ option(DIAG_BENCH_SLOW_ROUTINE "Bench only: slow 0x31 routine for the response-p
 if(DIAG_BENCH_SLOW_ROUTINE)
     target_sources(app PRIVATE ${DIAG_ROOT}/platform/zephyr/bench_slow_routine.c)
     target_compile_definitions(app PRIVATE DIAG_BENCH_SLOW_ROUTINE=1)
+endif()
+
+# [EDS#197] Test only: see DIAG_DOIP_SELFTEST above. EDS_RACE_POINTS turns
+# the race-point hook on (core/eds_race_point.h); UNIT_TEST stays host-only.
+if(DIAG_DOIP_SELFTEST)
+    if(NOT CONFIG_WDT_COUNTER)
+        message(FATAL_ERROR "[DIAG] DIAG_DOIP_SELFTEST: no counter watchdog. Put "
+                "tests/zephyr_doip_selftest/selftest.conf last in EXTRA_CONF_FILE.")
+    endif()
+    set(_selftest ${DIAG_ROOT}/tests/zephyr_doip_selftest/doip_selftest.c)
+    target_sources(app PRIVATE ${_selftest})
+    target_compile_definitions(app PRIVATE DIAG_DOIP_SELFTEST_${DIAG_DOIP_SELFTEST}=1
+        EDS_RACE_POINTS=1)
 endif()

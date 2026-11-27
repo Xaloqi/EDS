@@ -48,6 +48,10 @@ set(EDS_SERVICE_SRCS
     ${_EDS_ROOT}/core/uds_services/service_0x3E.c   # TesterPresent
     ${_EDS_ROOT}/core/uds_services/service_0x85.c   # ControlDTCSetting
 
+    # [EDS#197] The diagnostic executor (RTOS-free). Linked only by builds
+    # that use a platform binding (platform/zephyr/zephyr_exec.c).
+    ${_EDS_ROOT}/core/uds_exec.c
+
     # Firmware download / memory services — all six must be present together.
     # service_registration.c registers all six unconditionally; omitting any
     # one causes a linker failure: "undefined reference to uds_service_0xNN_handler".

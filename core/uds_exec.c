@@ -20,6 +20,7 @@
 
 #include "uds_exec.h"
 #include "uds_periodic.h"
+#include "eds_race_point.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -192,6 +193,7 @@ static void s_run_slot(uds_exec_t *ex, uint8_t idx, const uds_exec_slot_t *slot_
         }
         (void)uds_server_take_pending_reset(ex->cfg.srv, &reset_type);
     }
+    EDS_RACE_POINT(EDS_RACE_EXEC_RAN);
 
     ex->cfg.enter();
     if (job.is_call) {
@@ -205,9 +207,15 @@ static void s_run_slot(uds_exec_t *ex, uint8_t idx, const uds_exec_slot_t *slot_
     if (reset_type != (uint8_t)0U) {
         ex->reset_type     = reset_type;
         ex->reset_src      = src;
-        ex->reset_released = false;
+        ex->reset_released = ex->slots[idx].released;
     }
-    ex->slots[idx].state = UDS_EXEC_SLOT_DONE;
+    if (ex->slots[idx].released) {
+        /* The producer released it while it ran: no one takes a response. */
+        ex->slots[idx].released = false;
+        ex->slots[idx].state    = UDS_EXEC_SLOT_FREE;
+    } else {
+        ex->slots[idx].state = UDS_EXEC_SLOT_DONE;
+    }
     ex->cfg.exit();
 
     s_notify(ex, idx);
@@ -422,6 +430,7 @@ uds_exec_submit_result_t uds_exec_submit(uds_exec_t          *ex,
                 slot->resp       = resp;
                 slot->fn         = NULL;
                 slot->fn_arg     = NULL;
+                slot->released   = false;
                 slot->state      = UDS_EXEC_SLOT_POSTED;
                 result = UDS_EXEC_POSTED;
             }
@@ -458,8 +467,9 @@ uds_status_t uds_exec_call(uds_exec_t *ex, uint8_t src, uds_exec_fn_t fn, void *
             ex->slots[idx].req     = NULL;
             ex->slots[idx].resp    = NULL;
             ex->slots[idx].fn      = fn;
-            ex->slots[idx].fn_arg  = arg;
-            ex->slots[idx].state   = UDS_EXEC_SLOT_POSTED;
+            ex->slots[idx].fn_arg   = arg;
+            ex->slots[idx].released = false;
+            ex->slots[idx].state    = UDS_EXEC_SLOT_POSTED;
         }
         ex->cfg.exit();
         if (status == UDS_STATUS_OK) {
@@ -500,6 +510,15 @@ void uds_exec_release(uds_exec_t *ex, uint8_t src)
                     ex->reset_released = true;
                 }
                 released = true;
+            } else if (ex->slots[idx].state == UDS_EXEC_SLOT_POSTED) {
+                /* Given up before it ran: withdrawn, never dispatched. */
+                ex->slots[idx].state = UDS_EXEC_SLOT_FREE;
+            } else if (ex->slots[idx].state == UDS_EXEC_SLOT_RUNNING) {
+                /* Given up while it runs: freed when the executor is done
+                 * with its buffers (s_run_slot()). */
+                ex->slots[idx].released = true;
+            } else {
+                /* FREE: nothing to release. */
             }
             ex->cfg.exit();
         }

@@ -10,6 +10,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **The Zephyr binding of the diagnostic executor, and `basic_ecu_doip` runs on it** (#197).
+  `platform/zephyr/zephyr_exec.c`: a dedicated thread, woken by one `k_sem` (producers and a 1 ms `k_timer`), one
+  `k_sem` per producer slot for completion, a `k_spinlock` critical section, and an `after_pass` hook on the
+  executor thread. `basic_ecu_doip` drops its UDS tick task and its session/security lock pair: the executor runs
+  the 1 ms ticks, and its loop now feeds the watchdog (#399 supervision unchanged: still only while the DoIP server
+  checks in). Until DoIP posts its requests to the executor, its lock callbacks are `zephyr_exec_lend()` and
+  `zephyr_exec_lend_end()`, which park the executor while the DoIP thread uses the server. 0x2A over DoIP now
+  answers NRC 0x22 (no periodic TX on DoIP yet, #546). RAM +4.3 KB on each board, the executor's response mailbox
+  (one 4 KB message buffer); the thread stack stays 1024 bytes. `core/uds_exec.c` joins
+  `cmake/eds_service_sources.cmake` and the integration harness. Tests: `basic_ecu_doip -DDIAG_DOIP_SELFTEST=...`
+  on native_sim, an in-process DoIP client with a counter watchdog, in the `doip-integration` CI job: one
+  `on_session_change` for an S3 expiry and a disconnect forced to meet at the S3 reset (2 before), and a hung call
+  on the executor trips the watchdog. Those test builds turn the race-point hook on with `EDS_RACE_POINTS`, never
+  `UNIT_TEST`, which stays host-only; `scripts/verify_no_test_hooks.py` now fails a production build with
+  `EDS_RACE_POINTS` and any firmware build file that defines `UNIT_TEST`.
+
 - **The diagnostic executor's core, `core/uds_exec.c`** (#197). One thread owns the UDS server; each transport (a
   producer) posts its request into its own slot (no copy, one request in flight) and takes the response when the
   slot is done. The executor runs elapsed 1 ms ticks, serves posted slots round-robin, drives a response-pending
@@ -36,6 +52,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `scripts/verify_no_test_hooks.py` now checks that. No firmware behaviour change.
 
 ### Changed
+
+- **One session end, one session-change notification** (#197). A transport's `uds_server_end_session()` no longer
+  re-enters DEFAULT when S3 has already ended the session: the application heard of the same end twice
+  (`on_session_change` DEFAULT -> DEFAULT on every disconnect after an S3 timeout, and on every disconnect of a
+  tester that never left DEFAULT). The resets still run. 10 01 in DEFAULT still notifies, as before.
+
+- **`uds_exec_release()` works on every exit path** (#197). Released before it ran, a request is withdrawn; released
+  while it runs, the slot is freed once the executor is done with its buffers, and an ECUReset the request owes is
+  still performed. Before, both were ignored, so a producer that timed out or disconnected left an owed reset that
+  stopped the executor serving anyone. Buffer rule, now documented in `uds_exec.h`: a posted slot's buffers are the
+  executor's until it is done; a producer receives into a buffer of its own meanwhile. `zephyr_wdt.c` arms a
+  watchdog that cannot pause under a debugger without that option (Zephyr's counter watchdog, used by the selftest).
 
 - **A diagnostic session belongs to the transport that opened it** (#197). The transport whose request leaves the
   default session owns the session until it returns to DEFAULT (S3 timeout, 10 01, or that transport's disconnect).

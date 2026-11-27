@@ -48,6 +48,7 @@
 #include "services.h"
 #include "did_database.h"
 #include "uds_types.h"
+#include "eds_race_point.h"
 
 #define SRC_CAN   (0U)
 #define SRC_DOIP  (1U)
@@ -657,6 +658,88 @@ ZTEST(uds_exec_suite, test_reset_waits_for_release)
     zassert_equal(g_resets, 1U, "only once");
 }
 
+/** TC-EXEC-REL-001: contract 1. A producer that gives up on a posted
+ *  request (a timeout, a disconnect) releases it like any other exit. Not
+ *  yet run, the request is withdrawn: it never runs, so it owes no reset,
+ *  and the executor goes on serving the other producer. */
+ZTEST(uds_exec_suite, test_release_before_run_withdraws_the_request)
+{
+    static const uint8_t k_11_01[] = { 0x11U, 0x01U };
+
+    setup();
+    prod_reset();
+    (void)submit(&g_p[IDX_DOIP], k_11_01, 2U, UDS_ADDRESSING_PHYSICAL);
+    uds_exec_release(&g_ex, SRC_DOIP);           /* timed out before the pass */
+    (void)uds_exec_run_once(&g_ex);
+    (void)submit(&g_p[IDX_CAN], k_3e_00, 2U, UDS_ADDRESSING_PHYSICAL);
+    (void)uds_exec_run_once(&g_ex);
+    (void)uds_exec_run_once(&g_ex);
+    zassert_true(uds_exec_done(&g_ex, SRC_CAN), "the executor still serves CAN");
+    zassert_equal(g_resets, 0U, "never ran, so no reset");
+    zassert_equal(g_p[IDX_DOIP].resp.length, 0U, "nothing written to its buffers");
+    uds_exec_release(&g_ex, SRC_CAN);
+    zassert_equal(submit(&g_p[IDX_DOIP], k_3e_00, 2U, UDS_ADDRESSING_PHYSICAL),
+                  UDS_EXEC_POSTED, "DoIP's slot is free again");
+}
+
+static bool                     g_drop_armed;
+static uds_exec_submit_result_t g_drop_submit;
+static uds_msg_buf_t            g_rx2;   /* the producer's second receive buffer */
+static uds_msg_buf_t            g_tx2;
+
+/* DoIP drops while its 11 01 runs: it releases (contract 1), receives the
+ * next request into a second buffer and tries to post it (contract 2). */
+static void drop_doip_while_running(uint32_t id)
+{
+    if ((id == EDS_RACE_EXEC_RAN) && g_drop_armed) {
+        g_drop_armed = false;
+        uds_exec_release(&g_ex, SRC_DOIP);
+        g_rx2.data[0] = 0x3EU;
+        g_rx2.data[1] = 0x00U;
+        g_rx2.length  = 2U;
+        g_drop_submit = uds_exec_submit(&g_ex, SRC_DOIP, &g_rx2, &g_tx2,
+                                        UDS_ADDRESSING_PHYSICAL);
+    }
+}
+
+/** TC-EXEC-REL-002: contracts 1 and 2. A producer that drops while its
+ *  11 01 runs releases at once. The executor finishes with that slot's
+ *  buffers, frees it without a DONE (no one is left to send), performs
+ *  the reset the request owes and serves the other producer: the reset
+ *  owed to a dropped producer does not stall it. Until then the slot is
+ *  not free, so the producer's next request (in its second buffer) is
+ *  refused and the executor writes only the first buffers. */
+ZTEST(uds_exec_suite, test_reset_owed_to_dropped_producer_does_not_stall)
+{
+    static const uint8_t k_11_01[] = { 0x11U, 0x01U };
+
+    setup();
+    prod_reset();
+    memset(&g_rx2, 0, sizeof(g_rx2));
+    memset(&g_tx2, 0, sizeof(g_tx2));
+    g_drop_armed  = true;
+    g_drop_submit = UDS_EXEC_INVALID;
+    eds_race_point_hook = drop_doip_while_running;
+    (void)submit(&g_p[IDX_DOIP], k_11_01, 2U, UDS_ADDRESSING_PHYSICAL);
+    (void)uds_exec_run_once(&g_ex);
+    eds_race_point_hook = NULL;
+
+    zassert_false(g_drop_armed, "the producer dropped while the request ran");
+    zassert_equal(g_drop_submit, UDS_EXEC_REJECT_BUSY, "slot still the executor's");
+    zassert_equal(g_p[IDX_DOIP].resp.data[0], 0x51U, "51 01 in the first buffer");
+    zassert_equal(g_tx2.length, 0U, "the second buffer untouched");
+    zassert_false(uds_exec_done(&g_ex, SRC_DOIP), "freed, nothing left to send");
+
+    (void)submit(&g_p[IDX_CAN], k_3e_00, 2U, UDS_ADDRESSING_PHYSICAL);
+    (void)uds_exec_run_once(&g_ex);
+    zassert_equal(g_resets, 1U, "the owed reset is performed");
+    (void)uds_exec_run_once(&g_ex);
+    zassert_true(uds_exec_done(&g_ex, SRC_CAN), "and CAN is served");
+    uds_exec_release(&g_ex, SRC_CAN);
+    zassert_equal(uds_exec_submit(&g_ex, SRC_DOIP, &g_rx2, &g_tx2, UDS_ADDRESSING_PHYSICAL),
+                  UDS_EXEC_POSTED, "DoIP posts its second buffer now");
+}
+
 /* =========================================================================
  * Calls, order, counters, configuration
  * ========================================================================= */
@@ -775,6 +858,8 @@ void run_all_tests(void)
     RUN_TEST(uds_exec_suite__test_0x2a_from_producer_without_periodic_tx_gets_0x22);
     RUN_TEST(uds_exec_suite__test_periodic_for_unknown_src_is_dropped);
     RUN_TEST(uds_exec_suite__test_reset_waits_for_release);
+    RUN_TEST(uds_exec_suite__test_release_before_run_withdraws_the_request);
+    RUN_TEST(uds_exec_suite__test_reset_owed_to_dropped_producer_does_not_stall);
     RUN_TEST(uds_exec_suite__test_call_runs_on_executor);
     RUN_TEST(uds_exec_suite__test_round_robin_and_queue_wait);
     RUN_TEST(uds_exec_suite__test_init_rejects_bad_cfg);
