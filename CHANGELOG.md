@@ -8,42 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 ## [Unreleased]
 
-### Added
-
-- **CAN FD overlay for the FRDM-MCXN947** (#642). `examples/canfd_ecu/boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay`
-  sets FlexCAN0 to 500 kbit/s and 2 Mbit/s with BRS. Zephyr v3.7.0 declares the node as the classic `nxp,flexcan`; the
-  overlay declares `nxp,flexcan-fd`, which Zephyr v4.4.0 and later declare themselves. It builds on both (CI builds it on
-  v3.7.0). Hardware evidence: one 24-byte CAN FD frame with BRS received on 2026-11-22; the multi-frame FD cases have not
-  run on a board. The `canfd_ecu` README says so, and uses the current property name `bitrate-data`.
+## [1.31.0] — 2026-11-27
 
 ### Changed
 
-- **`canfd_ecu`, `sensor_ecu`, `bms_ecu` and `motor_controller_ecu` get an NVM partition on hardware** (#643). On a board
-  they called `nvm_store_init(NULL)`, which the NVS backend rejects, so the boot log said `NVM store init failed` and the
-  DTC mirror and the SecurityAccess counters lived in RAM. They now call `eds_nvm_init_diag_nvs()`
-  (`platform/zephyr/eds_nvm_diag_nvs.c`), which opens the board overlay's `diag_nvs` partition;
-  `cmake/eds_nvm_backend.cmake` links the append backend on NUCLEO-H743ZI/H753ZI and FRDM-MCXN947 (where NVS cannot
-  mount, #504, #640) and NVS elsewhere, as `basic_ecu` does. native_sim keeps the RAM mock; MR-CANHUBK3 on Zephyr 3.7.0
-  keeps no partition (no flash driver there). Fail-first: `scripts/verify_hw_nvm_wiring.py` fails on all four built from
-  `main` and passes after; `ci.yml` builds them for NUCLEO-H743ZI and FRDM-MCXN947 and runs it. Built for NUCLEO-H743ZI,
-  NUCLEO-H753ZI and FRDM-MCXN947 on Zephyr 3.7.0 and for FRDM-MCXN947 and MR-CANHUBK3 on 4.4.1; `sensor_ecu` does not
-  build for the FRDM board on 3.7.0 (#645, upstream). **Not run on hardware.**
-- **`basic_ecu_doip` uses real flash on the NUCLEO-H753ZI and the FRDM-MCXN947** (#408). The DTC mirror and the
-  SecurityAccess counters go to the board's `diag_nvs` partition (append backend) and survive a reset. The watchdog is
-  now armed before the store opens, so the backend can feed it across a 128 KB bank erase. The NUCLEO-H753ZI build takes
-  `boards/nucleo_h753zi/nucleo_h753zi.overlay` as `DTC_OVERLAY_FILE` for the partition table; the FRDM-MCXN947 has a new
-  `frdm_mcxn947_doip.conf` for its on-board Ethernet. `-DDIAG_USE_MOCK_NVM=ON` keeps the RAM mock on any board, and
-  native_sim still uses it. The weekly job's `basic_ecu_doip_nucleo_h753zi_nvs` row built NVS with a NULL config; it is
-  now `..._flash`, the real configuration. Hardware (FRDM-MCXN947, 2026-11-23, KB#413/#414): the store mounts on an
-  erased partition with no reset loop, the DoIP Pro campaign passes 8/8 before and after a reset, and the SecurityAccess
-  attempt counter survives the reset pin. **Not run on hardware:** the NUCLEO-H753ZI build, and a DTC read back after a
-  reset in this example (the DTC mirror over a reset was shown on `robot_joint_dtc`, #632). The FRDM-MCXN947 DoIP build
-  uses Zephyr's test random generator for TCP sequence numbers (v3.7.0 has no devicetree node for the board's TRNG): fine
-  on a bench link, not for production. SecurityAccess seeds do not come from it.
-- **The weekly Zephyr job also builds against Zephyr v4.5.0** (the latest release; policy: "current stable"). The
-  workflow runs one leg per ref (`main`, `v4.5.0`), each with its own concurrency group, log artifact and tracking
-  issue ("EDS breaks against Zephyr <ref>"); every row of `builds.tsv` is built on both. A manual run with no
-  `zephyr_rev` runs both legs. `ci.yml` stays the gate on Zephyr 3.7.
 - **A production build no longer exports the 12 accessors that only tests call** (#599). `isotp_reset`,
   `uds_safety_reset_counters`, `uds_safety_check_service_in_session`, `uds_security_algo_get_sequence`,
   `uds_security_algo_derive_key`, `uds_server_get_counters`, `uds_server_pending_active`, `uds_session_is_default` and
@@ -56,11 +24,49 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `scripts/verify_no_test_hooks.py` finds all 12 exported and declared on `main` and none after, and still finds all 12
   with the macro (CI job `unit-tests`). Not decided here: `uds_safety_check_service_in_session` and the session
   statistics have no production caller (see #599).
+
+- **`canfd_ecu`, `sensor_ecu`, `bms_ecu` and `motor_controller_ecu` get an NVM partition on hardware** (#643). On a board
+  they called `nvm_store_init(NULL)`, which the NVS backend rejects, so the boot log said `NVM store init failed` and the
+  DTC mirror and the SecurityAccess counters lived in RAM. They now call `eds_nvm_init_diag_nvs()`
+  (`platform/zephyr/eds_nvm_diag_nvs.c`), which opens the board overlay's `diag_nvs` partition;
+  `cmake/eds_nvm_backend.cmake` links the append backend on NUCLEO-H743ZI/H753ZI and FRDM-MCXN947 (where NVS cannot
+  mount, #504, #640) and NVS elsewhere, as `basic_ecu` does. native_sim keeps the RAM mock; MR-CANHUBK3 on Zephyr 3.7.0
+  keeps no partition (no flash driver there). Fail-first: `scripts/verify_hw_nvm_wiring.py` fails on all four built from
+  `main` and passes after; `ci.yml` builds them for NUCLEO-H743ZI and FRDM-MCXN947 and runs it. Built for NUCLEO-H743ZI,
+  NUCLEO-H753ZI and FRDM-MCXN947 on Zephyr 3.7.0 and for FRDM-MCXN947 and MR-CANHUBK3 on 4.4.1; `sensor_ecu` does not
+  build for the FRDM board on 3.7.0 (#645, upstream). **Not run on hardware.**
+
+- **`basic_ecu_doip` uses real flash on the NUCLEO-H753ZI and the FRDM-MCXN947** (#408). The DTC mirror and the
+  SecurityAccess counters go to the board's `diag_nvs` partition (append backend) and survive a reset. The watchdog is
+  now armed before the store opens, so the backend can feed it across a 128 KB bank erase. The NUCLEO-H753ZI build takes
+  `boards/nucleo_h753zi/nucleo_h753zi.overlay` as `DTC_OVERLAY_FILE` for the partition table; the FRDM-MCXN947 has a new
+  `frdm_mcxn947_doip.conf` for its on-board Ethernet. `-DDIAG_USE_MOCK_NVM=ON` keeps the RAM mock on any board, and
+  native_sim still uses it. The weekly job's `basic_ecu_doip_nucleo_h753zi_nvs` row built NVS with a NULL config; it is
+  now `..._flash`, the real configuration. Hardware (FRDM-MCXN947, 2026-11-23, KB#413/#414): the store mounts on an
+  erased partition with no reset loop, the DoIP Pro campaign passes 8/8 before and after a reset, and the SecurityAccess
+  attempt counter survives the reset pin. **Not run on hardware:** the NUCLEO-H753ZI build, and a DTC read back after a
+  reset in this example (the DTC mirror over a reset was shown on `robot_joint_dtc`, #632). The FRDM-MCXN947 DoIP build
+  uses Zephyr's test random generator for TCP sequence numbers (v3.7.0 has no devicetree node for the board's TRNG): fine
+  on a bench link, not for production. SecurityAccess seeds do not come from it.
+
+- **The weekly Zephyr job also builds against Zephyr v4.5.0** (the latest release; policy: "current stable"). The
+  workflow runs one leg per ref (`main`, `v4.5.0`), each with its own concurrency group, log artifact and tracking
+  issue ("EDS breaks against Zephyr <ref>"); every row of `builds.tsv` is built on both. A manual run with no
+  `zephyr_rev` runs both legs. `ci.yml` stays the gate on Zephyr 3.7.
+
 - **README board rows from the FRDM-MCXN947 bench** (taken over from #642). Where cells passed on 2026-11-22 (board
   700-90818 A1, v1.30.0, Zephyr v3.7.0): `basic_ecu` (UDS and ISO-TP conformance vectors, 4000-byte burst, P2 timing
   over CAN at 500 kbit/s), `basic_ecu_doip` (Pro campaign 8/8 over DoIP; on 11-22 a bench build with mock NVM, rerun on real
   flash on 11-23, see the #408 entry) and `canfd_ecu` (one CAN FD frame with BRS). The `basic_ecu` row says DTCs survive an ECU reset on the
   board: the DTC persistence cells passed there on 2026-11-23 (KB#412). NXP MCX is described as industrial.
+
+### Added
+
+- **CAN FD overlay for the FRDM-MCXN947** (#642). `examples/canfd_ecu/boards/frdm_mcxn947/frdm_mcxn947_canfd.overlay`
+  sets FlexCAN0 to 500 kbit/s and 2 Mbit/s with BRS. Zephyr v3.7.0 declares the node as the classic `nxp,flexcan`; the
+  overlay declares `nxp,flexcan-fd`, which Zephyr v4.4.0 and later declare themselves. It builds on both (CI builds it on
+  v3.7.0). Hardware evidence: one 24-byte CAN FD frame with BRS received on 2026-11-22; the multi-frame FD cases have not
+  run on a board. The `canfd_ecu` README says so, and uses the current property name `bitrate-data`.
 
 ### Fixed
 
@@ -73,7 +79,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   1000 and 1400 bytes 100 times, the long request, the DoIP Pro campaign before and after a reset). Frames over 1512
   bytes are still dropped by that driver (#648). The `basic_ecu_doip` README and conf no longer say the FRDM build is
   compile-checked only.
-- **A confirmed DTC survives a power loss** (#632). A DTC confirmed through `dtc_database_set_status()` used to reach
+
+- **A confirmed DTC reaches NVM within a bounded delay** (#632). A DTC confirmed through `dtc_database_set_status()` used to reach
   NVM only at a controlled reset (0x11) or a 0x14, so a power cut, a watchdog reset or the reset pin lost it. A change
   of ConfirmedDTC or TestFailedSinceLastClear now marks the DTC mirror dirty, and `uds_server_tick_1ms()` writes it
   within `DTC_MIRROR_FLUSH_INTERVAL_MS` (default 1000 ms), at most once per interval. The write runs on the thread
@@ -81,6 +88,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   states what is guaranteed. `scripts/smoke_permanent_dtc.py --kill` kills the ECU instead of resetting it, and the
   robot bench CI job runs it. Hardware: on the FRDM-MCXN947 (2026-11-23) a confirmed DTC was lost over the reset pin
   without this change and kept with it; the 1 s bound itself was not measured there.
+
 - **NVM works on the FRDM-MCXN947: the append backend replaces NVS there** (#640). The MCX N947 internal flash has a
   128-byte write block in Zephyr v3.7.0's devicetree (v4.4.1 declares 16 for it; the MCXN236 still 128) and Zephyr NVS
   accepts 32 at most, so `nvs_mount()` failed (`Unsupported write block size`):
@@ -98,25 +106,30 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   TC-011 (the mock now rejects writes that are not whole write blocks, as flash drivers do).
   Hardware (FRDM-MCXN947, 2026-11-23, KB#412): the rerun passed. `basic_ecu` mounts the append backend with no
   `fs_nvs` error, 0x14 answers OK (TestLab `core_validation` 8/8, first run 7/8), and a confirmed DTC is restored after `11 01`.
+
 - **`e2e_isotp_burst.py` waits and retries when the transmit queue is full** (#641). On a CANable run by `slcand`, `can0`
   has a 10-frame queue and the 4000-byte request is about 570 back-to-back frames, so round 1 died on the tester with
   `No buffer space available`; the ECU was not involved. The script retries a refused frame (ENOBUFS) for up to 2 s, and
   its usage text names `sudo ip link set can0 txqueuelen 1000`, with which the FRDM-MCXN947 bench passed 5/5. New
   `tests/test_e2e_isotp_burst_enobufs.py`, which fails on the old script.
+
 - **DoIP disconnect resets the UDS state under the lock** (#635). On a dropped connection, `doip_server.c` returned the
   session to DEFAULT, reset SecurityAccess and comm control, and aborted a pending job and a transfer without the
   EDS#353 lock callbacks, while the UDS tick task changes the same state under them. It now takes the lock like every
   other UDS call in the file. New host ThreadSanitizer test `tests/concurrency/` (`run_tsan.sh`, not in CI yet) drives
   the real server loop against the tick thread: 7–8 races per run before, none after.
+
 - **`safeboot_ecu` and `safeboot_freertos_ecu` report the active session in DID 0xF186** (#636). F186 was a
   generated stub that always read `0x00`, while the READMEs said `0x01`. The YAML now declares it `source: app`, and
   each example's `main.c` reads `uds_session_get_active()`. `tests/test_f186_reports_session.py` fails if any example
   declares F186 as a stub again. The stack does not serve F186 itself yet.
+
 - **0x19 0x14 reports the fault detection counter it filtered on** (#637). The handler read the counter twice through
   the pointer `dtc_database_find()` returns, after the DTC lock was released, so a monitor thread changing it in
   between could put a counter outside 1..126 in the response. It now takes one copy under the lock with the new
   `dtc_database_get_entry()`. Host ThreadSanitizer test `tests/concurrency/tsan_dtc_fdc_snapshot.c`: a race on every
   run before, none after.
+
 - **MR-CANHUBK3 (S32K344) flash map follows Zephyr's MCUboot variant** (#627). `boards/mr_canhubk3/mr_canhubk3.overlay`
   now uses the offsets and node labels of Zephyr's `mr_canhubk3_s32k344_mcuboot.dts` (v4.4.0 and later): boot header,
   pad, MCUboot, two 1920 KiB slots, with `diag_nvs` (72 KiB) in the free tail. A plain build and an MCUboot build share
@@ -127,14 +140,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   New CI job `zephyr-nxp-s32k-mcuboot` (Zephyr v4.4.1). The DoIP build uses Zephyr's test random generator for TCP,
   because the S32K344 has no Zephyr entropy driver; its board conf says not for production. All compile-verified only;
   nothing has run on the board.
+
 - **FRDM-MCXN947 overlay builds on Zephyr 4.4 and later** (#628): it keeps the `slot1_partition` label that the board's
   chosen node now references. The weekly Zephyr-main job gains rows for `frdm_mcxn947` and `mr_canhubk3` (including a
   sysbuild row), and fetches `hal_nxp`.
+
 - **FRDM-MCXN947 and MR-CANHUBK3 run CAN at the documented 500 kbit/s** (#631). Their overlays set no `bitrate`, so
   the controller fell back to Zephyr's `CONFIG_CAN_DEFAULT_BITRATE` (125 kbit/s), the defect #309 fixed on the NUCLEO.
+
 - **`ardep_ecu` builds for the `ardep` board** (#629). `boards/ardep/ardep.conf` no longer sets `CAN_STM32FD`, a symbol
   no Zephyr since v3.7.0 defines; the two guides that recommended it are corrected. New CI job `zephyr-ardep` builds the
   example in ARDEP's own workspace (pinned commit, Zephyr v4.4.0). Compile-verified only.
+
+### EDS-toolchain (Developer and Professional ZIPs)
+
+- **The GUI shows each DTC's severity as the ECU reports it** (EDS-toolchain#262, #288). The CAN bridge took severity
+  and description from a hard-coded two-entry catalog, so `basic_ecu`'s DTCs showed the reverse of their configured
+  severities and every other ECU's DTCs showed "Unknown DTC". Severity is now read per DTC from the ECU
+  ("Severity unknown" when it does not answer); **descriptions need your config**: start the GUI with
+  `start-can.sh --config <diagnostics_config.yaml>` or set `EDS_DIAG_CONFIG` (EDS-toolchain#289), otherwise they show
+  as "Unknown DTC" and the script says so.
+- **The host harness builds every example** (EDS-toolchain#273, #287, #289). `safeboot_ecu`, `safeboot_freertos_ecu`
+  and `vehicle_state_ecu` link with their own stand-ins, and a test in CI links every example so the next one that
+  loses its stand-in fails there.
+- **The toolchain's `safeboot` examples follow the public repo** (EDS-toolchain#286): DID 0xF186 is `source: app`.
+
+### Known
+
+- **FRDM-MCXN947 DoIP drops received frames longer than 1512 bytes on Zephyr v3.7.0** (#648). The ENET QoS driver
+  discards them; keep DoIP transfers below full-size TCP segments on that board.
+- **`sensor_ecu` does not build for the FRDM-MCXN947 on Zephyr v3.7.0** (#645, upstream).
+- Not covered: ReadDTCInformation 0x42 and 0x56 (#145), and per-DTC functional groups.
 
 ## [1.30.0] — 2026-11-21
 
