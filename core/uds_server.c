@@ -27,6 +27,7 @@
 #include "uds_security.h"
 #include "uds_access_table.h"
 #include "dtc_mirror.h"   /* dtc_mirror_tick_1ms() [EDS#632] */
+#include "eds_race_point.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -583,6 +584,11 @@ static bool srv_session_held_by_other(uds_server_ctx_t *ctx)
     return (ctx->session_owner != ctx->rx_src);
 }
 
+#if defined(UNIT_TEST)
+/* [EDS#197] The one definition of the race-point hook (eds_race_point.h). */
+void (*eds_race_point_hook)(uint32_t id) = NULL;
+#endif
+
 /*
  * Every return to DEFAULT: S3 timeout, 10 01, a transport's disconnect.
  *
@@ -595,6 +601,7 @@ static bool srv_session_held_by_other(uds_server_ctx_t *ctx)
  */
 static void srv_end_session_resets(uds_server_ctx_t *ctx)
 {
+    EDS_RACE_POINT(EDS_RACE_SESSION_END);
     (void)uds_security_reset(ctx->cfg.security_ctx);
     (void)uds_comm_control_restore_defaults();
     uds_server_pending_abort(ctx);

@@ -12,10 +12,10 @@
  *
  *          EDS_RACE_POINT(id) expands to nothing unless UNIT_TEST is
  *          defined. Under UNIT_TEST it calls eds_race_point_hook (when a
- *          test has set it) with the point's id; the test that sets the hook
- *          defines that variable. A production build has no hook, no call
- *          and no symbol: scripts/verify_no_test_hooks.py checks this on
- *          every PR.
+ *          test has set it) with the point's id; core/uds_server.c defines
+ *          that variable, NULL, under UNIT_TEST only. A production build has
+ *          no hook, no call and no symbol: scripts/verify_no_test_hooks.py
+ *          checks this on every PR.
  *
  *          The macro is defined here and nowhere else. A build that defines
  *          it first (on the command line, say) stops with #error, so it
@@ -32,6 +32,10 @@
 #if defined(EDS_RACE_POINT)
 #error "EDS_RACE_POINT is defined by core/eds_race_point.h only"
 #endif
+
+/* Race point ids. */
+#define EDS_RACE_SESSION_END      (1U)  /* uds_server.c: a return to DEFAULT, before its resets     */
+#define EDS_RACE_EXEC_RAN         (2U)  /* uds_exec.c: a slot's request or call ran, not yet DONE  */
 
 #if defined(UNIT_TEST)
 

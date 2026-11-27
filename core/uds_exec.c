@@ -20,6 +20,7 @@
 
 #include "uds_exec.h"
 #include "uds_periodic.h"
+#include "eds_race_point.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -192,6 +193,7 @@ static void s_run_slot(uds_exec_t *ex, uint8_t idx, const uds_exec_slot_t *slot_
         }
         (void)uds_server_take_pending_reset(ex->cfg.srv, &reset_type);
     }
+    EDS_RACE_POINT(EDS_RACE_EXEC_RAN);
 
     ex->cfg.enter();
     if (job.is_call) {

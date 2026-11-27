@@ -1,0 +1,18 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+/* Copyright (c) 2026 Xaloqi */
+/*
+ * [EDS#197] native_sim has no watchdog; Zephyr's counter watchdog on the
+ * board's counter0 stands in for one. platform/zephyr/zephyr_wdt.c finds it
+ * through the watchdog0 alias, as on the real boards.
+ */
+/ {
+	aliases {
+		watchdog0 = &selftest_wdt;
+	};
+
+	selftest_wdt: selftest-wdt {
+		compatible = "zephyr,counter-watchdog";
+		counter = <&counter0>;
+		status = "okay";
+	};
+};

@@ -217,6 +217,13 @@ uds_status_t diag_wdt_init(diag_wdt_t *wdt)
      * reset — useful during development, harmless in production.
      */
     rc = wdt_setup(dev, WDT_OPT_PAUSE_HALTED_BY_DBG);
+    /* [EDS#197] Same trade as the callback above: a watchdog that cannot
+     * pause under a debugger (Zephyr's counter watchdog, used on native_sim
+     * by tests/zephyr_doip_selftest) still resets. Arm it without. */
+    if (rc == -ENOTSUP) {
+        LOG_WRN("WDT: Debug pause unsupported on this target — arming without it.");
+        rc = wdt_setup(dev, 0U);
+    }
     if (rc != 0) {
         LOG_ERR("WDT: wdt_setup failed: %d", rc);
         return UDS_STATUS_ERR_PLATFORM;
