@@ -224,8 +224,8 @@ if(DIAG_BENCH_SLOW_ROUTINE)
     target_compile_definitions(app PRIVATE DIAG_BENCH_SLOW_ROUTINE=1)
 endif()
 
-# [EDS#197] Test only: see DIAG_DOIP_SELFTEST above. UNIT_TEST only on the
-# files with a race point and on the test, so EDS_RACE_POINT() reaches its hook.
+# [EDS#197] Test only: see DIAG_DOIP_SELFTEST above. EDS_RACE_POINTS turns
+# the race-point hook on (core/eds_race_point.h); UNIT_TEST stays host-only.
 if(DIAG_DOIP_SELFTEST)
     if(NOT CONFIG_WDT_COUNTER)
         message(FATAL_ERROR "[DIAG] DIAG_DOIP_SELFTEST: no counter watchdog. Put "
@@ -233,7 +233,6 @@ if(DIAG_DOIP_SELFTEST)
     endif()
     set(_selftest ${DIAG_ROOT}/tests/zephyr_doip_selftest/doip_selftest.c)
     target_sources(app PRIVATE ${_selftest})
-    target_compile_definitions(app PRIVATE DIAG_DOIP_SELFTEST_${DIAG_DOIP_SELFTEST}=1)
-    set_source_files_properties(${_selftest} ${DIAG_ROOT}/core/uds_server.c
-        PROPERTIES COMPILE_DEFINITIONS UNIT_TEST=1)
+    target_compile_definitions(app PRIVATE DIAG_DOIP_SELFTEST_${DIAG_DOIP_SELFTEST}=1
+        EDS_RACE_POINTS=1)
 endif()

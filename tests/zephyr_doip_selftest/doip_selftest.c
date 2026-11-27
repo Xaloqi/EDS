@@ -9,8 +9,8 @@
  *   scenario against the example as built, prints its verdict and exits
  *   the native_sim process with it. Built only with
  *   -DDIAG_DOIP_SELFTEST=<mode> (examples/basic_ecu_doip/CMakeLists.txt),
- *   which also compiles this file and core/uds_server.c with UNIT_TEST so
- *   EDS_RACE_POINT() reaches the hook below. Never in a firmware image.
+ *   which also defines EDS_RACE_POINTS so EDS_RACE_POINT() reaches the hook
+ *   below. Never in a firmware image.
  *
  *   SESSION_END: one S3 expiry and one disconnect, forced to meet. The
  *     tester opens 10 03 and goes silent. When S3 ends the session, the
