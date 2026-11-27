@@ -37,6 +37,7 @@ typedef struct {
     bool     active;        /* [EDS#466] slot in use (pDID 0x00 is valid) */
     uint8_t  periodic_id;
     uint8_t  mode;          /* UDS_PERIODIC_MODE_* */
+    uint8_t  src;           /* [EDS#197] request source that subscribed it */
     uint16_t counter_ms;    /* countdown; fires when 0 */
     uint16_t interval_ms;   /* reload value after firing */
     bool     due;           /* true when counter hit 0 this tick */
@@ -100,6 +101,10 @@ static uds_periodic_sub_t *s_find_free(void)
     return NULL;
 }
 
+/* [EDS#197] The public subscribe and pop calls without and with a source. */
+static uds_status_t s_subscribe(uint8_t periodic_id, uint8_t mode, uint8_t src);
+static uds_status_t s_pop_due(uds_msg_buf_t *out_frame, uint8_t *out_src);
+
 /* --------------------------------------------------------------------------
  * Public API
  * -------------------------------------------------------------------------- */
@@ -114,6 +119,16 @@ uds_status_t uds_periodic_init(void)
 
 uds_status_t uds_periodic_subscribe(uint8_t periodic_id, uint8_t mode)
 {
+    return s_subscribe(periodic_id, mode, (uint8_t)0U);
+}
+
+uds_status_t uds_periodic_subscribe_src(uint8_t periodic_id, uint8_t mode, uint8_t src)
+{
+    return s_subscribe(periodic_id, mode, src);
+}
+
+static uds_status_t s_subscribe(uint8_t periodic_id, uint8_t mode, uint8_t src)
+{
     uds_periodic_sub_t *slot;
     uint16_t            interval;
 
@@ -123,6 +138,7 @@ uds_status_t uds_periodic_subscribe(uint8_t periodic_id, uint8_t mode)
     slot = s_find_slot(periodic_id);
     if (slot != NULL) {
         slot->mode        = mode;
+        slot->src         = src;
         slot->interval_ms = interval;
         slot->counter_ms  = (uint16_t)1U;   /* first message at the next tick */
         slot->due         = false;
@@ -142,6 +158,7 @@ uds_status_t uds_periodic_subscribe(uint8_t periodic_id, uint8_t mode)
     slot->active      = true;
     slot->periodic_id = periodic_id;
     slot->mode        = mode;
+    slot->src         = src;
     slot->interval_ms = interval;
     /* ISO 14229-1:2026 §10.5.5 (Figures 25/26): the first periodic message
      * follows the initial positive response at the scheduler's next run, not
@@ -200,6 +217,21 @@ uds_status_t uds_periodic_tick_1ms(void)
 }
 
 uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame)
+{
+    uint8_t src = (uint8_t)0U;
+
+    return s_pop_due(out_frame, &src);
+}
+
+uds_status_t uds_periodic_pop_due_src(uds_msg_buf_t *out_frame, uint8_t *out_src)
+{
+    if (out_src == NULL) {
+        return UDS_STATUS_ERR_NULL_PTR;
+    }
+    return s_pop_due(out_frame, out_src);
+}
+
+static uds_status_t s_pop_due(uds_msg_buf_t *out_frame, uint8_t *out_src)
 {
     uint8_t            i;
     uds_status_t       status;
@@ -263,6 +295,7 @@ uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame)
         }
 
         out_frame->length = (uint16_t)1U + out_len;
+        *out_src          = s_subs[i].src;
 
         /* [EDS#194] Record what was just popped so a failed transmit can
          * ask for it back via uds_periodic_requeue_last(). */
@@ -276,6 +309,22 @@ uds_status_t uds_periodic_pop_due(uds_msg_buf_t *out_frame)
 }
 
 static uint32_t s_tx_can_id;   /* [EDS#546] deliberately not cleared by uds_periodic_init() */
+
+/* [EDS#197] Bit n set: request source n can send periodic messages. All set
+ * until an executor says otherwise, so a build without one is unchanged.
+ * Not cleared by uds_periodic_init(), like s_tx_can_id. */
+static uint8_t s_tx_src_mask = (uint8_t)0xFFU;
+
+void uds_periodic_set_tx_src_mask(uint8_t mask)
+{
+    s_tx_src_mask = mask;
+}
+
+bool uds_periodic_src_can_tx(uint8_t src)
+{
+    return (src < (uint8_t)8U) &&
+           (((uint32_t)s_tx_src_mask & ((uint32_t)1U << src)) != (uint32_t)0U);
+}
 
 void uds_periodic_set_tx_can_id(uint32_t can_id)
 {
