@@ -19,8 +19,8 @@
  *   -semihosting).
  *
  *   Built only with -DDIAG_DOIP_SELFTEST=SESSION_END and a real lwIP
- *   (-DLWIP_DIR), which also compiles this file and core/uds_server.c with
- *   UNIT_TEST and turns on lwIP's loopback interface. Never a firmware image.
+ *   (-DLWIP_DIR), which also defines EDS_RACE_POINTS (the race-point hook)
+ *   and turns on lwIP's loopback interface. Never a firmware image.
  *
  * The addresses are the example's: tester 0x0E00, ECU 0xE400.
  * =============================================================================

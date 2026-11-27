@@ -368,8 +368,8 @@ set_target_properties(eds_freertos_doip PROPERTIES
 # [EDS#197] Test only (QEMU, real lwIP): tests/freertos_doip_selftest runs
 # the SESSION_END scenario against this example over lwIP's loopback
 # interface and exits QEMU through semihosting with its verdict (run QEMU
-# with -semihosting). UNIT_TEST only on the file with the race point and on
-# the test. Never a firmware image.
+# with -semihosting). EDS_RACE_POINTS turns the race-point hook on
+# (core/eds_race_point.h); UNIT_TEST stays host-only. Never a firmware image.
 set(DIAG_DOIP_SELFTEST "" CACHE STRING "Test only (QEMU + lwIP): SESSION_END")
 if(DIAG_DOIP_SELFTEST)
     if(LWIP_STUB)
@@ -381,7 +381,6 @@ if(DIAG_DOIP_SELFTEST)
         DIAG_DOIP_SELFTEST_${DIAG_DOIP_SELFTEST}=1
         INCLUDE_uxTaskGetStackHighWaterMark=1
         INCLUDE_xTaskGetHandle=1
+        EDS_RACE_POINTS=1
     )
-    set_source_files_properties(${_selftest} ${DIAG_ROOT}/core/uds_server.c
-        PROPERTIES COMPILE_DEFINITIONS UNIT_TEST=1)
 endif()
