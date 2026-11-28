@@ -10,6 +10,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A diagnostic executor: CAN and DoIP can run on one ECU (#197).** One thread owns the UDS server, and each
+  transport submits its requests to it instead of calling `uds_server_process_request()` from its own thread. Zephyr
+  and FreeRTOS bindings (`zephyr_exec.h`, `freertos_exec.h`), `eds_doip_set_executor()` for DoIP, and
+  `examples/dual_transport_ecu`, the reference for CAN (classic or FD) and DoIP together. The per-change entries
+  below (J1 to J7, #664) give the details. Verified on the host under ThreadSanitizer (`tests/concurrency/`) and on
+  native\_sim in CI with both testers at once; not yet run on a board. Guidance:
+  `docs/threading_guide.md` "Dual-Transport Concurrency", `docs/INTEGRATION_GUIDE.md` §5b.
+
 - **`examples/dual_transport_ecu`: CAN and DoIP on one ECU** (#197). Both transports are producers of the
   diagnostic executor. The CAN producer (`src/can_producer.c`) runs every 1 ms above the executor and never waits:
   it drains RX (#558), ticks ISO-TP, posts each reassembled request, and answers a second request 7F sid 21 itself
@@ -163,6 +171,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Fail-first: without the overlay the build stops in `mcux_lpcmp.c:276`; with it the build passes on v3.7.0 and v4.4.1,
   and `verify_hw_nvm_wiring.py` passes. CI now builds `sensor_ecu` for the board (job `Zephyr Build — frdm_mcxn947`).
   Compile-checked only: `sensor_ecu` is not in the bench checklist and was not run on the board.
+
+### Migration
+
+- **DoIP-only builds:** replace the UDS tick task and the lock pair with the executor: `zephyr_exec_start()` or
+  `freertos_exec_start()` with DoIP's `EDS_DOIP_UDS_SRC` as the one producer, then `eds_doip_set_executor()`
+  (`examples/basic_ecu_doip` and `basic_ecu_doip_freertos` show it). Budget about 3 KB more RAM than the old tick
+  task's stack for the executor's 4096-byte stack, plus its 4 KB response mailbox. `eds_doip_set_lock_callbacks()`
+  still works this release (a production build accepts it or an executor) and warns at build time.
+- **CAN + DoIP builds:** do not call the server from both threads. Follow `examples/dual_transport_ecu`: start the
+  executor, make CAN a producer (`uds_exec_submit()`, never blocking), set `transport: both`. Codegen emits no
+  executor wiring (#357), so `main.c` does it.
+- **CAN-only builds:** no change.
+- **Anything that allocates `uds_server_ctx_t`** must be rebuilt (three fields appended after `pending`).
+- **Behaviour you may notice:** while one transport holds a diagnostic session, the other's physical requests get
+  NRC 0x21; an ECUReset whose response failed to send is still performed on the executor path (the lock path
+  skips it, #434).
 
 ## [1.31.0] — 2026-11-27
 

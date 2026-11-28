@@ -211,7 +211,7 @@ Start from [`examples/basic_ecu/CMakeLists.txt`](examples/basic_ecu/CMakeLists.t
 |---|---|
 | **UDS stack** | 19 services: 0x10 0x11 0x14 0x19 0x22 **0x23** 0x27 0x28 **0x2A** 0x2E 0x2F 0x31 0x34 0x35 0x36 0x37 **0x3D** 0x3E 0x85 · SID 0x23: direct memory read · SID 0x2A: periodic push (SLOW/MEDIUM/FAST) · SID 0x3D: direct memory write · SID 0x19 sub-functions: 0x01-0x04 0x06-0x0E 0x14 0x15 0x55 |
 | **ISO-TP transport** | SF / FF / CF / FC · N_As / N_Bs / N_Cr timing · STmin sub-ms range |
-| **DoIP transport** | DoIP diagnostic server subset (ISO 13400-2 routing activation + diagnostic messaging) — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes. Vehicle identification, vehicle announcement, and entity status are out of scope — see the DoIP Feature Matrix in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.2. **Running a UDS tick task alongside it?** Register `eds_doip_set_lock_callbacks()` — see [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md) §5b; production builds enforce it. |
+| **DoIP transport** | DoIP diagnostic server subset (ISO 13400-2 routing activation + diagnostic messaging) — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes. Vehicle identification, vehicle announcement, and entity status are out of scope — see the DoIP Feature Matrix in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.2. **Running DoIP next to a tick task, or next to CAN?** Run the diagnostic executor (`eds_doip_set_executor()`): one thread owns the UDS server and each transport posts its requests to it; [`examples/dual_transport_ecu`](examples/dual_transport_ecu/) is the CAN + DoIP reference and [`docs/threading_guide.md`](docs/threading_guide.md) "Dual-Transport Concurrency" explains it. `eds_doip_set_lock_callbacks()` is deprecated (see [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md) §5b); production builds need the executor or, for this release, the callbacks. |
 | **ASIL-B-oriented safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
 | **Security** | AES-128-CMAC seed / 4-byte key response ([threat model](SECURITY.md#security-architecture-notes)) · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
 | **DTC persistence** | NVM mirror survives power cycles · 0x14 ClearDTC · 0x19 ReadDTCInformation |
@@ -511,6 +511,7 @@ inspect without a license.
 **Building a BMS?** → [`examples/bms_ecu/`](examples/bms_ecu/) ·
 **Motor controller?** → [`examples/motor_controller_ecu/`](examples/motor_controller_ecu/) ·
 **Working with DoIP?** → [`examples/basic_ecu_doip/`](examples/basic_ecu_doip/) ·
+**CAN and DoIP on one ECU?** → [`examples/dual_transport_ecu/`](examples/dual_transport_ecu/) ·
 **Using FreeRTOS?** → [`examples/basic_ecu_freertos/`](examples/basic_ecu_freertos/) ·
 **Need safe firmware update?** → [`examples/safeboot_ecu/`](examples/safeboot_ecu/)
 
