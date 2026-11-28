@@ -74,6 +74,7 @@
 #include <zephyr/drivers/flash.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/storage/flash_map.h>
+#include "platform_api.h"       /* [EDS#57] eds_platform_get_device_uid() */
 #include "eds_partition.h"      /* EDS_PARTITION_* : FIXED_PARTITION_* before Zephyr 4.4, PARTITION_* after (#516) */
 
 LOG_MODULE_REGISTER(basic_ecu, LOG_LEVEL_INF);
@@ -275,6 +276,19 @@ int main(void)
     isotp_ctx_t      *tp  = NULL;
 
     LOG_INF("Xaloqi EDS BasicECU starting");
+
+#if defined(CONFIG_EDS_HW_DEVICE_UID)
+    /* [EDS#57] Bench check: compare this line with the debug probe's UID read
+     * (see boards/frdm_mcxn947/frdm_mcxn947.overlay, DEVICE UID). */
+    {
+        uint8_t uid[16];
+        if (eds_platform_get_device_uid(uid, sizeof(uid)) == UDS_STATUS_OK) {
+            LOG_HEXDUMP_INF(uid, sizeof(uid), "device UID");
+        } else {
+            LOG_WRN("device UID not readable on this board");
+        }
+    }
+#endif
 
     if (diag_mutex_init(&s_session_lock)  != UDS_STATUS_OK) { return -1; }
     if (diag_mutex_init(&s_security_lock) != UDS_STATUS_OK) { return -1; }

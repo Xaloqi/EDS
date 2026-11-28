@@ -10,6 +10,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`eds_platform_get_device_uid()`: the SoC's unique ID** (#57). `platform/platform_api.h` gets a portable read of the
+  factory UID. Zephyr: `hwinfo_get_device_id()` under `CONFIG_EDS_HW_DEVICE_UID` (default n; no driver is pulled in
+  without it). It needs neither Zephyr 4.4 nor the OTP API, as the issue assumed: NUCLEO-H743ZI/H753ZI work on the
+  v3.7 pin as they are (12 bytes), and `boards/frdm_mcxn947/frdm_mcxn947.overlay` adds the `nxp,lpc-uid` node at
+  `0x01100000` that v3.7's DTS lacks (16 bytes; v4.5's DTS has the same node). FreeRTOS returns the new
+  `UDS_STATUS_ERR_NOT_SUPPORTED` unless the board supplies a reader; the `safeboot_freertos_ecu` nucleo\_h743zi board
+  file reads the STM32 UID, in the same byte order as Zephyr's. A short buffer is an error, never a truncated UID.
+  The UID identifies the silicon and is not a secret. No DID returns it yet. Verified on the host with a mocked
+  `hwinfo` (`tests/unit_runnable/test_device_uid.c`) and by CI builds of `basic_ecu` for frdm\_mcxn947 and
+  nucleo\_h743zi with the option on, checking the driver and both symbols are linked. Not yet compared against a
+  debug probe on a board. With the option on, `basic_ecu` logs the UID at boot for that comparison.
+
 - **A diagnostic executor: CAN and DoIP can run on one ECU (#197).** One thread owns the UDS server, and each
   transport submits its requests to it instead of calling `uds_server_process_request()` from its own thread. Zephyr
   and FreeRTOS bindings (`zephyr_exec.h`, `freertos_exec.h`), `eds_doip_set_executor()` for DoIP, and

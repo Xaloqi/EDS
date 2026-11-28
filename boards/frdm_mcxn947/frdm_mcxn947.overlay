@@ -42,6 +42,15 @@
  *   the board defconfig). This is a superior hardware-enforced mechanism
  *   compared to software canaries.
  *
+ * DEVICE UID:
+ *   Zephyr v3.7's MCX N94x devicetree has no node for the factory UID, though
+ *   its hwinfo driver (nxp,lpc-uid) is a plain register read. The node below
+ *   adds it at 0x01100000, the address and size v4.5's DTS uses, so
+ *   CONFIG_EDS_HW_DEVICE_UID=y works on the v3.7 pin (EDS#57). On v4.5 the
+ *   node already exists and this one merges with it unchanged.
+ *   Compare against a debug probe: pyocd cmd -t mcxn947 -c "read32 0x01100000 4"
+ *   prints four words; the UID is those four words, each big-endian, in order.
+ *
  * SAFETY: This overlay is a starting point. OEM integration must:
  *   [ ] Verify PIO1_10/PIO1_11 pinout against actual board schematic
  *   [ ] Validate 500 kbit/s sample point against network analyser
@@ -143,5 +152,15 @@
 			label = "diag_nvs";
 			reg = <0x001C0000 0x00040000>;
 		};
+	};
+};
+
+/* ── Device UID (EDS#57): hwinfo_get_device_id() on v3.7 ────────────────────
+ * Same node, address and size as Zephyr v4.5's nxp_mcxnx4x_common.dtsi.
+ * ─────────────────────────────────────────────────────────────────────────── */
+/ {
+	uuid: uuid@1100000 {
+		compatible = "nxp,lpc-uid";
+		reg = <0x01100000 0x10>;
 	};
 };

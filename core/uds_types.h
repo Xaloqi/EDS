@@ -204,6 +204,8 @@ typedef enum uds_status {
                                                          the transport limit (NRC 0x14
                                                          responseTooLong, ISO 14229-1:2026
                                                          Table 190). */
+    UDS_STATUS_ERR_NOT_SUPPORTED         = 0x69U, /**< [EDS#57] The platform has no such feature
+                                                         (e.g. no readable device UID). Not a fault. */
 
     UDS_STATUS_MAX                                /**< Sentinel — do not use as return value. */
 } uds_status_t;

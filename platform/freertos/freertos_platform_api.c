@@ -527,6 +527,24 @@ uint32_t eds_platform_uptime_ms(void)
 }
 
 /* ============================================================================
+ * eds_platform_get_device_uid  [#57]
+ *
+ * FreeRTOS has no hwinfo. A board that can read its UID defines
+ * EDS_PLATFORM_BOARD_DEVICE_UID and supplies eds_platform_get_device_uid()
+ * itself (examples/safeboot_freertos_ecu/boards/nucleo_h743zi/device_uid.c);
+ * every other build gets NOT_SUPPORTED.
+ * ========================================================================== */
+
+#if !defined(EDS_PLATFORM_BOARD_DEVICE_UID)
+uds_status_t eds_platform_get_device_uid(uint8_t *buf, size_t len)
+{
+    (void)buf;
+    (void)len;
+    return UDS_STATUS_ERR_NOT_SUPPORTED;
+}
+#endif
+
+/* ============================================================================
  * eds_freertos_start
  *
  * Creates the UDS poll task and returns. The caller must call

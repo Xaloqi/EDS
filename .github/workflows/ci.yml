@@ -1218,6 +1218,26 @@ jobs:
           test -f build/zephyr/zephyr.elf && echo "PASS: .elf" || exit 1
           test -f build/zephyr/zephyr.hex && echo "PASS: .hex" || exit 1
 
+      # [EDS#57] eds_platform_get_device_uid() through hwinfo_get_device_id(): the
+      # option on, the driver selected, and both symbols linked into the image.
+      - name: West build — basic_ecu with CONFIG_EDS_HW_DEVICE_UID (EDS#57)
+        run: |
+          west build \
+            --pristine \
+            -d build-uid \
+            -b nucleo_h743zi \
+            EDS/examples/basic_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DCONFIG_EDS_HW_DEVICE_UID=y \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h743zi/nucleo_h743zi.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h743zi/nucleo_h743zi.overlay"
+          grep -q '^CONFIG_HWINFO_STM32=y' build-uid/zephyr/.config
+          nm=$(sed -n 's/^CMAKE_NM:[A-Z]*=//p' build-uid/CMakeCache.txt)
+          "$nm" build-uid/zephyr/zephyr.elf | tee uid-symbols.txt
+          grep -q ' T eds_platform_get_device_uid$' uid-symbols.txt
+          grep -q ' T z_impl_hwinfo_get_device_id$' uid-symbols.txt
+
       # [EDS#643] The other examples with a hardware branch, with their NVM on the
       # board's diag_nvs partition (append backend: 128 KB sectors, EDS#504).
       - name: West build — canfd_ecu, sensor_ecu, bms_ecu, motor_controller_ecu (NVM partition)
@@ -1487,6 +1507,26 @@ jobs:
         run: |
           test -f build/zephyr/zephyr.elf && echo "PASS: .elf" || exit 1
           test -f build/zephyr/zephyr.hex && echo "PASS: .hex" || exit 1
+
+      # [EDS#57] eds_platform_get_device_uid() through hwinfo_get_device_id(): the
+      # option on, the driver selected, and both symbols linked into the image.
+      - name: West build — basic_ecu with CONFIG_EDS_HW_DEVICE_UID (EDS#57)
+        run: |
+          west build \
+            --pristine \
+            -d build-uid \
+            -b frdm_mcxn947/mcxn947/cpu0 \
+            EDS/examples/basic_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            -DCONFIG_EDS_HW_DEVICE_UID=y \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay"
+          grep -q '^CONFIG_HWINFO_MCUX_SYSCON=y' build-uid/zephyr/.config
+          nm=$(sed -n 's/^CMAKE_NM:[A-Z]*=//p' build-uid/CMakeCache.txt)
+          "$nm" build-uid/zephyr/zephyr.elf | tee uid-symbols.txt
+          grep -q ' T eds_platform_get_device_uid$' uid-symbols.txt
+          grep -q ' T z_impl_hwinfo_get_device_id$' uid-symbols.txt
 
       # [EDS#642] CAN FD on FlexCAN0: examples/canfd_ecu with its board overlay.
       - name: West build — canfd_ecu on frdm_mcxn947 (CAN FD overlay)

@@ -327,4 +327,27 @@ config EDS_REQUIRE_STACK_CANARIES
 	  refused even with this option set to n (#501).
 	  native_sim (ARCH_POSIX) is exempt: it is a simulation, never shipped.
 
+# ---------------------------------------------------------------------------
+# Device UID  [#57]
+# ---------------------------------------------------------------------------
+
+config EDS_HW_DEVICE_UID
+	bool "Read the SoC's unique device ID (eds_platform_get_device_uid)"
+	default n
+	select HWINFO
+	help
+	  eds_platform_get_device_uid() (platform/platform_api.h) returns the
+	  SoC's factory UID through Zephyr's hwinfo_get_device_id(). Without
+	  this option it returns UDS_STATUS_ERR_NOT_SUPPORTED and pulls in no
+	  driver. The board needs a hwinfo driver for the UID:
+	    - NUCLEO-H743ZI / H753ZI: hwinfo_stm32, 12 bytes. Nothing to add.
+	    - FRDM-MCXN947: hwinfo_mcux_syscon (nxp,lpc-uid), 16 bytes.
+	      Zephyr v4.5 has the node. On v3.7 EDS's board overlay adds it at
+	      0x01100000.
+	  A board without a driver makes the call return NOT_SUPPORTED at
+	  run time (hwinfo's -ENOSYS), not fail the build.
+	  The UID identifies the silicon. It is not a secret: do not use it as
+	  a key. No DID returns it yet.
+	  TRACEABILITY: #57
+
 endmenu

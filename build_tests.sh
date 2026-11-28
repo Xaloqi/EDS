@@ -416,6 +416,8 @@ TESTS=(
     test_doip_discovery
     # [EDS#418] FreeRTOS tick-to-ms conversion behind eds_platform_uptime_ms().
     test_freertos_ticks
+    # [EDS#57] platform/eds_device_uid.h: the mapping behind eds_platform_get_device_uid().
+    test_device_uid
     # [EDS#411, EDS#412] core/eds_elapsed.h: carry, saturation, wrap.
     test_eds_elapsed
     # [SEC-TRNG-FAILCLOSED-01] Production-configuration entropy fail-closed

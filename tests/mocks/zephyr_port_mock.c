@@ -211,6 +211,14 @@ uint32_t eds_platform_uptime_ms(void)
     return 0U;
 }
 
+uds_status_t eds_platform_get_device_uid(uint8_t *buf, size_t len)
+{
+    /* Stub: the host has no device UID. The mapping is tested in test_device_uid.c. */
+    (void)buf;
+    (void)len;
+    return UDS_STATUS_ERR_NOT_SUPPORTED;
+}
+
 void eds_platform_can_input(const eds_can_frame_t *frame)
 {
     (void)frame;
