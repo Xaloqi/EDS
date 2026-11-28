@@ -559,16 +559,21 @@ void uds_exec_release(uds_exec_t *ex, uint8_t src)
     }
 }
 
-const uds_msg_buf_t *uds_exec_push_frame(uds_exec_t *ex, uint8_t src)
+const uds_msg_buf_t *uds_exec_push_frame(uds_exec_t *ex, uint8_t src, bool *periodic)
 {
     const uds_msg_buf_t *frame = NULL;
+    bool                 is_periodic = false;
 
     if (s_ready(ex)) {
         ex->cfg.enter();
         if ((ex->push_state == (uint8_t)EXEC_PUSH_READY) && (ex->push_src == src)) {
-            frame = &ex->push_buf;
+            frame       = &ex->push_buf;
+            is_periodic = (ex->push_kind == UDS_EXEC_PUSH_PERIODIC);
         }
         ex->cfg.exit();
+    }
+    if (periodic != NULL) {
+        *periodic = is_periodic;
     }
     return frame;
 }

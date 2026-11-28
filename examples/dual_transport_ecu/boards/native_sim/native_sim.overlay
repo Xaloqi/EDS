@@ -1,0 +1,17 @@
+/*
+ * Xaloqi EDS — dual_transport_ecu
+ * boards/native_sim/native_sim.overlay (pass it as DTC_OVERLAY_FILE)
+ *
+ * CAN on the host's SocketCAN interface zcan0 (Zephyr's native Linux CAN
+ * driver; a vcan named zcan0 will do). DoIP on the TAP interface zeth
+ * (boards/native_sim/native_sim.conf). See README.md for the host side.
+ */
+/ {
+    aliases {
+        can0 = &can0;
+    };
+};
+
+&can0 {
+    status = "okay";
+};

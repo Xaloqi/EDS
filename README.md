@@ -411,10 +411,10 @@ bash run_python_tests.sh
 > `pytest.ini`) — every example's `generated/tests/` is its own
 > self-contained pytest project and must be run scoped to its own
 > directory, exactly as shown above. `run_python_tests.sh` runs all of them
-> for you. It executes **2,087 of 3,218** collected cases in a Developer-tier
+> for you. It executes **2,186 of 3,377** collected cases in a Developer-tier
 > checkout (the Developer ZIP unpacked into this repo; a plain clone is the
 > Community tier, has no `tools/templates` or `testgen.py`, and executes fewer)
-> and **3,143 of 3,218** with the
+> and **3,298 of 3,377** with the
 > Professional-tier `harness/` build present — the gap is cases gated on
 > commercial prerequisites (TestLab, the firmware harness, or the
 > `tools/templates` codegen ZIP), not failures. Not every executed case
@@ -520,6 +520,7 @@ inspect without a license.
 | `basic_ecu_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS MCU | **compile-verified** (QEMU Cortex-M4) |
 | `basic_ecu_doip` | 5 | 2 | 3 | NUCLEO-H753ZI, FRDM-MCXN947, MR-CANHUBK3, native\_sim (loopback), any Zephyr Ethernet board | **hardware-validated** (NUCLEO-H753ZI, real Ethernet; FRDM-MCXN947, on-board Ethernet, test random generator, store on real flash with the append backend: 0x14 and the SecurityAccess attempt counter kept over a reset; received frames over 1512 bytes are dropped on Zephyr v3.7.0, #648); **compile-verified** (MR-CANHUBK3; NUCLEO-H753ZI with the DTC mirror on real flash, append backend, which has not run on hardware) |
 | `basic_ecu_doip_freertos` | 5 | 2 | 3 | QEMU Cortex-M4, any FreeRTOS + LwIP Ethernet MCU (STM32H7, i.MX RT) | **compile-verified** (QEMU Cortex-M4) |
+| `dual_transport_ecu` | 5 | 2 | 3 | native\_sim (SocketCAN and TAP), FRDM-MCXN947, NUCLEO-H753ZI; classic CAN or CAN FD | **compile-verified** (native\_sim; FRDM-MCXN947, classic and FD; NUCLEO-H753ZI); runtime smoke on native\_sim in CI: a CAN tester (vcan) and a DoIP tester (TAP) at once, classic and FD; not run on hardware |
 | `sensor_ecu` | 7 | 4 | 2 | native\_sim, NUCLEO-H743ZI2, any Zephyr sensor board | **compile-verified** (native\_sim; NUCLEO-H743ZI2 with its NVM on the board's flash partition, not run on hardware; FRDM-MCXN947 builds on Zephyr 4.4 or later only, [#645](https://github.com/Xaloqi/EDS/issues/645)) |
 | `sensor_ecu_freertos` | 7 | 4 | 2 | QEMU Cortex-M4, STM32F4, Nucleo-H743ZI2 | **compile-verified** (QEMU Cortex-M4) |
 | `safeboot_ecu` | 5 | 3 | 2 | NUCLEO-H753ZI, Nucleo-H743ZI2, MR-CANHUBK3 (Zephyr 4.4 or later, sysbuild); MCUboot required | **hardware-validated** (NUCLEO-H753ZI, CAN); **compile-verified** (MR-CANHUBK3, with MCUboot) |
@@ -542,10 +543,10 @@ strongest label that is true of it:
 | **hardware-validated** | Flashed onto real silicon and exercised, with measurements recorded | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — DWT cycle-counter figures from a NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, `-Os`): `safeboot_ecu` over CAN/ISO-TP, `basic_ecu_doip` over the board's onboard MAC+PHY |
 | **compile-verified** | Compiled and linked in CI for the named target, and **never flashed** | CI jobs `zephyr-native`, `zephyr-stm32`, `zephyr-nxp`, `zephyr-nxp-s32k`, `zephyr-nxp-s32k-mcuboot`, `zephyr-ardep`, `zephyr-stm32-safeboot`, `zephyr-examples-native`, `freertos-qemu`, `freertos-safeboot`, `freertos-examples`, `doip-integration` |
 
-**All fifteen examples are now at least compile-verified, and two have been on a
+**All sixteen examples are now at least compile-verified, and two have been on a
 bench.** For the first thirteen that became true on 2026-10-02 and was not true
-before (`basic_ecu_cda_demo` and `vehicle_state_ecu` were added to the CI matrix
-later), which is worth stating rather than quietly presenting as always-so:
+before (`basic_ecu_cda_demo`, `vehicle_state_ecu` and `dual_transport_ecu` were
+added to the CI matrix later), which is worth stating rather than quietly presenting as always-so:
 
 - Until then, **six of the twelve had never been compiled for any target** and a
   seventh, `basic_ecu_doip_freertos`, had no CI coverage at all. Their
@@ -563,7 +564,7 @@ later), which is worth stating rather than quietly presenting as always-so:
 Read **compile-verified** literally: it means the committed generated code
 compiles and links against the stack on that target. It is not a claim that the
 example has run anywhere, and for the `native_sim` entries it is not a claim
-about the physical board named in the Boards column. All fifteen ship complete,
+about the physical board named in the Boards column. All sixteen ship complete,
 committed generated code and are architecturally identical in how they wire the
 stack — that is why they are useful as references — but only two have been on a
 bench.
@@ -576,7 +577,7 @@ Cross-transport behaviour against a real bus is proven separately, not here:
 runs the UDS matrix over a real host `vcan0` and a real DoIP/TCP bridge on
 Zephyr targets, and its `COVERAGE.md` states exactly what is and is not claimed.
 
-Thirteen of the fifteen examples ship a generated test suite (`generated/tests/`); `basic_ecu_cda_demo` and `vehicle_state_ecu` do not (the latter has a TestLab campaign in `campaigns/` instead). Run `pytest` against the simulator in under 60 seconds, no CAN hardware needed.
+Fourteen of the sixteen examples ship a generated test suite (`generated/tests/`); `basic_ecu_cda_demo` and `vehicle_state_ecu` do not (the latter has a TestLab campaign in `campaigns/` instead). Run `pytest` against the simulator in under 60 seconds, no CAN hardware needed.
 
 **`TODO [APPLICATION]` convention:** every hardware/NVM-backed DID or routine accessor in these examples is tagged in-code, e.g. `/* TODO [APPLICATION]: Read VIN from NVM. */` in `examples/basic_ecu/src/main.c`. This marks exactly where a customer's application must supply real hardware I/O. The examples demonstrate integration architecture, not complete or certified ECU functionality — do not treat them as evidence that final vehicle behavior is correct.
 

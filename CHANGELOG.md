@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`examples/dual_transport_ecu`: CAN and DoIP on one ECU** (#197). Both transports are producers of the
+  diagnostic executor. The CAN producer (`src/can_producer.c`) runs every 1 ms above the executor and never waits:
+  it drains RX (#558), ticks ISO-TP, posts each reassembled request, and answers a second request 7F sid 21 itself
+  while its first is posted, without touching the posted buffers. Classic CAN, or CAN FD with `fd.conf`. Builds for
+  native\_sim (SocketCAN and TAP), FRDM-MCXN947 (the #648 MTU) and NUCLEO-H753ZI. `transport: both` in the YAML;
+  codegen emits no executor wiring (#357), so no other example changes. `scripts/smoke_dual_transport_ecu.py` runs
+  a CAN and a DoIP tester at once on native\_sim in CI. `uds_exec_push_frame()` now says whether a frame is a
+  periodic message (UUDT on CAN) or a job's frame. Tests: C2 (`tests/concurrency/tsan_c2_dual_transport.c`, the
+  example's two producers under ThreadSanitizer) replaces the XFAIL C2 of #657, and
+  `tests/concurrency/tsan_can_producer.c` checks the CAN producer's buffer and release rules.
+
 - **DoIP runs on the diagnostic executor: `eds_doip_set_executor()`** (#197). The DoIP thread becomes a producer: it
   posts each diagnostic request (`uds_exec_submit()`) and waits for its answer, and the pending job, the ECUReset,
   the disconnect's end of session and the discovery VIN read all run on the executor. No UDS server, session or

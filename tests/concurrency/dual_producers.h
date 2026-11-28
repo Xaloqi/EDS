@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Xaloqi
 /*
  * =============================================================================
- * Xaloqi EDS — host concurrency test body (ThreadSanitizer), shared by
- * tsan_c1_dual_shared_lock.c and tsan_c2_dual_separate_locks.c.
+ * Xaloqi EDS — host concurrency test body (ThreadSanitizer), used by
+ * tsan_c1_dual_shared_lock.c. (C2 used it with separate locks, as an XFAIL,
+ * until EDS#197 J7 rewrote it as tsan_c2_dual_transport.c.)
  *
  * PURPOSE: [EDS#197] Two producers into one uds_server_ctx_t, the #197
  *   condition:

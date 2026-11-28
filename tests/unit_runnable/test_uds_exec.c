@@ -287,7 +287,7 @@ static void prod_service(prod_t *p)
         got(p, &p->resp);
         uds_exec_release(&g_ex, p->src);
     }
-    f = uds_exec_push_frame(&g_ex, p->src);
+    f = uds_exec_push_frame(&g_ex, p->src, NULL);
     if (f != NULL) {
         got(p, f);
         uds_exec_push_done(&g_ex, p->src, true);
@@ -315,8 +315,8 @@ static void drain(void)
         if (!more && job) {
             g_now++;
         }
-        more = more || job || (uds_exec_push_frame(&g_ex, SRC_CAN) != NULL) ||
-               (uds_exec_push_frame(&g_ex, SRC_DOIP) != NULL);
+        more = more || job || (uds_exec_push_frame(&g_ex, SRC_CAN, NULL) != NULL) ||
+               (uds_exec_push_frame(&g_ex, SRC_DOIP, NULL) != NULL);
         guard++;
     }
     zassert_true(guard < 50U, "executor did not settle");
@@ -547,20 +547,24 @@ ZTEST(uds_exec_suite, test_job_frames_go_to_job_src_and_retry_when_unsent)
     zassert_true(uds_exec_done(&g_ex, SRC_CAN), "78 ready");
     uds_exec_release(&g_ex, SRC_CAN);
 
-    f = uds_exec_push_frame(&g_ex, SRC_CAN);
+    {
+        bool periodic = true;
+        f = uds_exec_push_frame(&g_ex, SRC_CAN, &periodic);
+        zassert_false(periodic, "a job frame: on the channel, not UUDT");
+    }
     zassert_not_null(f, "final routed to CAN");
     zassert_equal(f->data[0], 0x71U, "71 01 F0 00");
-    zassert_is_null(uds_exec_push_frame(&g_ex, SRC_DOIP), "not to DoIP");
+    zassert_is_null(uds_exec_push_frame(&g_ex, SRC_DOIP, NULL), "not to DoIP");
 
     uds_exec_push_done(&g_ex, SRC_CAN, false);       /* transport busy */
     (void)uds_exec_run_once(&g_ex);
-    f = uds_exec_push_frame(&g_ex, SRC_CAN);
+    f = uds_exec_push_frame(&g_ex, SRC_CAN, NULL);
     zassert_not_null(f, "offered again");
     zassert_equal(f->data[0], 0x71U, "same frame");
     uds_exec_push_done(&g_ex, SRC_CAN, true);
     (void)uds_exec_run_once(&g_ex);
     (void)uds_exec_run_once(&g_ex);
-    zassert_is_null(uds_exec_push_frame(&g_ex, SRC_CAN), "job over");
+    zassert_is_null(uds_exec_push_frame(&g_ex, SRC_CAN, NULL), "job over");
     zassert_false(uds_exec_run_once(&g_ex), "idle");
 }
 
@@ -601,13 +605,13 @@ ZTEST(uds_exec_suite, test_disconnect_discards_frame_routed_to_gone_producer)
     zassert_equal(submit(&g_p[IDX_DOIP], k_31, 4U, UDS_ADDRESSING_PHYSICAL), UDS_EXEC_POSTED, "");
     (void)uds_exec_run_once(&g_ex);            /* dispatch + the final frame */
     uds_exec_release(&g_ex, SRC_DOIP);
-    zassert_not_null(uds_exec_push_frame(&g_ex, SRC_DOIP), "final routed to DoIP");
+    zassert_not_null(uds_exec_push_frame(&g_ex, SRC_DOIP, NULL), "final routed to DoIP");
     zassert_true(uds_exec_job_pending(&g_ex, SRC_DOIP), "frame owed");
 
     uds_exec_disconnect(&g_ex, SRC_DOIP);      /* never takes it */
     (void)submit(&g_p[IDX_CAN], k_ba, 1U, UDS_ADDRESSING_PHYSICAL);
     drain();
-    zassert_is_null(uds_exec_push_frame(&g_ex, SRC_DOIP), "discarded");
+    zassert_is_null(uds_exec_push_frame(&g_ex, SRC_DOIP, NULL), "discarded");
     zassert_false(uds_exec_job_pending(&g_ex, SRC_DOIP), "nothing owed");
     zassert_equal(g_p[IDX_CAN].got_n, 1U, "CAN served");
     zassert_equal(g_p[IDX_CAN].got[0].data[0], 0xFAU, "its answer");
@@ -658,12 +662,14 @@ ZTEST(uds_exec_suite, test_periodic_frames_go_to_subscriber)
 
     for (i = 0U; i < 25U; i++) {      /* 2.5 fast periods */
         const uds_msg_buf_t *f;
+        bool                 periodic = false;
         g_now++;
         (void)uds_exec_run_once(&g_ex);
-        zassert_is_null(uds_exec_push_frame(&g_ex, SRC_DOIP), "never to DoIP");
-        f = uds_exec_push_frame(&g_ex, SRC_CAN);
+        zassert_is_null(uds_exec_push_frame(&g_ex, SRC_DOIP, NULL), "never to DoIP");
+        f = uds_exec_push_frame(&g_ex, SRC_CAN, &periodic);
         if (f != NULL) {
             zassert_true(frame_is(f, frame, 2U), "AB 5A");
+            zassert_true(periodic, "a periodic frame: UUDT");
             to_can++;
             uds_exec_push_done(&g_ex, SRC_CAN, true);
         }
@@ -703,8 +709,8 @@ ZTEST(uds_exec_suite, test_periodic_for_unknown_src_is_dropped)
     for (i = 0U; i < 12U; i++) {
         g_now++;
         (void)uds_exec_run_once(&g_ex);
-        zassert_is_null(uds_exec_push_frame(&g_ex, SRC_CAN), "not CAN");
-        zassert_is_null(uds_exec_push_frame(&g_ex, SRC_DOIP), "not DoIP");
+        zassert_is_null(uds_exec_push_frame(&g_ex, SRC_CAN, NULL), "not CAN");
+        zassert_is_null(uds_exec_push_frame(&g_ex, SRC_DOIP, NULL), "not DoIP");
     }
     (void)uds_exec_get_stats(&g_ex, &st);
     zassert_true(st.periodic_dropped >= 1U, "counted");

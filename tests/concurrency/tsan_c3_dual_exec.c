@@ -6,13 +6,13 @@
  * FILE: tests/concurrency/tsan_c3_dual_exec.c
  * MODULE UNDER TEST: core/uds_exec.c with two producers
  *
- * PURPOSE: [EDS#197] Scenario C3: C2's two producers (a CAN and a DoIP
+ * PURPOSE: [EDS#197] Scenario C3: C1's two producers (a CAN and a DoIP
  *   thread, the same request sequences) submit through the executor
  *   instead of calling the server under their own locks. A third thread runs
  *   uds_exec_run_once(). The only lock is the executor's short critical
  *   section. Expected: no data race, and request_count is exactly the number
- *   of requests sent. C2 stays as it is (an XFAIL): it documents the
- *   lock-based path until that path is deprecated (J6).
+ *   of requests sent. C2 (tsan_c2_dual_transport.c) runs the same race
+ *   through dual_transport_ecu's own producers, ISO-TP and DoIP included.
  * =============================================================================
  */
 
