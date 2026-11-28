@@ -701,6 +701,12 @@ add_diag_test(test_freertos_ticks
         "${TEST_UNIT_DIR}/test_freertos_ticks.c"
 )
 
+# [EDS#56] platform/eds_key_source.h: key installation, refusals, wipe.
+add_diag_test(test_key_source
+    SOURCES
+        "${TEST_UNIT_DIR}/test_key_source.c"
+)
+
 # [EDS#411, EDS#412] core/eds_elapsed.h: carry, saturation, wrap.
 add_diag_test(test_eds_elapsed
     SOURCES

@@ -1,0 +1,12 @@
+/* Zephyr's OTP emulator holds the keys in RAM: zero at power-up, programmed by the test. */
+/ {
+	eds_otp: otp-emul {
+		compatible = "zephyr,otp-emul";
+		size = <64>;
+		status = "okay";
+	};
+
+	aliases {
+		eds-keys-otp = &eds_otp;
+	};
+};

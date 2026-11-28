@@ -213,7 +213,7 @@ Start from [`examples/basic_ecu/CMakeLists.txt`](examples/basic_ecu/CMakeLists.t
 | **ISO-TP transport** | SF / FF / CF / FC · N_As / N_Bs / N_Cr timing · STmin sub-ms range |
 | **DoIP transport** | DoIP diagnostic server subset (ISO 13400-2 routing activation + diagnostic messaging) — Routing Activation · DiagnosticMessage dispatch · Positive/Negative Ack · Alive Check · Zephyr (zsock_*) and FreeRTOS+LwIP bindings · same UDS core, no code changes. Vehicle identification, vehicle announcement, and entity status are out of scope — see the DoIP Feature Matrix in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.2. **Running DoIP next to a tick task, or next to CAN?** Run the diagnostic executor (`eds_doip_set_executor()`): one thread owns the UDS server and each transport posts its requests to it; [`examples/dual_transport_ecu`](examples/dual_transport_ecu/) is the CAN + DoIP reference and [`docs/threading_guide.md`](docs/threading_guide.md) "Dual-Transport Concurrency" explains it. `eds_doip_set_lock_callbacks()` is deprecated (see [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md) §5b); production builds need the executor or, for this release, the callbacks. |
 | **ASIL-B-oriented safety chain** | 5-step DID validation enforced at codegen time — cannot be bypassed at runtime |
-| **Security** | AES-128-CMAC seed / 4-byte key response ([threat model](SECURITY.md#security-architecture-notes)) · TRNG-backed · configurable per-session levels · lockout with NVM persistence |
+| **Security** | AES-128-CMAC seed / 4-byte key response ([threat model](SECURITY.md#security-architecture-notes)) · seeds from the board's hardware RNG where it has one ([per board](docs/SECURITY_NOTICE.md#entropy-per-board-zephyr-examples)) · configurable per-session levels · lockout with NVM persistence |
 | **DTC persistence** | NVM mirror survives power cycles · 0x14 ClearDTC · 0x19 ReadDTCInformation |
 | **Code generation** | YAML → 18 Jinja2 templates · CLI · reproducible deterministic output |
 | **Test generation** | YAML → pytest suite per DID and DTC · simulator mode (no hardware) · firmware harness mode |
@@ -385,7 +385,7 @@ claim that EDS is "the" SoDeV diagnostics layer.
 ### Run the test suite
 
 ```bash
-# 64 Unity unit tests (host-native, no Zephyr SDK needed)
+# 65 Unity unit tests (host-native, no Zephyr SDK needed)
 bash build_tests.sh
 
 # 68 harness integration tests (Professional tier — requires harness/ sources)
@@ -499,7 +499,7 @@ at all is refused before this chain, by the service access table (NRC 0x7F or
 | `ide/vscode-extension/` | YAML validation, hover docs, Run Codegen command *(Developer/Professional tier)* |
 | `examples/` | basic\_ecu · basic\_ecu\_doip · basic\_ecu\_freertos · basic\_ecu\_doip\_freertos · basic\_ecu\_cda\_demo · sensor\_ecu · sensor\_ecu\_freertos · safeboot\_ecu · safeboot\_freertos\_ecu · robot\_joint\_controller\_ecu · canfd\_ecu · vehicle\_state\_ecu · bms\_ecu · motor\_controller\_ecu · ardep\_ecu (15) · each with its own `generated/` subfolder |
 | `gui/` | React/TypeScript configurator + live dashboard *(Developer/Professional tier)* |
-| `tests/` | 64 Unity unit tests, harness, Python integration tests |
+| `tests/` | 65 Unity unit tests, harness, Python integration tests |
 
 ---
 

@@ -102,6 +102,9 @@ target_sources(app PRIVATE
 
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.c
 
+    # [EDS#56] SecurityAccess key source: placeholder / application / OTP
+    ${DIAG_ROOT}/platform/zephyr/zephyr_key_source.c
+
     # UDS core
     ${DIAG_ROOT}/core/uds_server.c
     ${DIAG_ROOT}/core/uds_session.c

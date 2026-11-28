@@ -237,6 +237,58 @@ config DIAG_PLACEHOLDER_KEYS_ONLY
 	  TRACEABILITY: CRIT-4 / SEC-KEY-GATE-01
 
 # ---------------------------------------------------------------------------
+# SecurityAccess key source  [#56]
+# ---------------------------------------------------------------------------
+
+choice EDS_KEYS_SOURCE
+	prompt "Where the SecurityAccess level keys come from"
+	default EDS_KEYS_PLACEHOLDER
+	help
+	  Read by platform/zephyr/zephyr_key_source.c, which examples/safeboot_ecu
+	  calls at start-up. Other examples ignore it.
+
+config EDS_KEYS_PLACEHOLDER
+	bool "Compile-time placeholder keys (development and CI only)"
+	help
+	  Today's behaviour: the publicly known placeholder keys stay, with a
+	  boot warning.
+
+config EDS_KEYS_APP
+	bool "The application supplies the keys"
+	help
+	  The integrator defines `int eds_app_get_level_key(uint8_t level,
+	  uint8_t *key)` (platform/eds_key_source.h), which fills the 16-byte
+	  key of level 0x01 and 0x03 from an HSM, a hardware key store or a
+	  provisioning record. A build without that function fails to link.
+
+config EDS_KEYS_OTP
+	bool "Read the keys from OTP fuses (Zephyr 4.4 or newer)"
+	help
+	  Reads each key with otp_read() at the configured offsets, from the
+	  device the devicetree alias eds-keys-otp names. Selecting this on a
+	  Zephyr older than 4.4 is a build error naming the version. Needs
+	  CONFIG_OTP=y and an OTP driver for the board (the FRDM-MCXN947's is
+	  in Zephyr 4.5). Tested against Zephyr's OTP emulator; not run against
+	  real fuses.
+
+endchoice
+
+config EDS_KEYS_OTP_L1_OFFSET
+	int "OTP byte offset of the level 0x01 key (16 bytes)"
+	depends on EDS_KEYS_OTP
+	default -1
+	help
+	  No default: reading a wrong offset would take other fuse contents as
+	  a key. Set it to the offset in your fuse map; -1 fails the build.
+
+config EDS_KEYS_OTP_L2_OFFSET
+	int "OTP byte offset of the level 0x03 key (16 bytes)"
+	depends on EDS_KEYS_OTP
+	default -1
+	help
+	  As for the level 0x01 key.
+
+# ---------------------------------------------------------------------------
 # Access control table  [#113 FIX]
 # ---------------------------------------------------------------------------
 

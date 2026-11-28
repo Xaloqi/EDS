@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **safeboot\_ecu: SecurityAccess keys from the application or from OTP, and a per-board entropy line** (#56, #670).
+  `CONFIG_EDS_KEYS_PLACEHOLDER` (default, today's behaviour and warning), `CONFIG_EDS_KEYS_APP` (your
+  `eds_app_get_level_key()` fills the two keys) and `CONFIG_EDS_KEYS_OTP` (`otp_read()` at offsets you set, no default),
+  in `platform/zephyr/zephyr_key_source.c`. OTP on Zephyr older than 4.4 is a build error that names the version. A key
+  that cannot be read, or reads all 0x00 or all 0xFF, is refused and logged, and SecurityAccess stays locked on both
+  levels (the placeholder keys do not take over); keys are wiped from the stack after each level. The issue's driver and
+  version were wrong: the FRDM-MCXN947's OTP driver is `nxp,otpc` and arrives in Zephyr 4.5, not `nxp,ocotp` in 4.4, so
+  the OTP backend is a v4.5 board exception, in CI as a native\_sim test against Zephyr's OTP emulator
+  (`tests/zephyr_key_source`) and a frdm\_mcxn947 build against the real driver. **Tested against the emulator; not run
+  against real fuses.** Also `boards/frdm_mcxn947/frdm_mcxn947_zephyr45.conf` and `.overlay` (#670): on Zephyr 4.4 and
+  newer they enable the MCX N94x TRNG (`nxp,els-trng`), which the secure board target does not name as `zephyr,entropy`
+  by itself; README and `docs/SECURITY_NOTICE.md` get a per-board entropy table (the FRDM-MCXN947 has none on the v3.7
+  pin, so its seeds there come from the LFSR and repeat after a power cycle). A production build still stops at the
+  SEC-KEY-GATE-01 compile-time gate, which this change does not touch (#673).
+
 - **A diagnostic executor: CAN and DoIP can run on one ECU (#197).** One thread owns the UDS server, and each
   transport submits its requests to it instead of calling `uds_server_process_request()` from its own thread. Zephyr
   and FreeRTOS bindings (`zephyr_exec.h`, `freertos_exec.h`), `eds_doip_set_executor()` for DoIP, and

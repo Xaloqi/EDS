@@ -165,6 +165,7 @@ static diag_wdt_t   s_wdt;            /**< Hardware watchdog. */
  * ============================================================================= */
 
 #include "uds_security_algo.h"
+#include "zephyr_key_source.h"   /* [EDS#56] eds_zephyr_keys_init() */
 
 /* Guard the entropy driver header and device handle on CONFIG_ENTROPY_GENERATOR.
  *
@@ -244,24 +245,14 @@ static int diag_security_algo_init(void)
 #endif /* CONFIG_ENTROPY_GENERATOR */
 
     /*
-     * OEM KEY INJECTION PLACEHOLDER
-     * ─────────────────────────────
-     * Replace the block below with real key material before production.
-     *
-     * Example (keys read from OTP fuses via SoC-specific driver):
-     *
-     *   uint8_t key_l1[16], key_l2[16];
-     *   otp_read_key(OTP_KEY_SLOT_DIAG_L1, key_l1, sizeof(key_l1));
-     *   otp_read_key(OTP_KEY_SLOT_DIAG_L2, key_l2, sizeof(key_l2));
-     *   uds_security_algo_set_level_key(0x01U, key_l1);
-     *   uds_security_algo_set_level_key(0x03U, key_l2);
-     *   memset(key_l1, 0, sizeof(key_l1));
-     *   memset(key_l2, 0, sizeof(key_l2));
-     *
-     * Without this, compile-time placeholder keys are used — NOT SECURE.
+     * SecurityAccess level keys: CONFIG_EDS_KEYS_PLACEHOLDER (default, the
+     * publicly known compile-time keys), CONFIG_EDS_KEYS_APP (the
+     * integrator's eds_app_get_level_key()) or CONFIG_EDS_KEYS_OTP (otp_read(),
+     * Zephyr 4.4 or newer). A key that cannot be read, or is all 0x00 or
+     * all 0xFF, is refused and SecurityAccess stays locked. See
+     * platform/zephyr/zephyr_key_source.c and README "SecurityAccess keys".
      */
-    LOG_WRN("[P1-SEC] Using compile-time placeholder AES keys. "
-            "Inject OTP keys before production.");
+    (void)eds_zephyr_keys_init();
 
     return 0;
 }
