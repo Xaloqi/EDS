@@ -184,6 +184,36 @@ uds_status_t eds_platform_nvm_flush(void);
  */
 uint32_t eds_platform_uptime_ms(void);
 
+/**
+ * @brief Read the device's unique hardware identifier (the SoC's factory UID).
+ *
+ * Writes the UID into buf and zero-fills the rest of the len bytes. The UID is
+ * never truncated: a buffer shorter than the UID is an error. UID lengths seen
+ * so far are 12 bytes (STM32H7) and 16 bytes (MCX N94x); EDS_DEVICE_UID_MAX_LEN
+ * (16) is the most any binding returns, so a 16-byte buffer always fits.
+ *
+ * Zephyr : hwinfo_get_device_id(), under CONFIG_EDS_HW_DEVICE_UID (default n).
+ *          Without it the function returns UDS_STATUS_ERR_NOT_SUPPORTED.
+ * FreeRTOS: UDS_STATUS_ERR_NOT_SUPPORTED unless the board supplies a reader
+ *          (examples/safeboot_freertos_ecu/boards/nucleo_h743zi/device_uid.c
+ *          reads the STM32 UID; the example's CMake defines
+ *          EDS_PLATFORM_BOARD_DEVICE_UID for it).
+ *
+ * The UID identifies the silicon, not a secret: do not use it as a key. No DID
+ * returns it yet.
+ *
+ * @param buf  Destination. Must not be NULL.
+ * @param len  Size of buf in bytes. Must be at least the UID length.
+ *
+ * @return UDS_STATUS_OK on success.
+ * @return UDS_STATUS_ERR_NULL_PTR if buf is NULL.
+ * @return UDS_STATUS_ERR_INVALID_PARAM if len is 0.
+ * @return UDS_STATUS_ERR_BUFFER_OVERFLOW if len is shorter than the UID.
+ * @return UDS_STATUS_ERR_NOT_SUPPORTED if this platform has no readable UID.
+ * @return UDS_STATUS_ERR_PLATFORM if the UID read failed.
+ */
+uds_status_t eds_platform_get_device_uid(uint8_t *buf, size_t len);
+
 /* ============================================================================
  * Platform init
  *

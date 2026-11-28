@@ -146,7 +146,12 @@ if(BOARD STREQUAL "nucleo_h743zi")
         # HAL_GetTick() for the STM32 flash HAL, backed by the FreeRTOS tick.
         # Compiles to nothing unless STM32H7xx/STM32H743xx is defined.
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h743zi/hal_timebase.c
+        # [EDS#57] eds_platform_get_device_uid() reads the STM32 UID registers.
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_h743zi/device_uid.c
     )
+    # Tells freertos_platform_api.c that this board supplies the UID reader,
+    # so it does not define its NOT_SUPPORTED default.
+    set(EDS_BOARD_DEFS EDS_PLATFORM_BOARD_DEVICE_UID=1)
     # Without the STM32 HAL, freertos_flash_ops.c falls back to its RAM stub,
     # which is a 896 KB static buffer standing in for the OTA staging slot.
     # That cannot fit the H743's 128 KB DTCM: the link fails with
@@ -313,6 +318,7 @@ target_include_directories(eds_safeboot_freertos PRIVATE
 
 target_compile_definitions(eds_safeboot_freertos PRIVATE
     EDS_PLATFORM_FREERTOS=1
+    ${EDS_BOARD_DEFS}
     EDS_MSG_BUF_MAX_STACK_BYTES=8192
     # [SEC-BUILD-MODE-01 / issue #84] Give EDS_BUILD_IS_PRODUCTION the same
     # defined-and-1-or-0 signal Zephyr's Kconfig already gives it. The

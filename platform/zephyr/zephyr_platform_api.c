@@ -37,11 +37,15 @@
 #include "nvm_store.h"
 #include "dtc_mirror.h"
 #include "uds_session_stats.h"
+#include "eds_device_uid.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/sys/reboot.h>
 #include <zephyr/logging/log.h>
+#if defined(CONFIG_EDS_HW_DEVICE_UID)
+#include <zephyr/drivers/hwinfo.h>
+#endif
 
 /* ECUReset is performed with sys_reboot(). EDS's Kconfig turns REBOOT on for
  * every Zephyr build; refuse to build if it was turned off, rather than fail
@@ -280,6 +284,29 @@ uint32_t eds_platform_uptime_ms(void)
 {
     return (uint32_t)k_uptime_get_32();
 }
+
+/* ============================================================================
+ * eds_platform_get_device_uid  [#57]
+ * ========================================================================== */
+
+#if defined(CONFIG_EDS_HW_DEVICE_UID)
+static int32_t hwinfo_uid_source(uint8_t *buf, size_t len)
+{
+    return (int32_t)hwinfo_get_device_id(buf, len);
+}
+
+uds_status_t eds_platform_get_device_uid(uint8_t *buf, size_t len)
+{
+    return eds_device_uid_read(hwinfo_uid_source, buf, len);
+}
+#else
+uds_status_t eds_platform_get_device_uid(uint8_t *buf, size_t len)
+{
+    (void)buf;
+    (void)len;
+    return UDS_STATUS_ERR_NOT_SUPPORTED;
+}
+#endif
 
 /* ============================================================================
  * eds_platform_can_input

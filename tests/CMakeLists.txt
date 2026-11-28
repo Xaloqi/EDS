@@ -701,6 +701,12 @@ add_diag_test(test_freertos_ticks
         "${TEST_UNIT_DIR}/test_freertos_ticks.c"
 )
 
+# [EDS#57] platform/eds_device_uid.h: the mapping behind eds_platform_get_device_uid().
+add_diag_test(test_device_uid
+    SOURCES
+        "${TEST_UNIT_DIR}/test_device_uid.c"
+)
+
 # [EDS#411, EDS#412] core/eds_elapsed.h: carry, saturation, wrap.
 add_diag_test(test_eds_elapsed
     SOURCES
