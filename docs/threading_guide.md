@@ -81,64 +81,116 @@ context. No additional locking is required.
 
 ### Dual-Transport Concurrency (CAN + DoIP)
 
-`uds_server_ctx_t` (holding session and security state) is a single struct — every generated
-`uds_init.c` declares exactly one static instance (`s_server_ctx`), regardless of which
-transport(s) are compiled in. **`core/uds_server.c` itself does not lock around
-`uds_server_process_request()`** — any locking around a call into it is application-level, not
-something EDS does for you internally.
+`uds_server_ctx_t` (session, security, pending job, counters) is one struct: every generated
+`uds_init.c` declares exactly one static instance, whichever transports are compiled in.
+`core/uds_server.c` does not lock around `uds_server_process_request()`, so two threads that call
+it, or a thread that calls it while another runs `uds_server_tick_1ms()`, race on that state. The
+S3 timer, the SecurityAccess lockout and the periodic scheduler need a 1 ms tick as well, and the
+tick is a third caller.
 
-The `s_session_lock` / `s_security_lock` pair described above is example-level integration code
-(`examples/*/src/main.c`), written once per example around `diag_task`'s call site. **DoIP runs
-in its own dedicated thread** (`doip_thread`, `K_THREAD_DEFINE` in `platform/zephyr/zephyr_lwip.c`,
-running `eds_doip_server_run()`) with its own call path into `uds_server_process_request()`.
+**The one way to run more than one caller is the diagnostic executor (EDS#197).** One thread owns
+the server. Each transport is a *producer*: it hands the executor a request and takes the answer
+back, and no producer calls the server itself.
 
-The shipped examples never combine both: `basic_ecu` runs CAN-only (`diag_task`, with the mutex
-pair); `basic_ecu_doip` / `basic_ecu_doip_freertos` run DoIP-only (`doip_thread`) — its `main.c`
-explicitly notes *"The CAN diagnostic task (diag_task) is NOT started here... for a production
-'both' transport ECU, add the CAN thread from basic_ecu alongside the DoIP init."*
+```
+  CAN thread (src 0)  ──post──►┐
+                               ├─►  executor thread  ─►  uds_server_*  (the only caller)
+  DoIP thread (src 1) ──post──►┘     1 ms ticks · S3 · lockout · periodic · pending job · ECUReset
+```
 
-**If you do that** — wire both `diag_task` and `doip_thread` into the same build against the
-same `s_server_ctx` — both threads now call `uds_server_process_request()` concurrently, and
-nothing inside EDS serializes them. You are responsible for extending the *same* `s_session_lock`
-/ `s_security_lock` (or an equivalent single lock) around **every** call site that touches
-`uds_server_ctx_t`, CAN's and DoIP's alike — not just `diag_task`'s, as the single-transport
-examples show it. Skipping this is a real, unguarded data race on session/security state, not a
-theoretical one.
+The executor core is `core/uds_exec.h` (RTOS-free); the bindings are `platform/zephyr/zephyr_exec.h`
+and `platform/freertos/freertos_exec.h`. Each producer has one slot (a request in flight, nothing
+copied), and the executor serves the slots round-robin, one request per slot per pass.
 
-### DoIP-only still needs a lock — no second transport required (EDS#353/#358)
+**Reference: `examples/dual_transport_ecu`** (CAN classic or FD, and DoIP, on Zephyr). Read its
+`src/main.c` for the wiring and `src/can_producer.c` for a producer that never blocks. CAN-only
+builds (`basic_ecu` and the other CAN examples) have one thread already serialized and need no
+executor. DoIP-only builds (`basic_ecu_doip`, `basic_ecu_doip_freertos`) use it for the tick and
+the DoIP thread.
 
-The paragraph above frames the race as conditional on combining two transports. That undersells
-the actual exposure: **`basic_ecu_doip` and `basic_ecu_doip_freertos`, as shipped, already run two
-threads against `s_server_ctx` with nothing in between them unless you wire it up.**
+#### Wiring
 
-A DoIP-only build still needs its own UDS tick task — a dedicated thread calling
-`uds_server_tick_1ms()` / `uds_periodic_tick_1ms()` every 1 ms, because without it S3 session
-timeout and SecurityAccess lockout never progress (EDS#191). `uds_server_tick_1ms()` can force a
-session reset and clear SecurityAccess state while `doip_thread` is concurrently mid-request on
-the very same state — the same shape of race as the CAN+DoIP case above, and it needs no second
-*transport* at all, only the tick task plus `doip_thread` (EDS#353).
+1. Start the executor once, after `uds_generated_init()` and before any producer runs:
+   `zephyr_exec_start()` or `freertos_exec_start()`, with the server, one
+   `uds_exec_producer_cfg_t` per transport (`src`, and `periodic_tx` if the transport can send a
+   periodic message), an optional `reset` function (what an ECUReset does: flush NVM, let the
+   response leave, reset) and an optional `after_pass` function, which runs on the executor after
+   every pass: feed the watchdog there, only while every producer has checked in.
+2. DoIP: `eds_doip_set_executor(zephyr_exec_get(), zephyr_exec_wait_event)`, or
+   `freertos_exec_get()` and `freertos_exec_wait_event`, before `eds_doip_platform_start()`. The
+   DoIP source is `EDS_DOIP_UDS_SRC` (default 1).
+3. CAN: a producer calls `uds_exec_submit()` for each reassembled request. It must not wait for the
+   executor: keep draining RX (EDS#558) and ticking ISO-TP, and take the response with
+   `uds_exec_done()` when the slot completes. `can_producer_step()` in the example does that.
+4. The ECUReset, the periodic message and the job frames come back to the producer
+   (`uds_exec_push_frame()`), so a producer sends them on its own transport.
 
-The fix ships as an **opt-in** lock-callback pair:
-`eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` (`transport/doip/doip_server.h`), called once
-before `eds_doip_server_run()` starts, wrapping its internal
-`uds_server_process_request()` call with whatever lock your tick task already wraps
-`uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with. Both shipped DoIP examples now run the
-diagnostic executor instead (EDS#197): one thread owns the server, the tick task and the lock pair
-are gone, and the DoIP thread posts its requests to it (`eds_doip_set_executor()`, with
-`zephyr_exec_wait_event()` or `freertos_exec_wait_event()`). The lock pair is deprecated and goes in
-the next minor release. **In a production build
-(`EDS_BUILD_IS_PRODUCTION`), `eds_doip_server_run()` refuses to run at all unless an executor or
-both callbacks are registered** (EDS#358) — a build that compiles and links clean but was never wired up this
-way gets a loud `UDS_STATUS_ERR_NOT_INITIALIZED` at the point it would otherwise boot
-unprotected, rather than an intermittent race discovered later. Development/CI builds keep the
-permissive, unenforced behaviour.
+#### Producer contracts
+
+- **`uds_exec_release()` on every exit path** once a request is posted: the response sent, a send
+  error, a disconnect, a timeout. A request released before it ran is withdrawn; one released while it
+  runs is freed when the executor is done. An ECUReset the request owes is performed after the
+  release.
+- **A posted slot's buffers belong to the executor** until `uds_exec_done()`, or, after a release,
+  until `uds_exec_submit()` returns `POSTED` again. Receive the next request into a buffer of your
+  own.
+- **A refused request is the producer's to answer.** `UDS_EXEC_REJECT_BUSY` means send
+  `7F sid 21` (while its own slot is in use, or while another producer's job step is running, so the
+  answer comes within P2); `UDS_EXEC_DROPPED` means send nothing (a functional request).
+
+#### What changes for a tester
+
+- **A session belongs to the transport that opened it.** The transport whose request leaves the
+  default session owns it until its own `10 01`, S3, or its disconnect. While it is open, the
+  other transport's physical requests get NRC 0x21 and its functional requests no response; they
+  change no state and do not restart S3. A DoIP disconnect ends the session only if DoIP owns it. A
+  session the application opened itself with `uds_session_transition()` has no owner and serves both.
+- **A job another transport started keeps running** when DoIP disconnects (EDS#664); a job DoIP
+  started is aborted by its disconnect.
+- **Periodic messages (0x2A) go to the transport that subscribed.** DoIP has no periodic TX yet, so
+  0x2A over DoIP answers NRC 0x22 (EDS#546).
+- **The DoIP thread waits at most `DOIP_EXEC_WAIT_MS` (10 s) for the executor**, then releases the
+  request and closes the connection.
+
+#### Costs
+
+RAM, against a DoIP build with the tick task and the lock pair, measured on the `basic_ecu_doip`
+builds: the executor adds its response mailbox, one 4 KB message buffer (+4.3 KB on Zephyr, +5.2 KB
+static on FreeRTOS), and its stack is 4096 bytes on both RTOSes (`EDS_EXEC_STACK_SIZE`), 3 KB more
+than the 1024 bytes it had before DoIP moved onto it, because every dispatch now runs on it. The
+CHANGELOG has the per-board figures. Dispatch latency is one executor pass; with a producer
+whose job step is running, the other producer's answer is `7F sid 21` within P2.
+
+#### Moving off the lock callbacks
+
+`eds_doip_set_lock_callbacks()` (EDS#353) is **deprecated**: a call warns at build time, and the
+next minor release removes it. During this release a production build
+(`EDS_BUILD_IS_PRODUCTION`) accepts either an executor or both callbacks, and
+`eds_doip_server_run()` refuses to run (`UDS_STATUS_ERR_NOT_INITIALIZED`) when it has neither. With
+the callbacks, DoIP calls the server on its own thread between your lock and unlock, and you
+remain responsible for taking the *same* lock around every other call that touches the server, the
+tick task's included. Migration for a DoIP-only build: drop the tick task and the lock pair, start
+the executor, and register it (`basic_ecu_doip` shows the result). The interim `zephyr_exec_lend()`
+and `freertos_exec_lend()` helpers of the pre-release work are gone and were never in a release.
+
+#### What is verified
+
+The host ThreadSanitizer tests in `tests/concurrency/` run the example's two producers against the
+executor with no data race and no lost update (C2, C3), and show the earlier wiring racing (C2 with
+`-DC2_J1_WIRING=1`). `scripts/smoke_dual_transport_ecu.py` loads both transports of the native_sim
+build with a request mix that competes for the session, in CI (classic CAN and CAN FD). Nothing
+here has run on a board yet; the bench plan is in the knowledge base.
+
+**Known limits.** An ECUReset whose response failed to send is still performed on the executor path
+(the deprecated lock path skips it, EDS#434). Codegen emits no executor wiring for any transport
+(EDS#357): the application's `main.c` starts it, as the examples do. One executor per image.
 
 ### Callback Execution Context
 
 Generated DID/routine handlers (`did_handlers.c`, `routine_handlers.c`) are called synchronously,
 inline, from within `uds_server_process_request()` — never from an ISR. The calling thread is
-whichever thread invoked `uds_server_process_request()` in your build: `diag_task` for CAN,
-`doip_thread` for DoIP, or both (see above) if you've wired a dual-transport build.
+whichever thread invoked `uds_server_process_request()` in your build: `diag_task` for a CAN-only
+build, the executor thread for every build that uses the diagnostic executor (see above).
 
 EDS holds no lock while invoking your callback and expects none — synchronizing your callback's
 access to shared application state (a sensor reading, a calibration value, anything not owned
@@ -188,7 +240,9 @@ runs one step per iteration, and that step may take up to the job's declared `st
 - The 1 ms tick does not run during a step. The server credits the step's `step_max_ms` after it,
   so the keepalive is not delayed. Keep the watchdog fed across a long step as
   `zephyr_flash_ops_set_wdt()` does for the erase.
-- Over DoIP, `doip_server.c` polls the job inside the `eds_doip_set_lock_callbacks()` pair. It
+- Over DoIP on the executor, the job's steps run on the executor thread and `doip_server.c` sends its
+  frames; a request from another producer gets `7F sid 21` at once instead of waiting for the step. With
+  the deprecated `eds_doip_set_lock_callbacks()` pair, `doip_server.c` polls the job inside the pair and
   sleeps 1 ms between polls (the `sleep_ms` platform op), so the UDS tick task still gets the lock.
 
 ---

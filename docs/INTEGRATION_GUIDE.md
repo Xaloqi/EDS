@@ -307,7 +307,7 @@ target_sources(app PRIVATE
     ${EDS_ROOT}/core/uds_session_stats.c
     ${EDS_ROOT}/core/uds_security_nvm.c
     ${EDS_ROOT}/core/uds_periodic.c                       # periodic scheduler (SID 0x2A)
-    ${EDS_ROOT}/core/uds_exec.c                           # diagnostic executor (EDS#197; unused until a binding calls it)
+    ${EDS_ROOT}/core/uds_exec.c                           # diagnostic executor (EDS#197)
 
     # UDS service handlers
     ${EDS_ROOT}/core/uds_services/service_registration.c
@@ -1078,7 +1078,7 @@ Transport selection happens in your `CMakeLists.txt`, following
 Keep this in sync with your YAML `ecu.transport` value by hand — nothing currently
 derives one from the other. Existing CAN-only configs need no changes on either side.
 
-### 5b.2 Zephyr integration (5 steps)
+### 5b.2 Zephyr integration (6 steps)
 
 **Step 1 — Enable networking in `prj.conf`:**
 
@@ -1135,27 +1135,62 @@ status = eds_doip_platform_start(0xE400U, DOIP_PORT, uds_generated_get_server())
 
 See `examples/basic_ecu_doip/` for the complete working example.
 
-> **[EDS#358] If you also run a UDS tick task, register lock callbacks.**
-> A DoIP-only build still needs a separate task calling
-> `uds_server_tick_1ms()` / `uds_periodic_tick_1ms()` every 1 ms — without
-> it, S3 session timeout and SecurityAccess lockout never progress
-> (EDS#191). That tick task and the DoIP server thread both touch the
-> same `uds_server_ctx_t`, with no synchronization unless you register a
-> lock: call `eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` **before**
-> `eds_doip_platform_start()`, with the *same* lock/unlock pair your tick
-> task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with. Both
-> shipped DoIP examples now run the diagnostic executor instead (EDS#197):
-> no tick task and no lock; `eds_doip_set_executor(zephyr_exec_get(),
-> zephyr_exec_wait_event)` in `examples/basic_ecu_doip`
-> (`platform/zephyr/zephyr_exec.h`). The lock callbacks are deprecated.
-> **In a production build
-> (`EDS_BUILD_IS_PRODUCTION`), `eds_doip_platform_start()`'s underlying
-> `eds_doip_server_run()` refuses to run at all if neither is done** —
-> development/CI builds are unaffected. See
-> [`docs/threading_guide.md`](threading_guide.md)'s "Dual-Transport
-> Concurrency" section for the full hazard.
+**Step 6 — Run the diagnostic executor (EDS#197).** A DoIP build needs a 1 ms tick for S3 session
+timeout and the SecurityAccess lockout (EDS#191), and the DoIP thread calls the server too. Without
+something in between, the tick and the DoIP thread race on the same `uds_server_ctx_t`. The
+executor is that something: one thread owns the server, and DoIP posts its requests to it. Before
+`eds_doip_platform_start()`:
 
-### 5b.3 FreeRTOS + LwIP integration (5 steps)
+```c
+#include "zephyr_exec.h"
+
+static const uds_exec_producer_cfg_t producers[] = {
+    { .src = (uint8_t)EDS_DOIP_UDS_SRC, .periodic_tx = false },
+};
+const zephyr_exec_cfg_t ec = {
+    .srv = uds_generated_get_server(), .producers = producers, .producer_count = 1U,
+    .reset = my_ecu_reset,        /* optional: flush NVM, let the response leave, reset */
+    .after_pass = my_wdt_feed,    /* optional: runs on the executor after every pass */
+};
+zephyr_exec_start(&ec);
+eds_doip_set_executor(zephyr_exec_get(), zephyr_exec_wait_event);
+```
+
+`examples/basic_ecu_doip` is the complete version. The executor thread has a 4096-byte stack
+(`EDS_EXEC_STACK_SIZE`), since every dispatch runs on it. The DoIP thread waits at most
+`DOIP_EXEC_WAIT_MS` (10 s) for the executor, then closes the connection. In a production build
+(`EDS_BUILD_IS_PRODUCTION`), `eds_doip_server_run()` refuses to run unless an executor is set (or, for this
+release, the deprecated lock callbacks).
+
+> **Migrating from the lock callbacks (deprecated).** `eds_doip_set_lock_callbacks(lock_cb,
+> unlock_cb)` (EDS#353, EDS#358) is deprecated by `eds_doip_set_executor()`: a call warns at build
+> time, and the next minor release removes it. During this release a production build accepts
+> either. To migrate, delete the tick task and the lock pair, start the executor as above and
+> register it. If you keep the callbacks for now, they must be the *same* lock your tick task takes
+> around `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()`. See
+> [`docs/threading_guide.md`](threading_guide.md), "Dual-Transport Concurrency".
+
+### 5b.2a CAN and DoIP on one ECU
+
+`examples/dual_transport_ecu` is the reference for a build with both transports (Zephyr; CAN
+classic or CAN FD, with `fd.conf`). Do not compile `EDS_DOIP_ONLY_BUILD`: keep CAN's sources
+(`isotp.c`, `can_transport.c`, `zephyr_can.c`) next to DoIP's, as that example's `CMakeLists.txt`
+does. Then:
+
+1. Set `transport: both` in `diagnostics_config.yaml` (codegen emits the DoIP discovery as for
+   `doip`; it emits no executor wiring, EDS#357, so `main.c` starts it).
+2. List both producers in `uds_exec_producer_cfg_t` (CAN `src` 0 with `periodic_tx = true`, DoIP
+   `EDS_DOIP_UDS_SRC` with `periodic_tx = false`) and start the executor.
+3. Run CAN as a producer, not as a second caller: post each reassembled request with
+   `uds_exec_submit()`, keep draining RX and ticking ISO-TP while it runs, answer `REJECT_BUSY`
+   with `7F sid 21` yourself, and call `uds_exec_release()` on every exit path
+   (`examples/dual_transport_ecu/src/can_producer.c`). A CAN-only build needs none of this.
+4. A session belongs to the transport that opened it: while one is open, the other transport's
+   physical requests are answered `7F sid 21`.
+
+The CAN-only examples are unchanged: one thread is already serialized.
+
+### 5b.3 FreeRTOS + LwIP integration (6 steps)
 
 Same structure as Zephyr but using the LwIP platform binding:
 
@@ -1196,16 +1231,12 @@ is built into `freertos_lwip.c` to give LwIP time to initialise after scheduler 
 
 See `examples/basic_ecu_doip_freertos/` for the complete working example.
 
-> **[EDS#358] If you also run a UDS tick task, register lock callbacks.**
-> Same requirement as the Zephyr path above: call
-> `eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` before
-> `eds_doip_platform_start_freertos()`, with the same lock/unlock pair
-> your tick task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()`
-> with. `examples/basic_ecu_doip_freertos` runs the diagnostic executor
-> instead (EDS#197, `platform/freertos/freertos_exec.h`): no tick task, no
-> lock, and `eds_doip_set_executor(freertos_exec_get(),
-> freertos_exec_wait_event)`. A production build refuses to run with
-> neither; development/CI builds are unaffected.
+**Step 6 — Run the diagnostic executor (EDS#197).** The same reason as on Zephyr: before
+`eds_doip_platform_start_freertos()` call `freertos_exec_start()` (the server, the producers, the
+optional `reset` and `after_pass`), then `eds_doip_set_executor(freertos_exec_get(),
+freertos_exec_wait_event)`. `examples/basic_ecu_doip_freertos` shows it. The executor is a static
+task with a 4096-byte stack, woken by a task notification. A production build refuses to run
+without it. The lock callbacks are deprecated, as in the Zephyr note above.
 
 ### 5b.4 Testing with xaloqi-tester
 
@@ -1278,8 +1309,8 @@ again when you call `eds_doip_announce_request()`. The Zephyr binding calls it o
 
 **Where the values come from**
 
-- **VIN:** your `get_vin` callback, called for each response on the DoIP thread inside the
-  `eds_doip_set_lock_callbacks()` pair. Read it through the 0xF190 safety wrapper with the
+- **VIN:** your `get_vin` callback, called for each response, on the executor (or, with the
+  deprecated `eds_doip_set_lock_callbacks()` pair, on the DoIP thread between its locks). Read it through the 0xF190 safety wrapper with the
   server's own contexts, as both DoIP examples do:
   ```c
   static uds_status_t doip_vin_from_f190(uds_server_ctx_t *ctx, uint8_t vin[DOIP_VIN_LEN])
