@@ -31,6 +31,8 @@
  * =============================================================================
  */
 
+/* Covers the deprecated eds_doip_set_lock_callbacks() path too (EDS#197). */
+#define EDS_DOIP_ALLOW_DEPRECATED
 #include <zephyr/ztest.h>
 #include <setjmp.h>
 #include <stdio.h>

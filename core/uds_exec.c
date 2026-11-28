@@ -46,6 +46,7 @@ static void s_notify(const uds_exec_t *ex, uint8_t idx);
 static void s_wake(const uds_exec_t *ex);
 static void s_run_ticks(uds_exec_t *ex);
 static void s_finish_push(uds_exec_t *ex);
+static void s_drop_gone(uds_exec_t *ex);
 static void s_serve_slots(uds_exec_t *ex);
 static void s_serve_one(uds_exec_t *ex, uint8_t idx);
 static void s_run_slot(uds_exec_t *ex, uint8_t idx, const uds_exec_slot_t *slot_copy);
@@ -130,6 +131,34 @@ static void s_finish_push(uds_exec_t *ex)
     }
 }
 
+/* A producer that disconnected (uds_exec_disconnect()): its job is aborted
+ * and a frame still routed to it is discarded, so nothing waits on it. */
+static void s_drop_gone(uds_exec_t *ex)
+{
+    uint8_t gone;
+    bool    abort_job = false;
+
+    ex->cfg.enter();
+    gone = ex->gone_mask;
+    ex->gone_mask = (uint8_t)0U;
+    if ((gone != (uint8_t)0U) && (ex->push_state == (uint8_t)EXEC_PUSH_READY) &&
+        ((gone & (uint8_t)(1U << ex->push_src)) != (uint8_t)0U)) {
+        ex->push_state = (uint8_t)EXEC_PUSH_IDLE;
+        ex->push_kind  = UDS_EXEC_PUSH_NONE;
+        ex->push_src   = EXEC_SRC_NONE;
+    }
+    if ((ex->job_src != EXEC_SRC_NONE) &&
+        ((gone & (uint8_t)(1U << ex->job_src)) != (uint8_t)0U)) {
+        ex->job_src = EXEC_SRC_NONE;
+        abort_job   = true;
+    }
+    ex->cfg.exit();
+
+    if (abort_job) {
+        uds_server_pending_abort(ex->cfg.srv);
+    }
+}
+
 /* 2. Posted slots, round-robin from rr_next, one per slot per pass. Not
  *    while an ECUReset is owed: the ECU is about to restart. */
 static void s_serve_slots(uds_exec_t *ex)
@@ -177,6 +206,7 @@ static void s_run_slot(uds_exec_t *ex, uint8_t idx, const uds_exec_slot_t *slot_
     uint32_t         wait_ms = 0U;
     uint8_t          reset_type = (uint8_t)0U;
     uds_status_t     status;
+    bool             deferred = false;
 
     if (job.is_call) {
         job.fn(ex->cfg.srv, job.fn_arg);
@@ -187,15 +217,15 @@ static void s_run_slot(uds_exec_t *ex, uint8_t idx, const uds_exec_slot_t *slot_
         if (status != UDS_STATUS_OK) {
             job.resp->length = (uint16_t)0U;
         }
-        /* The request was deferred: its job's frames go to this source. */
-        if (s_is_response_pending(job.resp)) {
-            ex->job_src = src;
-        }
+        deferred = s_is_response_pending(job.resp);
         (void)uds_server_take_pending_reset(ex->cfg.srv, &reset_type);
     }
     EDS_RACE_POINT(EDS_RACE_EXEC_RAN);
 
     ex->cfg.enter();
+    if (deferred) {
+        ex->job_src = src;   /* the request was deferred: its job's frames go here */
+    }
     if (job.is_call) {
         ex->stats.calls++;
     } else {
@@ -253,18 +283,18 @@ static void s_step_job(uds_exec_t *ex)
         ex->push_kind  = UDS_EXEC_PUSH_JOB;
         ex->push_src   = ex->job_src;
         ex->push_state = (uint8_t)EXEC_PUSH_READY;
+    } else if (r == UDS_POLL_IDLE) {
+        ex->job_src = EXEC_SRC_NONE;   /* finished, or aborted with its session */
+    } else {
+        /* UDS_POLL_NOTHING_NOW: the job is still running. */
     }
     ex->cfg.exit();
 
-    if (r == UDS_POLL_IDLE) {
-        ex->job_src = EXEC_SRC_NONE;   /* finished, or aborted with its session */
-    } else if (r == UDS_POLL_FRAME) {
+    if (r == UDS_POLL_FRAME) {
         idx = s_index(ex, ex->job_src);
         if (idx < ex->cfg.producer_count) {
             s_notify(ex, idx);
         }
-    } else {
-        /* UDS_POLL_NOTHING_NOW: the job is still running. */
     }
 }
 
@@ -561,6 +591,30 @@ void uds_exec_push_done(uds_exec_t *ex, uint8_t src, bool sent)
     }
 }
 
+bool uds_exec_job_pending(uds_exec_t *ex, uint8_t src)
+{
+    bool pending = false;
+
+    if (s_ready(ex)) {
+        ex->cfg.enter();
+        pending = (ex->job_src == src) ||
+                  ((ex->push_state == (uint8_t)EXEC_PUSH_READY) && (ex->push_src == src) &&
+                   (ex->push_kind == UDS_EXEC_PUSH_JOB));
+        ex->cfg.exit();
+    }
+    return pending;
+}
+
+void uds_exec_disconnect(uds_exec_t *ex, uint8_t src)
+{
+    if (s_ready(ex) && (s_index(ex, src) < ex->cfg.producer_count)) {
+        ex->cfg.enter();
+        ex->gone_mask |= (uint8_t)(1U << src);
+        ex->cfg.exit();
+        s_wake(ex);
+    }
+}
+
 bool uds_exec_run_once(uds_exec_t *ex)
 {
     bool    more = false;
@@ -569,6 +623,7 @@ bool uds_exec_run_once(uds_exec_t *ex)
     if (s_ready(ex)) {
         s_run_ticks(ex);
         s_finish_push(ex);
+        s_drop_gone(ex);
         s_serve_slots(ex);
         s_poll_job(ex);
         s_pop_periodic(ex);
@@ -582,15 +637,13 @@ bool uds_exec_run_once(uds_exec_t *ex)
         }
         if ((ex->push_state == (uint8_t)EXEC_PUSH_SENT) ||
             (ex->push_state == (uint8_t)EXEC_PUSH_FAILED) ||
+            (ex->gone_mask != (uint8_t)0U) ||
             ((ex->reset_type != (uint8_t)0U) && ex->reset_released)) {
             more = true;
         }
         ex->cfg.exit();
-
-        /* A pending job runs one step per pass: keep going while it has steps. */
-        if (ex->job_src != EXEC_SRC_NONE) {
-            more = true;
-        }
+        /* A pending job with nothing to send waits for the next 1 ms tick,
+         * as the DoIP poll loop did: a pass right away would spin. */
     }
     return more;
 }

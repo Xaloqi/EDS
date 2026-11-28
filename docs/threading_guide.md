@@ -124,11 +124,11 @@ before `eds_doip_server_run()` starts, wrapping its internal
 `uds_server_process_request()` call with whatever lock your tick task already wraps
 `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with. Both shipped DoIP examples now run the
 diagnostic executor instead (EDS#197): one thread owns the server, the tick task and the lock pair
-are gone, and the executor's lend functions (`zephyr_exec_lend()`/`zephyr_exec_lend_end()`,
-`freertos_exec_lend()`/`freertos_exec_lend_end()`) fill the callback slot until DoIP posts its
-requests to the executor. **In a production build
-(`EDS_BUILD_IS_PRODUCTION`), `eds_doip_server_run()` refuses to run at all unless both callbacks
-are registered** (EDS#358) — a build that compiles and links clean but was never wired up this
+are gone, and the DoIP thread posts its requests to it (`eds_doip_set_executor()`, with
+`zephyr_exec_wait_event()` or `freertos_exec_wait_event()`). The lock pair is deprecated and goes in
+the next minor release. **In a production build
+(`EDS_BUILD_IS_PRODUCTION`), `eds_doip_server_run()` refuses to run at all unless an executor or
+both callbacks are registered** (EDS#358) — a build that compiles and links clean but was never wired up this
 way gets a loud `UDS_STATUS_ERR_NOT_INITIALIZED` at the point it would otherwise boot
 unprotected, rather than an intermittent race discovered later. Development/CI builds keep the
 permissive, unenforced behaviour.

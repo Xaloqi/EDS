@@ -27,11 +27,10 @@
  *                   build nothing else progresses S3 and the SecurityAccess
  *                   lockout. It replaces uds_tick_task.
  *   doip_thread   — started via a semaphore (zephyr_lwip.c), not a fixed
- *                   delay [EDS#192]; runs eds_doip_server_run(). Until DoIP
- *                   posts its requests to the executor (EDS#197 J6), its
- *                   lock callbacks borrow the server from the executor:
- *                   zephyr_exec_lend() parks the executor, lend_end()
- *                   resumes it. No mutex: the EDS#353 lock pair is gone.
+ *                   delay [EDS#192]; runs eds_doip_server_run(), a producer
+ *                   of the executor (eds_doip_set_executor(), EDS#197 J6):
+ *                   it posts each request and waits for its answer, and
+ *                   makes no UDS call itself. No mutex, no lock callbacks.
  *
  * WATCHDOG SUPERVISION [EDS#399] (real hardware, CONFIG_WATCHDOG=y; a
  * no-op on native_sim unless the selftest's counter watchdog is built in):
@@ -170,9 +169,19 @@ static void s_on_session_change(uds_session_type_t old_sess,
  * Executor supervision [EDS#399, EDS#197]
  *
  * Runs on the executor thread after every pass (1 ms or sooner). A pass
- * that never ends (the executor parked for a DoIP dispatch that hangs, a
- * hung call or tick) stops the feed, and the watchdog resets the ECU.
+ * that never ends (a hung dispatch, call or tick) stops the feed, and the
+ * watchdog resets the ECU.
  * ============================================================================= */
+
+/* [EDS#197] The executor performs an ECUReset once DoIP has handed the
+ * response to the stack and released its slot: persist, let the response
+ * leave, reset (EDS#434's sequence). Does not return for a supported type. */
+static void exec_ecu_reset(uint8_t reset_type)
+{
+    (void)eds_platform_nvm_flush();
+    (void)k_msleep((int32_t)DOIP_RESET_TX_GRACE_MS);
+    (void)eds_platform_ecu_reset(reset_type);
+}
 
 static void exec_after_pass(void)
 {
@@ -319,9 +328,8 @@ int main(void)
             .srv            = srv,
             .producers      = s_producers,
             .producer_count = (uint8_t)ARRAY_SIZE(s_producers),
-            .reset          = NULL,   /* the DoIP server performs 0x11 (J6 moves it) */
+            .reset          = exec_ecu_reset,
             .after_pass     = exec_after_pass,
-            .lend_src       = (uint8_t)EDS_DOIP_UDS_SRC,
         };
 
         status = zephyr_exec_start(&ec);
@@ -330,15 +338,15 @@ int main(void)
             return -1;
         }
     }
-    eds_doip_set_lock_callbacks(zephyr_exec_lend, zephyr_exec_lend_end);
+    (void)eds_doip_set_executor(zephyr_exec_get(), zephyr_exec_wait_event);
     eds_doip_set_checkin_callback(doip_checkin_cb);   /* [EDS#399] */
 
     /*
      * [EDS#392] Vehicle discovery: on by default (CONFIG_EDS_DOIP_DISCOVERY),
      * configured from ecu.doip.discovery in diagnostics_config.yaml. The
      * generated config reads the VIN through the 0xF190 safety wrapper, on
-     * the DoIP thread with the server lent to it, like UDS dispatch; if 0xF190 is
-     * restricted the response says "VIN not available".
+     * the executor, like UDS dispatch; if 0xF190 is restricted the response
+     * says "VIN not available".
      */
     eds_doip_set_discovery(uds_generated_doip_discovery());
 

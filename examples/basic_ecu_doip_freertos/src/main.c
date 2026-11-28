@@ -21,9 +21,9 @@
  *                                                         executor task, the one
  *                                                         owner of the UDS server:
  *                                                         1 ms ticks [EDS#191] (S3,
- *                                                         lockout) and DoIP's lock
- *                                                         callbacks (it lends the
- *                                                         server until EDS#197 J6)
+ *                                                         lockout); the DoIP task
+ *                                                         posts its requests to it
+ *                                                         (eds_doip_set_executor())
  *            3. eds_doip_platform_start_freertos(...)   — DoIP server task
  *            4. vTaskStartScheduler()
  *
@@ -83,6 +83,16 @@
 static const uds_exec_producer_cfg_t s_producers[] = {
     { .src = (uint8_t)EDS_DOIP_UDS_SRC, .periodic_tx = false },
 };
+
+/* [EDS#197] The executor performs an ECUReset once DoIP has handed the
+ * response to the stack and released its slot: persist, let the response
+ * leave, reset (EDS#434's sequence). Does not return for a supported type. */
+static void exec_ecu_reset(uint8_t reset_type)
+{
+    (void)eds_platform_nvm_flush();
+    vTaskDelay(pdMS_TO_TICKS(DOIP_RESET_TX_GRACE_MS));
+    (void)eds_platform_ecu_reset(reset_type);
+}
 
 static void s_on_session_change(uds_session_type_t old_sess,
                                 uds_session_type_t new_sess)
@@ -161,17 +171,16 @@ int main(void)
      * Step 2.5 [EDS#197]: start the diagnostic executor (a static task)
      * before the DoIP server task, so S3/lockout timing is live from the
      * moment a connection can arrive. It replaces the tick task and the
-     * EDS#353 lock pair: until DoIP posts its requests to it, DoIP's lock
-     * callbacks borrow the server from it (freertos_exec_lend()).
+     * EDS#353 lock pair: the DoIP task posts its requests to it and makes no
+     * UDS call itself (EDS#197 J6).
      */
     {
         const freertos_exec_cfg_t ec = {
             .srv            = srv,
             .producers      = s_producers,
             .producer_count = (uint8_t)(sizeof(s_producers) / sizeof(s_producers[0])),
-            .reset          = NULL,   /* the DoIP server performs 0x11 (J6 moves it) */
+            .reset          = exec_ecu_reset,
             .after_pass     = NULL,   /* no watchdog on this board */
-            .lend_src       = (uint8_t)EDS_DOIP_UDS_SRC,
         };
 
         if (freertos_exec_start(&ec) != UDS_STATUS_OK) {
@@ -179,7 +188,7 @@ int main(void)
             for (;;) { }
         }
     }
-    eds_doip_set_lock_callbacks(freertos_exec_lend, freertos_exec_lend_end);
+    (void)eds_doip_set_executor(freertos_exec_get(), freertos_exec_wait_event);
     /* [EDS#392] Vehicle discovery, on by default (EDS_DOIP_DISCOVERY),
      * configured from ecu.doip.discovery (generated, VIN via the 0xF190
      * safety wrapper). */

@@ -23,8 +23,6 @@
 
 /* Notification bits (freertos_exec.h). */
 #define EXEC_BIT_WAKE    (1UL << 0)   /* executor: work posted             */
-#define EXEC_BIT_UNPARK  (1UL << 1)   /* executor: the lender is finished  */
-#define EXEC_BIT_PARKED  (1UL << 2)   /* lender: the executor is parked    */
 #define EXEC_BIT_SLOT(i) (1UL << (8U + (uint32_t)(i)))   /* producer: slot i done */
 
 static StaticTask_t            s_exec_tcb;
@@ -35,7 +33,6 @@ static uds_exec_t              s_ex;
 static freertos_exec_cfg_t     s_cfg;
 static uds_exec_producer_cfg_t s_producers[EDS_EXEC_MAX_PRODUCERS];
 static TaskHandle_t volatile   s_waiter[EDS_EXEC_MAX_PRODUCERS];
-static TaskHandle_t volatile   s_lender;
 static bool                    s_started;
 
 /* --------------------------------------------------------------------------
@@ -129,9 +126,6 @@ uds_status_t freertos_exec_start(const freertos_exec_cfg_t *cfg)
         s_producers[i].notify_arg = (void *)(uintptr_t)i;
         s_waiter[i]               = NULL;
     }
-    if (slot_of(cfg->lend_src) >= cfg->producer_count) {
-        return UDS_STATUS_ERR_INVALID_PARAM;
-    }
 
     /* The task exists before uds_exec can call wake(). */
     s_exec_task = xTaskCreateStatic(exec_task, "eds_exec", (uint32_t)EDS_EXEC_STACK_WORDS,
@@ -187,41 +181,20 @@ bool freertos_exec_wait(uint8_t src, TickType_t timeout)
     return done;
 }
 
-/* Runs on the executor: parked until the borrowing task is finished. */
-static void lend_park(uds_server_ctx_t *srv, void *arg)
+bool freertos_exec_wait_event(uint8_t src, uint32_t timeout_ms)
 {
+    uint8_t  idx  = slot_of(src);
     uint32_t bits = 0UL;
+    bool     got  = false;
 
-    (void)srv;
-    (void)arg;
-    (void)xTaskNotify(s_lender, EXEC_BIT_PARKED, eSetBits);
-    while ((bits & EXEC_BIT_UNPARK) == 0UL) {
-        /* A wake that arrives meanwhile stays set for the main loop. */
-        (void)xTaskNotifyWait(0UL, EXEC_BIT_UNPARK, &bits, portMAX_DELAY);
-    }
-}
-
-void freertos_exec_lend(void)
-{
-    uint32_t bits = 0UL;
-
-    if (s_started) {
-        s_lender = xTaskGetCurrentTaskHandle();
-        /* The slot is free whenever lend() and lend_end() are paired. */
-        while (uds_exec_call(&s_ex, s_cfg.lend_src, lend_park, NULL) != UDS_STATUS_OK) {
-            vTaskDelay((TickType_t)1);
-        }
-        while ((bits & EXEC_BIT_PARKED) == 0UL) {
-            (void)xTaskNotifyWait(0UL, EXEC_BIT_PARKED, &bits, portMAX_DELAY);
+    if (s_started && (idx < s_cfg.producer_count)) {
+        /* Registered before the check: a notify after it is not lost. */
+        s_waiter[idx] = xTaskGetCurrentTaskHandle();
+        got = uds_exec_done(&s_ex, src) || (uds_exec_push_frame(&s_ex, src) != NULL);
+        if (!got) {
+            (void)xTaskNotifyWait(0UL, EXEC_BIT_SLOT(idx), &bits, pdMS_TO_TICKS(timeout_ms));
+            got = ((bits & EXEC_BIT_SLOT(idx)) != 0UL);
         }
     }
-}
-
-void freertos_exec_lend_end(void)
-{
-    if (s_started) {
-        (void)xTaskNotify(s_exec_task, EXEC_BIT_UNPARK, eSetBits);
-        (void)freertos_exec_wait(s_cfg.lend_src, portMAX_DELAY);
-        uds_exec_release(&s_ex, s_cfg.lend_src);   /* contract 1 */
-    }
+    return got;
 }

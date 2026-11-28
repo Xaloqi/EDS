@@ -1145,11 +1145,12 @@ See `examples/basic_ecu_doip/` for the complete working example.
 > `eds_doip_platform_start()`, with the *same* lock/unlock pair your tick
 > task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with. Both
 > shipped DoIP examples now run the diagnostic executor instead (EDS#197):
-> no tick task and no lock; the executor's lend functions are the
-> callbacks (`zephyr_exec_lend()`/`zephyr_exec_lend_end()` in
-> `examples/basic_ecu_doip`, `platform/zephyr/zephyr_exec.h`). **In a production build
+> no tick task and no lock; `eds_doip_set_executor(zephyr_exec_get(),
+> zephyr_exec_wait_event)` in `examples/basic_ecu_doip`
+> (`platform/zephyr/zephyr_exec.h`). The lock callbacks are deprecated.
+> **In a production build
 > (`EDS_BUILD_IS_PRODUCTION`), `eds_doip_platform_start()`'s underlying
-> `eds_doip_server_run()` refuses to run at all if this isn't done** —
+> `eds_doip_server_run()` refuses to run at all if neither is done** —
 > development/CI builds are unaffected. See
 > [`docs/threading_guide.md`](threading_guide.md)'s "Dual-Transport
 > Concurrency" section for the full hazard.
@@ -1202,9 +1203,9 @@ See `examples/basic_ecu_doip_freertos/` for the complete working example.
 > your tick task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()`
 > with. `examples/basic_ecu_doip_freertos` runs the diagnostic executor
 > instead (EDS#197, `platform/freertos/freertos_exec.h`): no tick task, no
-> lock, and `freertos_exec_lend()`/`freertos_exec_lend_end()` are the
-> callbacks. A production build refuses to run without callbacks;
-> development/CI builds are unaffected.
+> lock, and `eds_doip_set_executor(freertos_exec_get(),
+> freertos_exec_wait_event)`. A production build refuses to run with
+> neither; development/CI builds are unaffected.
 
 ### 5b.4 Testing with xaloqi-tester
 

@@ -34,10 +34,6 @@ static struct k_spinlock       s_cs_lock;
 static k_spinlock_key_t        s_cs_key;
 static bool                    s_started;
 
-/* zephyr_exec_lend(): the parked executor and the thread borrowing it. */
-static struct k_sem            s_parked;
-static struct k_sem            s_unpark;
-
 /* --------------------------------------------------------------------------
  * uds_exec bindings
  * -------------------------------------------------------------------------- */
@@ -132,12 +128,7 @@ uds_status_t zephyr_exec_start(const zephyr_exec_cfg_t *cfg)
         s_producers[i].notify_arg = (void *)(uintptr_t)i;
         (void)k_sem_init(&s_done[i], 0U, 1U);
     }
-    if (slot_of(cfg->lend_src) >= cfg->producer_count) {
-        return UDS_STATUS_ERR_INVALID_PARAM;
-    }
     (void)k_sem_init(&s_wake, 0U, 1U);
-    (void)k_sem_init(&s_parked, 0U, 1U);
-    (void)k_sem_init(&s_unpark, 0U, 1U);
 
     ec.srv            = cfg->srv;
     ec.now_ms         = eds_platform_uptime_ms;
@@ -187,31 +178,13 @@ bool zephyr_exec_wait(uint8_t src, k_timeout_t timeout)
     return done;
 }
 
-/* Runs on the executor: parked until the borrowing thread is finished. */
-static void lend_park(uds_server_ctx_t *srv, void *arg)
+bool zephyr_exec_wait_event(uint8_t src, uint32_t timeout_ms)
 {
-    ARG_UNUSED(srv);
-    ARG_UNUSED(arg);
-    k_sem_give(&s_parked);
-    (void)k_sem_take(&s_unpark, K_FOREVER);
-}
+    uint8_t idx = slot_of(src);
+    bool    got = false;
 
-void zephyr_exec_lend(void)
-{
-    if (s_started) {
-        /* The slot is free whenever lend() and lend_end() are paired. */
-        while (uds_exec_call(&s_ex, s_cfg.lend_src, lend_park, NULL) != UDS_STATUS_OK) {
-            (void)k_sleep(K_MSEC(1));
-        }
-        (void)k_sem_take(&s_parked, K_FOREVER);
+    if (s_started && (idx < s_cfg.producer_count)) {
+        got = (k_sem_take(&s_done[idx], K_MSEC(timeout_ms)) == 0);
     }
-}
-
-void zephyr_exec_lend_end(void)
-{
-    if (s_started) {
-        k_sem_give(&s_unpark);
-        (void)zephyr_exec_wait(s_cfg.lend_src, K_FOREVER);
-        uds_exec_release(&s_ex, s_cfg.lend_src);   /* contract 1 */
-    }
+    return got;
 }

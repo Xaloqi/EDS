@@ -49,9 +49,17 @@
  *                         a frame the executor routes to this producer: a
  *                         pending job's 7F sid 78 keepalive or final
  *                         response, or a periodic message it subscribed.
+ *    uds_exec_job_pending()
+ *                         true while a job this producer's request started
+ *                         may still send it a frame.
+ *    uds_exec_disconnect() the producer's peer is gone (a DoIP
+ *                         disconnect): the executor aborts its job and
+ *                         discards a frame routed to it, so no frame waits
+ *                         for a producer that will not take it.
  *
  *  Executor side (one thread): uds_exec_run_once(), in this order:
  *    1. elapsed 1 ms ticks: uds_server_tick_1ms(), uds_periodic_tick_1ms();
+ *       then a reported pushed frame, and producers that disconnected;
  *    2. posted slots, round-robin, one per slot per pass;
  *    3. uds_server_poll(), its frame routed to the job's source;
  *    4. uds_periodic_pop_due_src(), routed to the subscriber's source;
@@ -174,6 +182,7 @@ typedef struct uds_exec {
     uds_msg_buf_t        push_buf;
     uds_exec_stats_t     stats;
     bool                 initialized;
+    uint8_t              gone_mask;   /* sources that disconnected, by bit     */
 } uds_exec_t;
 
 /**
@@ -229,6 +238,21 @@ const uds_msg_buf_t *uds_exec_push_frame(uds_exec_t *ex, uint8_t src);
  *        frame waits for its next period).
  */
 void uds_exec_push_done(uds_exec_t *ex, uint8_t src, bool sent);
+
+/**
+ * @brief Producer: true while a job its request started can still route it a
+ *        frame (a 7F sid 78 or the final response). False once the job is
+ *        over, with or without a final frame (aborted with its session).
+ */
+bool uds_exec_job_pending(uds_exec_t *ex, uint8_t src);
+
+/**
+ * @brief Producer: its peer is gone. On its next pass the executor aborts the
+ *        producer's pending job (uds_server_pending_abort()) and discards a
+ *        frame still routed to it. The slot is not touched: release it as
+ *        usual (contract 1).
+ */
+void uds_exec_disconnect(uds_exec_t *ex, uint8_t src);
 
 /**
  * @brief Executor thread: one pass (see the file header for the order).
