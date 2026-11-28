@@ -1,0 +1,7 @@
+/* The FRDM-MCXN947's OTPC (nxp,otpc, enabled in the board DTS from Zephyr 4.5).
+ * Build check only: the test is not run against real fuses. */
+/ {
+	aliases {
+		eds-keys-otp = &otpc;
+	};
+};

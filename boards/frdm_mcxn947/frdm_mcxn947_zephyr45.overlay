@@ -1,0 +1,14 @@
+/*
+ * Xaloqi EDS
+ * boards/frdm_mcxn947/frdm_mcxn947_zephyr45.overlay
+ *
+ * Added on top of frdm_mcxn947.overlay for a build on Zephyr 4.4 or newer: the
+ * MCX N94x TRNG (nxp,els-trng, node `trng`, in the SoC DTSI from v4.4) becomes
+ * the zephyr,entropy device. Use it with frdm_mcxn947_zephyr45.conf (EDS#670).
+ */
+
+/ {
+	chosen {
+		zephyr,entropy = &trng;
+	};
+};

@@ -1428,6 +1428,30 @@ jobs:
           fi
           echo "PASS: stack-depth budget"
 
+      # [EDS#56] The SecurityAccess key source. OTP needs Zephyr 4.4 or newer, so on
+      # this job's 3.7 it must stop the build and say which Zephyr it found; the
+      # application source must not link without the integrator's function.
+      - name: SecurityAccess key source — OTP is a build error on Zephyr 3.7, APP needs its function (EDS#56)
+        run: |
+          B=${GITHUB_WORKSPACE}/EDS/examples/safeboot_ecu/boards/nucleo_h743zi
+          if west build --pristine -d build-keys-otp -b nucleo_h743zi EDS/examples/safeboot_ecu -- \
+               -DDIAG_SKIP_CODEGEN=ON -DCONFIG_EDS_KEYS_OTP=y \
+               "-DEXTRA_CONF_FILE=${B}/nucleo_h743zi.conf" "-DDTC_OVERLAY_FILE=${B}/nucleo_h743zi.overlay" \
+               > keys-otp.log 2>&1; then
+            echo "FAIL: CONFIG_EDS_KEYS_OTP built on Zephyr 3.7"; exit 1
+          fi
+          grep -q "CONFIG_EDS_KEYS_OTP: this build is Zephyr 3.7" keys-otp.log
+          grep -q "CONFIG_EDS_KEYS_OTP needs Zephyr 4.4 or newer" keys-otp.log
+          echo "PASS: OTP key source refused on Zephyr 3.7, naming the version"
+          if west build --pristine -d build-keys-app -b nucleo_h743zi EDS/examples/safeboot_ecu -- \
+               -DDIAG_SKIP_CODEGEN=ON -DCONFIG_EDS_KEYS_APP=y \
+               "-DEXTRA_CONF_FILE=${B}/nucleo_h743zi.conf" "-DDTC_OVERLAY_FILE=${B}/nucleo_h743zi.overlay" \
+               > keys-app.log 2>&1; then
+            echo "FAIL: CONFIG_EDS_KEYS_APP linked without eds_app_get_level_key()"; exit 1
+          fi
+          grep -q "undefined reference to .eds_app_get_level_key" keys-app.log
+          echo "PASS: application key source needs the integrator's function"
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -1769,6 +1793,95 @@ jobs:
             build/mcuboot/zephyr/zephyr.hex
             build/safeboot_ecu/zephyr/zephyr.elf
             build/safeboot_ecu/zephyr/zephyr.signed.hex
+
+  # ── Job 5d2: SecurityAccess key source on Zephyr 4.5 (OTP) ──────────────────
+  #
+  # [EDS#56] CONFIG_EDS_KEYS_OTP reads the level keys with otp_read(). The OTP
+  # API is Zephyr 4.4 or newer and the FRDM-MCXN947's driver (nxp,otpc) is v4.5,
+  # so this job pins Zephyr v4.5.0 rather than west.yml's v3.7.0, a board
+  # exception like the S32K344's (products/eds-zephyr-version-policy.md in the
+  # knowledge base). Workspace and SDK come from the weekly job's scripts, as
+  # in the job above. Two builds of tests/zephyr_key_source:
+  #   - native_sim, run: the keys come from Zephyr's OTP emulator
+  #     (zephyr,otp-emul). The keys SecurityAccess answers with are the emulator's,
+  #     and an unprogrammed (all-zero) or erased (all-0xFF) key is refused.
+  #   - frdm_mcxn947, built: the same code against the board's real nxp,otpc
+  #     driver. Not run: no fuse is read or burnt in CI.
+  # safeboot_ecu itself has no FRDM-MCXN947 board support (no MCUboot slot
+  # partitions), so this test app is the FRDM build; safeboot_ecu calls the same
+  # platform/zephyr/zephyr_key_source.c.
+  # ──────────────────────────────────────────────────────────────────────────
+  zephyr-key-source-otp:
+
+    name: "Zephyr — SecurityAccess key source, OTP (Zephyr 4.5.0: native_sim emulator, frdm_mcxn947 build)"
+    # 24.04: Zephyr 4.4 and later need Python 3.12.
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    env:
+      ZREV: v4.5.0
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends cmake ninja-build gperf \
+            device-tree-compiler python3-venv xz-utils wget git gcc g++ gcc-multilib g++-multilib
+
+      - name: West workspace (Zephyr ${{ env.ZREV }})
+        run: |
+          python3 -m venv .venv && . .venv/bin/activate
+          pip install -q west pyyaml
+          python3 EDS/.github/zephyr-main/west-manifest.py EDS/west.yml "$ZREV" EDS/west-otp.yml \
+            hal_nxp cmsis_6
+          west init -l --mf west-otp.yml EDS
+          west update --narrow -o=--depth=1
+          pip install -q -r zephyr/scripts/requirements-base.txt
+          west zephyr-export
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Zephyr SDK (version from the tree, checksums from the release)
+        run: |
+          mkdir -p ci-out
+          D=$(EDS/.github/zephyr-main/install-sdk.sh "$PWD/zephyr" /opt "$PWD/ci-out" | tail -n 1)
+          echo "ZEPHYR_SDK_INSTALL_DIR=$D" >> "$GITHUB_ENV"
+
+      - name: Key source test on native_sim (OTP emulator)
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          west build --pristine -d build-keys-ns -b native_sim EDS/tests/zephyr_key_source -- \
+            -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y
+          grep -qx 'CONFIG_EDS_KEYS_OTP=y' build-keys-ns/zephyr/.config
+          grep -qx 'CONFIG_OTP_EMULATOR=y' build-keys-ns/zephyr/.config
+          build-keys-ns/zephyr/zephyr.exe | tee key-source-test.log
+          for t in test_01_unprogrammed_otp_is_refused test_02_keys_from_the_emulator_are_used \
+                   test_03_all_zero_key_is_refused test_04_all_ff_key_is_refused; do
+            grep -q "PASS - $t" key-source-test.log
+          done
+          grep -q "PROJECT EXECUTION SUCCESSFUL" key-source-test.log
+
+      - name: Key source build for frdm_mcxn947 (the board's nxp,otpc driver)
+        run: |
+          F=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947
+          west build --pristine -d build-keys-frdm -b frdm_mcxn947/mcxn947/cpu0 EDS/tests/zephyr_key_source -- \
+            -DCONFIG_COMPILER_WARNINGS_AS_ERRORS=y \
+            "-DEXTRA_CONF_FILE=${F}/frdm_mcxn947_zephyr45.conf" \
+            "-DEXTRA_DTC_OVERLAY_FILE=${F}/frdm_mcxn947_zephyr45.overlay"
+          grep -qx 'CONFIG_EDS_KEYS_OTP=y' build-keys-frdm/zephyr/.config
+          grep -qx 'CONFIG_OTP_NXP_OTPC=y' build-keys-frdm/zephyr/.config
+          # [EDS#670] the TRNG is wired on v4.5: the entropy driver is in the image.
+          grep -qx 'CONFIG_ENTROPY_GENERATOR=y' build-keys-frdm/zephyr/.config
+          grep -qx 'CONFIG_ENTROPY_NXP_ELS_TRNG=y' build-keys-frdm/zephyr/.config
+          nm=$(sed -n 's/^CMAKE_NM:[A-Z]*=//p' build-keys-frdm/CMakeCache.txt)
+          "$nm" build-keys-frdm/zephyr/zephyr.elf | tee keys-frdm-symbols.txt
+          grep -q ' T eds_zephyr_keys_init$' keys-frdm-symbols.txt
+          grep -q ' nxp_otpc_read$' keys-frdm-symbols.txt
+          grep -q ' entropy_els_get_entropy$' keys-frdm-symbols.txt
+          echo "PASS: eds_zephyr_keys_init, the NXP OTPC driver and the ELS TRNG driver are in the FRDM-MCXN947 image"
 
   # ── Job 5e: Zephyr build — ardep_ecu / ardep (ARDEP's own workspace) ─────
   #

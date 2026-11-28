@@ -124,6 +124,22 @@ static uds_status_t my_seed_generate(
 
 ---
 
+## Entropy per board (Zephyr examples)
+
+On the Zephyr examples EDS registers the board's hardware RNG as the seed source when
+`CONFIG_ENTROPY_GENERATOR=y`. Without one, seeds come from a 16-bit LFSR that restarts at `0xACE1`
+on every boot, so the seed sequence repeats after a power cycle: development only, and a production
+build (fail-closed entropy) refuses every seed instead.
+
+| Board | Zephyr v3.7 (the pin) | Zephyr 4.4 and newer |
+|---|---|---|
+| NUCLEO-H743ZI / H753ZI | hardware RNG | hardware RNG |
+| FRDM-MCXN947 | **none**: LFSR, development only | TRNG (`nxp,els-trng`); enable it with `boards/frdm_mcxn947/frdm_mcxn947_zephyr45.conf` and `.overlay` |
+| MR-CANHUBK3 (S32K344) | **none**: LFSR, development only | not checked |
+
+The FRDM-MCXN947 row is checked in Zephyr's devicetree and drivers and built in CI on Zephyr 4.5.
+EDS has not read random bytes from that TRNG on a board.
+
 ## TRNG not available on your target?
 
 Some low-cost MCUs do not have a hardware TRNG. In that case:

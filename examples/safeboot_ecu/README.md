@@ -94,6 +94,66 @@ to the bootloader. See issue #232 for the full analysis.
 
 ---
 
+## SecurityAccess keys: where they come from ([#56](https://github.com/Xaloqi/EDS/issues/56))
+
+The two SecurityAccess keys (level 0x01 and level 0x03, AES-128) come from one of three
+sources, chosen at build time:
+
+| Kconfig | Keys come from | Use |
+|---|---|---|
+| `CONFIG_EDS_KEYS_PLACEHOLDER` (default) | the publicly known keys compiled into `core/uds_security_algo.c`; the boot log warns | development, CI, QEMU |
+| `CONFIG_EDS_KEYS_APP` | your function `int eds_app_get_level_key(uint8_t level, uint8_t *key)` (declared in `platform/eds_key_source.h`), called once per level; an HSM, a hardware key store, a provisioning record | any Zephyr version |
+| `CONFIG_EDS_KEYS_OTP` | `otp_read()` at `CONFIG_EDS_KEYS_OTP_L1_OFFSET` and `_L2_OFFSET` (bytes, 16 each, no default) from the device the devicetree alias `eds-keys-otp` names | Zephyr 4.4 or newer; the FRDM-MCXN947's OTP driver is in Zephyr 4.5 |
+
+`CONFIG_EDS_KEYS_OTP` on an older Zephyr, including the v3.7 pin, stops the build and names the
+Zephyr version it found. An unset offset stops it too, rather than read other fuses as a key.
+
+**A key that cannot be used is refused, not replaced.** If a key cannot be read, reads all `0x00`
+(unprogrammed fuses) or all `0xFF` (erased), EDS logs it (`[P1-SEC] level 0x03 key from OTP: REFUSED,
+all 0x00 (unprogrammed)`) and registers a derivation that always fails: SecurityAccess stays locked on
+both levels and the placeholder keys are not used either. A seed is still issued; every key the tester
+sends is refused and counted by the existing attempt counter and lockout. Keys are held in one stack
+buffer that is wiped after each level.
+
+### Fuse layout, as an example
+
+The layout the test uses (Zephyr's OTP emulator, 64 bytes):
+
+| Bytes | Content |
+|---|---|
+| 0 to 15 | level 0x01 key (`CONFIG_EDS_KEYS_OTP_L1_OFFSET=0`) |
+| 16 to 31 | level 0x03 key (`CONFIG_EDS_KEYS_OTP_L2_OFFSET=16`) |
+
+On a real part, pick the fuse words your product reserves for customer data from the SoC's reference
+manual. The offsets above are an example, not a recommendation for any chip.
+
+### Provisioning steps
+
+1. Generate two 16-byte keys from a cryptographic random source, on a machine you trust
+   (`openssl rand -hex 16`, twice). Do not commit them.
+2. Write them into the fuses with the SoC vendor's tool, or your factory's programmer. Fuses are
+   one-time: try it on a sample board first.
+3. Give the same two keys to the tester: TestLab's `security_access` action takes the key, and the
+   per-level keys of your own tools.
+4. Build with `CONFIG_OTP=y`, `CONFIG_EDS_KEYS_OTP=y`, both offsets, and an alias in the board
+   overlay (`aliases { eds-keys-otp = &otpc; };` on the FRDM-MCXN947).
+5. Boot: `[P1-SEC] level 0x01 key from OTP: installed` for both levels. Anything else is a refusal.
+
+### What is tested, and what is not
+
+**Tested against Zephyr's OTP emulator; not run against real fuses.** CI runs
+`tests/zephyr_key_source` on native_sim with Zephyr 4.5: keys read from an emulated OTP are the keys
+SecurityAccess answers with, and an all-zero or all-`0xFF` key is refused. A build of the same code
+for the FRDM-MCXN947 links the board's real OTP driver, and is not run. No fuse has been read or
+burnt on a board by EDS.
+
+A production build (`CONFIG_DIAG_PLACEHOLDER_KEYS_ONLY=n`) still stops at the `SEC-KEY-GATE-01`
+compile-time gate whichever source is selected ([#673](https://github.com/Xaloqi/EDS/issues/673)).
+This example does not build for the FRDM-MCXN947: it has no MCUboot slot partitions there, so the
+FRDM build in CI is the key-source test app, which calls the same `zephyr_key_source.c`.
+
+---
+
 ## Hardware setup
 
 ### Required
