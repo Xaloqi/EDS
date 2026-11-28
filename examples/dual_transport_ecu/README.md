@@ -84,4 +84,4 @@ testers under load against `P2server_max`; and, after an ECUReset, that the
 | Built | native\_sim (classic and FD), FRDM-MCXN947 (classic and FD), NUCLEO-H753ZI |
 | `smoke_dual_transport_ecu.py`, classic and FD | native\_sim, in CI (`example-dual-transport-runtime`) |
 | The CAN producer's contracts and C2 (CAN + DoIP producers, ThreadSanitizer) | host, `tests/concurrency/`, in CI (`concurrency-tsan`) |
-| Hardware | not run on a board yet |
+| Hardware | FRDM-MCXN947 (700-90818 A1), 2026-11-28, EDS 2f24b77: `core_validation` 8/8 over CAN and over DoIP; the cross-transport ownership campaign 10/10; a 2 442-request mix on both buses, `request_count` equal, p99 4.25 ms, no reset; one CAN FD round trip (FD image) and DoIP 8/8 on it. **The 30 minute soak failed in 3 of 3 runs at about 15 minutes** (a DoIP request left unanswered, no reset): [EDS#669](https://github.com/Xaloqi/EDS/issues/669). NUCLEO-H753ZI not run. MCX is NXP's industrial line, not automotive silicon |
