@@ -83,7 +83,7 @@ static void srv_pending_run_step(uds_server_ctx_t *ctx);
 /* [EDS#197] Session ownership helpers. */
 static bool srv_session_is_default(const uds_server_ctx_t *ctx);
 static bool srv_session_held_by_other(uds_server_ctx_t *ctx);
-static void srv_end_session_resets(uds_server_ctx_t *ctx);
+static void srv_end_session_resets(uds_server_ctx_t *ctx, bool abort_job);
 
 /* --------------------------------------------------------------------------
  * Sub-function suppress-bit mask (ISO 14229-1:2026 §7.7.3, Tables 3–4)
@@ -134,6 +134,7 @@ uds_status_t uds_server_init(
     ctx->rx_addressing           = UDS_ADDRESSING_PHYSICAL;
     ctx->rx_src                  = (uint8_t)UDS_SERVER_SRC_DEFAULT;
     ctx->session_owner           = (uint8_t)UDS_SERVER_SRC_NONE;
+    ctx->pending_src             = (uint8_t)UDS_SERVER_SRC_NONE;
     ctx->initialized             = true;
 
     return UDS_STATUS_OK;
@@ -344,7 +345,7 @@ uds_status_t uds_server_tick_1ms(uds_server_ctx_t *ctx)
              * told the application); the rest is every return's reset. A
              * pending job is only dropped here when nothing polls it,
              * since every frame restarts S3. */
-            srv_end_session_resets(ctx);
+            srv_end_session_resets(ctx, true);
         }
         (void)uds_security_tick_1ms(ctx->cfg.security_ctx);
         return status;
@@ -445,6 +446,7 @@ uds_status_t uds_server_defer(uds_server_ctx_t        *ctx,
     ctx->pending.job             = *job;
     ctx->pending.keepalive_count = 1U;   /* the one in resp */
     ctx->pending.active          = true;
+    ctx->pending_src             = ctx->rx_src;   /* [EDS#664] */
 
     return uds_server_build_negative_response(
         job->sid, UDS_NRC_REQUEST_CORRECTLY_RECEIVED_RESP_PENDING, resp);
@@ -558,7 +560,12 @@ bool uds_server_end_session(uds_server_ctx_t *ctx, uint8_t src)
     if (!srv_session_is_default(ctx)) {
         (void)uds_session_transition(ctx->cfg.session_ctx, UDS_SESSION_DEFAULT);
     }
-    srv_end_session_resets(ctx);
+
+    /* [EDS#664] A session nobody owns (DEFAULT, no request opened it) is
+     * ended by any source's disconnect, but a job another source deferred
+     * is not that source's to abort. A job the caller deferred still is
+     * (the lock path, where uds_exec_disconnect() does not exist). */
+    srv_end_session_resets(ctx, (!ctx->pending.active) || (ctx->pending_src == src));
     return true;
 }
 
@@ -603,12 +610,14 @@ void (*eds_race_point_hook)(uint32_t id) = NULL;
  * session. [EDS#282] A pending job ends with its session. [EDS#442] So does
  * a transfer.
  */
-static void srv_end_session_resets(uds_server_ctx_t *ctx)
+static void srv_end_session_resets(uds_server_ctx_t *ctx, bool abort_job)
 {
     EDS_RACE_POINT(EDS_RACE_SESSION_END);
     (void)uds_security_reset(ctx->cfg.security_ctx);
     (void)uds_comm_control_restore_defaults();
-    uds_server_pending_abort(ctx);
+    if (abort_job) {
+        uds_server_pending_abort(ctx);
+    }
     uds_service_0x34_abort_transfer();
     ctx->session_owner = (uint8_t)UDS_SERVER_SRC_NONE;
 }

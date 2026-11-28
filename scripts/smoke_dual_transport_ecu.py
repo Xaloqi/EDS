@@ -14,8 +14,32 @@ through the diagnostic executor.
      is accepted again.
   2. Both at once: a CAN thread and a DoIP thread each send ROUNDS 3E 00 in the
      default session. Every request gets exactly one answer, 7E 00 or 7F 3E 21.
-  3. ECUReset over CAN: 11 01 is answered 51 01, then the ECU resets (on
-     native_sim the process exits: "sys_arch_reboot called").
+  3. The January "done when" (EDS#197 J8): the same two threads send a mix that
+     competes for the session (3E 00, 22 F190, 22 F187 which needs an extended
+     session, 10 03, 10 01), MIX_ROUNDS each, one request outstanding per
+     transport. A transport that got 50 03 owns the session until its own
+     10 01: every request it sends meanwhile must be answered positively. A
+     transport that does not own it is answered positively or 7F sid 21, and
+     22 F187 is never positive for it (7F 22 31 or 7F 22 21). So every physical
+     request is answered or refused 0x21, and no transport's session is ended
+     by the other.
+  4. DoIP churn: while CAN owns an extended session, DoIP connects, sends a
+     request (7F sid 21), disconnects, and reconnects, ten times. Each
+     reconnection proves the server handled the previous disconnect; CAN's
+     22 F187 must still be positive after it (a DoIP disconnect never ends
+     CAN's session).
+  5. Latency: every request of phases 2 and 3, timed by the tester, p99 below
+     the example's P2server_max (diagnostics_config.yaml, timing).
+  6. ECUReset over CAN: 11 01 is answered 51 01, then the ECU resets (on
+     native_sim the process exits: "sys_arch_reboot called"). Its log carries
+     the server's own request_count, which must equal the number of requests
+     the testers sent (none of the mix reaches a job step, so the producers
+     answer none locally): read from the ECU, not inferred.
+
+The pending-job case of EDS#664 (a DoIP disconnect in an unowned default
+session leaves a job CAN started) needs a routine that defers in the default
+session; this example has none, so tests/unit_runnable/test_uds_exec.c covers
+it (test_foreign_disconnect_in_unowned_session_leaves_job).
 
 Build (from a west workspace):
 
@@ -42,25 +66,105 @@ frames, so every CAN answer also shows the ECU sent FD.
                        python3 scripts/smoke_dual_transport_ecu.py build/zephyr/zephyr.exe --fd'
 
 Exit 0 when every check passes.
+
+On a board (EDS#197 J9): --attach drives an ECU that is already running, over
+a SocketCAN interface and the board's Ethernet, instead of starting a
+native_sim process. The board's console is where the ECU reports its counters
+and its resets (--console, a serial device or a file: open it before the board
+boots, so the boot banner is seen once).
+
+    python3 scripts/smoke_dual_transport_ecu.py --attach --can-if can0 \\
+        --ecu-ip 10.10.10.1 --console /dev/serial/by-id/<MCU-Link VCOM> \\
+        --soak 30 --histogram p2.csv
+
+  --soak MINUTES   repeat the request mix and the DoIP churn for that long (a
+                   round is MIX_ROUNDS requests per transport) after the
+                   checks above;
+  --console-log F  keep every console line in F (the script owns the port);
+  --histogram CSV  write the round-trip histogram (0.05 ms bins, both
+                   transports loaded) to CSV;
+  --rounds N       MIX_ROUNDS (default 1000).
+
+The ECU's console must show exactly one boot banner after the ECUReset, and at
+most one (the first boot) before it: any other banner is a reset (watchdog,
+fault) and fails the run.
+The request_count in its reset line must equal the requests sent, so start
+the script on a freshly booted board that nobody else talks to. A CAN FD board
+needs a SocketCAN FD interface (not slcand): the kernel ISO-TP socket then
+runs in FD mode with --fd.
 """
 
 from __future__ import annotations
 
+import os
+import random
+import re
 import socket
 import struct
 import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 
 CAN_IF, RX_ID, TX_ID = "zcan0", 0x7E0, 0x7E8
 ECU_IP, DOIP_PORT = "192.0.2.1", 13400
 ECU_ADDR, TESTER_ADDR = 0xE400, 0x0E00
 ROUNDS = 200
+MIX_ROUNDS = 1000
+CHURN_CYCLES = 10
+EXAMPLE_YAML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                            "examples", "dual_transport_ecu", "diagnostics_config.yaml")
 SOL_CAN_ISOTP, CAN_ISOTP_LL_OPTS, CANFD_BRS = 106, 5, 0x01
 FD = "--fd" in sys.argv
 
+
+def _arg(name: str, default: str | None = None) -> str | None:
+    if name in sys.argv:
+        i = sys.argv.index(name)
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return default
+
+
+ATTACH = "--attach" in sys.argv
+CONSOLE = _arg("--console")
+CONSOLE_LOG = _arg("--console-log")
+SOAK_MIN = float(_arg("--soak", "0") or 0)
+HIST_CSV = _arg("--histogram")
+if _arg("--can-if"):
+    CAN_IF = _arg("--can-if")
+if _arg("--ecu-ip"):
+    ECU_IP = _arg("--ecu-ip")
+if _arg("--rounds"):
+    MIX_ROUNDS = int(_arg("--rounds"))
+BIN_MS = 0.05
+
 FAILS: list[str] = []
+
+# Every request a tester sent, by transport (each reaches the server: no job
+# runs, one request is outstanding per transport), and the round-trip times
+# collected while LATENCY_ON.
+SENT = {"can": 0, "doip": 0}
+LATENCY_BINS: Counter = Counter()   # round trip, BIN_MS bins
+LATENCY_ON = False
+COUNT_LOCK = threading.Lock()
+
+
+def note(name: str, t0: float) -> None:
+    dt = (time.perf_counter() - t0) * 1000.0
+    with COUNT_LOCK:
+        SENT[name] += 1
+        if LATENCY_ON:
+            LATENCY_BINS[int(dt / BIN_MS)] += 1
+
+
+def p2_server_max_ms() -> float:
+    with open(EXAMPLE_YAML, encoding="utf-8") as f:
+        m = re.search(r"^\s*p2_server_max_ms:\s*(\d+)", f.read(), re.M)
+    if m is None:
+        raise RuntimeError("p2_server_max_ms not found in " + EXAMPLE_YAML)
+    return float(m.group(1))
 
 
 def check(cond: bool, what: str) -> None:
@@ -81,8 +185,11 @@ def can_socket() -> socket.socket:
 
 
 def can_req(s: socket.socket, req: bytes) -> bytes:
+    t0 = time.perf_counter()
     s.send(req)
-    return s.recv(4096)
+    r = s.recv(4096)
+    note("can", t0)
+    return r
 
 
 # ---- DoIP: TCP ---------------------------------------------------------------
@@ -112,11 +219,26 @@ def doip_connect() -> socket.socket:
 
 
 def doip_req(s: socket.socket, req: bytes) -> bytes:
+    t0 = time.perf_counter()
     s.sendall(doip_frame(0x8001, TESTER_ADDR.to_bytes(2, "big") + ECU_ADDR.to_bytes(2, "big") + req))
     while True:
         ptype, body = doip_read(s)
         if ptype == 0x8001:          # the diagnostic message, after its 0x8002 ack
+            note("doip", t0)
             return body[4:]
+
+
+def doip_connect_retry(seconds: float = 5.0) -> socket.socket:
+    """The server takes one connection at a time: a new one is accepted
+    once it has handled the previous disconnect."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            return doip_connect()
+        except (OSError, RuntimeError):
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.05)
 
 
 def busy(resp: bytes, sid: int) -> bool:
@@ -141,7 +263,9 @@ def ownership(cs: socket.socket) -> None:
 
 
 def both_at_once(cs: socket.socket) -> None:
+    global LATENCY_ON
     ds = doip_connect()
+    LATENCY_ON = True
     tally = {"can": [0, 0, 0], "doip": [0, 0, 0]}   # positive, busy, other
 
     def run(name: str, fn) -> None:
@@ -153,11 +277,224 @@ def both_at_once(cs: socket.socket) -> None:
     tc = threading.Thread(target=run, args=("can", lambda q: can_req(cs, q)))
     td = threading.Thread(target=run, args=("doip", lambda q: doip_req(ds, q)))
     tc.start(); td.start(); tc.join(); td.join()
+    LATENCY_ON = False
     ds.close()
     for name in ("can", "doip"):
         pos, bsy, other = tally[name]
         check(pos + bsy == ROUNDS and other == 0,
               f"{name}: {ROUNDS} x 3E 00 at once with the other -> {pos} x 7E 00, {bsy} x 7F 3E 21")
+
+
+# One entry per request of the mix: (request, kind). Weights favour reads.
+MIX = ([(b"\x3E\x00", "tp")] * 3 + [(b"\x22\xF1\x90", "vin")] * 3 + [(b"\x22\xF1\x87", "ext")] * 2 +
+       [(b"\x10\x03", "to_ext")] * 2 + [(b"\x10\x01", "to_def")])
+
+
+def judge(owns: bool, kind: str, resp: bytes, req: bytes) -> tuple[bool, str | None]:
+    """(still owns, None) or (owns, why the answer is wrong)."""
+    sid = req[0]
+    pos = resp[:1] == bytes([sid + 0x40])
+    nrc = resp[:2] == bytes([0x7F, sid])
+    b21 = busy(resp, sid)
+    if owns:
+        # The session is ours until our own 10 01: nothing may refuse us.
+        ok = pos and (kind != "to_ext" or resp[:2] == b"\x50\x03") \
+            and (kind != "to_def" or resp[:2] == b"\x50\x01")
+        if ok and kind == "to_def":
+            owns = False
+        return owns, None if ok else "owner refused or answered wrongly"
+    if kind == "to_ext":
+        if resp[:2] == b"\x50\x03":
+            return True, None
+        return False, None if b21 else "10 03 answered neither 50 03 nor 7F 10 21"
+    if kind == "ext":        # needs an extended session, which this side does not hold
+        return False, None if (b21 or resp == b"\x7F\x22\x31") else "22 F187 outside its session"
+    if kind == "to_def":
+        return False, None if (b21 or resp[:2] == b"\x50\x01") else "10 01 answered neither 50 01 nor 7F 10 21"
+    return False, None if (pos or b21) else "answered neither positively nor 7F sid 21"
+
+
+def mix_worker(name: str, fn, seed: int, out: dict) -> None:
+    rng = random.Random(seed)
+    owns = False
+    counts = {"pos": 0, "busy": 0}
+    bad: list[str] = []
+    try:
+        for _ in range(MIX_ROUNDS):
+            req, kind = rng.choice(MIX)
+            resp = fn(req)
+            owns, why = judge(owns, kind, resp, req)
+            if why is not None and len(bad) < 5:
+                bad.append(f"{req.hex()} -> {resp.hex()}: {why}")
+            counts["busy" if busy(resp, req[0]) else "pos"] += 1
+        if owns:
+            fn(b"\x10\x01")      # leave the session for the other side
+    except (OSError, RuntimeError) as e:
+        bad.append(f"no answer: {e!r}")
+    out[name] = (counts, bad)
+
+
+def stress_mix(cs: socket.socket) -> None:
+    global LATENCY_ON
+    ds = doip_connect()
+    out: dict = {}
+    LATENCY_ON = True
+    tc = threading.Thread(target=mix_worker, args=("can", lambda q: can_req(cs, q), 1, out))
+    td = threading.Thread(target=mix_worker, args=("doip", lambda q: doip_req(ds, q), 2, out))
+    tc.start(); td.start(); tc.join(); td.join()
+    LATENCY_ON = False
+    ds.close()
+    for name in ("can", "doip"):
+        counts, bad = out.get(name, ({"pos": 0, "busy": 0}, ["worker died"]))
+        check(not bad and counts["pos"] + counts["busy"] == MIX_ROUNDS,
+              f"{name}: {MIX_ROUNDS} requests competing for the session -> {counts['pos']} answered, "
+              f"{counts['busy']} x 7F sid 21" + ("" if not bad else "; " + "; ".join(bad)))
+    time.sleep(0.5)          # the server handles the DoIP close on its next read
+    check(can_req(cs, b"\x10\x01")[:2] in (b"\x50\x01",), "CAN 10 01 -> 50 01: nobody holds the session after the mix")
+
+
+def doip_churn(cs: socket.socket) -> None:
+    check(can_req(cs, b"\x10\x03")[:2] == b"\x50\x03", "CAN 10 03 -> 50 03: CAN owns the session")
+    kept = 0
+    for i in range(CHURN_CYCLES):
+        ds = doip_connect_retry()
+        a = busy(doip_req(ds, b"\x22\xF1\x87"), 0x22)
+        b = busy(doip_req(ds, b"\x10\x01"), 0x10)
+        ds.close()
+        ds = doip_connect_retry()    # accepted only after the server handled the close
+        ds.close()
+        if a and b and can_req(cs, b"\x22\xF1\x87")[:1] == b"\x62":
+            kept += 1
+    check(kept == CHURN_CYCLES,
+          f"{CHURN_CYCLES} DoIP connect/refused/disconnect cycles while CAN owns an extended session -> "
+          f"CAN's 22 F187 positive after each ({kept})")
+    check(can_req(cs, b"\x10\x01")[:2] == b"\x50\x01", "CAN 10 01 -> 50 01")
+    time.sleep(0.5)
+
+
+def percentile_ms(q: float) -> float:
+    """Upper edge of the bin holding the q-quantile of the round trips."""
+    total = sum(LATENCY_BINS.values())
+    need, seen = total * q, 0
+    for b in sorted(LATENCY_BINS):
+        seen += LATENCY_BINS[b]
+        if seen >= need:
+            return (b + 1) * BIN_MS
+    return 0.0
+
+
+def latency() -> None:
+    limit = p2_server_max_ms()
+    n = sum(LATENCY_BINS.values())
+    if n == 0:
+        check(False, "latency: no sample")
+        return
+    p50, p99 = percentile_ms(0.5), percentile_ms(0.99)
+    mx = (max(LATENCY_BINS) + 1) * BIN_MS
+    print(f"latency over {n} requests, both transports loaded: p50 {p50:.2f} ms, p99 {p99:.2f} ms, "
+          f"max {mx:.2f} ms (bins of {BIN_MS} ms)")
+    if HIST_CSV:
+        with open(HIST_CSV, "w", encoding="utf-8") as f:
+            f.write("bin_start_ms,count\n")
+            for b in sorted(LATENCY_BINS):
+                f.write(f"{b * BIN_MS:.2f},{LATENCY_BINS[b]}\n")
+        print(f"histogram written to {HIST_CSV}")
+    check(p99 < limit, f"latency p99 {p99:.2f} ms < P2server_max {limit:.0f} ms")
+
+
+class Console:
+    """The ECU's console, read in the background: a serial device or a file."""
+
+    def __init__(self, path: str, log_path: str | None = None) -> None:
+        self.lines: list[bytes] = []
+        self._stop = False
+        self._log = open(log_path, "wb") if log_path else None
+        if path.startswith("/dev/"):
+            import serial   # pyserial; only a board needs it
+            self._f = serial.Serial(path, 115200, timeout=0.2)
+            self._read = self._f.readline
+        else:
+            self._f = open(path, "rb")
+
+            def _read() -> bytes:
+                ln = self._f.readline()
+                if not ln:
+                    time.sleep(0.05)
+                return ln
+            self._read = _read
+        self._t = threading.Thread(target=self._run, daemon=True)
+        self._t.start()
+
+    def _run(self) -> None:
+        while not self._stop:
+            ln = self._read()
+            if ln:
+                self.lines.append(ln)
+                if self._log is not None:
+                    self._log.write(ln)
+                    self._log.flush()
+
+    def banners(self) -> int:
+        return sum(1 for ln in list(self.lines) if b"CAN classic + DoIP" in ln or b"CAN FD + DoIP" in ln)
+
+    def find(self, pat: bytes, timeout: float) -> re.Match | None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            for ln in list(self.lines):
+                m = re.search(pat, ln)
+                if m:
+                    return m
+            time.sleep(0.1)
+        return None
+
+    def close(self) -> None:
+        self._stop = True
+        self._t.join(timeout=1.0)
+        if self._log is not None:
+            self._log.close()
+
+
+def soak(cs: socket.socket, minutes: float) -> None:
+    """Rounds of the mix and the DoIP churn until the time is up."""
+    global LATENCY_ON
+    end = time.monotonic() + minutes * 60.0
+    rounds = 0
+    t0 = time.monotonic()
+    while time.monotonic() < end:
+        rounds += 1
+        before = len(FAILS)
+        stress_mix(cs)
+        if rounds % 5 == 0:
+            doip_churn(cs)
+        if len(FAILS) > before:
+            print(f"soak: stopped after round {rounds}")
+            break
+    print(f"soak: {rounds} rounds in {time.monotonic() - t0:.0f} s, "
+          f"{SENT['can'] + SENT['doip']} requests sent so far")
+
+
+def ecu_reset_board(cs: socket.socket, con: "Console | None") -> None:
+    """11 01 on a board: the console shows its counters and exactly one new boot."""
+    sent_before = SENT["can"] + SENT["doip"]
+    boots_before = con.banners() if con else 0
+    check(can_req(cs, b"\x11\x01")[:2] == b"\x51\x01", "CAN 11 01 -> 51 01")
+    if con is None:
+        print("no --console: the ECU's counters and resets are not checked")
+        return
+    m = con.find(rb"request_count=(\d+) negative_response_count=(\d+)", 10.0)
+    sent = SENT["can"] + SENT["doip"]
+    if m is None:
+        check(False, "the ECU's reset log carries its counters")
+    else:
+        got = int(m.group(1))
+        print(f"ECU: request_count {got}, negative_response_count {int(m.group(2))}; testers sent "
+              f"{sent} (CAN {SENT['can']}, DoIP {SENT['doip']}; {sent - sent_before} since the soak)")
+        check(got == sent, f"ECU request_count {got} == requests sent {sent}")
+    time.sleep(8.0)      # the ECU resets and boots again
+    boots = con.banners() - boots_before
+    check(boots_before <= 1, f"no reset before the ECUReset ({boots_before} boot banner(s) on the console; "
+                             "1 is the first boot, more is a reset)")
+    check(boots == 1, f"exactly one boot after the ECUReset ({boots})")
 
 
 def ecu_reset(cs: socket.socket, ecu: subprocess.Popen) -> None:
@@ -168,30 +505,58 @@ def ecu_reset(cs: socket.socket, ecu: subprocess.Popen) -> None:
         ecu.kill()
         out, _ = ecu.communicate()
     check(b"sys_arch_reboot called" in out, "then the executor resets the ECU")
+    m = re.search(rb"request_count=(\d+) negative_response_count=(\d+)", out)
+    sent = SENT["can"] + SENT["doip"]
+    if m is None:
+        check(False, "the ECU's reset log carries its counters")
+        return
+    got = int(m.group(1))
+    print(f"ECU: request_count {got}, negative_response_count {int(m.group(2))}; testers sent "
+          f"{sent} (CAN {SENT['can']}, DoIP {SENT['doip']})")
+    check(got == sent, f"ECU request_count {got} == requests sent {sent}")
+
+
+def wait_doip(seconds: float) -> None:
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            socket.create_connection((ECU_IP, DOIP_PORT), timeout=1.0).close()
+            return
+        except OSError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.2)
 
 
 def main() -> int:
-    exe = sys.argv[1]
-    ecu = subprocess.Popen([exe], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    global LATENCY_ON
+    con = Console(CONSOLE, CONSOLE_LOG) if CONSOLE else None
+    ecu = None
     try:
-        deadline = time.monotonic() + 10.0
-        while True:
-            try:
-                socket.create_connection((ECU_IP, DOIP_PORT), timeout=1.0).close()
-                break
-            except OSError:
-                if time.monotonic() > deadline:
-                    raise
-                time.sleep(0.2)
+        if ATTACH:
+            wait_doip(30.0)
+        else:
+            ecu = subprocess.Popen([sys.argv[1]], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            wait_doip(10.0)
         time.sleep(0.3)
         cs = can_socket()
         ownership(cs)
         both_at_once(cs)
-        ecu_reset(cs, ecu)
+        stress_mix(cs)
+        doip_churn(cs)
+        if SOAK_MIN > 0:
+            soak(cs, SOAK_MIN)
+        latency()
+        if ATTACH:
+            ecu_reset_board(cs, con)
+        else:
+            ecu_reset(cs, ecu)
     finally:
-        if ecu.poll() is None:
+        if ecu is not None and ecu.poll() is None:
             ecu.kill()
             ecu.wait()
+        if con is not None:
+            con.close()
     print(f"smoke_dual_transport_ecu{' (CAN FD)' if FD else ''}: {'FAILED: ' + '; '.join(FAILS) if FAILS else 'all checks passed'}")
     return 1 if FAILS else 0
 

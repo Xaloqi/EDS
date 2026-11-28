@@ -16,7 +16,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   while its first is posted, without touching the posted buffers. Classic CAN, or CAN FD with `fd.conf`. Builds for
   native\_sim (SocketCAN and TAP), FRDM-MCXN947 (the #648 MTU) and NUCLEO-H753ZI. `transport: both` in the YAML;
   codegen emits no executor wiring (#357), so no other example changes. `scripts/smoke_dual_transport_ecu.py` runs
-  a CAN and a DoIP tester at once on native\_sim in CI. `uds_exec_push_frame()` now says whether a frame is a
+  a CAN and a DoIP tester at once on native\_sim in CI: session ownership, a request mix from both testers that
+  competes for the session (every physical request answered or 7F sid 21, no transport's session ended by the other,
+  DoIP connect/disconnect churn while CAN owns a session), the round trip's p99 under `P2server_max`, and the
+  server's `request_count`, read from the ECU's reset log, equal to the requests sent. The native\_sim build sets
+  `CONFIG_ETH_NATIVE_POSIX_RX_TIMEOUT=1` (the TAP driver's 50 ms poll would otherwise be in every DoIP round trip).
+  `--attach` runs the same script against a board (SocketCAN and Ethernet, the console for the counters and the
+  resets), with `--soak MINUTES` and a `--histogram` CSV for the bench. `uds_exec_push_frame()` now says whether a frame is a
   periodic message (UUDT on CAN) or a job's frame. Tests: C2 (`tests/concurrency/tsan_c2_dual_transport.c`, the
   example's two producers under ThreadSanitizer) replaces the XFAIL C2 of #657, and
   `tests/concurrency/tsan_can_producer.c` checks the CAN producer's buffer and release rules.
@@ -130,6 +136,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   control itself (`uds_session_register_change_cb()`). No behaviour change. The callback-on-session-end gap is #654.
 
 ### Fixed
+
+- **A DoIP disconnect no longer aborts a pending job another transport started** (#664, #197). In a session no
+  request opened (DEFAULT, nobody owns it), a DoIP tester dropping its connection ran the end-of-session resets for
+  that source, which include aborting the pending job: a deferred routine a CAN tester had started was cut off. The
+  server now records which source deferred the job (`pending_src`, appended after `session_owner`) and
+  `uds_server_end_session()` aborts the job only for that source. A job the disconnecting source started is still
+  aborted, on the executor path (`uds_exec_disconnect()`) and on the deprecated lock path. S3 expiry still aborts any
+  job. Tests: `test_foreign_disconnect_in_unowned_session_leaves_job` (red on main) and
+  `test_own_disconnect_end_session_aborts_own_job`. `uds_server_ctx_t` grows by one byte: code that allocates it must
+  be rebuilt.
 
 - **FRDM-MCXN947 DoIP: TCP segments now fit the 1512 bytes the ENET QoS driver can receive** (#648). Zephyr v3.7.0's
   driver drops any received frame over 1512 bytes without a log line, and a tester's full-size TCP segment is 1514, so
