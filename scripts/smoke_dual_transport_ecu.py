@@ -80,6 +80,7 @@ boots, so the boot banner is seen once).
   --soak MINUTES   repeat the request mix and the DoIP churn for that long (a
                    round is MIX_ROUNDS requests per transport) after the
                    checks above;
+  --console-log F  keep every console line in F (the script owns the port);
   --histogram CSV  write the round-trip histogram (0.05 ms bins, both
                    transports loaded) to CSV;
   --rounds N       MIX_ROUNDS (default 1000).
@@ -128,6 +129,7 @@ def _arg(name: str, default: str | None = None) -> str | None:
 
 ATTACH = "--attach" in sys.argv
 CONSOLE = _arg("--console")
+CONSOLE_LOG = _arg("--console-log")
 SOAK_MIN = float(_arg("--soak", "0") or 0)
 HIST_CSV = _arg("--histogram")
 if _arg("--can-if"):
@@ -403,9 +405,10 @@ def latency() -> None:
 class Console:
     """The ECU's console, read in the background: a serial device or a file."""
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, log_path: str | None = None) -> None:
         self.lines: list[bytes] = []
         self._stop = False
+        self._log = open(log_path, "wb") if log_path else None
         if path.startswith("/dev/"):
             import serial   # pyserial; only a board needs it
             self._f = serial.Serial(path, 115200, timeout=0.2)
@@ -427,6 +430,9 @@ class Console:
             ln = self._read()
             if ln:
                 self.lines.append(ln)
+                if self._log is not None:
+                    self._log.write(ln)
+                    self._log.flush()
 
     def banners(self) -> int:
         return sum(1 for ln in list(self.lines) if b"CAN classic + DoIP" in ln or b"CAN FD + DoIP" in ln)
@@ -444,6 +450,8 @@ class Console:
     def close(self) -> None:
         self._stop = True
         self._t.join(timeout=1.0)
+        if self._log is not None:
+            self._log.close()
 
 
 def soak(cs: socket.socket, minutes: float) -> None:
@@ -522,7 +530,7 @@ def wait_doip(seconds: float) -> None:
 
 def main() -> int:
     global LATENCY_ON
-    con = Console(CONSOLE) if CONSOLE else None
+    con = Console(CONSOLE, CONSOLE_LOG) if CONSOLE else None
     ecu = None
     try:
         if ATTACH:
