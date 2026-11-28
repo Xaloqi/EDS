@@ -711,7 +711,8 @@ jobs:
         shell: bash
         run: |
           files=$(ls tests/concurrency/tsan_*.c | wc -l)
-          marked=$(grep -l 'TSAN_EXPECT: XFAIL' tests/concurrency/tsan_*.c | wc -l)
+          # grep -l exits 1 when no file is marked (none since EDS#197 J7): not an error.
+          marked=$({ grep -l 'TSAN_EXPECT: XFAIL' tests/concurrency/tsan_*.c || true; } | wc -l)
           line=$(grep '^TSAN SUMMARY:' tsan_run.log) || { echo "::error::no TSAN SUMMARY line"; exit 1; }
           get() { echo "$line" | sed -n "s/.* $1=\([0-9]*\).*/\1/p"; }
           echo "$line (files on disk: $files, XFAIL-marked: $marked)"
