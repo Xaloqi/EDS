@@ -2670,9 +2670,13 @@ jobs:
 
   # [EDS#197] examples/dual_transport_ecu on native_sim: CAN over a vcan
   # (Linux can-isotp as the tester) and DoIP over the zeth TAP, at once, on one
-  # ECU. Session ownership both ways, a DoIP disconnect ending its session,
-  # both testers at once (every request answered once), an ECUReset over CAN
-  # performed by the executor. Classic CAN, then the CAN FD build.
+  # ECU. January's "done when" (J8): session ownership both ways, a request
+  # mix from both testers competing for the session (every physical request
+  # answered or 7F sid 21, no transport's session ended by the other, DoIP
+  # connect/disconnect churn while CAN owns a session), latency p99 below
+  # P2server_max, and the server's own request_count (read from the ECU's reset
+  # log) equal to the requests sent. An ECUReset over CAN performed by the
+  # executor. Classic CAN, then the CAN FD build.
   example-dual-transport-runtime:
     name: "Dual transport ECU — native_sim, CAN (vcan) + DoIP (TAP) at once"
     runs-on: ubuntu-22.04

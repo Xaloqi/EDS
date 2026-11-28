@@ -68,6 +68,15 @@ unshare -rn sh -c 'ip link add zcan0 type vcan && ip link set zcan0 up &&
 
 For the FD build, give the vcan `mtu 72` and pass `--fd`.
 
+The script checks, in order: session ownership both ways; both testers at once;
+a request mix (3E 00, 22 F190, 22 F187, 10 03, 10 01) that competes for the
+session, where every physical request is answered or refused `7F sid 21`, a
+transport that holds a session is never refused, and the other one never gets
+an extended-only answer; DoIP connecting and disconnecting while CAN holds a
+session, which must leave CAN's session alone; the p99 round trip of both
+testers under load against `P2server_max`; and, after an ECUReset, that the
+`request_count` in the ECU's reset log equals the number of requests sent.
+
 ## What has run, and where
 
 | What | Where |

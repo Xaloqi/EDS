@@ -61,6 +61,7 @@
 #include <zephyr/device.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/logging/log_ctrl.h>
 #if (CONFIG_EDS_DOIP_EXAMPLE_NET_IF_MTU > 0)
 #include <zephyr/net/net_if.h>
 #endif
@@ -123,6 +124,16 @@ static const uds_exec_producer_cfg_t s_producers[] = {
  * (ISO-TP's As or the TCP stack: the same 50 ms), reset. */
 static void exec_ecu_reset(uint8_t reset_type)
 {
+    const uds_server_ctx_t *srv = uds_generated_get_server();
+
+    /* [EDS#197] Runs on the executor, the server's one owner, so the read
+     * is race-free. scripts/smoke_dual_transport_ecu.py compares it with
+     * the requests its two testers sent. */
+    if (srv != NULL) {
+        LOG_INF("Reset requested: request_count=%u negative_response_count=%u",
+                (unsigned)srv->request_count, (unsigned)srv->negative_response_count);
+    }
+    log_panic();   /* deferred logging: flush before the reset takes the process down */
     (void)eds_platform_nvm_flush();
     (void)k_msleep((int32_t)DOIP_RESET_TX_GRACE_MS);
     (void)eds_platform_ecu_reset(reset_type);
