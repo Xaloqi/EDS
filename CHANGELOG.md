@@ -10,6 +10,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **The FreeRTOS binding of the diagnostic executor, and `basic_ecu_doip_freertos` runs on it** (#197).
+  `platform/freertos/freertos_exec.c`: a static task, woken by a task notification (`xTaskNotify`, `eSetBits`) or
+  every tick (no software timer needed), completion back to the waiting producer as one notification bit per slot,
+  `taskENTER_CRITICAL()` as the critical section. No queue, no mutex and no new generic primitive. The example drops
+  its tick task and its session/security lock pair; DoIP's lock callbacks are `freertos_exec_lend()` and
+  `freertos_exec_lend_end()` until DoIP posts its requests to the executor. Static RAM +5.2 KB (the executor's
+  4 KB response mailbox, and its stack and TCB, now static); the 48 KB FreeRTOS heap no longer holds the tick task,
+  about 1.1 KB more free there. Stack high-water mark on QEMU (Cortex-M4), after the selftest: executor 224 of
+  1024 bytes used, the tick task 148. Test: `-DDIAG_DOIP_SELFTEST=SESSION_END` with the real lwIP, an
+  in-firmware DoIP client on lwIP's loopback interface, run under QEMU in the `freertos-examples` CI job: one
+  `on_session_change` for an S3 expiry and a disconnect forced to meet at the S3 reset (2 before the #197 fix).
+
 - **The Zephyr binding of the diagnostic executor, and `basic_ecu_doip` runs on it** (#197).
   `platform/zephyr/zephyr_exec.c`: a dedicated thread, woken by one `k_sem` (producers and a 1 ms `k_timer`), one
   `k_sem` per producer slot for completion, a `k_spinlock` critical section, and an `after_pass` hook on the

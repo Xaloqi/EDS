@@ -1143,12 +1143,11 @@ See `examples/basic_ecu_doip/` for the complete working example.
 > same `uds_server_ctx_t`, with no synchronization unless you register a
 > lock: call `eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` **before**
 > `eds_doip_platform_start()`, with the *same* lock/unlock pair your tick
-> task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with — see
-> `examples/basic_ecu_doip_freertos/src/main.c`'s `s_session_lock`/
-> `s_security_lock` pair for the exact pattern. On Zephyr,
-> `examples/basic_ecu_doip` runs the diagnostic executor instead
-> (`platform/zephyr/zephyr_exec.h`, EDS#197): no tick task and no lock,
-> and `zephyr_exec_lend()`/`zephyr_exec_lend_end()` are its callbacks. **In a production build
+> task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()` with. Both
+> shipped DoIP examples now run the diagnostic executor instead (EDS#197):
+> no tick task and no lock; the executor's lend functions are the
+> callbacks (`zephyr_exec_lend()`/`zephyr_exec_lend_end()` in
+> `examples/basic_ecu_doip`, `platform/zephyr/zephyr_exec.h`). **In a production build
 > (`EDS_BUILD_IS_PRODUCTION`), `eds_doip_platform_start()`'s underlying
 > `eds_doip_server_run()` refuses to run at all if this isn't done** —
 > development/CI builds are unaffected. See
@@ -1201,9 +1200,11 @@ See `examples/basic_ecu_doip_freertos/` for the complete working example.
 > `eds_doip_set_lock_callbacks(lock_cb, unlock_cb)` before
 > `eds_doip_platform_start_freertos()`, with the same lock/unlock pair
 > your tick task wraps `uds_server_tick_1ms()`/`uds_periodic_tick_1ms()`
-> with — see `examples/basic_ecu_doip_freertos/src/main.c`'s
-> `s_session_lock`/`s_security_lock` pair. A production build refuses to
-> run without it; development/CI builds are unaffected.
+> with. `examples/basic_ecu_doip_freertos` runs the diagnostic executor
+> instead (EDS#197, `platform/freertos/freertos_exec.h`): no tick task, no
+> lock, and `freertos_exec_lend()`/`freertos_exec_lend_end()` are the
+> callbacks. A production build refuses to run without callbacks;
+> development/CI builds are unaffected.
 
 ### 5b.4 Testing with xaloqi-tester
 

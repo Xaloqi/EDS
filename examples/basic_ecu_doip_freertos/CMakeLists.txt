@@ -170,6 +170,7 @@ add_executable(eds_freertos_doip
 
     # FreeRTOS platform (minimal: NVM + platform init, no CAN task)
     ${DIAG_ROOT}/platform/freertos/freertos_platform_api.c
+    ${DIAG_ROOT}/platform/freertos/freertos_exec.c        # [EDS#197] the diagnostic executor
     ${DIAG_ROOT}/platform/freertos/freertos_nvm.c
 
     # Config databases
@@ -363,3 +364,23 @@ set_target_properties(eds_freertos_doip PROPERTIES
     OUTPUT_NAME "eds_freertos_doip"
     SUFFIX ".elf"
 )
+
+# [EDS#197] Test only (QEMU, real lwIP): tests/freertos_doip_selftest runs
+# the SESSION_END scenario against this example over lwIP's loopback
+# interface and exits QEMU through semihosting with its verdict (run QEMU
+# with -semihosting). EDS_RACE_POINTS turns the race-point hook on
+# (core/eds_race_point.h); UNIT_TEST stays host-only. Never a firmware image.
+set(DIAG_DOIP_SELFTEST "" CACHE STRING "Test only (QEMU + lwIP): SESSION_END")
+if(DIAG_DOIP_SELFTEST)
+    if(LWIP_STUB)
+        message(FATAL_ERROR "[DIAG] DIAG_DOIP_SELFTEST needs a real lwIP (-DLWIP_DIR=...).")
+    endif()
+    set(_selftest ${DIAG_ROOT}/tests/freertos_doip_selftest/doip_selftest_freertos.c)
+    target_sources(eds_freertos_doip PRIVATE ${_selftest})
+    target_compile_definitions(eds_freertos_doip PRIVATE
+        DIAG_DOIP_SELFTEST_${DIAG_DOIP_SELFTEST}=1
+        INCLUDE_uxTaskGetStackHighWaterMark=1
+        INCLUDE_xTaskGetHandle=1
+        EDS_RACE_POINTS=1
+    )
+endif()
