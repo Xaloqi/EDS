@@ -27,6 +27,8 @@
  *     - test_job_without_frame_waits_for_tick
  *     - test_disconnect_discards_frame_routed_to_gone_producer
  *     - test_disconnect_aborts_running_job
+ *     - test_foreign_disconnect_in_unowned_session_leaves_job (EDS#664)
+ *     - test_own_disconnect_end_session_aborts_own_job (EDS#664)
  *     - test_periodic_frames_go_to_subscriber
  *     - test_0x2a_from_producer_without_periodic_tx_gets_0x22
  *     - test_periodic_for_unknown_src_is_dropped
@@ -642,6 +644,61 @@ ZTEST(uds_exec_suite, test_disconnect_aborts_running_job)
     zassert_equal(g_job_aborts, 1U, "CAN's job not aborted");
 }
 
+static void call_end_doip_session_only(uds_server_ctx_t *srv, void *arg);
+
+/** TC-EXEC-GONE-003: [EDS#664] CAN's job runs in the default session, which
+ *  no request opened, so nobody owns it. DoIP connects, then disconnects:
+ *  the disconnect's end-of-session must not abort the job CAN started. DoIP's
+ *  own job, started the same way, is still aborted by its disconnect. */
+ZTEST(uds_exec_suite, test_foreign_disconnect_in_unowned_session_leaves_job)
+{
+    static bool ended;
+
+    setup();
+    prod_reset();
+    g_job_left = 100U;
+    zassert_equal(submit(&g_p[IDX_CAN], k_31, 4U, UDS_ADDRESSING_PHYSICAL), UDS_EXEC_POSTED, "");
+    (void)uds_exec_run_once(&g_ex);
+    uds_exec_release(&g_ex, SRC_CAN);
+    zassert_true(uds_exec_job_pending(&g_ex, SRC_CAN), "CAN's job runs");
+
+    uds_exec_disconnect(&g_ex, SRC_DOIP);
+    zassert_equal(uds_exec_call(&g_ex, SRC_DOIP, call_end_doip_session_only, &ended),
+                  UDS_STATUS_OK, "DoIP's end-of-session call");
+    (void)uds_exec_run_once(&g_ex);
+    uds_exec_release(&g_ex, SRC_DOIP);
+    zassert_equal(g_job_aborts, 0U, "CAN's job was not aborted by DoIP's disconnect");
+    zassert_true(uds_exec_job_pending(&g_ex, SRC_CAN), "still running");
+
+    g_job_left = 0U;
+    drain();
+    zassert_equal(g_p[IDX_CAN].got[g_p[IDX_CAN].got_n - 1U].data[0], 0x71U,
+                  "CAN's job reaches its final response");
+    zassert_equal(g_job_aborts, 0U, "never aborted");
+}
+
+/** TC-EXEC-GONE-004: [EDS#664] the same disconnect still aborts a job DoIP
+ *  started itself, on the lock path too (no uds_exec_disconnect()): the
+ *  server remembers which source deferred the job. */
+ZTEST(uds_exec_suite, test_own_disconnect_end_session_aborts_own_job)
+{
+    static bool ended;
+
+    setup();
+    prod_reset();
+    g_job_left = 100U;
+    zassert_equal(submit(&g_p[IDX_DOIP], k_31, 4U, UDS_ADDRESSING_PHYSICAL), UDS_EXEC_POSTED, "");
+    (void)uds_exec_run_once(&g_ex);
+    uds_exec_release(&g_ex, SRC_DOIP);
+
+    zassert_equal(uds_exec_call(&g_ex, SRC_DOIP, call_end_doip_session_only, &ended),
+                  UDS_STATUS_OK, "");
+    (void)uds_exec_run_once(&g_ex);
+    uds_exec_release(&g_ex, SRC_DOIP);
+    zassert_equal(g_job_aborts, 1U, "DoIP's own job aborted once");
+    zassert_false(uds_exec_job_pending(&g_ex, SRC_DOIP), "over");
+}
+
 static const uint8_t k_2a_fast_ab[] = { 0x2AU, 0x03U, 0xABU };
 
 /** TC-EXEC-ROUTE-002: a periodic subscription records its source; its
@@ -837,6 +894,11 @@ ZTEST(uds_exec_suite, test_reset_owed_to_dropped_producer_does_not_stall)
 static uds_server_ctx_t *g_call_srv;
 static uint32_t          g_call_runs;
 
+static void call_end_doip_session_only(uds_server_ctx_t *srv, void *arg)
+{
+    *(bool *)arg = uds_server_end_session(srv, SRC_DOIP);
+}
+
 static void call_end_doip_session(uds_server_ctx_t *srv, void *arg)
 {
     g_call_srv = srv;
@@ -947,6 +1009,8 @@ void run_all_tests(void)
     RUN_TEST(uds_exec_suite__test_job_without_frame_waits_for_tick);
     RUN_TEST(uds_exec_suite__test_disconnect_discards_frame_routed_to_gone_producer);
     RUN_TEST(uds_exec_suite__test_disconnect_aborts_running_job);
+    RUN_TEST(uds_exec_suite__test_foreign_disconnect_in_unowned_session_leaves_job);
+    RUN_TEST(uds_exec_suite__test_own_disconnect_end_session_aborts_own_job);
     RUN_TEST(uds_exec_suite__test_periodic_frames_go_to_subscriber);
     RUN_TEST(uds_exec_suite__test_0x2a_from_producer_without_periodic_tx_gets_0x22);
     RUN_TEST(uds_exec_suite__test_periodic_for_unknown_src_is_dropped);

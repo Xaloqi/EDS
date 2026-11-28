@@ -227,6 +227,7 @@ struct uds_server_ctx {
     /* [EDS#197] Appended after `pending` so no earlier member moves. */
     uint8_t             rx_src;                                 /**< [EDS#197] Source of the request being dispatched. */
     uint8_t             session_owner;                          /**< [EDS#197] Source that left DEFAULT, or UDS_SERVER_SRC_NONE. */
+    uint8_t             pending_src;                            /**< [EDS#664] Source whose request deferred the pending job. */
 };
 
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L) && !defined(MISRA_ANALYSIS)
@@ -379,7 +380,9 @@ uint8_t uds_server_request_src(const uds_server_ctx_t *ctx);
  * same resets.
  *
  * Does nothing when another source owns the session, so a transport's
- * disconnect cannot end a session another transport opened.
+ * disconnect cannot end a session another transport opened. A pending job
+ * another source deferred is left running even when no one owns the session
+ * (EDS#664).
  *
  * Same lock as uds_server_process_request().
  *
