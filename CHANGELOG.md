@@ -28,7 +28,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   competes for the session (every physical request answered or 7F sid 21, no transport's session ended by the other,
   DoIP connect/disconnect churn while CAN owns a session), the round trip's p99 under `P2server_max`, and the
   server's `request_count`, read from the ECU's reset log, equal to the requests sent. The native\_sim build sets
-  `CONFIG_ETH_NATIVE_POSIX_RX_TIMEOUT=1` (the TAP driver's 50 ms poll would otherwise be in every DoIP round trip). `uds_exec_push_frame()` now says whether a frame is a
+  `CONFIG_ETH_NATIVE_POSIX_RX_TIMEOUT=1` (the TAP driver's 50 ms poll would otherwise be in every DoIP round trip).
+  `--attach` runs the same script against a board (SocketCAN and Ethernet, the console for the counters and the
+  resets), with `--soak MINUTES` and a `--histogram` CSV for the bench. `uds_exec_push_frame()` now says whether a frame is a
   periodic message (UUDT on CAN) or a job's frame. Tests: C2 (`tests/concurrency/tsan_c2_dual_transport.c`, the
   example's two producers under ThreadSanitizer) replaces the XFAIL C2 of #657, and
   `tests/concurrency/tsan_can_producer.c` checks the CAN producer's buffer and release rules.
