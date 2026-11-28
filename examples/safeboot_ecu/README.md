@@ -1,6 +1,6 @@
 # safeboot_ecu — OTA Bootloader Example (Nucleo-H743ZI)
 
-Secure OTA firmware update over UDS + MCUboot on the STM32H743ZI.
+OTA firmware update over UDS + MCUboot (signed-image check) on the STM32H743ZI.
 Demonstrates the complete RequestDownload / TransferData / RequestTransferExit (0x34/0x36/0x37)
 pipeline with CRC-32 integrity, AES-128-CMAC SecurityAccess, and atomic A/B slot swap via MCUboot.
 

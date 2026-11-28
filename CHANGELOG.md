@@ -104,6 +104,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Security wording rule, with a test** (February security theme). README, `SECURITY.md`, `INSTALL.md`, `docs/` and
+  `examples/` no longer present EDS as "secure", "hardened", "tamper-proof", "certified", "21434-compliant" or
+  "R155 compliant"; they say what the code does or what was checked. Three lines reworded ("MCUboot secure boot" in
+  the README, "in a secure build" in `SECURITY.md`, "Secure OTA" in the safeboot\_ecu README). `SecurityAccess` and
+  "security level" are unchanged. `tests/test_no_bare_security_wording.py` fails on the old wordings and on a planted one;
+  it takes the ASIL rule's file list, and its `ALLOWED_LINES` give the reason for each kept line. Pairs with the same
+  test in EDS-toolchain.
+
 - **One session end, one session-change notification** (#197). A transport's `uds_server_end_session()` no longer
   re-enters DEFAULT when S3 has already ended the session: the application heard of the same end twice
   (`on_session_change` DEFAULT -> DEFAULT on every disconnect after an S3 timeout, and on every disconnect of a

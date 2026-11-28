@@ -124,7 +124,7 @@ deployment of placeholder keys, both derived from a single shared build-mode pri
   contains the compile-time placeholder key data. This is not conditional on
   detecting the specific placeholder byte pattern; it forces the integrator to
   affirmatively prove intent (inject real keys via `uds_security_algo_set_level_key()`,
-  or edit the key array in a secure build) before a production flag is honoured.
+  or edit the key array in your own build) before a production flag is honoured.
 - **Runtime guard** in the generated init sequence (Step 7.1): refuses to start
   (`UDS_STATUS_ERR_CONDITIONS_NOT_MET`) if `uds_security_algo_keys_are_placeholder()`
   still reports placeholder keys in a production build.
