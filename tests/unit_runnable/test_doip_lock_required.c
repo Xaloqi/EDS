@@ -35,6 +35,9 @@
  *               so the function returns UDS_STATUS_ERR_PLATFORM without
  *               blocking in the accept loop). Proves the fix does not
  *               break a correctly-configured production build.
+ *   TC-DLR-003  [EDS#197] Production build, an executor set and no lock
+ *               callbacks -> the guard does not fire either: the executor
+ *               is accepted in place of the deprecated locks (decision D).
  *
  * VERIFIED (run-014): with the EDS#358 guard temporarily reverted,
  * TC-DLR-001 does not report a clean assertion failure -- it hangs,
@@ -54,6 +57,8 @@
  * =============================================================================
  */
 
+/* Covers the deprecated eds_doip_set_lock_callbacks() path too (EDS#197). */
+#define EDS_DOIP_ALLOW_DEPRECATED
 #include <zephyr/ztest.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -273,12 +278,55 @@ ZTEST(test_doip_lock_required, tc002_locks_registered_production_proceeds)
     eds_doip_set_lock_callbacks(NULL, NULL); /* leave clean for any later test */
 }
 
+/* --------------------------------------------------------------------------
+ * TC-DLR-003: [EDS#197] executor set, no locks -> guard does not fire.
+ * -------------------------------------------------------------------------- */
+static bool dummy_wait(uint8_t src, uint32_t timeout_ms)
+{
+    (void)src;
+    (void)timeout_ms;
+    return false;
+}
+
+ZTEST(test_doip_lock_required, tc003_executor_production_proceeds)
+{
+    static uds_exec_t   ex;   /* never run: only its registration matters */
+    doip_server_state_t s;
+    uds_server_ctx_t    uds_ctx;
+    uds_status_t        rc;
+
+    (void)memset(&uds_ctx, 0, sizeof(uds_ctx));
+    rc = eds_doip_register_platform(&g_mock_ops);
+    zassert_equal(rc, UDS_STATUS_OK, "register_platform failed");
+    eds_doip_set_lock_callbacks(NULL, NULL);
+    zassert_equal(eds_doip_set_executor(&ex, NULL), UDS_STATUS_ERR_NULL_PTR,
+        "an executor needs its wait");
+    zassert_equal(eds_doip_set_executor(&ex, dummy_wait), UDS_STATUS_OK, "");
+    rc = eds_doip_server_init(&s, 0xE400U);
+    zassert_equal(rc, UDS_STATUS_OK, "server_init failed");
+
+    g_mock_listen_calls = 0;
+    g_mock_listen_rc    = -1; /* deliberate failure: returns before the accept loop */
+    g_mock_accept_calls = 0;
+
+    rc = eds_doip_server_run(&s, &uds_ctx, DOIP_PORT);
+    zassert_equal(rc, UDS_STATUS_ERR_PLATFORM,
+        "an executor alone satisfies the production gate");
+    zassert_equal(g_mock_listen_calls, 1, "reached tcp_listen()");
+
+    (void)eds_doip_set_executor(NULL, NULL); /* leave clean for any later test */
+    rc = eds_doip_server_run(&s, &uds_ctx, DOIP_PORT);
+    zassert_equal(rc, UDS_STATUS_ERR_NOT_INITIALIZED, "neither: refused again");
+}
+
 /* run_all_tests shim */
 extern void test_doip_lock_required__tc001_no_locks_production_refuses(void);
 extern void test_doip_lock_required__tc002_locks_registered_production_proceeds(void);
+extern void test_doip_lock_required__tc003_executor_production_proceeds(void);
 
 void run_all_tests(void)
 {
     RUN_TEST(test_doip_lock_required__tc001_no_locks_production_refuses);
     RUN_TEST(test_doip_lock_required__tc002_locks_registered_production_proceeds);
+    RUN_TEST(test_doip_lock_required__tc003_executor_production_proceeds);
 }

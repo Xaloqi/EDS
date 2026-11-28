@@ -29,13 +29,8 @@
  *    2. A posted slot's buffers are the executor's until it is done with
  *       them; receive the next request into a buffer of your own.
  *
- *  Transitional (until DoIP runs on the executor, EDS#197 J6): the DoIP
- *  server still calls the UDS server from its own thread, between its lock
- *  callbacks. zephyr_exec_lend() and zephyr_exec_lend_end() are those
- *  callbacks: lend() posts a call that parks the executor and returns once
- *  it is parked, so the DoIP thread holds the server alone; lend_end()
- *  unparks it and releases the slot. No mutex: the executor's slot is the
- *  exclusion.
+ *  DoIP (EDS#197 J6): eds_doip_set_executor(zephyr_exec_get(),
+ *  zephyr_exec_wait_event) makes the DoIP thread a producer.
  *
  * SAFETY  : No malloc. No recursion. One executor per image (static state).
  * STANDARD: MISRA C:2012 alignment intended.
@@ -57,9 +52,11 @@
 extern "C" {
 #endif
 
-/** Executor thread stack. Ticks, the S3 reset and the periodic read run on it. */
+/** Executor thread stack. Every UDS dispatch runs on it (EDS#197 J6), as on
+ *  the CAN diag task: the same 4096 bytes as CONFIG_DIAG_TASK_STACK_SIZE
+ *  (about 1600 bytes measured worst case), plus ticks and the periodic read. */
 #ifndef EDS_EXEC_STACK_SIZE
-#define EDS_EXEC_STACK_SIZE   (1024U)
+#define EDS_EXEC_STACK_SIZE   (4096U)
 #endif
 
 /** Executor thread priority: above the DoIP thread (7), like the tick task it replaces. */
@@ -75,15 +72,13 @@ typedef struct zephyr_exec_cfg {
     uint8_t                        producer_count;
     void                         (*reset)(uint8_t reset_type); /**< Optional (uds_exec_cfg_t).   */
     void                         (*after_pass)(void);          /**< Optional, executor thread.   */
-    uint8_t                        lend_src;       /**< Slot zephyr_exec_lend() uses.            */
 } zephyr_exec_cfg_t;
 
 /**
  * @brief Initialize the executor and start its thread and 1 ms timer.
  *        Call once, before any producer runs.
  * @return UDS_STATUS_OK; UDS_STATUS_ERR_NULL_PTR; UDS_STATUS_ERR_ALREADY_INITIALIZED;
- *         UDS_STATUS_ERR_INVALID_PARAM (see uds_exec_init(), or lend_src is
- *         not one of the producers).
+ *         UDS_STATUS_ERR_INVALID_PARAM (see uds_exec_init()).
  */
 uds_status_t zephyr_exec_start(const zephyr_exec_cfg_t *cfg);
 
@@ -97,11 +92,13 @@ uds_exec_t *zephyr_exec_get(void);
  */
 bool zephyr_exec_wait(uint8_t src, k_timeout_t timeout);
 
-/** @brief Transitional DoIP lock callback: park the executor (see above). */
-void zephyr_exec_lend(void);
-
-/** @brief Transitional DoIP unlock callback: unpark it and release the slot. */
-void zephyr_exec_lend_end(void);
+/**
+ * @brief Producer: wait until the executor signals src (its request or call
+ *        ran, or a frame was routed to it), or timeout_ms. An early return
+ *        is possible; check the slot again. eds_doip_exec_wait_cb_t.
+ * @return true if signalled.
+ */
+bool zephyr_exec_wait_event(uint8_t src, uint32_t timeout_ms);
 
 #ifdef __cplusplus
 }

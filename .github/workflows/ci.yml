@@ -374,6 +374,14 @@ jobs:
       - name: Verify a production build exports no test-only accessor
         run: python3 scripts/verify_no_test_hooks.py
 
+      # [EDS#197 J6] Every UDS server/session/security call in transport/doip/
+      # runs on the executor path (doip_on_server()). The canary plants a
+      # call on the DoIP thread and a direct doip_srv_*() call: both must fail.
+      - name: Verify DoIP calls the UDS server only through the executor path
+        run: |
+          python3 scripts/verify_doip_exec_path.py --self-test
+          python3 scripts/verify_doip_exec_path.py
+
       - name: Verify pre-committed test files present
         run: |
           test -f examples/basic_ecu/generated/tests/conftest.py     && echo "OK: conftest.py" || exit 1

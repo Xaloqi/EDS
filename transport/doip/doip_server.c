@@ -17,8 +17,12 @@
  *            - NO recursion.
  *            - NO direct calls to LwIP, zsock_*, or any RTOS API.
  *              All platform interaction goes through eds_doip_platform_ops_t.
- *            - UDS core (uds_server_process_request) is called synchronously
- *              in the DoIP task — one request at a time per session.
+ *            - [EDS#197] Every UDS server call runs on the server's owner:
+ *              the diagnostic executor (eds_doip_set_executor()), or,
+ *              deprecated, this thread between the lock callbacks. The
+ *              doip_srv_*() functions below hold all of them;
+ *              scripts/verify_doip_exec_path.py checks that. One request
+ *              at a time per connection.
  *            - The ASIL-B 5-step safety chain runs inside uds_server.c
  *              unchanged regardless of transport.
  *
@@ -58,9 +62,24 @@ LOG_MODULE_REGISTER(doip_wcet, LOG_LEVEL_INF);
 
 static const eds_doip_platform_ops_t *s_ops = NULL;
 
-/* [EDS#353] Lock callbacks around uds_server_process_request() -- optional
- * in development/CI builds, [EDS#358] required in production (see the
- * EDS_BUILD_IS_PRODUCTION guard in eds_doip_server_run() below). */
+/* [EDS#197] The diagnostic executor -- see eds_doip_set_executor(). In a
+ * production build eds_doip_server_run() needs it or the lock pair below. */
+static uds_exec_t              *s_exec      = NULL;
+static eds_doip_exec_wait_cb_t  s_exec_wait = NULL;
+
+/* A request given up on while it may still run (DOIP_EXEC_WAIT_MS): its
+ * buffers stay the executor's until a later post shows the slot free. */
+static bool s_exec_abandoned = false;
+
+/* This server's request source (core/uds_exec.h, uds_server.h). */
+#define DOIP_SRC            ((uint8_t)EDS_DOIP_UDS_SRC)
+
+/* Longest single wait for the executor: the server checks in after each. */
+#define DOIP_EXEC_SLICE_MS  (100U)
+
+/* [EDS#353] Lock callbacks around the UDS calls -- deprecated (EDS#197 ⬥D),
+ * [EDS#358] accepted by the production gate in place of an executor during
+ * the deprecation release. */
 static eds_doip_lock_cb_t   s_doip_lock_cb   = NULL;
 static eds_doip_unlock_cb_t s_doip_unlock_cb = NULL;
 
@@ -109,9 +128,19 @@ static uds_status_t doip_run_pending_poll(doip_server_state_t *s,
                                           uint8_t              original_sid,
                                           uds_msg_buf_t       *resp_buf);
 static uds_status_t doip_run_pending(doip_server_state_t *s,
+                                     uds_server_ctx_t    *uds_ctx,
                                      uint8_t original_sid,
                                      uds_msg_buf_t *resp_buf);
 static void doip_run_pending_reset(uds_server_ctx_t *uds_ctx);
+static uds_status_t doip_lock_exchange(doip_server_state_t *s,
+                                       uds_server_ctx_t    *uds_ctx,
+                                       uint8_t              original_sid,
+                                       uds_msg_buf_t       *req_buf,
+                                       uds_msg_buf_t       *resp_buf);
+static uds_status_t doip_exec_exchange(doip_server_state_t *s,
+                                       uint8_t              original_sid,
+                                       uds_msg_buf_t       *req_buf,
+                                       uds_msg_buf_t       *resp_buf);
 static uds_status_t doip_send_frame(doip_server_state_t *s,
                                      uint16_t payload_type,
                                      const uint8_t *payload,
@@ -209,6 +238,20 @@ uds_status_t eds_doip_register_platform(const eds_doip_platform_ops_t *ops)
     return UDS_STATUS_OK;
 }
 
+uds_status_t eds_doip_set_executor(uds_exec_t *ex, eds_doip_exec_wait_cb_t wait)
+{
+    uds_status_t rc = UDS_STATUS_OK;
+
+    if ((ex != NULL) && (wait == NULL)) {
+        rc = UDS_STATUS_ERR_NULL_PTR;
+    } else {
+        s_exec           = ex;
+        s_exec_wait      = wait;
+        s_exec_abandoned = false;
+    }
+    return rc;
+}
+
 void eds_doip_set_lock_callbacks(
     eds_doip_lock_cb_t   lock_cb,
     eds_doip_unlock_cb_t unlock_cb)
@@ -260,6 +303,166 @@ static void doip_checkin(void)
     if (s_doip_checkin_cb != NULL) {
         s_doip_checkin_cb();
     }
+}
+
+/* ===========================================================================
+ * [EDS#197] The executor path: every call into the UDS server
+ *
+ * Each doip_srv_*() function runs where the server is owned: on the
+ * executor through uds_exec_call(), or (deprecated) on this thread between
+ * the lock callbacks, or, in a development build with neither, on this
+ * thread as before EDS#353. They are only ever passed to doip_on_server().
+ * A diagnostic request goes through uds_exec_submit() instead
+ * (doip_exec_dispatch()). scripts/verify_doip_exec_path.py fails CI on a
+ * UDS server, session or security call anywhere else in transport/doip/.
+ *
+ * Their arguments are the static blocks below, read directly (the arg is
+ * unused): a call the server gave up on (DOIP_EXEC_WAIT_MS) may still run,
+ * and must not write to a stack frame that has gone. The slot stays busy
+ * until it has, so the next call cannot reuse a block early.
+ * ======================================================================== */
+
+typedef struct {
+    const uds_msg_buf_t *req;
+    uds_msg_buf_t       *resp;
+    uds_status_t         rc;
+} doip_srv_dispatch_arg_t;
+
+typedef struct {
+    uds_msg_buf_t     *frame;
+    uds_poll_result_t  rc;
+    bool               more;
+} doip_srv_job_arg_t;
+
+typedef struct {
+    uint8_t      vin[DOIP_VIN_LEN];
+    uds_status_t rc;
+} doip_srv_vin_arg_t;
+
+static doip_srv_dispatch_arg_t s_srv_dispatch;
+static doip_srv_job_arg_t      s_srv_job;
+static doip_srv_vin_arg_t      s_srv_vin;
+static uint8_t                 s_srv_reset_type;
+
+/* Lock path only: the executor dispatches through uds_exec_submit(). */
+static void doip_srv_dispatch(uds_server_ctx_t *srv, void *arg)
+{
+    (void)arg;
+    s_srv_dispatch.rc = uds_server_process_request_src(srv, s_srv_dispatch.req,
+                                                       s_srv_dispatch.resp,
+                                                       UDS_ADDRESSING_PHYSICAL, DOIP_SRC);
+}
+
+/* Lock path only: the executor polls the job itself. */
+static void doip_srv_poll(uds_server_ctx_t *srv, void *arg)
+{
+    (void)arg;
+    s_srv_job.rc = uds_server_poll(srv, s_srv_job.frame);
+}
+
+static void doip_srv_frame_sent(uds_server_ctx_t *srv, void *arg)
+{
+    (void)arg;
+    uds_server_frame_sent(srv);
+}
+
+/* Lock path only: the executor takes the reset after each request. */
+static void doip_srv_take_reset(uds_server_ctx_t *srv, void *arg)
+{
+    (void)arg;
+    (void)uds_server_take_pending_reset(srv, &s_srv_reset_type);
+}
+
+/* [EDS#423] The deprecated continuation touches the server too. */
+static void doip_srv_pending_cb(uds_server_ctx_t *srv, void *arg)
+{
+    (void)srv;
+    (void)arg;
+    s_srv_job.more = s_doip_pending_cb(s_srv_job.frame);
+}
+
+static void doip_srv_read_vin(uds_server_ctx_t *srv, void *arg)
+{
+    (void)arg;
+    s_srv_vin.rc = s_discovery.get_vin(srv, s_srv_vin.vin);
+}
+
+static void doip_srv_end_session(uds_server_ctx_t *srv, void *arg)
+{
+    (void)arg;
+    (void)uds_server_end_session(srv, DOIP_SRC);
+}
+
+/* Touches nothing: posting it shows that the slot is free again. */
+static void doip_srv_barrier(uds_server_ctx_t *srv, void *arg)
+{
+    (void)srv;
+    (void)arg;
+}
+
+/* True once DOIP_EXEC_WAIT_MS has passed since age. */
+static bool doip_exec_late(const eds_elapsed_t *age)
+{
+    return eds_elapsed_since(age, s_ops->uptime_ms()) >= (uint32_t)DOIP_EXEC_WAIT_MS;
+}
+
+/* Wait until the DoIP slot's request or call has run, checking in between
+ * waits. false: not within DOIP_EXEC_WAIT_MS of age. */
+static bool doip_exec_wait_done(const eds_elapsed_t *age)
+{
+    bool done = uds_exec_done(s_exec, DOIP_SRC);
+
+    while (!done && !doip_exec_late(age)) {
+        doip_checkin();
+        (void)s_exec_wait(DOIP_SRC, DOIP_EXEC_SLICE_MS);
+        done = uds_exec_done(s_exec, DOIP_SRC);
+    }
+    return done;
+}
+
+/* fn on the executor, through the DoIP slot. The slot is busy only while a
+ * request or call given up on still runs: retry until it is free. Released
+ * on every path (contract 1). false: fn did not run in time. */
+static bool doip_exec_call(uds_exec_fn_t fn, void *arg)
+{
+    eds_elapsed_t age;
+    bool          posted = false;
+    bool          ran    = false;
+
+    eds_elapsed_init(&age, s_ops->uptime_ms());
+    posted = (uds_exec_call(s_exec, DOIP_SRC, fn, arg) == UDS_STATUS_OK);
+    while (!posted && !doip_exec_late(&age)) {
+        doip_checkin();
+        (void)s_exec_wait(DOIP_SRC, DOIP_EXEC_SLICE_MS);
+        posted = (uds_exec_call(s_exec, DOIP_SRC, fn, arg) == UDS_STATUS_OK);
+    }
+    if (posted) {
+        s_exec_abandoned = false;   /* the slot was free: nothing still runs */
+        ran = doip_exec_wait_done(&age);
+        uds_exec_release(s_exec, DOIP_SRC);
+        s_exec_abandoned = !ran;
+    }
+    return ran;
+}
+
+/* Run fn where the server is owned (see above). false: the executor did
+ * not run it within DOIP_EXEC_WAIT_MS; fn's results are not set. */
+static bool doip_on_server(uds_server_ctx_t *uds_ctx, uds_exec_fn_t fn, void *arg)
+{
+    bool ran = true;
+
+    if (s_exec != NULL) {
+        ran = doip_exec_call(fn, arg);
+    } else {
+        if (s_doip_lock_cb != NULL) {
+            s_doip_lock_cb();
+        }
+        fn(uds_ctx, arg);
+        if (s_doip_unlock_cb != NULL) {
+            s_doip_unlock_cb();
+        }
+    }
+    return ran;
 }
 
 /* ---------------------------------------------------------------------------
@@ -445,6 +648,13 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
             return UDS_STATUS_OK;
         }
 
+        /* [EDS#197] A request this thread gave up on may still be using
+         * req_buf/resp_buf on the executor: wait for its slot first. */
+        if (s_exec_abandoned && !doip_on_server(uds_ctx, doip_srv_barrier, NULL)) {
+            s->frames_received++;
+            return UDS_STATUS_ERR_PLATFORM;
+        }
+
         /* Send positive ack before dispatching (ISO 13400-2 §9.5).
          *
          * [Issue #105 follow-up] A failed/partial ack send leaves this
@@ -470,49 +680,15 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
         (void)memcpy(req_buf->data, uds_pdu, (size_t)uds_len);
         req_buf->length = (uint16_t)uds_len;
 
-        /* [EDS#353] Serialize against whatever else touches uds_ctx (this
-         * example's own UDS tick task, at minimum — see EDS#191). */
-        if (s_doip_lock_cb != NULL) {
-            s_doip_lock_cb();
-        }
-        uds_status_t dispatch_rc = uds_server_process_request_src(
-            uds_ctx, req_buf, resp_buf, UDS_ADDRESSING_PHYSICAL,
-            (uint8_t)EDS_DOIP_UDS_SRC);
-        if (s_doip_unlock_cb != NULL) {
-            s_doip_unlock_cb();
-        }
-        uds_status_t resp_send_rc = UDS_STATUS_OK;
-        if (dispatch_rc == UDS_STATUS_OK && resp_buf->length > 0U) {
-            resp_send_rc = doip_send_uds_response(s, original_sid, resp_buf);
-            /* [EDS#423] A 7F xx 78 answer is not the end of the exchange:
-             * finish it here if the application registered a continuation. */
-            if ((resp_send_rc == UDS_STATUS_OK) && doip_is_response_pending(resp_buf)) {
-                if (s_doip_pending_cb != NULL) {
-                    resp_send_rc = doip_run_pending(s, original_sid, resp_buf);
-                } else {
-                    /* [EDS#282] The server's own pending job. */
-                    resp_send_rc = doip_run_pending_poll(s, uds_ctx, original_sid, resp_buf);
-                }
-            }
-        }
-        /* Suppress-positive-response: if dispatch returned suppress status,
-         * no response frame is sent (ISO 14229-1:2026 §7.7.3). This is
-         * handled inside uds_server_process_request — resp_buf->length == 0. */
-        s->frames_received++;
-
-        /* [EDS#434] An ECUReset is performed only now, with its response
-         * handed to the stack (or suppressed). Not after a failed send: the
-         * tester never got its answer, and the connection is torn down. */
-        if (resp_send_rc == UDS_STATUS_OK) {
-            doip_run_pending_reset(uds_ctx);
-        }
-
-        /* [Issue #105 follow-up] Same reasoning as the ack above: a failed
-         * response send can leave a partial DoIP frame on the wire, so the
-         * connection must be torn down rather than left open — the peer
-         * would otherwise wait on bytes that are never coming, or misparse
-         * whatever arrives next as a continuation of this frame. */
-        if (resp_send_rc != UDS_STATUS_OK) {
+        /* [Issue #105 follow-up] A failed response send can leave a partial
+         * DoIP frame on the wire, so the connection must be torn down rather
+         * than left open — the peer would otherwise wait on bytes that are
+         * never coming, or misparse whatever arrives next as a continuation
+         * of this frame. So does a request the executor did not run in time. */
+        uds_status_t exch_rc = (s_exec != NULL)
+            ? doip_exec_exchange(s, original_sid, req_buf, resp_buf)
+            : doip_lock_exchange(s, uds_ctx, original_sid, req_buf, resp_buf);
+        if (exch_rc != UDS_STATUS_OK) {
             return UDS_STATUS_ERR_PLATFORM;
         }
         return UDS_STATUS_OK;
@@ -524,6 +700,152 @@ uds_status_t doip_handle_frame(doip_server_state_t *s,
     default:
         return UDS_STATUS_OK;
     }
+}
+
+/* ---------------------------------------------------------------------------
+ * Internal: doip_lock_exchange / doip_exec_exchange  [EDS#197]
+ *
+ * One diagnostic request, dispatched and answered. Non-OK: close the
+ * connection (a send failed, or the executor did not run the request).
+ * ------------------------------------------------------------------------ */
+
+/* Deprecated lock path, and development builds with neither: the server is
+ * called from this thread, as before EDS#197. */
+static uds_status_t doip_lock_exchange(doip_server_state_t *s,
+                                       uds_server_ctx_t    *uds_ctx,
+                                       uint8_t              original_sid,
+                                       uds_msg_buf_t       *req_buf,
+                                       uds_msg_buf_t       *resp_buf)
+{
+    uds_status_t resp_send_rc = UDS_STATUS_OK;
+
+    s_srv_dispatch.req  = req_buf;
+    s_srv_dispatch.resp = resp_buf;
+    (void)doip_on_server(uds_ctx, doip_srv_dispatch, NULL);
+    if ((s_srv_dispatch.rc == UDS_STATUS_OK) && (resp_buf->length > 0U)) {
+        resp_send_rc = doip_send_uds_response(s, original_sid, resp_buf);
+        /* [EDS#423] A 7F xx 78 answer is not the end of the exchange:
+         * finish it here if the application registered a continuation. */
+        if ((resp_send_rc == UDS_STATUS_OK) && doip_is_response_pending(resp_buf)) {
+            if (s_doip_pending_cb != NULL) {
+                resp_send_rc = doip_run_pending(s, uds_ctx, original_sid, resp_buf);
+            } else {
+                /* [EDS#282] The server's own pending job. */
+                resp_send_rc = doip_run_pending_poll(s, uds_ctx, original_sid, resp_buf);
+            }
+        }
+    }
+    /* Suppress-positive-response: if dispatch returned suppress status,
+     * no response frame is sent (ISO 14229-1:2026 §7.7.3). This is
+     * handled inside uds_server_process_request — resp_buf->length == 0. */
+    s->frames_received++;
+
+    /* [EDS#434] An ECUReset is performed only now, with its response
+     * handed to the stack (or suppressed). Not after a failed send: the
+     * tester never got its answer, and the connection is torn down. */
+    if (resp_send_rc == UDS_STATUS_OK) {
+        doip_run_pending_reset(uds_ctx);
+    }
+    return resp_send_rc;
+}
+
+/* Post the request to the executor and wait for it. OK: resp_buf holds the
+ * answer (length 0: none) and, if posted, the slot is still held. */
+static uds_status_t doip_exec_dispatch(uint8_t        original_sid,
+                                       uds_msg_buf_t *req_buf,
+                                       uds_msg_buf_t *resp_buf)
+{
+    uds_status_t  rc = UDS_STATUS_OK;
+    eds_elapsed_t age;
+
+    eds_elapsed_init(&age, s_ops->uptime_ms());
+    switch (uds_exec_submit(s_exec, DOIP_SRC, req_buf, resp_buf, UDS_ADDRESSING_PHYSICAL)) {
+    case UDS_EXEC_POSTED:
+        if (!doip_exec_wait_done(&age)) {
+            /* Contract 1, a timeout: withdrawn if it has not run yet. */
+            uds_exec_release(s_exec, DOIP_SRC);
+            s_exec_abandoned = true;
+            rc = UDS_STATUS_ERR_TIMEOUT;
+        }
+        break;
+    case UDS_EXEC_REJECT_BUSY:
+        /* Another producer's job step runs now: busyRepeatRequest, within P2. */
+        (void)uds_server_build_negative_response(original_sid,
+                                                  UDS_NRC_BUSY_REPEAT_REQUEST,
+                                                  resp_buf);
+        break;
+    default:
+        /* DROPPED is for functional requests; INVALID: no executor slot
+         * for EDS_DOIP_UDS_SRC. Nothing to send either way. */
+        resp_buf->length = 0U;
+        break;
+    }
+    return rc;
+}
+
+/* The executor's job routes its frames here; send each, report it. Ends at
+ * the final response, when the job ends without one (aborted with its
+ * session), on a send error, or after DOIP_MAX_PENDING_MS. */
+static uds_status_t doip_exec_run_job(doip_server_state_t *s,
+                                      uint8_t              original_sid,
+                                      uds_msg_buf_t       *resp_buf)
+{
+    uds_status_t         rc   = UDS_STATUS_OK;
+    bool                 done = false;
+    const uds_msg_buf_t *frame;
+    eds_elapsed_t        pending_age;
+
+    eds_elapsed_init(&pending_age, s_ops->uptime_ms());
+    while (!done) {
+        if (eds_elapsed_since(&pending_age, s_ops->uptime_ms()) >=
+            (uint32_t)DOIP_MAX_PENDING_MS) {
+            rc = UDS_STATUS_ERR_TIMEOUT;
+            break;
+        }
+        doip_checkin();
+        frame = uds_exec_push_frame(s_exec, DOIP_SRC);
+        if (frame != NULL) {
+            resp_buf->length = frame->length;
+            (void)memcpy(resp_buf->data, frame->data, (size_t)frame->length);
+            rc = doip_send_uds_response(s, original_sid, resp_buf);
+            uds_exec_push_done(s_exec, DOIP_SRC, rc == UDS_STATUS_OK);
+            done = (rc != UDS_STATUS_OK) || !doip_is_response_pending(resp_buf);
+        } else if (!uds_exec_job_pending(s_exec, DOIP_SRC)) {
+            done = true;
+        } else {
+            (void)s_exec_wait(DOIP_SRC, DOIP_EXEC_SLICE_MS);
+        }
+    }
+    return rc;
+}
+
+/* The executor path: no UDS call on this thread. */
+static uds_status_t doip_exec_exchange(doip_server_state_t *s,
+                                       uint8_t              original_sid,
+                                       uds_msg_buf_t       *req_buf,
+                                       uds_msg_buf_t       *resp_buf)
+{
+    uds_status_t rc      = doip_exec_dispatch(original_sid, req_buf, resp_buf);
+    bool         pending = false;
+
+    if (rc == UDS_STATUS_OK) {
+        if (resp_buf->length > 0U) {
+            rc = doip_send_uds_response(s, original_sid, resp_buf);
+            pending = (rc == UDS_STATUS_OK) && doip_is_response_pending(resp_buf);
+        }
+        /* Contract 1: sent, suppressed, or a send error. An ECUReset the
+         * request owes is performed by the executor after this, even when
+         * the send failed: the request ran (EDS#197, as for a producer that
+         * dropped). */
+        uds_exec_release(s_exec, DOIP_SRC);
+    }
+    if (pending) {
+        rc = (s_doip_pending_cb != NULL)
+            ? doip_run_pending(s, NULL, original_sid, resp_buf)
+            : doip_exec_run_job(s, original_sid, resp_buf);
+    }
+    s->frames_received++;
+    return rc;
 }
 
 /* ---------------------------------------------------------------------------
@@ -619,6 +941,7 @@ static bool doip_is_response_pending(const uds_msg_buf_t *resp_buf)
  * ------------------------------------------------------------------------ */
 
 static uds_status_t doip_run_pending(doip_server_state_t *s,
+                                     uds_server_ctx_t    *uds_ctx,
                                      uint8_t original_sid,
                                      uds_msg_buf_t *resp_buf)
 {
@@ -635,13 +958,13 @@ static uds_status_t doip_run_pending(doip_server_state_t *s,
             break;
         }
         doip_checkin();
-        if (s_doip_lock_cb != NULL) {
-            s_doip_lock_cb();
+        s_srv_job.frame = resp_buf;
+        s_srv_job.more  = false;
+        if (!doip_on_server(uds_ctx, doip_srv_pending_cb, NULL)) {
+            rc = UDS_STATUS_ERR_TIMEOUT;
+            break;
         }
-        more = s_doip_pending_cb(resp_buf);
-        if (s_doip_unlock_cb != NULL) {
-            s_doip_unlock_cb();
-        }
+        more = s_srv_job.more;
         if (more) {
             rc = doip_send_uds_response(s, original_sid, resp_buf);
             if (rc != UDS_STATUS_OK) {
@@ -657,6 +980,7 @@ static uds_status_t doip_run_pending(doip_server_state_t *s,
  *
  * Drive the server's pending job (uds_server_defer()) to its final
  * response: poll inside the lock pair, send each frame, report it sent.
+ * Lock path only: on the executor, doip_exec_run_job() does this.
  * Bounded by DOIP_MAX_PENDING_MS as the callback path is, as a backstop to
  * UDS_SERVER_MAX_PENDING_MS. A failed send or the bound returns an error,
  * and the caller closes the connection, which aborts the job.
@@ -681,13 +1005,9 @@ static uds_status_t doip_run_pending_poll(doip_server_state_t *s,
             break;
         }
         doip_checkin();
-        if (s_doip_lock_cb != NULL) {
-            s_doip_lock_cb();
-        }
-        poll_rc = uds_server_poll(uds_ctx, resp_buf);
-        if (s_doip_unlock_cb != NULL) {
-            s_doip_unlock_cb();
-        }
+        s_srv_job.frame = resp_buf;
+        (void)doip_on_server(uds_ctx, doip_srv_poll, NULL);
+        poll_rc = s_srv_job.rc;
 
         switch (poll_rc) {
             case UDS_POLL_FRAME:
@@ -696,13 +1016,7 @@ static uds_status_t doip_run_pending_poll(doip_server_state_t *s,
                     done = true;
                 } else {
                     done = !doip_is_response_pending(resp_buf);
-                    if (s_doip_lock_cb != NULL) {
-                        s_doip_lock_cb();
-                    }
-                    uds_server_frame_sent(uds_ctx);
-                    if (s_doip_unlock_cb != NULL) {
-                        s_doip_unlock_cb();
-                    }
+                    (void)doip_on_server(uds_ctx, doip_srv_frame_sent, NULL);
                 }
                 break;
 
@@ -729,20 +1043,17 @@ static uds_status_t doip_run_pending_poll(doip_server_state_t *s,
  * until EDS#434 no DoIP path did. Take it inside the lock pair, as dispatch
  * set it, and hand it to the binding's ecu_reset op, which drains the
  * response, flushes NVM and resets. Returns only if the platform does not
- * support the reset type.
+ * support the reset type. Lock path only: on the executor, the executor
+ * takes the reset and performs it once the slot is released.
  * ------------------------------------------------------------------------ */
 
 static void doip_run_pending_reset(uds_server_ctx_t *uds_ctx)
 {
-    uint8_t reset_type = 0U;
+    uint8_t reset_type;
 
-    if (s_doip_lock_cb != NULL) {
-        s_doip_lock_cb();
-    }
-    (void)uds_server_take_pending_reset(uds_ctx, &reset_type);
-    if (s_doip_unlock_cb != NULL) {
-        s_doip_unlock_cb();
-    }
+    s_srv_reset_type = 0U;
+    (void)doip_on_server(uds_ctx, doip_srv_take_reset, NULL);
+    reset_type = s_srv_reset_type;
 
     if (reset_type != 0U) {
         s_ops->ecu_reset(reset_type);
@@ -879,20 +1190,20 @@ static void doip_get_eid(uint8_t eid[DOIP_EID_LEN])
     }
 }
 
-/* VIN for a response, read through the integrator's callback inside the
- * EDS#353 lock pair, so the DID path sees a consistent session/security
- * state. false: not available (no callback, or the safety wrapper refused). */
+/* VIN for a response, read through the integrator's callback where the
+ * server is owned (doip_on_server(): the executor, or the deprecated lock
+ * pair), so the DID path sees a consistent session/security state.
+ * false: not available (no callback, the safety wrapper refused, or the
+ * executor did not run the read in time). */
 static bool doip_read_vin(uds_server_ctx_t *uds_ctx, uint8_t vin[DOIP_VIN_LEN])
 {
     uds_status_t rc = UDS_STATUS_ERR_NOT_INITIALIZED;
 
     if (s_discovery.get_vin != NULL) {
-        if (s_doip_lock_cb != NULL) {
-            s_doip_lock_cb();
-        }
-        rc = s_discovery.get_vin(uds_ctx, vin);
-        if (s_doip_unlock_cb != NULL) {
-            s_doip_unlock_cb();
+        s_srv_vin.rc = UDS_STATUS_ERR_NOT_INITIALIZED;
+        if (doip_on_server(uds_ctx, doip_srv_read_vin, NULL)) {
+            rc = s_srv_vin.rc;
+            (void)memcpy(vin, s_srv_vin.vin, (size_t)DOIP_VIN_LEN);
         }
     }
     if (rc != UDS_STATUS_OK) {
@@ -1221,8 +1532,13 @@ uds_status_t eds_doip_server_run(doip_server_state_t *s,
      * keep today's permissive behaviour (EDS_BUILD_IS_PRODUCTION is 0
      * under UNIT_TEST and under the Kconfig/CMake dev-mode default) so a
      * harness or CAN-only build with no tick task is never forced to
-     * register a lock it does not need. */
-    if ((s_doip_lock_cb == NULL) || (s_doip_unlock_cb == NULL)) {
+     * register a lock it does not need.
+     *
+     * [EDS#197] The executor (eds_doip_set_executor()) removes the race:
+     * accepted in place of the locks, which stay accepted for the one
+     * deprecation release (decision ⬥D). */
+    if ((s_exec == NULL) &&
+        ((s_doip_lock_cb == NULL) || (s_doip_unlock_cb == NULL))) {
         return UDS_STATUS_ERR_NOT_INITIALIZED;
     }
 #endif
@@ -1532,16 +1848,14 @@ connection_closed:
          * or programming session (a running download, say) survives a DoIP
          * tester dropping.
          *
-         * [EDS#635] Under the EDS#353 lock pair, like every other UDS call
-         * in this file: the UDS tick task changes the same session,
-         * security and comm-control state under that lock. */
-        if (s_doip_lock_cb != NULL) {
-            s_doip_lock_cb();
+         * [EDS#635] Where the server is owned, like every other UDS call
+         * in this file. [EDS#197] On the executor, first tell it this
+         * producer is gone: a job it started is aborted and a frame routed
+         * to it is dropped, so nothing is left waiting on this connection. */
+        if (s_exec != NULL) {
+            uds_exec_disconnect(s_exec, DOIP_SRC);
         }
-        (void)uds_server_end_session(uds_ctx, (uint8_t)EDS_DOIP_UDS_SRC);
-        if (s_doip_unlock_cb != NULL) {
-            s_doip_unlock_cb();
-        }
+        (void)doip_on_server(uds_ctx, doip_srv_end_session, NULL);
     }
 
     /* Unreachable in normal operation */

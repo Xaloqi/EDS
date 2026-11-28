@@ -51,6 +51,7 @@
 
 #include "uds_types.h"
 #include "uds_server.h"
+#include "uds_exec.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -693,9 +694,76 @@ typedef struct doip_server_state {
 uds_status_t eds_doip_register_platform(const eds_doip_platform_ops_t *ops);
 
 /* --------------------------------------------------------------------------
- * [EDS#353] Lock callbacks -- optional in development/CI builds,
- * [EDS#358] required in production builds
+ * [EDS#197] The diagnostic executor -- the server's UDS calls run on it
  * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Wait for the executor to signal the DoIP producer.
+ *
+ * Block until the executor signals source src (its request or call ran, or
+ * it routed a frame to src) or timeout_ms passes. An early return is
+ * harmless: the server checks again. zephyr_exec_wait_event() and
+ * freertos_exec_wait_event() have this signature.
+ *
+ * @return true if signalled, false on timeout.
+ */
+typedef bool (*eds_doip_exec_wait_cb_t)(uint8_t src, uint32_t timeout_ms);
+
+/**
+ * [EDS#197] Longest the DoIP thread waits for the executor to run one
+ * request or call. A request is queued behind at most one dispatch per
+ * other producer (core/uds_exec.h), so this only trips on an executor that
+ * has stopped, which its own supervision reports. On expiry the request is
+ * released (withdrawn, or abandoned if it already runs) and the connection
+ * is closed: the tester gets no answer it could misread.
+ */
+#ifndef DOIP_EXEC_WAIT_MS
+#define DOIP_EXEC_WAIT_MS (10000U)
+#endif
+
+/**
+ * @brief Run every UDS call of this server on the diagnostic executor.
+ *
+ * The DoIP thread becomes one of the executor's producers, with source
+ * EDS_DOIP_UDS_SRC (core/uds_exec.h):
+ *   - a diagnostic request is posted with uds_exec_submit(). While another
+ *     producer's job step runs, or the session belongs to another producer,
+ *     the answer is 7F sid 21;
+ *   - a deferred job (7F sid 78) runs on the executor; its frames are routed
+ *     back here and sent, bounded by DOIP_MAX_PENDING_MS;
+ *   - an ECUReset is performed by the executor's reset binding once the
+ *     response was handed to tcp_send(); the platform's ecu_reset op is not
+ *     called;
+ *   - the disconnect's end of session and the discovery VIN read run as
+ *     uds_exec_call() functions;
+ *   - each exchange releases the slot on every exit path (sent, send error,
+ *     timeout); a disconnect also tells the executor (uds_exec_disconnect()).
+ * While it waits, the server checks in (eds_doip_set_checkin_callback())
+ * at least every 100 ms.
+ *
+ * Replaces eds_doip_set_lock_callbacks(). Takes precedence if both are set.
+ * Call once, before eds_doip_server_run(), after the executor has started.
+ *
+ * @param[in] ex    The started executor; EDS_DOIP_UDS_SRC must be one of its
+ *                  producers. NULL clears it.
+ * @param[in] wait  Its binding's wait (see eds_doip_exec_wait_cb_t).
+ * @return UDS_STATUS_OK; UDS_STATUS_ERR_NULL_PTR if ex is set and wait is NULL.
+ */
+uds_status_t eds_doip_set_executor(uds_exec_t *ex, eds_doip_exec_wait_cb_t wait);
+
+/* --------------------------------------------------------------------------
+ * [EDS#353] Lock callbacks -- deprecated by eds_doip_set_executor()
+ * [EDS#358] (EDS#197 decision D: removed in the next minor release)
+ * -------------------------------------------------------------------------- */
+
+/* A call to eds_doip_set_lock_callbacks() warns at build time (GCC, Clang).
+ * A test of the deprecated path defines EDS_DOIP_ALLOW_DEPRECATED. */
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(EDS_DOIP_ALLOW_DEPRECATED)
+#define EDS_DOIP_DEPRECATED \
+    __attribute__((deprecated("use eds_doip_set_executor(); removed in the next minor release")))
+#else
+#define EDS_DOIP_DEPRECATED
+#endif
 
 /**
  * @brief Lock/unlock callback signatures around eds_doip_server_run()'s
@@ -714,6 +782,10 @@ typedef void (*eds_doip_unlock_cb_t)(void);
 /**
  * @brief Register lock/unlock callbacks around the UDS dispatch call.
  *
+ * @deprecated [EDS#197] Use eds_doip_set_executor(). During this release a
+ * production build accepts either; the next minor release removes this.
+ * Ignored once an executor is set.
+ *
  * Optional in development/CI builds; not registering reproduces today's
  * behaviour there. [EDS#358] In a production build
  * (EDS_BUILD_IS_PRODUCTION), eds_doip_server_run() refuses to run
@@ -730,7 +802,7 @@ typedef void (*eds_doip_unlock_cb_t)(void);
  * @param[in] lock_cb    Called before uds_server_process_request(). NULL clears.
  * @param[in] unlock_cb  Called after uds_server_process_request(). NULL clears.
  */
-void eds_doip_set_lock_callbacks(
+EDS_DOIP_DEPRECATED void eds_doip_set_lock_callbacks(
     eds_doip_lock_cb_t   lock_cb,
     eds_doip_unlock_cb_t unlock_cb
 );
@@ -857,9 +929,10 @@ void eds_doip_set_pending_callback(eds_doip_pending_cb_t cb);
 
 /**
  * @brief Read the VIN for a vehicle identification response.
- * Called on the DoIP server thread inside the eds_doip_set_lock_callbacks()
- * pair, once per response, so a 0x2E write to the VIN DID shows at once.
- * Read it through the 0xF190 safety wrapper with uds_ctx's own session and
+ * Called with the server held, once per response: on the executor
+ * (eds_doip_set_executor()), or on the DoIP server thread inside the
+ * deprecated eds_doip_set_lock_callbacks() pair. So a 0x2E write to the
+ * VIN DID shows at once. Read it through the 0xF190 safety wrapper with uds_ctx's own session and
  * security contexts, never around them: if the DID is restricted (say, to
  * a non-default session) the wrapper refuses and the response reports the
  * VIN as not available.
@@ -942,9 +1015,10 @@ uds_status_t eds_doip_server_init(doip_server_state_t *s, uint16_t logical_addre
  *
  * @return UDS_STATUS_ERR_NOT_INITIALIZED if eds_doip_register_platform() not
  *         called, OR [EDS#358] if this is a production build
- *         (EDS_BUILD_IS_PRODUCTION) and eds_doip_set_lock_callbacks() was
- *         never called with both callbacks non-NULL -- see that function's
- *         doc comment. Development/CI builds are unaffected.
+ *         (EDS_BUILD_IS_PRODUCTION) with neither an executor
+ *         (eds_doip_set_executor(), EDS#197) nor, deprecated, both lock
+ *         callbacks (eds_doip_set_lock_callbacks()). Development/CI builds
+ *         are unaffected.
  * @return UDS_STATUS_ERR_NULL_PTR if s or uds_ctx is NULL.
  * @return UDS_STATUS_ERR_PLATFORM if tcp_listen() fails.
  * @note   Returns only on fatal platform error. Normal operation: never returns.

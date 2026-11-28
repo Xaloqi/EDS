@@ -23,6 +23,10 @@
  *     - test_backpressure_physical_0x21_functional_dropped
  *   Routing by source:
  *     - test_job_frames_go_to_job_src_and_retry_when_unsent
+ *   A job step with nothing to send, a producer gone mid-job (J6):
+ *     - test_job_without_frame_waits_for_tick
+ *     - test_disconnect_discards_frame_routed_to_gone_producer
+ *     - test_disconnect_aborts_running_job
  *     - test_periodic_frames_go_to_subscriber
  *     - test_0x2a_from_producer_without_periodic_tx_gets_0x22
  *     - test_periodic_for_unknown_src_is_dropped
@@ -296,16 +300,22 @@ static void service_all(void)
     prod_service(&g_p[IDX_DOIP]);
 }
 
-/* Executor passes, producers serviced after each, until nothing is left. */
+/* Executor passes, producers serviced after each, until nothing is left. A
+ * job with nothing to send waits for the next 1 ms tick: the clock moves. */
 static void drain(void)
 {
     uint32_t guard = 0U;
     bool     more  = true;
+    bool     job;
 
     while (more && (guard < 50U)) {
         more = uds_exec_run_once(&g_ex);
         service_all();
-        more = more || (uds_exec_push_frame(&g_ex, SRC_CAN) != NULL) ||
+        job = uds_exec_job_pending(&g_ex, SRC_CAN) || uds_exec_job_pending(&g_ex, SRC_DOIP);
+        if (!more && job) {
+            g_now++;
+        }
+        more = more || job || (uds_exec_push_frame(&g_ex, SRC_CAN) != NULL) ||
                (uds_exec_push_frame(&g_ex, SRC_DOIP) != NULL);
         guard++;
     }
@@ -552,6 +562,80 @@ ZTEST(uds_exec_suite, test_job_frames_go_to_job_src_and_retry_when_unsent)
     (void)uds_exec_run_once(&g_ex);
     zassert_is_null(uds_exec_push_frame(&g_ex, SRC_CAN), "job over");
     zassert_false(uds_exec_run_once(&g_ex), "idle");
+}
+
+/** TC-EXEC-JOB-001: a job step with nothing to send does not ask for
+ *  another pass at once (the executor would spin, starving lower-priority
+ *  threads); the next 1 ms tick runs the next step. EDS#197 J6. */
+ZTEST(uds_exec_suite, test_job_without_frame_waits_for_tick)
+{
+    uint32_t steps;
+
+    setup();
+    prod_reset();
+    g_job_left = 5U;
+    zassert_equal(submit(&g_p[IDX_CAN], k_31, 4U, UDS_ADDRESSING_PHYSICAL), UDS_EXEC_POSTED, "");
+    (void)uds_exec_run_once(&g_ex);            /* dispatch (7F 31 78) + first step */
+    service_all();
+    steps = g_job_steps;
+    zassert_true(uds_exec_job_pending(&g_ex, SRC_CAN), "job running");
+    zassert_false(uds_exec_job_pending(&g_ex, SRC_DOIP), "not DoIP's");
+    zassert_false(uds_exec_run_once(&g_ex), "nothing to do before the tick");
+    zassert_equal(g_job_steps, steps + 1U, "one step per pass");
+    drain();
+    zassert_false(uds_exec_job_pending(&g_ex, SRC_CAN), "job over");
+    zassert_equal(g_p[IDX_CAN].got[g_p[IDX_CAN].got_n - 1U].data[0], 0x71U, "final frame");
+}
+
+/** TC-EXEC-GONE-001: a producer that disconnects mid-job, with its job's
+ *  final frame waiting for it: the executor discards the frame, aborts
+ *  nothing more (the job ended) and serves the other producer. Without
+ *  uds_exec_disconnect() the frame would hold the push mailbox for good. */
+ZTEST(uds_exec_suite, test_disconnect_discards_frame_routed_to_gone_producer)
+{
+    static const uint8_t k_ba[] = { 0xBAU };
+
+    setup();
+    prod_reset();
+    g_job_left = 0U;
+    zassert_equal(submit(&g_p[IDX_DOIP], k_31, 4U, UDS_ADDRESSING_PHYSICAL), UDS_EXEC_POSTED, "");
+    (void)uds_exec_run_once(&g_ex);            /* dispatch + the final frame */
+    uds_exec_release(&g_ex, SRC_DOIP);
+    zassert_not_null(uds_exec_push_frame(&g_ex, SRC_DOIP), "final routed to DoIP");
+    zassert_true(uds_exec_job_pending(&g_ex, SRC_DOIP), "frame owed");
+
+    uds_exec_disconnect(&g_ex, SRC_DOIP);      /* never takes it */
+    (void)submit(&g_p[IDX_CAN], k_ba, 1U, UDS_ADDRESSING_PHYSICAL);
+    drain();
+    zassert_is_null(uds_exec_push_frame(&g_ex, SRC_DOIP), "discarded");
+    zassert_false(uds_exec_job_pending(&g_ex, SRC_DOIP), "nothing owed");
+    zassert_equal(g_p[IDX_CAN].got_n, 1U, "CAN served");
+    zassert_equal(g_p[IDX_CAN].got[0].data[0], 0xFAU, "its answer");
+}
+
+/** TC-EXEC-GONE-002: a producer that disconnects while its job still runs:
+ *  the job is aborted once (its abort called) on the next pass, and the
+ *  mailbox and the executor are free for the other producer. */
+ZTEST(uds_exec_suite, test_disconnect_aborts_running_job)
+{
+    setup();
+    prod_reset();
+    g_job_left = 100U;
+    zassert_equal(submit(&g_p[IDX_DOIP], k_31, 4U, UDS_ADDRESSING_PHYSICAL), UDS_EXEC_POSTED, "");
+    (void)uds_exec_run_once(&g_ex);
+    uds_exec_release(&g_ex, SRC_DOIP);
+    zassert_true(uds_exec_job_pending(&g_ex, SRC_DOIP), "running");
+
+    uds_exec_disconnect(&g_ex, SRC_DOIP);
+    (void)uds_exec_run_once(&g_ex);
+    zassert_equal(g_job_aborts, 1U, "aborted once");
+    zassert_false(uds_exec_job_pending(&g_ex, SRC_DOIP), "over");
+    (void)submit(&g_p[IDX_CAN], k_31, 4U, UDS_ADDRESSING_PHYSICAL);
+    g_job_left = 0U;
+    drain();
+    zassert_equal(g_p[IDX_CAN].got[g_p[IDX_CAN].got_n - 1U].data[0], 0x71U,
+                  "CAN runs its own job to the end");
+    zassert_equal(g_job_aborts, 1U, "CAN's job not aborted");
 }
 
 static const uint8_t k_2a_fast_ab[] = { 0x2AU, 0x03U, 0xABU };
@@ -854,6 +938,9 @@ void run_all_tests(void)
     RUN_TEST(uds_exec_suite__test_request_during_job_step_is_rejected_fast);
     RUN_TEST(uds_exec_suite__test_backpressure_physical_0x21_functional_dropped);
     RUN_TEST(uds_exec_suite__test_job_frames_go_to_job_src_and_retry_when_unsent);
+    RUN_TEST(uds_exec_suite__test_job_without_frame_waits_for_tick);
+    RUN_TEST(uds_exec_suite__test_disconnect_discards_frame_routed_to_gone_producer);
+    RUN_TEST(uds_exec_suite__test_disconnect_aborts_running_job);
     RUN_TEST(uds_exec_suite__test_periodic_frames_go_to_subscriber);
     RUN_TEST(uds_exec_suite__test_0x2a_from_producer_without_periodic_tx_gets_0x22);
     RUN_TEST(uds_exec_suite__test_periodic_for_unknown_src_is_dropped);

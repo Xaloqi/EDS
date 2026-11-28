@@ -10,12 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **DoIP runs on the diagnostic executor: `eds_doip_set_executor()`** (#197). The DoIP thread becomes a producer: it
+  posts each diagnostic request (`uds_exec_submit()`) and waits for its answer, and the pending job, the ECUReset,
+  the disconnect's end of session and the discovery VIN read all run on the executor. No UDS server, session or
+  security call is left on the DoIP thread; `scripts/verify_doip_exec_path.py` checks that in CI. While another
+  producer's job step runs, a DoIP request gets 7F sid 21 at once. The DoIP thread waits at most
+  `DOIP_EXEC_WAIT_MS` (10 s) for the executor, then releases the request and closes the connection. After a
+  failed response send, an ECUReset the request owes is still performed (the request ran). `basic_ecu_doip` and
+  `basic_ecu_doip_freertos` use it, and give the executor their reset; the executor's interim `zephyr_exec_lend()`
+  and `freertos_exec_lend()` helpers are gone (never released). New in `core/uds_exec.h`: `uds_exec_disconnect()`
+  (the executor drops a gone producer's job and any frame routed to it) and `uds_exec_job_pending()`; a job step
+  with nothing to send now waits for the next 1 ms tick instead of spinning the executor. Bindings:
+  `zephyr_exec_wait_event()`, `freertos_exec_wait_event()`. The executor's stack grows to 4096 bytes on both
+  (1024 before), the size of the CAN diag task's, since every dispatch now runs on it: RAM +3 KB per board. Test: `tests/concurrency/tsan_doip_exec_states.c`, a
+  DoIP disconnect with its request posted, running, done, owing a reset and mid-job, each followed by a CAN request
+  that must be answered.
+
 - **The FreeRTOS binding of the diagnostic executor, and `basic_ecu_doip_freertos` runs on it** (#197).
   `platform/freertos/freertos_exec.c`: a static task, woken by a task notification (`xTaskNotify`, `eSetBits`) or
   every tick (no software timer needed), completion back to the waiting producer as one notification bit per slot,
   `taskENTER_CRITICAL()` as the critical section. No queue, no mutex and no new generic primitive. The example drops
-  its tick task and its session/security lock pair; DoIP's lock callbacks are `freertos_exec_lend()` and
-  `freertos_exec_lend_end()` until DoIP posts its requests to the executor. Static RAM +5.2 KB (the executor's
+  its tick task and its session/security lock pair. Static RAM +5.2 KB (the executor's
   4 KB response mailbox, and its stack and TCB, now static); the 48 KB FreeRTOS heap no longer holds the tick task,
   about 1.1 KB more free there. Stack high-water mark on QEMU (Cortex-M4), after the selftest: executor 224 of
   1024 bytes used, the tick task 148. Test: `-DDIAG_DOIP_SELFTEST=SESSION_END` with the real lwIP, an
@@ -27,8 +42,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `k_sem` per producer slot for completion, a `k_spinlock` critical section, and an `after_pass` hook on the
   executor thread. `basic_ecu_doip` drops its UDS tick task and its session/security lock pair: the executor runs
   the 1 ms ticks, and its loop now feeds the watchdog (#399 supervision unchanged: still only while the DoIP server
-  checks in). Until DoIP posts its requests to the executor, its lock callbacks are `zephyr_exec_lend()` and
-  `zephyr_exec_lend_end()`, which park the executor while the DoIP thread uses the server. 0x2A over DoIP now
+  checks in). 0x2A over DoIP now
   answers NRC 0x22 (no periodic TX on DoIP yet, #546). RAM +4.3 KB on each board, the executor's response mailbox
   (one 4 KB message buffer); the thread stack stays 1024 bytes. `core/uds_exec.c` joins
   `cmake/eds_service_sources.cmake` and the integration harness. Tests: `basic_ecu_doip -DDIAG_DOIP_SELFTEST=...`
@@ -90,6 +104,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   appended after `pending`; `cfg` does not move, and a `_Static_assert` now holds it in place). No example needs
   regenerating. The executor that serializes the two transports follows in later #197 changes. MISRA:
   `uds_server_process_request` joins DEV-ACCS-02 (Rule 8.7, documented API; 39 functions, still 43 records).
+
+### Deprecated
+
+- **`eds_doip_set_lock_callbacks()`**: use `eds_doip_set_executor()` (#197). A call now warns at build time (GCC,
+  Clang). During this release a production build accepts either; the next minor release removes it.
 
 ### Documentation
 
