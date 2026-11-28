@@ -229,8 +229,11 @@ void uds_exec_release(uds_exec_t *ex, uint8_t src);
 /**
  * @brief Producer: the frame the executor routed to it, or NULL. Send it,
  *        then call uds_exec_push_done(). The same frame is returned until then.
+ * @param[out] periodic  Optional (NULL): true for a periodic message (on CAN
+ *                       a UUDT frame on its own ID), false for a job's frame
+ *                       (a 7F sid 78 or the final response, on the channel).
  */
-const uds_msg_buf_t *uds_exec_push_frame(uds_exec_t *ex, uint8_t src);
+const uds_msg_buf_t *uds_exec_push_frame(uds_exec_t *ex, uint8_t src, bool *periodic);
 
 /**
  * @brief Producer: the routed frame was sent (sent = true) or could not be

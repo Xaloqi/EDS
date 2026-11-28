@@ -391,7 +391,7 @@ static void mock_tcp_close(void *c)
      * the disconnect reaches it. Without uds_exec_disconnect() that frame
      * would hold the push mailbox for good. */
     for (i = 0U; s_await_reoffer && (i < 1000U) &&
-                 (uds_exec_push_frame(&g_ex, (uint8_t)EDS_DOIP_UDS_SRC) == NULL); i++) {
+                 (uds_exec_push_frame(&g_ex, (uint8_t)EDS_DOIP_UDS_SRC, NULL) == NULL); i++) {
         (void)sched_yield();
     }
     __atomic_store_n(&s_held, 0, __ATOMIC_RELEASE);
@@ -467,7 +467,7 @@ static bool can_request(const uint8_t *b, uint16_t n)
     s_can_last = s_can_resp;
     uds_exec_release(&g_ex, SRC_CAN);
     for (i = 0U; (i < 400U) && (s_can_last.length == 3U) && (s_can_last.data[2] == 0x78U); i++) {
-        f = uds_exec_push_frame(&g_ex, SRC_CAN);
+        f = uds_exec_push_frame(&g_ex, SRC_CAN, NULL);
         if (f != NULL) {
             s_can_last = *f;
             uds_exec_push_done(&g_ex, SRC_CAN, true);

@@ -190,7 +190,7 @@ bool freertos_exec_wait_event(uint8_t src, uint32_t timeout_ms)
     if (s_started && (idx < s_cfg.producer_count)) {
         /* Registered before the check: a notify after it is not lost. */
         s_waiter[idx] = xTaskGetCurrentTaskHandle();
-        got = uds_exec_done(&s_ex, src) || (uds_exec_push_frame(&s_ex, src) != NULL);
+        got = uds_exec_done(&s_ex, src) || (uds_exec_push_frame(&s_ex, src, NULL) != NULL);
         if (!got) {
             (void)xTaskNotifyWait(0UL, EXEC_BIT_SLOT(idx), &bits, pdMS_TO_TICKS(timeout_ms));
             got = ((bits & EXEC_BIT_SLOT(idx)) != 0UL);

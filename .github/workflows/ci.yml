@@ -678,11 +678,12 @@ jobs:
   #
   # native_sim runs one Zephyr thread at a time, so it cannot show a data race
   # between a CAN and a DoIP producer. tests/concurrency/ builds the stack on
-  # the host with real pthreads under -fsanitize=thread. Scenario C2 (two
-  # producers, separate locks) is today's #197 race: an expected failure that
-  # must keep failing until the executor lands. run_tsan.sh decides pass,
-  # XFAIL and XPASS; the step after it checks from the log that every
-  # tsan_*.c file ran, so a test that did not run is not counted as a pass.
+  # the host with real pthreads under -fsanitize=thread. Scenario C2 runs
+  # examples/dual_transport_ecu's two producers (CAN and DoIP) on the
+  # executor (EDS#197 J7; an XFAIL on the lock-based path until then).
+  # run_tsan.sh decides pass, XFAIL and XPASS; the step after it checks from
+  # the log that every tsan_*.c file ran, so a test that did not run is not
+  # counted as a pass.
   concurrency-tsan:
     name: "Concurrency — ThreadSanitizer (host, tests/concurrency)"
     runs-on: ubuntu-22.04
@@ -710,7 +711,8 @@ jobs:
         shell: bash
         run: |
           files=$(ls tests/concurrency/tsan_*.c | wc -l)
-          marked=$(grep -l 'TSAN_EXPECT: XFAIL' tests/concurrency/tsan_*.c | wc -l)
+          # grep -l exits 1 when no file is marked (none since EDS#197 J7): not an error.
+          marked=$({ grep -l 'TSAN_EXPECT: XFAIL' tests/concurrency/tsan_*.c || true; } | wc -l)
           line=$(grep '^TSAN SUMMARY:' tsan_run.log) || { echo "::error::no TSAN SUMMARY line"; exit 1; }
           get() { echo "$line" | sed -n "s/.* $1=\([0-9]*\).*/\1/p"; }
           echo "$line (files on disk: $files, XFAIL-marked: $marked)"
@@ -1247,9 +1249,24 @@ jobs:
             "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h753zi/nucleo_h753zi.overlay" \
             "-DEXTRA_DTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/examples/basic_ecu_doip/boards/nucleo_h753zi/nucleo_h753zi_doip.overlay"
 
+      # [EDS#197] CAN (FDCAN1) + DoIP on the executor; build only.
+      - name: West build — dual_transport_ecu on nucleo_h753zi (CAN + DoIP, build only)
+        run: |
+          X="${GITHUB_WORKSPACE}/EDS/examples/dual_transport_ecu"
+          west build \
+            --pristine \
+            -d build-dual \
+            -b nucleo_h753zi \
+            EDS/examples/dual_transport_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${X}/boards/nucleo_h753zi/nucleo_h753zi.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/nucleo_h753zi/nucleo_h753zi.overlay" \
+            "-DEXTRA_DTC_OVERLAY_FILE=${X}/boards/nucleo_h753zi/nucleo_h753zi.overlay"
+
       - name: Verify the NVM partition is wired on every example (EDS#643)
         run: |
-          for d in build build-canfd_ecu build-sensor_ecu build-bms_ecu build-motor_controller_ecu build-doip; do
+          for d in build build-canfd_ecu build-sensor_ecu build-bms_ecu build-motor_controller_ecu build-doip build-dual; do
             python3 EDS/scripts/verify_hw_nvm_wiring.py "$d" --backend append
           done
 
@@ -1533,9 +1550,26 @@ jobs:
             "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay"
           test -f build-doip/zephyr/zephyr.elf
 
+      # [EDS#197] CAN (FlexCAN0) + DoIP on the executor, classic CAN; the
+      # EDS#648 MTU in the example's board conf.
+      - name: West build — dual_transport_ecu on frdm_mcxn947 (CAN + DoIP)
+        run: |
+          X="${GITHUB_WORKSPACE}/EDS/examples/dual_transport_ecu"
+          west build \
+            --pristine \
+            -d build-dual \
+            -b frdm_mcxn947/mcxn947/cpu0 \
+            EDS/examples/dual_transport_ecu \
+            -- \
+            -DDIAG_SKIP_CODEGEN=ON \
+            "-DEXTRA_CONF_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.conf;${X}/boards/frdm_mcxn947/frdm_mcxn947.conf" \
+            "-DDTC_OVERLAY_FILE=${GITHUB_WORKSPACE}/EDS/boards/frdm_mcxn947/frdm_mcxn947.overlay"
+          test -f build-dual/zephyr/zephyr.elf
+          grep -q "^CONFIG_EDS_DOIP_EXAMPLE_NET_IF_MTU=1498" build-dual/zephyr/.config
+
       - name: Verify the NVM partition is wired on every example (EDS#643)
         run: |
-          for d in build build-canfd build-sensor_ecu build-bms_ecu build-motor_controller_ecu build-doip; do
+          for d in build build-canfd build-sensor_ecu build-bms_ecu build-motor_controller_ecu build-doip build-dual; do
             python3 EDS/scripts/verify_hw_nvm_wiring.py "$d" --backend append
           done
 
@@ -2634,6 +2668,89 @@ jobs:
           sudo ip link set up zcan0
           python3 EDS/scripts/smoke_canfd_ecu.py build/zephyr/zephyr.exe zcan0
 
+  # [EDS#197] examples/dual_transport_ecu on native_sim: CAN over a vcan
+  # (Linux can-isotp as the tester) and DoIP over the zeth TAP, at once, on one
+  # ECU. Session ownership both ways, a DoIP disconnect ending its session,
+  # both testers at once (every request answered once), an ECUReset over CAN
+  # performed by the executor. Classic CAN, then the CAN FD build.
+  example-dual-transport-runtime:
+    name: "Dual transport ECU — native_sim, CAN (vcan) + DoIP (TAP) at once"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    needs: changes
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.runtime == 'true')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: EDS
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib cmake ninja-build device-tree-compiler \
+            python3 python3-pip libffi-dev libssl-dev git wget
+
+      - name: Install west
+        run: pip install west
+
+      - name: Initialize west workspace
+        run: west init -l EDS
+
+      - name: Fetch Zephyr and modules
+        run: west update
+
+      - name: Export Zephyr CMake package
+        run: west zephyr-export
+
+      - name: Install Zephyr Python requirements
+        run: pip install -r zephyr/scripts/requirements.txt
+
+      - name: West build — dual_transport_ecu, native_sim, classic and FD
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: host
+        run: |
+          X="${GITHUB_WORKSPACE}/EDS/examples/dual_transport_ecu"
+          west build --pristine -d build-classic -b native_sim EDS/examples/dual_transport_ecu -- \
+            -DDIAG_SKIP_CODEGEN=ON "-DEXTRA_CONF_FILE=${X}/boards/native_sim/native_sim.conf" \
+            "-DDTC_OVERLAY_FILE=${X}/boards/native_sim/native_sim.overlay"
+          west build --pristine -d build-fd -b native_sim EDS/examples/dual_transport_ecu -- \
+            -DDIAG_SKIP_CODEGEN=ON "-DEXTRA_CONF_FILE=${X}/boards/native_sim/native_sim.conf;${X}/fd.conf" \
+            "-DDTC_OVERLAY_FILE=${X}/boards/native_sim/native_sim.overlay"
+          test -f build-classic/zephyr/zephyr.exe
+          test -f build-fd/zephyr/zephyr.exe
+
+      - name: Load vcan and can-isotp
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          if ! { sudo modprobe vcan && sudo modprobe can_raw && sudo modprobe can_isotp; } 2>/dev/null; then
+            echo "vcan/can_raw/can_isotp not loadable; installing linux-modules-extra-$(uname -r)"
+            sudo timeout 120 apt-get update -qq
+            for attempt in 1 2 3; do
+              sudo timeout 180 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" && break
+              [ "$attempt" = 3 ] && exit 1
+              echo "apt-get install attempt $attempt failed or timed out; retrying"
+            done
+            sudo modprobe vcan
+            sudo modprobe can_raw
+            sudo modprobe can_isotp
+          fi
+          lsmod | grep -E '^(vcan|can_raw|can_isotp) '
+
+      - name: Smoke — CAN + DoIP at once (classic CAN, then CAN FD)
+        run: |
+          sudo ip link add dev zcan0 type vcan
+          sudo ip link set zcan0 mtu 72
+          sudo ip link set up zcan0
+          sudo ip tuntap add zeth mode tap user "$(id -un)"
+          sudo ip link set zeth up
+          sudo ip addr add 192.0.2.2/24 dev zeth
+          python3 EDS/scripts/smoke_dual_transport_ecu.py build-classic/zephyr/zephyr.exe
+          python3 EDS/scripts/smoke_dual_transport_ecu.py build-fd/zephyr/zephyr.exe --fd
+
   # [EDS#282] The server's response-pending path end to end: basic_ecu on
   # native_sim with the bench-only slow routine (RID 0xF0F0), the free tester
   # (it waits through 0x78 since 1.5.10) over SocketCAN, plus raw frames for
@@ -3192,6 +3309,7 @@ jobs:
           - basic_ecu_cda_demo
           - canfd_ecu
           - vehicle_state_ecu
+          - dual_transport_ecu
 
     steps:
       - uses: actions/checkout@v4
